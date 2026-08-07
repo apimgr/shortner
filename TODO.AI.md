@@ -88,22 +88,25 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
   endpoint as it's built.
   Read: AI.md PART 11
 
-## PART 12: Server configuration
+## PART 12: Server configuration — DONE
 
-- Full `server.yml` schema beyond the bootstrap defaults in
-  `src/config/config.go`.
-  Read: AI.md PART 12
-- URL & FQDN detection (reverse-proxy headers preferred: `X-Forwarded-Host`/
-  `-Proto`/`-Port`/`-Prefix`, `X-Real-Host`, `X-Original-Host`, etc.),
-  Request ID middleware, and auth-token header parsing — all require
-  `http.Request` handling, which doesn't exist until the HTTP server
-  (PART 9+) is built.
+- Full `server.yml` schema (`Limits`, `Compression`, `TrustedProxies`,
+  `RateLimit`, `CacheConfig`, `Healthz`) plus the Config Validation Rule
+  (`src/config/limits.go`) landed in commit 2693120764bb.
+- URL & FQDN detection (reverse-proxy headers), Request ID middleware, and
+  auth-token header parsing now have `http.Request` handling to attach to
+  via the `src/httpserver` package (commit 2693120764bb) — still need to be
+  implemented as part of PART 14's route handlers.
   Read: AI.md PART 12 "URL & FQDN Detection", PART 14
 
-## PART 13-15: Health, API, TLS
+## PART 13: Health & versioning — DONE
 
-- `/server/healthz` + `/api/{api_version}/server/healthz` handlers.
-  Read: AI.md PART 13
+- `/server/healthz`, `/api/{api_version}/server/healthz`, `/api/healthz`,
+  and the optional `/healthz` root alias all implemented in
+  `src/httpserver/health.go` (commit 2693120764bb).
+
+## PART 14-15: API, TLS
+
 - Core API routes: create link, resolve slug, `/{slug}/stats` click
   analytics sub-resource, owner-token-gated management routes.
   Read: AI.md PART 14, IDEA.md Business logic
