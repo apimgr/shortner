@@ -24,11 +24,17 @@ type Config struct {
 type Server struct {
 	// Token is the global operator token (tok_ prefix). Auto-generated on
 	// first run if empty. See AI.md PART 11 "API Token Model".
-	Token    string   `yaml:"token"`
-	Listen   string   `yaml:"listen"`
-	Port     string   `yaml:"port"`
-	BaseURL  string   `yaml:"baseurl"`
-	Database Database `yaml:"database"`
+	Token          string         `yaml:"token"`
+	Listen         string         `yaml:"listen"`
+	Port           string         `yaml:"port"`
+	BaseURL        string         `yaml:"baseurl"`
+	Database       Database       `yaml:"database"`
+	Limits         Limits         `yaml:"limits"`
+	Compression    Compression    `yaml:"compression"`
+	TrustedProxies TrustedProxies `yaml:"trusted_proxies"`
+	RateLimit      RateLimit      `yaml:"rate_limit"`
+	Cache          CacheConfig    `yaml:"cache"`
+	Healthz        Healthz        `yaml:"healthz"`
 }
 
 // Database holds the `server.database` block.
@@ -36,6 +42,80 @@ type Database struct {
 	// Driver is "sqlite" (default, pure Go modernc.org/sqlite) or "libsql".
 	Driver string `yaml:"driver"`
 	URL    string `yaml:"url"`
+}
+
+// Limits holds `server.limits`, per AI.md PART 12 "Request Limits".
+// Durations and sizes are stored as their raw YAML strings ("30s",
+// "10MB") and parsed on demand via ParseDuration/ParseSize so an invalid
+// value can be replaced with a default (Validate) instead of failing
+// startup.
+type Limits struct {
+	MaxBodySize  string `yaml:"max_body_size"`
+	ReadTimeout  string `yaml:"read_timeout"`
+	WriteTimeout string `yaml:"write_timeout"`
+	IdleTimeout  string `yaml:"idle_timeout"`
+}
+
+// Compression holds `server.compression`, per AI.md PART 12 "Response
+// Compression".
+type Compression struct {
+	Enabled bool     `yaml:"enabled"`
+	Level   int      `yaml:"level"`
+	Types   []string `yaml:"types"`
+}
+
+// TrustedProxies holds `server.trusted_proxies`, per AI.md PART 12
+// "Trusted Proxies". Private ranges are always trusted regardless of this
+// list; Additional extends the trust gate with public IPs/CIDRs/hostnames
+// of upstream proxies.
+type TrustedProxies struct {
+	Additional []string `yaml:"additional"`
+}
+
+// RateLimit holds `server.rate_limit`, per AI.md PART 12 "Rate Limiting".
+type RateLimit struct {
+	Enabled     bool           `yaml:"enabled"`
+	Read        RateLimitClass `yaml:"read"`
+	Write       RateLimitClass `yaml:"write"`
+	Health      RateLimitClass `yaml:"health"`
+	GlobalBurst int            `yaml:"global_burst"`
+}
+
+// RateLimitClass is one per-minute-per-IP limit tier (read/write/health).
+type RateLimitClass struct {
+	Requests int `yaml:"requests"`
+	Window   int `yaml:"window"`
+}
+
+// CacheConfig holds `server.cache`, per AI.md PART 12 "Cache
+// Configuration". Only the "memory" (in-process, default) driver is
+// implemented — "valkey"/"redis" depend on a client dependency not yet
+// added (tracked in TODO.AI.md).
+type CacheConfig struct {
+	Type          string `yaml:"type"`
+	URL           string `yaml:"url"`
+	Host          string `yaml:"host"`
+	Port          int    `yaml:"port"`
+	Username      string `yaml:"username"`
+	Password      string `yaml:"password"`
+	DB            int    `yaml:"db"`
+	TLS           bool   `yaml:"tls"`
+	TLSSkipVerify bool   `yaml:"tls_skip_verify"`
+	PoolSize      int    `yaml:"pool_size"`
+	MinIdle       int    `yaml:"min_idle"`
+	Timeout       string `yaml:"timeout"`
+	Prefix        string `yaml:"prefix"`
+	TTL           string `yaml:"ttl"`
+}
+
+// Healthz holds `server.healthz`, per AI.md PART 13 "Health Checks".
+type Healthz struct {
+	Root HealthzRoot `yaml:"root"`
+}
+
+// HealthzRoot controls the optional `/healthz` root alias.
+type HealthzRoot struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // Default returns a Config populated with the framework defaults, using
@@ -50,6 +130,40 @@ func Default(dbPath string) *Config {
 			Database: Database{
 				Driver: "sqlite",
 				URL:    dbPath,
+			},
+			Limits: Limits{
+				MaxBodySize:  "10MB",
+				ReadTimeout:  "30s",
+				WriteTimeout: "30s",
+				IdleTimeout:  "120s",
+			},
+			Compression: Compression{
+				Enabled: true,
+				Level:   5,
+				Types: []string{
+					"text/html",
+					"text/css",
+					"text/javascript",
+					"application/json",
+					"application/xml",
+				},
+			},
+			RateLimit: RateLimit{
+				Enabled:     true,
+				Read:        RateLimitClass{Requests: 120, Window: 60},
+				Write:       RateLimitClass{Requests: 10, Window: 60},
+				Health:      RateLimitClass{Requests: 120, Window: 60},
+				GlobalBurst: 240,
+			},
+			Cache: CacheConfig{
+				Type:     "memory",
+				Host:     "localhost",
+				Port:     6379,
+				PoolSize: 10,
+				MinIdle:  2,
+				Timeout:  "5s",
+				Prefix:   "shortner:",
+				TTL:      "1h",
 			},
 		},
 	}

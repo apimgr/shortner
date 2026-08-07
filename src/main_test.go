@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/apimgr/shortner/src/httpserver"
 )
 
 // captureOutput redirects both os.Stdout and os.Stderr for the duration of
@@ -206,6 +208,10 @@ func TestRunDispatchesUpdateHelp(t *testing.T) {
 // paths regardless of the privilege level or container status of the test
 // runner.
 func TestRunFullStartupPathWithIsolatedDirs(t *testing.T) {
+	old := startHTTPServer
+	startHTTPServer = func(*httpserver.Server) error { return nil }
+	defer func() { startHTTPServer = old }()
+
 	base := t.TempDir()
 	configDir := filepath.Join(base, "config")
 	dataDir := filepath.Join(base, "data")
@@ -245,6 +251,10 @@ func TestRunFullStartupPathWithIsolatedDirs(t *testing.T) {
 }
 
 func TestRunAppliesAddressPortBaseURLOverrides(t *testing.T) {
+	old := startHTTPServer
+	startHTTPServer = func(*httpserver.Server) error { return nil }
+	defer func() { startHTTPServer = old }()
+
 	base := t.TempDir()
 	args := []string{
 		"--config", filepath.Join(base, "config"),

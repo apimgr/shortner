@@ -7,12 +7,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/common/banner"
 	"github.com/apimgr/shortner/src/common/color"
 	"github.com/apimgr/shortner/src/common/pidfile"
 	"github.com/apimgr/shortner/src/common/version"
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/db"
+	"github.com/apimgr/shortner/src/httpserver"
 	"github.com/apimgr/shortner/src/mode"
 	"github.com/apimgr/shortner/src/paths"
 	"github.com/apimgr/shortner/src/signal"
@@ -20,6 +24,16 @@ import (
 
 func main() {
 	os.Exit(run(os.Args[1:]))
+}
+
+// startHTTPServer runs srv.Start(), blocking until Shutdown is called (see
+// AI.md PART 8 "Signal Handling & Graceful Shutdown" — the signal package
+// calls os.Exit(0) directly from its handler goroutine after running the
+// shutdown hooks, so control never actually returns here in production).
+// Tests override this variable to skip the blocking call and exercise only
+// the startup sequence above it.
+var startHTTPServer = func(srv *httpserver.Server) error {
+	return srv.Start()
 }
 
 func run(args []string) int {
@@ -141,7 +155,7 @@ func run(args []string) int {
 
 	// Directory flags create their directories if missing (AI.md PART 8
 	// "Directory Flags" / "Directory Validation Rules").
-	for _, dir := range []string{p.Config, p.Data, p.Cache, p.Logs, p.Backup} {
+	for _, dir := range []string{p.Config, p.Data, p.Cache, p.Logs, p.Backup, p.DB} {
 		if err := paths.EnsureDir(dir); err != nil {
 			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 			return 1
@@ -156,6 +170,12 @@ func run(args []string) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
+	}
+	// Invalid config values never fail startup — they are replaced with
+	// their framework default and warned about. See AI.md PART 12 "Config
+	// Validation Rule".
+	for _, warning := range config.Validate(cfg) {
+		fmt.Fprintln(os.Stderr, binaryName+": warning: "+warning)
 	}
 
 	generated, err := config.EnsureToken(cfg)
@@ -192,12 +212,40 @@ func run(args []string) int {
 	}
 	pidPath := p.PIDFile
 	signal.Register(func() { pidfile.RemovePIDFile(pidPath) })
-	// Non-blocking: installs OS signal handlers and returns immediately.
-	// There is no HTTP server yet to keep the process alive, so run()
-	// still returns right after startup — see TODO.AI.md PART 9+ for the
-	// real main-loop block this unlocks.
-	signal.Start()
 	defer pidfile.RemovePIDFile(p.PIDFile)
+
+	sqlDB, err := db.Open(cfg.Server.Database.URL, db.DefaultPool())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
+	defer sqlDB.Close()
+	signal.Register(func() { sqlDB.Close() })
+
+	accessLog, err := applog.Open(filepath.Join(p.Logs, "access.log"), applog.LevelInfo)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
+	defer accessLog.Close()
+	signal.Register(func() { accessLog.Close() })
+
+	srv := httpserver.New(httpserver.Options{
+		Config:    cfg,
+		DB:        sqlDB,
+		DataDir:   p.Data,
+		AccessLog: accessLog,
+		Version:   version.Version,
+		CommitID:  version.CommitID,
+		BuildDate: version.BuildDate,
+		StartTime: time.Now(),
+	})
+	signal.Register(func() { srv.Shutdown() })
+
+	// Non-blocking: installs OS signal handlers and returns immediately;
+	// the shutdown hooks registered above (PID removal, DB close, access
+	// log close, HTTP server shutdown) run when a signal arrives.
+	signal.Start()
 
 	fmt.Println(mode.Banner())
 	host := cfg.Server.Listen
@@ -212,8 +260,12 @@ func run(args []string) int {
 		URLs:    []string{fmt.Sprintf("http://%s:%s%s", host, cfg.Server.Port, cfg.Server.BaseURL)},
 	})
 
-	// HTTP server startup, route registration, and the real "block until
-	// shutdown signal" main loop are tracked in TODO.AI.md — PART 9+.
+	// Start blocks until Shutdown is called by the signal hook above, then
+	// returns nil (http.ErrServerClosed is treated as a clean stop).
+	if err := startHTTPServer(srv); err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
 	return 0
 }
 

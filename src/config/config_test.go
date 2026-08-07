@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -38,7 +39,7 @@ func TestLoadMissingFileReturnsDefault(t *testing.T) {
 		t.Fatalf("Load() error = %v, want nil", err)
 	}
 	want := Default("/db/path")
-	if *cfg != *want {
+	if !reflect.DeepEqual(cfg, want) {
 		t.Errorf("Load() = %+v, want default %+v", cfg, want)
 	}
 }
