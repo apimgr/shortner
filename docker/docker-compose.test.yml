@@ -1,0 +1,34 @@
+# shortner - automated testing compose (ephemeral, verbose logging)
+
+name: shortner-test
+
+x-logging: &default-logging
+  options:
+    max-size: '5m'
+    max-file: '1'
+  driver: json-file
+
+services:
+  shortner:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: shortner-test-app
+    hostname: shortner-test
+    restart: 'no'
+    logging: *default-logging
+    environment:
+      PORT: 80
+      TZ: America/New_York
+      MODE: dev
+      DEBUG: 1
+    tmpfs:
+      - /config
+      - /data
+    networks:
+      - shortner-test
+
+networks:
+  shortner-test:
+    name: shortner-test
+    external: false

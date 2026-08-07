@@ -1,0 +1,48 @@
+# Development image — same build as docker/Dockerfile, binary runs in debug
+# mode. Tagged :devel. See AI.md PART 3 / PART 26.
+# =============================================================================
+# Build Stage - Compile Go binary
+# =============================================================================
+FROM casjaysdev/go:latest AS builder
+
+RUN apk add --no-cache git bash
+
+ARG TARGETARCH
+ARG VERSION=devel
+ARG BUILD_DATE
+ARG COMMIT_ID
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
+    -ldflags "-X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildDate=${BUILD_DATE}'" \
+    -o /app/binary/shortner ./src
+
+# =============================================================================
+# Runtime Stage - Minimal Alpine image, debug mode
+# =============================================================================
+FROM alpine:latest
+
+RUN apk add --no-cache git curl bash tini tor
+
+COPY --from=builder /app/binary/shortner /usr/local/bin/shortner
+COPY docker/rootfs/ /
+RUN chmod 755 /usr/local/bin/*
+
+ENV TZ=America/New_York \
+    DATABASE_DIR=/data/db/sqlite \
+    MODE=development \
+    DEBUG=1
+
+EXPOSE 80
+
+STOPSIGNAL SIGRTMIN+3
+
+HEALTHCHECK --start-period=1m --interval=30s --timeout=15s --retries=3 \
+    CMD /usr/local/bin/shortner --status || exit 1
+
+ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]

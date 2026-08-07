@@ -1,0 +1,36 @@
+# shortner - development compose (hot-reload friendly, verbose logging)
+
+name: shortner-dev
+
+x-logging: &default-logging
+  options:
+    max-size: '5m'
+    max-file: '1'
+  driver: json-file
+
+services:
+  shortner:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dev
+    container_name: shortner-dev-app
+    hostname: shortner-dev
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      PORT: 80
+      TZ: America/New_York
+      MODE: dev
+      DEBUG: 1
+    volumes:
+      - './volumes/config:/config:z'
+      - './volumes/data:/data:z'
+    ports:
+      - '127.0.0.1:64580:80'
+    networks:
+      - shortner-dev
+
+networks:
+  shortner-dev:
+    name: shortner-dev
+    external: false
