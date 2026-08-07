@@ -4,6 +4,7 @@ package httpserver
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -33,6 +34,10 @@ type Options struct {
 	CommitID  string
 	BuildDate string
 	StartTime time.Time
+	// TLSConfig, when non-nil, makes Start serve HTTPS (AI.md PART 15
+	// "Built-in Let's Encrypt Support") instead of plain HTTP. Built via
+	// src/certmgr.NewTLSConfig using the FQDN resolved from src/fqdn.
+	TLSConfig *tls.Config
 }
 
 // New builds a Server ready for Start. Listen address is
@@ -68,11 +73,22 @@ func New(opts Options) *Server {
 	}
 
 	r.Get("/server/healthz", hd.healthHandler())
-	r.Get("/api/{api_version}/server/healthz", hd.healthHandler())
-	r.Get("/api/healthz", hd.healthHandler())
 	if cfg.Server.Healthz.Root.Enabled {
 		r.Get("/healthz", hd.healthHandler())
 	}
+
+	ld := &linkDeps{sqlDB: opts.DB, resolver: resolver}
+
+	r.Route("/api", func(api chi.Router) {
+		api.Use(corsAPIMiddleware)
+		api.Get("/healthz", hd.healthHandler())
+		api.Route("/{api_version}", func(v chi.Router) {
+			v.Get("/server/healthz", hd.healthHandler())
+			ld.registerLinkAPIRoutes(v)
+		})
+	})
+
+	ld.registerLinkRootRoutes(r)
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
 		apperr.SendError(w, apperr.New(apperr.CodeNotFound))
 	})
@@ -98,15 +114,25 @@ func New(opts Options) *Server {
 			ReadTimeout:  readTimeout,
 			WriteTimeout: writeTimeout,
 			IdleTimeout:  idleTimeout,
+			TLSConfig:    opts.TLSConfig,
 		},
 	}
 }
 
 // Start begins serving and blocks until the listener stops (normally via
 // Shutdown). It returns nil on a clean shutdown, per net/http.Server's
-// ErrServerClosed contract.
+// ErrServerClosed contract. When the server was built with a non-nil
+// Options.TLSConfig, it serves HTTPS (AI.md PART 15); the empty cert/key
+// path arguments are required by ListenAndServeTLS's signature but unused
+// since TLSConfig.GetCertificate supplies certificates dynamically.
 func (s *Server) Start() error {
-	if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	var err error
+	if s.httpServer.TLSConfig != nil {
+		err = s.httpServer.ListenAndServeTLS("", "")
+	} else {
+		err = s.httpServer.ListenAndServe()
+	}
+	if err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("httpserver: listen %s: %w", s.httpServer.Addr, err)
 	}
 	return nil

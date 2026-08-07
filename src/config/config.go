@@ -35,6 +35,27 @@ type Server struct {
 	RateLimit      RateLimit      `yaml:"rate_limit"`
 	Cache          CacheConfig    `yaml:"cache"`
 	Healthz        Healthz        `yaml:"healthz"`
+	TLS            TLS            `yaml:"tls"`
+}
+
+// TLS holds `server.tls`, per AI.md PART 15 "Built-in Let's Encrypt
+// Support". DNSCredentials is stored as plaintext YAML for now — AES-256-
+// GCM encryption at rest (spec: "credentials_encrypted") depends on an app
+// secret-encryption primitive this codebase does not have yet (tracked in
+// TODO.AI.md).
+type TLS struct {
+	// Enabled turns on HTTPS/ACME certificate handling for the resolved
+	// FQDN. When false (default), the server is HTTP-only.
+	Enabled bool `yaml:"enabled"`
+	// DNSProvider selects a DNS-01 provider (e.g. "cloudflare", "route53")
+	// for wildcard certificate issuance. DNS-01 issuance itself is not
+	// implemented yet — see TODO.AI.md; HTTP-01/TLS-ALPN-01 via the
+	// certificate lookup order + ACME fallback in src/certmgr are.
+	DNSProvider string `yaml:"dns_provider"`
+	// DNSCredentials holds the provider-specific credential fields (e.g.
+	// api_token, access_key_id), per AI.md PART 15 "Provider Credential
+	// Storage".
+	DNSCredentials map[string]string `yaml:"dns_credentials"`
 }
 
 // Database holds the `server.database` block.
@@ -164,6 +185,9 @@ func Default(dbPath string) *Config {
 				Timeout:  "5s",
 				Prefix:   "shortner:",
 				TTL:      "1h",
+			},
+			TLS: TLS{
+				Enabled: false,
 			},
 		},
 	}

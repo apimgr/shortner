@@ -6,6 +6,13 @@ Everything below is deferred work, in dependency order.
 
 ## Foundation follow-ups (small, do first)
 
+- `src/paths/` directory name is plural; project convention (global
+  CLAUDE.md, Go section) requires singular directory names (`path/`) to
+  match package naming. Flagged by go-lint during the PART 14-15 review.
+  Renaming requires updating every import site across the tree — deferred
+  as a standalone mechanical rename rather than folded into an unrelated
+  feature commit.
+  Read: global CLAUDE.md "Directory naming is language-specific"
 - Windows admin-token detection in `src/paths/paths_windows.go` is a
   minimal probe (`\\.\PHYSICALDRIVE0` open test) — verify against real
   Windows UAC behavior and harden if needed.
@@ -94,10 +101,8 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
   `RateLimit`, `CacheConfig`, `Healthz`) plus the Config Validation Rule
   (`src/config/limits.go`) landed in commit 2693120764bb.
 - URL & FQDN detection (reverse-proxy headers), Request ID middleware, and
-  auth-token header parsing now have `http.Request` handling to attach to
-  via the `src/httpserver` package (commit 2693120764bb) — still need to be
-  implemented as part of PART 14's route handlers.
-  Read: AI.md PART 12 "URL & FQDN Detection", PART 14
+  auth-token header parsing (commit 2693120764bb) are now consumed by
+  PART 14's route handlers (`src/httpserver/links.go`) — see PART 14 below.
 
 ## PART 13: Health & versioning — DONE
 
@@ -105,13 +110,68 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
   and the optional `/healthz` root alias all implemented in
   `src/httpserver/health.go` (commit 2693120764bb).
 
-## PART 14-15: API, TLS
+## PART 14: API structure — DONE
 
-- Core API routes: create link, resolve slug, `/{slug}/stats` click
-  analytics sub-resource, owner-token-gated management routes.
-  Read: AI.md PART 14, IDEA.md Business logic
-- Let's Encrypt / TLS support.
-  Read: AI.md PART 15
+- Core API routes landed in `src/httpserver/links.go`: `POST
+  /api/{api_version}/links` (create, auto or custom slug, returns a
+  one-time `owner_token`), `GET/PATCH/DELETE
+  /api/{api_version}/links/{slug}` (owner/operator-token-gated
+  update/delete), `GET /api/{api_version}/links/{slug}/stats`
+  (click-analytics sub-resource), plus the public vanity routes `GET
+  /{slug}` (redirect, bot-UA-filtered click recording, 410 Gone when
+  expired) and `GET /{slug}/stats`.
+- `Access-Control-Allow-Origin: *` (`corsAPIMiddleware`) now covers the
+  entire `/api` route group in `src/httpserver/server.go`, closing a gap
+  where the pre-existing health routes were not CORS-enabled.
+- GeoIP-based location fields on `StatsResponse.Recent` (`Country`/`Region`)
+  are wired but always empty until PART 19 GeoIP lands.
+  Read: AI.md PART 19
+
+## PART 15: SSL/TLS & Let's Encrypt — DONE (HTTP-01/TLS-ALPN-01 only)
+
+- `src/fqdn` implements FQDN resolution (`GetFQDN`, `DOMAIN` env var →
+  hostname → `$HOSTNAME` → global IPv6 → global IPv4 → `localhost`) and
+  dev-TLD detection (`IsDevTLD`) per AI.md PART 15.
+- `src/certmgr` implements the 4-tier Certificate Lookup Order
+  (`/etc/letsencrypt/live/domain/` → `/etc/letsencrypt/live/{fqdn}/` →
+  `{config_dir}/ssl/letsencrypt/{fqdn}/` → `{config_dir}/ssl/local/{fqdn}/`),
+  CN/SAN + expiry validation, the 7-day `NeedsRenewal` window, and
+  `SaveAppManagedCertificate`. `src/certmgr/acme.go` builds a `*tls.Config`
+  backed by `golang.org/x/crypto/acme/autocert` (HTTP-01/TLS-ALPN-01) as the
+  issuance fallback when no existing certificate is found. Wired into
+  `src/httpserver.Options.TLSConfig` / `Server.Start` and
+  `src/main.go:buildTLSConfig` (skips TLS entirely for a dev-only TLD).
+- Deferred (not implemented — literal spec gaps, tracked here rather than
+  silently dropped):
+  - DNS-01 provider matrix (`server.tls.dns_provider` /
+    `dns_credentials.*` — cloudflare, route53, digitalocean, godaddy,
+    namecheap, rfc2136, the full lego provider list). Only HTTP-01/
+    TLS-ALPN-01 via autocert exist today; no DNS-01 challenge, so wildcard
+    certs are not obtainable yet.
+    Read: AI.md PART 15 "DNS-01 Provider Configuration"
+  - `credentials_encrypted` (AES-256-GCM at rest for DNS provider
+    credentials) — `src/config.TLS.DNSCredentials` is plaintext YAML for
+    now; this codebase has no AES-256-GCM/secret-encryption primitive yet
+    (`src/security` has Argon2id + SHA-256 only). Needs a new
+    `src/security/encrypt.go` (or similar) before DNS-01 can be built.
+    Read: AI.md PART 15 "Provider Credential Storage"
+  - Autocert-issued certificates are cached in autocert's own opaque
+    `DirCache` format (`{config_dir}/ssl/letsencrypt/autocert-cache/`), not
+    bridged into the certbot-mirroring `{fullchain,privkey}.pem` layout in
+    `AppManagedDir` — `SaveAppManagedCertificate` exists but nothing calls
+    it yet after a fresh autocert issuance.
+    Read: AI.md PART 15 "Certificate Directory Structure"
+  - Daily-03:00-aligned proactive renewal loop — no PART 18 scheduler
+    exists yet to hang this off of; `certmgr.NeedsRenewal` is ready to be
+    called by it once PART 18 lands.
+    Read: AI.md PART 18
+  - Dual HTTP+HTTPS simultaneous-port serving and the full responsive
+    startup-banner integration (showing both `http://` and `https://` URLs,
+    overlay `.onion`/`.i2p` addresses) is not wired — `main.go` currently
+    serves either HTTP or HTTPS on one port, never both.
+    Read: AI.md PART 15 "Port Configuration", PART 8 "Startup Banner"
+  - Tor/I2P overlay network TLS handling (PART 31) not addressed here.
+    Read: AI.md PART 31
 
 ## PART 16: Web frontend
 

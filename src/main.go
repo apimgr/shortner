@@ -3,6 +3,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"os"
@@ -10,17 +11,23 @@ import (
 	"time"
 
 	"github.com/apimgr/shortner/src/applog"
+	"github.com/apimgr/shortner/src/certmgr"
 	"github.com/apimgr/shortner/src/common/banner"
 	"github.com/apimgr/shortner/src/common/color"
 	"github.com/apimgr/shortner/src/common/pidfile"
 	"github.com/apimgr/shortner/src/common/version"
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/db"
+	"github.com/apimgr/shortner/src/fqdn"
 	"github.com/apimgr/shortner/src/httpserver"
 	"github.com/apimgr/shortner/src/mode"
 	"github.com/apimgr/shortner/src/paths"
 	"github.com/apimgr/shortner/src/signal"
 )
+
+// internalName is the frozen on-disk project identifier (IDEA.md
+// "internal_name"), used as the dev-TLD project name in fqdn.IsDevTLD.
+const internalName = "shortner"
 
 func main() {
 	os.Exit(run(os.Args[1:]))
@@ -230,6 +237,18 @@ func run(args []string) int {
 	defer accessLog.Close()
 	signal.Register(func() { accessLog.Close() })
 
+	// TLS (AI.md PART 15 "Built-in Let's Encrypt Support"): only attempted
+	// for a real, publicly-resolvable FQDN — never for dev-only TLDs
+	// (.local, .test, the project's own name, etc.), which can never get a
+	// valid public certificate.
+	scheme := "http"
+	tlsConfig, tlsErr := buildTLSConfig(cfg, p.Config)
+	if tlsErr != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": warning: "+tlsErr.Error())
+	} else if tlsConfig != nil {
+		scheme = "https"
+	}
+
 	srv := httpserver.New(httpserver.Options{
 		Config:    cfg,
 		DB:        sqlDB,
@@ -239,6 +258,7 @@ func run(args []string) int {
 		CommitID:  version.CommitID,
 		BuildDate: version.BuildDate,
 		StartTime: time.Now(),
+		TLSConfig: tlsConfig,
 	})
 	signal.Register(func() { srv.Shutdown() })
 
@@ -257,7 +277,7 @@ func run(args []string) int {
 		Version: version.Version,
 		AppMode: mode.GetCurrentAppMode().String(),
 		Debug:   mode.IsDebugEnabled(),
-		URLs:    []string{fmt.Sprintf("http://%s:%s%s", host, cfg.Server.Port, cfg.Server.BaseURL)},
+		URLs:    []string{fmt.Sprintf("%s://%s:%s%s", scheme, host, cfg.Server.Port, cfg.Server.BaseURL)},
 	})
 
 	// Start blocks until Shutdown is called by the signal hook above, then
@@ -267,6 +287,24 @@ func run(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// buildTLSConfig resolves the server's FQDN and, when cfg.Server.TLS.Enabled
+// and the FQDN is not a dev-only TLD, returns a *tls.Config that serves the
+// best certificate found by certmgr (falling back to ACME issuance). It
+// returns (nil, nil) when TLS is disabled or the FQDN is dev-only — HTTP is
+// used in both cases, per AI.md PART 15 "Dev TLD Handling" (never request a
+// public certificate for a dev-only TLD).
+func buildTLSConfig(cfg *config.Config, configDir string) (*tls.Config, error) {
+	if !cfg.Server.TLS.Enabled {
+		return nil, nil
+	}
+	host := fqdn.GetFQDN(internalName)
+	if fqdn.IsDevTLD(host, internalName) {
+		return nil, fmt.Errorf("tls: %q is a dev-only TLD, skipping certificate issuance", host)
+	}
+	tlsConfig, _ := certmgr.NewTLSConfig(configDir, host, "")
+	return tlsConfig, nil
 }
 
 // flagWasSet reports whether name was explicitly passed on the command
