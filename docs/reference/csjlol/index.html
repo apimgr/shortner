@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" type="text/css" href="./css/styles.css" />
+    <script src="https://unpkg.com/vue@2.6.11/dist/vue.js" defer></script>
+    <script src="/js/config.js"></script>
+    <script src="/js/app.js" defer></script>
+    <script src="/js/nav.js" defer></script>
+    <title>shrtnr</title>
+  </head>
+
+  <body class="min-h-screen flex flex-col">
+    <!-- Nav -->
+    <nav class="bg-dracula-current shadow-lg">
+      <div class="container mx-auto px-4">
+        <div class="flex flex-wrap justify-between items-center py-4">
+          <div class="flex items-center">
+            <a href="/" class="nav-link-active font-semibold text-lg">Home</a>
+          </div>
+          <!-- Mobile Menu Button -->
+          <button id="mobile-menu-button" class="md:hidden text-dracula-fg hover:text-dracula-purple transition duration-200">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <!-- Navigation Links -->
+          <div id="mobile-menu" class="hidden md:flex flex-col md:flex-row items-center space-y-2 md:space-y-0 md:space-x-1 w-full md:w-auto mt-4 md:mt-0">
+            <a href="/list" class="nav-link block md:inline-block w-full md:w-auto text-center md:text-left">List</a>
+            <a href="/domains" class="nav-link block md:inline-block w-full md:w-auto text-center md:text-left">Domains</a>
+            <a href="/about" class="nav-link block md:inline-block w-full md:w-auto text-center md:text-left">About</a>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <!-- end nav -->
+
+    <main id="app" class="flex-grow container mx-auto px-4 py-8 flex flex-col items-center justify-center">
+      <div class="text-center mb-8">
+        <img src="/favicon.ico" alt="logo" class="w-32 h-32 mx-auto mb-4" />
+      </div>
+
+      <div class="w-full max-w-md">
+        <form v-if="formVisible" @submit.prevent="createUrl()" class="space-y-6">
+          <div v-if="error" class="error-message">{{error}}</div>
+
+          <input
+            v-model="url"
+            type="text"
+            name="url"
+            id="url"
+            placeholder="Enter a URL"
+            class="input-field"
+          />
+
+          <input
+            v-model="slug"
+            type="text"
+            name="slug"
+            id="slug"
+            placeholder="Enter a custom slug (optional)"
+            class="input-field"
+          />
+
+          <button type="submit" class="btn-primary w-full">Create Short URL</button>
+        </form>
+
+        <div v-if="created" class="text-center space-y-4">
+          <h1 class="text-2xl md:text-3xl font-bold text-dracula-green">Success!</h1>
+          <p class="text-dracula-comment">Your short URL is:</p>
+          <div class="bg-dracula-current rounded-lg p-4">
+            <a :href="created" target="_blank" class="text-dracula-cyan hover:text-dracula-green text-lg md:text-xl break-all transition duration-200">
+              {{created}}
+            </a>
+          </div>
+          <button @click="resetForm" class="btn-secondary">Create Another</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-dracula-current mt-auto">
+      <div class="container mx-auto px-4 py-8">
+        <div class="text-center">
+          <div class="mb-4">
+            <a href="https://github.com/casjay" target="_blank" title="Github">
+              <img alt="Github" src="https://casjaysdev-sites.github.io/static/default-icons/social/github-48x48.png" class="inline-block" />
+            </a>
+          </div>
+
+          <p class="text-dracula-comment text-sm mb-2">
+            Copyright 1999 - 2024
+            <a href="https://casjay.pro" target="_blank" class="text-dracula-purple hover:text-dracula-pink transition duration-200">Casjays Developments</a>
+            and
+            <a href="https://malaks-us.github.io/jason" target="_blank" class="text-dracula-purple hover:text-dracula-pink transition duration-200">
+              Jason M. Hempstead-Malak
+            </a>
+          </p>
+
+          <p class="text-dracula-comment text-sm mb-4">
+            Hosting by
+            <a href="https://casjay.pro/hosting" target="_blank" class="text-dracula-purple hover:text-dracula-pink transition duration-200">
+              Casjays Developments: Hosting
+            </a>
+            and powered by
+            <a href="https://casjaysdev.pro" target="_blank" class="text-dracula-purple hover:text-dracula-pink transition duration-200">CasjaysDev.pro</a>
+          </p>
+
+          <div class="flex justify-center gap-4 mb-4">
+            <a href="https://www.patreon.com/casjay" target="_blank">
+              <img src="https://img.shields.io/badge/patreon-donate-orange.svg" alt="Casjays Patreon Page" />
+            </a>
+            <a href="https://www.paypal.me/casjaysdev" target="_blank">
+              <img src="https://img.shields.io/badge/Donate-PayPal-green.svg" alt="Casjays Paypal Page" />
+            </a>
+          </div>
+
+          <p class="text-xs text-dracula-comment mb-4">
+            <a href="https://help.casjay.pro" target="_blank" class="hover:text-dracula-purple transition duration-200">CasjaysDev Support</a>
+            |
+            <a href="https://bugs.casjay.pro" target="_blank" class="hover:text-dracula-purple transition duration-200">CasjaysDev Bugs</a>
+            <br />
+            <a href="https://uptime.servicestat.us" target="_blank" class="hover:text-dracula-purple transition duration-200">System Status</a>
+            |
+            <a href="https://services.servicestat.us" target="_blank" class="hover:text-dracula-purple transition duration-200">Service Status</a>
+            <br />
+            <a href="https://casjaysdev.pro/domains.html" target="_blank" class="hover:text-dracula-purple transition duration-200">
+              Casjays Developments Domains
+            </a>
+            <br /><br />
+            Casjays Developments privacy policy can be found at
+            <br />
+            <a href="https://casjaysdev.pro/policy/" target="_blank" class="text-dracula-purple hover:text-dracula-pink transition duration-200">
+              https://casjaysdev.pro/policy
+            </a>
+          </p>
+
+          <div class="text-dracula-purple text-sm">
+            Made with 💜 by
+            <a href="http://github.com/casjay" target="_blank" rel="noopener" class="text-dracula-cyan hover:text-dracula-green transition duration-200">
+              Jason M. Hempstead (Casjay)
+            </a>
+            <br />
+            This site is powered by
+            <a href="https://github.com/casjaydns/csj.lol" target="_blank" class="text-dracula-cyan hover:text-dracula-green transition duration-200">
+              open source
+            </a>
+            project
+          </div>
+        </div>
+      </div>
+    </footer>
+
+    <!-- Analytics Scripts -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-936146-1"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag() {
+        dataLayer.push(arguments);
+      }
+      gtag('js', new Date());
+      gtag('config', 'UA-936146-1');
+    </script>
+  </body>
+</html>

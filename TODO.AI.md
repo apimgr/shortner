@@ -61,6 +61,14 @@ Everything below is deferred work, in dependency order.
 - Server-rendered pages: create-link form, redirect landing, `/stats/{id}`
   analytics view, mobile-first CSS, WCAG 2.1 AA, PWA manifest.
   Read: AI.md PART 16
+- Home page (`/`) body layout must match the prior Node.js app
+  (`github.com/casjaydns/csj.lol`): centered logo, single-column create-link
+  card, success state with short URL + "create another", Dracula color
+  scheme via CSS custom properties, matching nav/footer structure. Adapt
+  to server-rendered `<form>` (no CDN JS dependency, must work with JS
+  disabled) — do not copy the Vue/CDN implementation verbatim.
+  Reference assets: `docs/reference/csjlol/`.
+  Read: IDEA.md "Frontend design reference", AI.md PART 16
 
 ## PART 17-22: Features
 

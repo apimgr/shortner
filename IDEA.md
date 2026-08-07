@@ -69,3 +69,27 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
 **Data sources:**
 - Database for links and clicks — see PART 10
 - GeoIP for approximate click location — see PART 19
+
+## Frontend design reference
+
+The prior implementation of this project was a Node.js app
+(`github.com/casjaydns/csj.lol`). The new Go frontend's home page (`/`) body
+must match that app's layout: centered logo, single-column create-link card
+(URL input, optional custom-slug input, submit), success state showing the
+resulting short URL with a "create another" action. Dracula color scheme
+(`--dracula-bg`, `--dracula-current`, `--dracula-purple`, `--dracula-cyan`,
+`--dracula-green`, `--dracula-comment`, `--dracula-fg`) via CSS custom
+properties, not hardcoded hex — see UI/UX rules. Nav (Home/List/Domains/About)
+and footer (attribution/links) follow the same structure, adapted to this
+project's actual routes and reserved names.
+
+Reference files saved for PART 16 implementation:
+`docs/reference/csjlol/{index.html,styles.css,app.js,config.js,nav.js,navBar.js}`.
+
+**Adapt, do not copy verbatim** — the reference app used Vue 2 loaded from
+`unpkg.com` CDN and Tailwind-generated `styles.css`. This project is a
+self-contained single binary with embedded static assets (PART 7) and MUST
+work with JavaScript disabled (PART 16 "No JavaScript-Disabled Broken State"):
+the create-link form must be a real HTML `<form method="POST">` that works via
+server-rendered response, with any Vue/AJAX behavior layered on top as
+progressive enhancement only — no CDN script tags, no JS-only form.
