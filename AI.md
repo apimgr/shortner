@@ -21313,7 +21313,7 @@ document.addEventListener('click', function(e) {
 
 ```css
 :root {
-  /* Backgrounds — dark palette, based on Dracula */
+  /* Backgrounds — dark palette */
   --color-bg: #282a36;
   --color-bg-secondary: #21222c;
   --color-bg-card: #2b2d3a;
