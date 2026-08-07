@@ -11,8 +11,10 @@ Everything below is deferred work, in dependency order.
   Windows UAC behavior and harden if needed.
   Read: AI.md PART 4
 - `go.sum`/LICENSE.md third-party attribution section is currently a
-  placeholder — populate once real dependencies (DB driver, HTTP router,
-  etc.) are added in PART 9/10.
+  placeholder — now that `modernc.org/sqlite` and `golang.org/x/crypto`
+  are real dependencies (added for PART 10/11), populate the attribution
+  section with their licenses; still pending an HTTP router if one is
+  added later.
   Read: AI.md PART 2, 10
 
 ## PART 7-8: Binary requirements & server CLI
@@ -38,14 +40,50 @@ Everything below is deferred work, in dependency order.
 
 ## PART 9-11: Backend core
 
-- Error handling & caching layer.
-  Read: AI.md PART 9
-- Database schema for `Link` and `Click` models (see IDEA.md Business
-  logic), using `modernc.org/sqlite`.
-  Read: AI.md PART 10
-- Owner token generation/storage (SHA-256 hashed, one-time reveal),
-  `server.token` operator auth, Argon2id for any stored passwords.
-  Read: AI.md PART 11
+**Foundational (non-HTTP-dependent) pieces are done:** `src/apperr`
+(canonical error envelope, HTTP status mapping, retry/backoff),
+`src/cache` (in-process TTL cache), `src/security` (token gen/hash/
+constant-time compare, Argon2id password hashing, IP anonymization,
+short-code/slug generation), `src/db` (idempotent SQLite schema,
+connection pooling, query timeouts, transaction + serialization-retry
+helpers, Link/Click/api_tokens/app_secrets CRUD), `src/applog`
+(text/logfmt/apache/nginx/json/syslog/fail2ban/CEF formatters, file
+logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
+`make test` passes with 77.5% coverage.
+
+- Response-layer wiring (calling `apperr.SendOK`/`SendError` from actual
+  HTTP handlers, expired-link 410 Gone response) needs the HTTP server,
+  which doesn't exist yet.
+  Read: AI.md PART 9, PART 14
+- Security Headers, CSP, CORS, Permissions-Policy, Cross-Origin Isolation,
+  Privacy Signal Headers, Sec-Fetch-* validation, Reporting API,
+  Server-Timing, Well-Known Files (robots.txt/security.txt/llms.txt),
+  Security Reports/GPG keypair management, Compliance Standards/routes,
+  Abuse Detection middleware, IP Block Management middleware — all
+  require `http.Request`/middleware chains that don't exist until the
+  HTTP server (PART 12+) is built.
+  Read: AI.md PART 11 (sections after "Cryptographic Keys")
+- `src/security/slug.go`'s `reservedSlugs` list is a minimal provisional
+  set (api, static, health, admin, login, ...), not the canonical list —
+  PART 16 hasn't defined the full reserved-names table yet.
+  Read: AI.md PART 16
+- Click bot/crawler filtering (IDEA.md "Business rules": "Click tracking
+  excludes known bot/crawler user agents") needs a UA-classification list
+  this project has not defined yet; `db.RecordClick` always records —
+  callers must decide whether to call it.
+  Read: IDEA.md Business logic
+- `src/db` only supports `modernc.org/sqlite`; libsql/Turso remote-DB
+  support depends on the full `server.yml` database schema.
+  Read: AI.md PART 10, PART 12
+- `server.security.encryption_key` (server.yml-stored secret, distinct
+  from the three DB-stored secrets in `src/db/secret.go`) isn't wired
+  into `src/config` yet — needs the full server.yml schema.
+  Read: AI.md PART 11 "Cryptographic Keys", PART 12
+- `src/applog.Logger.Rotate()` is a manual, callable rotation only — the
+  scheduled daily/weekly/size-based rotation and `keep:` retention
+  policies (AI.md PART 11 "Log Rotation" / "Audit Log Retention") need
+  the scheduler PART 18 defines.
+  Read: AI.md PART 11 "Rotation Options"/"Retention Options", PART 18
 - Apply the Tier 1/2/3 Public Endpoint Safety Principle to every new
   endpoint as it's built.
   Read: AI.md PART 11

@@ -21,8 +21,9 @@ RUN go mod download
 
 # Copy source and build
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
-    -ldflags "-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildDate=${BUILD_DATE}' -X 'main.OfficialSite=${OFFICIAL_SITE}'" \
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} GOFLAGS=-buildvcs=false go build \
+    -trimpath \
+    -ldflags "-s -w -X 'github.com/apimgr/shortner/src/common/version.Version=${VERSION}' -X 'github.com/apimgr/shortner/src/common/version.CommitID=${COMMIT_ID}' -X 'github.com/apimgr/shortner/src/common/version.BuildDate=${BUILD_DATE}' -X 'github.com/apimgr/shortner/src/common/version.OfficialSite=${OFFICIAL_SITE}'" \
     -o /app/binary/shortner ./src
 
 # =============================================================================
