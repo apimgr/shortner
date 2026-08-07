@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -118,24 +117,4 @@ func generateToken() (string, error) {
 		b.WriteByte(tokenAlphabet[int(v)%len(tokenAlphabet)])
 	}
 	return b.String(), nil
-}
-
-// ParseBool parses truthy/falsy strings from env vars, config values, CLI
-// flags, and API params — the single boolean-parsing entry point required
-// by AI.md PART 5 "Boolean Handling".
-func ParseBool(s string) (bool, error) {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "1", "true", "t", "yes", "y", "on":
-		return true, nil
-	case "0", "false", "f", "no", "n", "off", "":
-		return false, nil
-	default:
-		return strconv.ParseBool(s)
-	}
-}
-
-// IsTruthy is ParseBool with parse errors treated as false.
-func IsTruthy(s string) bool {
-	v, err := ParseBool(s)
-	return err == nil && v
 }

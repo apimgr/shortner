@@ -17,14 +17,24 @@ Everything below is deferred work, in dependency order.
 
 ## PART 7-8: Binary requirements & server CLI
 
-- Embed static assets via Go `embed`.
-  Read: AI.md PART 7
-- Implement `--service`, `--maintenance`, `--status`, `--update`, `--daemon`
-  server subcommands (currently absent from `src/main.go` by design — out
-  of PART 0-6 scope).
-  Read: AI.md PART 8, 22, 23, 24
-- First-run banner with URLs/version, PID file support.
-  Read: AI.md PART 7
+- `src/common/theme` (Unified Color Palette / `ThemePalette`) is deferred —
+  it depends on the PART 16 web frontend theme system, which does not
+  exist yet.
+  Read: AI.md PART 7 "Theme Package", PART 16 "Unified Color Palette"
+- Concrete `src/data/*.json` application data files — no later PART has
+  defined their schema/content yet; `src/data/embed.go` embeds the
+  directory (currently only `.gitkeep`) so real files just need to be
+  added once a PART specifies them.
+  Read: AI.md PART 7 "Embedded Assets"
+- `src/signal` installs OS signal handlers (`Start()`, non-blocking) and
+  the PID-file-removal shutdown hook is already registered in
+  `src/main.go`'s `run()`. Still missing: actually closing HTTP
+  listeners/flushing logs on shutdown, and making `run()` block until a
+  shutdown signal arrives — both require the HTTP server (PART 9+) to
+  exist first; `run()` currently returns immediately after startup since
+  there's nothing yet to keep the process alive.
+  Read: AI.md PART 7 "Default Behavior", PART 8 "Signal Handling &
+  Graceful Shutdown"
 
 ## PART 9-11: Backend core
 
@@ -45,6 +55,12 @@ Everything below is deferred work, in dependency order.
 - Full `server.yml` schema beyond the bootstrap defaults in
   `src/config/config.go`.
   Read: AI.md PART 12
+- URL & FQDN detection (reverse-proxy headers preferred: `X-Forwarded-Host`/
+  `-Proto`/`-Port`/`-Prefix`, `X-Real-Host`, `X-Original-Host`, etc.),
+  Request ID middleware, and auth-token header parsing — all require
+  `http.Request` handling, which doesn't exist until the HTTP server
+  (PART 9+) is built.
+  Read: AI.md PART 12 "URL & FQDN Detection", PART 14
 
 ## PART 13-15: Health, API, TLS
 
@@ -81,14 +97,35 @@ Everything below is deferred work, in dependency order.
   Read: AI.md PART 19, IDEA.md Business logic
 - Metrics endpoint.
   Read: AI.md PART 20
-- Backup & restore (Argon2id-protected archives).
+- Backup & restore (Argon2id-protected archives). `--maintenance backup`,
+  `restore`, `data`, `compliance` flag parsing/dispatch/`--help` are
+  already implemented in `src/maintenance.go`; each action currently
+  prints "not yet available" and exits 1 — implement the real archive
+  create/extract logic here.
   Read: AI.md PART 21
-- `--update` self-update command.
+- `--maintenance mode`, `setup` actions (persist app mode, reset config to
+  defaults) — flag surface done in `src/maintenance.go`, actions still
+  "not yet available".
+  Read: AI.md PART 11, 12
+- `--maintenance pgp`, `secret`, `token` actions (PGP key management,
+  stored-secret management, operator token management) — flag surface
+  done in `src/maintenance.go`, actions still "not yet available".
+  Read: AI.md PART 11, 21
+- `--update` self-update command. Flag parsing/dispatch/`--help` for
+  `check`/`yes`/`branch {stable|beta|daily}` are already implemented in
+  `src/update.go`; each action currently prints "not yet available" and
+  exits 1 — implement the real update-check/download/channel-switch logic
+  here.
   Read: AI.md PART 22
 
 ## PART 23-24: Privilege escalation & service
 
-- `--service` install/uninstall (systemd, launchd, Windows service).
+- `--service` start/stop/restart/reload/`--install`/`--uninstall`/
+  `--disable` actions (systemd, launchd, SysV, rc.d, Windows service).
+  Flag parsing/dispatch/`--help`/service-manager auto-detection
+  (`detectServiceManager()` in `src/service.go`) are already implemented;
+  each action currently prints "not yet available" and exits 1 —
+  implement the real unit-file/plist/service-registration logic here.
   Read: AI.md PART 23, 24
 
 ## PART 27: CI/CD workflows

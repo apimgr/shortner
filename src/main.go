@@ -6,18 +6,16 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
+	"github.com/apimgr/shortner/src/common/banner"
+	"github.com/apimgr/shortner/src/common/color"
+	"github.com/apimgr/shortner/src/common/pidfile"
+	"github.com/apimgr/shortner/src/common/version"
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/mode"
 	"github.com/apimgr/shortner/src/paths"
-)
-
-// Build info — set via -ldflags at build time. See PART 25 (Makefile).
-var (
-	Version      = "devel"
-	CommitID     = "N/A"
-	BuildDate    = "N/A"
-	OfficialSite = ""
+	"github.com/apimgr/shortner/src/signal"
 )
 
 func main() {
@@ -25,7 +23,9 @@ func main() {
 }
 
 func run(args []string) int {
-	fs := flag.NewFlagSet("shortner", flag.ContinueOnError)
+	binaryName := filepath.Base(os.Args[0])
+
+	fs := flag.NewFlagSet(binaryName, flag.ContinueOnError)
 	fs.SetOutput(os.Stdout)
 
 	showHelp := fs.Bool("help", false, "Show help")
@@ -33,76 +33,192 @@ func run(args []string) int {
 	modeFlag := fs.String("mode", "", "Application mode: production|development|dev|debug")
 	debugFlag := fs.Bool("debug", false, "Enable debug diagnostics")
 	configDir := fs.String("config", "", "Config directory override")
+	dataDir := fs.String("data", "", "Data directory override")
+	cacheDir := fs.String("cache", "", "Cache directory override")
+	logDir := fs.String("log", "", "Log directory override")
+	backupDir := fs.String("backup", "", "Backup directory override")
+	pidFile := fs.String("pid", "", "PID file path override")
 	address := fs.String("address", "", "Listen address override")
 	port := fs.String("port", "", "Listen port override")
 	baseURL := fs.String("baseurl", "", "URL path prefix override")
+	daemonFlag := fs.Bool("daemon", false, "Run as background daemon")
+	colorFlag := fs.String("color", "auto", "Color output: auto, yes, no")
+	langFlag := fs.String("lang", "", "Output language (default: auto, from LANG env)")
+	statusFlag := fs.Bool("status", false, "Show server status and health")
+	shellFlag := fs.String("shell", "", "Shell integration: completions, init, help")
+	serviceFlag := fs.String("service", "", "Service management: start, restart, stop, reload, --install, --uninstall, --disable, --help")
+	maintenanceFlag := fs.String("maintenance", "", "Maintenance operations: backup, restore, update, mode, setup, pgp, secret, token, data, compliance, --help")
+	updateFlag := fs.String("update", "", "Check/perform updates: check, yes, branch, --help")
 	fs.BoolVar(showHelp, "h", false, "Show help")
 	fs.BoolVar(showVersion, "v", false, "Show version")
+
+	// --update's entire subcommand is optional per AI.md PART 8
+	// ("--update [check|yes|branch ...|--help]"), but flag.FlagSet
+	// requires a value for every non-boolean flag; a bare trailing
+	// "--update" has nothing left to consume. Default it to "check" so
+	// the flag package's normal parsing handles the rest.
+	args = injectDefaultUpdateValue(args)
 
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 
 	if *showHelp {
-		fs.PrintDefaults()
+		printHelp(binaryName)
 		return 0
 	}
 	if *showVersion {
-		fmt.Println("shortner " + Version)
+		printVersion(binaryName)
 		return 0
 	}
 
-	debugPtr := (*bool)(nil)
-	if flagWasSet(fs, "debug") {
-		debugPtr = debugFlag
+	// Immediate-exit subcommands (AI.md PART 8 "Server Startup Sequence"
+	// PHASE 1-4): none of these touch the filesystem or start the server.
+	if flagWasSet(fs, "shell") {
+		return runShell(binaryName, *shellFlag, firstArg(fs.Args()))
 	}
-	st := mode.Resolve(*modeFlag, debugPtr)
+	if flagWasSet(fs, "service") {
+		return runService(binaryName, *serviceFlag)
+	}
+	if flagWasSet(fs, "maintenance") {
+		return runMaintenance(binaryName, *maintenanceFlag)
+	}
+	if flagWasSet(fs, "update") {
+		return runUpdate(binaryName, *updateFlag, firstArg(fs.Args()))
+	}
 
-	inContainer := config.IsTruthy(os.Getenv("CONTAINER"))
+	forceColor, err := color.ParseFlag(*colorFlag)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 2
+	}
+	// forceColor/EmojiEnabled feed CLI output (see status.go); colored
+	// HTML/terminal styling for the eventual HTTP admin surface is PART
+	// 16+ territory. --lang is parsed and round-trips here; the i18n
+	// lookup it selects is PART 30 (see TODO.AI.md).
+	_ = color.Enabled(forceColor)
+	_ = langFlag
+
+	mode.FromEnv()
+	if *modeFlag != "" {
+		mode.SetAppMode(*modeFlag)
+	}
+	if flagWasSet(fs, "debug") {
+		mode.SetDebugEnabled(*debugFlag)
+	}
+
+	// Container detection combines the explicit CONTAINER env var with the
+	// broader file/env/cgroup heuristics in src/common/pidfile (PART 7),
+	// reused here instead of reimplemented.
+	inContainer := config.IsTruthy(os.Getenv("CONTAINER")) || pidfile.IsContainer()
 	p := paths.Resolve(inContainer)
 
-	cfgFile := p.ConfigFile
-	if *configDir != "" {
-		cfgFile = *configDir + string(os.PathSeparator) + "server.yml"
+	// Apply CLI flag / env var overrides (AI.md PART 8 "Environment
+	// Variable Fallbacks"), then re-derive the paths that depend on them.
+	p.Config = paths.GetConfigDir(*configDir, p.Config)
+	p.ConfigFile = filepath.Join(p.Config, "server.yml")
+	p.Data = paths.GetDataDir(*dataDir, p.Data)
+	p.Cache = paths.GetCacheDir(*cacheDir, p.Cache)
+	p.Logs = paths.GetLogDir(*logDir, p.Logs)
+	p.LogFile = filepath.Join(p.Logs, "server.log")
+	p.Backup = paths.GetBackupDir(*backupDir, p.Data)
+	p.PIDFile = paths.GetPIDFile(*pidFile, p.PIDFile)
+	p.DB = paths.GetDatabaseDir(p.Data)
+
+	if *statusFlag {
+		return runStatus(binaryName, p.PIDFile)
 	}
 
-	cfg, err := config.Load(cfgFile, p.DB+string(os.PathSeparator)+"server.db")
+	// --daemon (manual start only; --service start would auto-detect the
+	// service manager and ignore this, but --service's real actions are
+	// not implemented yet — see service.go).
+	if *daemonFlag && !inContainer {
+		if err := Daemonize(); err != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+			return 1
+		}
+	}
+
+	// Directory flags create their directories if missing (AI.md PART 8
+	// "Directory Flags" / "Directory Validation Rules").
+	for _, dir := range []string{p.Config, p.Data, p.Cache, p.Logs, p.Backup} {
+		if err := paths.EnsureDir(dir); err != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+			return 1
+		}
+	}
+	if err := paths.EnsurePIDFile(p.PIDFile); err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
+
+	cfg, err := config.Load(p.ConfigFile, p.DB+string(os.PathSeparator)+"server.db")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "shortner: "+err.Error())
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
 
 	generated, err := config.EnsureToken(cfg)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "shortner: "+err.Error())
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
 	if generated {
-		if err := config.Save(cfgFile, cfg); err != nil {
-			fmt.Fprintln(os.Stderr, "shortner: "+err.Error())
+		if err := config.Save(p.ConfigFile, cfg); err != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 			return 1
 		}
 	}
 
 	if *address != "" {
 		cfg.Server.Listen = *address
+	} else if v := os.Getenv("LISTEN"); v != "" {
+		cfg.Server.Listen = v
 	}
 	if *port != "" {
 		cfg.Server.Port = *port
+	} else if v := os.Getenv("PORT"); v != "" {
+		cfg.Server.Port = v
 	}
 	if *baseURL != "" {
 		cfg.Server.BaseURL = *baseURL
 	}
 
-	fmt.Println(st.Banner())
-	fmt.Printf("shortner %s listening on %s:%s%s\n", Version, cfg.Server.Listen, cfg.Server.Port, cfg.Server.BaseURL)
+	// PID file: written at process start, removed on clean exit. See
+	// AI.md PART 8 "PID File Handling" — a no-op inside containers.
+	if err := pidfile.WritePIDFile(p.PIDFile); err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
+	pidPath := p.PIDFile
+	signal.Register(func() { pidfile.RemovePIDFile(pidPath) })
+	// Non-blocking: installs OS signal handlers and returns immediately.
+	// There is no HTTP server yet to keep the process alive, so run()
+	// still returns right after startup — see TODO.AI.md PART 9+ for the
+	// real main-loop block this unlocks.
+	signal.Start()
+	defer pidfile.RemovePIDFile(p.PIDFile)
 
-	// HTTP server startup, CLI subcommands (--service, --maintenance,
-	// --status, --update, --daemon) and route registration are tracked in
-	// TODO.AI.md — PART 7, 8, 12, 23, 24.
+	fmt.Println(mode.Banner())
+	host := cfg.Server.Listen
+	if host == "0.0.0.0" || host == "" {
+		host = "localhost"
+	}
+	banner.PrintStartupBanner(banner.BannerConfig{
+		AppName: binaryName,
+		Version: version.Version,
+		AppMode: mode.GetCurrentAppMode().String(),
+		Debug:   mode.IsDebugEnabled(),
+		URLs:    []string{fmt.Sprintf("http://%s:%s%s", host, cfg.Server.Port, cfg.Server.BaseURL)},
+	})
+
+	// HTTP server startup, route registration, and the real "block until
+	// shutdown signal" main loop are tracked in TODO.AI.md — PART 9+.
 	return 0
 }
 
+// flagWasSet reports whether name was explicitly passed on the command
+// line (as opposed to holding its zero-value default).
 func flagWasSet(fs *flag.FlagSet, name string) bool {
 	set := false
 	fs.Visit(func(f *flag.Flag) {
@@ -111,4 +227,25 @@ func flagWasSet(fs *flag.FlagSet, name string) bool {
 		}
 	})
 	return set
+}
+
+// firstArg returns positional[0], or "" if there are no positional
+// arguments left after flag parsing.
+func firstArg(positional []string) string {
+	if len(positional) == 0 {
+		return ""
+	}
+	return positional[0]
+}
+
+// injectDefaultUpdateValue appends "check" after a bare trailing
+// "--update" so flag.FlagSet always has a value to consume. See the
+// comment at its call site in run().
+func injectDefaultUpdateValue(args []string) []string {
+	if len(args) > 0 && args[len(args)-1] == "--update" {
+		out := make([]string, len(args), len(args)+1)
+		copy(out, args)
+		return append(out, "check")
+	}
+	return args
 }

@@ -1,8 +1,8 @@
 # Makefile — local dev only, NOT used by CI/CD. See AI.md PART 25.
 # Six core targets. DO NOT ADD MORE.
 
-PROJECT_NAME := shortner
-PROJECT_ORG  := apimgr
+PROJECT_NAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$$|\1|' || basename "$$(pwd)")
+PROJECT_ORG  := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || basename "$$(dirname "$$(pwd)")")
 
 # Version precedence: release.txt (wins if it exists) > VERSION env var > "devel" fallback
 VERSION := $(shell cat release.txt 2>/dev/null || echo "$${VERSION:-devel}")
@@ -14,12 +14,13 @@ COMMIT_ID  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "N/A")
 # Official site URL (OPTIONAL - never guess or assume)
 OFFICIAL_SITE := $(shell [ -f site.txt ] && cat site.txt || echo "$${OFFICIAL_SITE:-}")
 
-# Linker flags to embed build info
+# Linker flags to embed build info — see src/common/version
+VERSION_PKG := github.com/$(PROJECT_ORG)/$(PROJECT_NAME)/src/common/version
 LDFLAGS := -s -w \
-	-X 'main.Version=$(VERSION)' \
-	-X 'main.CommitID=$(COMMIT_ID)' \
-	-X 'main.BuildDate=$(BUILD_DATE)' \
-	-X 'main.OfficialSite=$(OFFICIAL_SITE)'
+	-X '$(VERSION_PKG).Version=$(VERSION)' \
+	-X '$(VERSION_PKG).CommitID=$(COMMIT_ID)' \
+	-X '$(VERSION_PKG).BuildDate=$(BUILD_DATE)' \
+	-X '$(VERSION_PKG).OfficialSite=$(OFFICIAL_SITE)'
 
 # Directories
 BINDIR := binaries

@@ -3,9 +3,14 @@
 package paths
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"time"
+
+	"github.com/apimgr/shortner/src/common/pidfile"
 )
 
 // internalOrg and internalName are frozen project identifiers — see IDEA.md.
@@ -180,6 +185,7 @@ func windowsPaths(home string) Paths {
 			Logs:       filepath.Join(base, "logs"),
 			LogFile:    filepath.Join(base, "logs", "server.log"),
 			Backup:     filepath.Join(programData, "Backups", internalOrg, internalName),
+			PIDFile:    filepath.Join(base, internalName+".pid"),
 			SSL:        filepath.Join(base, "ssl"),
 			Security:   filepath.Join(base, "data", "security"),
 			DB:         filepath.Join(base, "db"),
@@ -198,6 +204,7 @@ func windowsPaths(home string) Paths {
 		Logs:       filepath.Join(localBase, "logs"),
 		LogFile:    filepath.Join(localBase, "logs", "server.log"),
 		Backup:     filepath.Join(localAppData, "Backups", internalOrg, internalName),
+		PIDFile:    filepath.Join(localBase, internalName+".pid"),
 		SSL:        filepath.Join(base, "ssl"),
 		Security:   filepath.Join(localBase, "security"),
 		DB:         filepath.Join(localBase, "db"),
@@ -209,4 +216,168 @@ func windowsPaths(home string) Paths {
 // admin-token detection is tracked in TODO.AI.md (PART 4).
 func IsAdministrator() bool {
 	return runtime.GOOS == "windows" && windowsIsAdministrator()
+}
+
+// startedElevated is captured once at process start, before any future
+// privilege drop (server startup step 8g in AI.md PART 8 — not yet
+// implemented; tracked in TODO.AI.md). Directory mode (system vs user)
+// must never be re-derived after that drop: the service account's HOME
+// points at the data dir, so a late $HOME lookup would nest user-style
+// paths inside it.
+var startedElevated = IsPrivileged()
+
+// EnsureDir creates path (and any missing parents) with the permission
+// appropriate to the current privilege level, then verifies it is
+// writable. See AI.md PART 8 "Directory Flags" / "Directory Validation
+// Rules".
+func EnsureDir(path string) error {
+	perm := os.FileMode(0o700)
+	if IsPrivileged() {
+		perm = 0o755
+	}
+
+	if err := os.MkdirAll(path, perm); err != nil {
+		return fmt.Errorf("paths: create directory %s: %w", path, err)
+	}
+
+	testFile := filepath.Join(path, ".write-test")
+	if err := os.WriteFile(testFile, []byte{}, 0o600); err != nil {
+		return fmt.Errorf("paths: directory %s is not writable: %w", path, err)
+	}
+	os.Remove(testFile)
+
+	return nil
+}
+
+// EnsurePIDFile creates the PID file's parent directory with the correct
+// permissions. See AI.md PART 8 "Directory Flags".
+func EnsurePIDFile(path string) error {
+	return EnsureDir(filepath.Dir(path))
+}
+
+// firstNonEmpty returns the first non-empty value among the CLI flag,
+// environment variable, and computed default, in that priority order.
+// See AI.md PART 8 "Environment Variable Fallbacks".
+func firstNonEmpty(flagValue, envKey, defaultValue string) string {
+	if flagValue != "" {
+		return flagValue
+	}
+	if v := os.Getenv(envKey); v != "" {
+		return v
+	}
+	return defaultValue
+}
+
+// GetConfigDir returns the config directory from --config, CONFIG_DIR, or
+// the OS/privilege default.
+func GetConfigDir(flagValue, defaultDir string) string {
+	return firstNonEmpty(flagValue, "CONFIG_DIR", defaultDir)
+}
+
+// GetDataDir returns the data directory from --data, DATA_DIR, or the
+// OS/privilege default.
+func GetDataDir(flagValue, defaultDir string) string {
+	return firstNonEmpty(flagValue, "DATA_DIR", defaultDir)
+}
+
+// GetCacheDir returns the cache directory from --cache, CACHE_DIR, or the
+// OS/privilege default.
+func GetCacheDir(flagValue, defaultDir string) string {
+	return firstNonEmpty(flagValue, "CACHE_DIR", defaultDir)
+}
+
+// GetLogDir returns the log directory from --log, LOG_DIR, or the
+// OS/privilege default.
+func GetLogDir(flagValue, defaultDir string) string {
+	return firstNonEmpty(flagValue, "LOG_DIR", defaultDir)
+}
+
+// GetPIDFile returns the PID file path from --pid, PID_FILE, or the
+// OS/privilege default.
+func GetPIDFile(flagValue, defaultFile string) string {
+	return firstNonEmpty(flagValue, "PID_FILE", defaultFile)
+}
+
+// GetDatabaseDir returns the SQLite database directory. Docker uses a
+// separate /data/db/sqlite directory; native installs use {data_dir}/db/.
+// See AI.md PART 8 "Environment Variable Fallbacks".
+func GetDatabaseDir(dataDir string) string {
+	if v := os.Getenv("DATABASE_DIR"); v != "" {
+		return v
+	}
+	if pidfile.IsContainer() {
+		return "/data/db/sqlite"
+	}
+	return filepath.Join(dataDir, "db")
+}
+
+// GetBackupDir returns the backup directory from --backup, BACKUP_DIR, or
+// the system backup dir if writable, else a mode-aware fallback: system
+// mode falls back inside dataDir (never a $HOME-derived path — the
+// service account's HOME points at dataDir); user mode falls back to the
+// user backup dir. See AI.md PART 8 "Environment Variable Fallbacks".
+func GetBackupDir(flagValue, dataDir string) string {
+	if flagValue != "" {
+		return flagValue
+	}
+	if v := os.Getenv("BACKUP_DIR"); v != "" {
+		return v
+	}
+
+	sysBackup := systemBackupDir()
+	if isWritable(sysBackup) {
+		return sysBackup
+	}
+	if startedElevated {
+		return filepath.Join(dataDir, "backup")
+	}
+	return userBackupDir()
+}
+
+// isWritable reports whether path's parent directory exists and can be
+// written to (checked by creating and removing a probe file).
+func isWritable(path string) bool {
+	parent := filepath.Dir(path)
+	info, err := os.Stat(parent)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+
+	testFile := filepath.Join(parent, ".write_test_"+strconv.FormatInt(time.Now().UnixNano(), 36))
+	f, err := os.Create(testFile)
+	if err != nil {
+		return false
+	}
+	f.Close()
+	os.Remove(testFile)
+	return true
+}
+
+// systemBackupDir returns the system-level backup directory for the
+// current OS.
+func systemBackupDir() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return filepath.Join("/Library/Backups", internalOrg, internalName)
+	case "windows":
+		return filepath.Join(os.Getenv("ProgramData"), "Backups", internalOrg, internalName)
+	case "freebsd", "openbsd", "netbsd":
+		return filepath.Join("/var/backups", internalOrg, internalName)
+	default:
+		return filepath.Join("/mnt/Backups", internalOrg, internalName)
+	}
+}
+
+// userBackupDir returns the user-level backup directory for the current
+// OS. USER MODE ONLY — never call when startedElevated is true.
+func userBackupDir() string {
+	home, _ := os.UserHomeDir()
+	switch runtime.GOOS {
+	case "darwin":
+		return filepath.Join(home, "Library/Backups", internalOrg, internalName)
+	case "windows":
+		return filepath.Join(os.Getenv("LOCALAPPDATA"), "Backups", internalOrg, internalName)
+	default:
+		return filepath.Join(home, ".local/share/Backups", internalOrg, internalName)
+	}
 }
