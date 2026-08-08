@@ -662,7 +662,8 @@ if cacheSize > 1024*1024*1024 {
 | **VERSION precedence** | `release.txt` wins when present; otherwise use the workflow/build-specific fallback (tag, beta timestamp, etc.) |
 | **LDFLAGS** | `-s -w -X 'main.Version=...' -X 'main.CommitID=...' -X 'main.BuildDate=...' -X 'main.OfficialSite=...'` |
 | **Docker builds on EVERY push** | Any branch push triggers Docker image build |
-| **Docker tags** | Any push → `devel`, `{commit}`; beta → adds `beta`; tag → `{version}`, `latest`, `YYMM`, `{commit}` |
+| **Docker tags** | Any push → `{commit}`; beta → adds `beta`; tag → `{version}`, `latest`, `YYMM`, `{commit}` |
+| **Devel image is a job in docker.yml** | `:devel` is built from `docker/Dockerfile.dev` by the `build-devel` job inside `docker.yml` (daily schedule `0 4 * * *` + non-tag push + `workflow_dispatch`) — never a separate workflow file, and never by the `build-standard` job |
 | **Workflow permissions** | Default to read-only / least privilege; grant write only to the specific release/publish job that needs it |
 | **Third-party action pinning** | External actions MUST be pinned to a full commit SHA — never float on `@main`, `@master`, or broad tags; verify runtime and maintenance status on every SHA update |
 | **Unsafe PR triggers forbidden by default** | Do NOT use `pull_request_target` for untrusted code execution, build, test, or artifact upload paths |
@@ -2232,16 +2233,16 @@ server:
 
 ## How to Read This Large File
 
-**AI.md is ~1.7MB and ~45,620 lines. You CANNOT read it all at once. Follow these procedures.**
+**AI.md is ~1.7MB and ~46,050 lines. You CANNOT read it all at once. Follow these procedures.**
 
 ### File Size Reality
 
 | Constraint | Value |
 |------------|-------|
 | File size | ~1.7MB |
-| Line count | ~45,620 lines |
+| Line count | ~46,050 lines |
 | Read limit | ~500 lines per read |
-| Full reads needed | ~92 reads (impractical) |
+| Full reads needed | ~93 reads (impractical) |
 
 **Use the PART index to find relevant sections, then read each section COMPLETELY.**
 
@@ -5779,7 +5780,7 @@ package main
 |-------|-------|
 | **Name** | {project_name} |
 | **Organization** | {project_org} |
-| **Official Site** | https://{project_name}.{project_org}.us |
+| **Official Site** | `{official_site}` (e.g. `https://{project_name}.example.com`) |
 | **Repository** | {PLATFORM_REPO_URL} |
 | **README** | README.md |
 | **License** | MIT > LICENSE.md |
@@ -6816,9 +6817,9 @@ Before proceeding, confirm you understand:
 ```yaml
 volumes:
   # Host ./volumes/config → Container /config
-  - './volumes/config:/config:z'
+  - ./volumes/config:/config:z
   # Host ./volumes/data → Container /data
-  - './volumes/data:/data:z'
+  - ./volumes/data:/data:z
 ```
 
 ---
@@ -10477,7 +10478,7 @@ PHASE 5: Server startup (actual server start)
 8. IF RUNNING AS ROOT - setup system resources BEFORE dropping privileges:
    a. Check/create system user:
       ├─ User {project_name} exists → use it
-      └─ User missing → create {internal_name}:{internal_name} (see PART 24)
+      └─ User missing → create {internal_name}:{internal_name} (see PART 23)
    b. Create ALL directories (while still root):
       ├─ {config_dir}/ and subdirs (ssl/, tor/)
       ├─ {data_dir}/ and subdirs (db/, security/, tor/, tor/site/)
@@ -10973,7 +10974,7 @@ myapp is running (PID 12345)
 **Used for Docker/compose healthcheck:**
 ```yaml
 healthcheck:
-  test: /usr/local/bin/{project_name} --status
+  test: ["CMD", "/usr/local/bin/{project_name}", "--status"]
   interval: 10s
   timeout: 5s
   retries: 3
@@ -13167,7 +13168,7 @@ func warmCache(ctx context.Context) error {
 | Schema changes | Idempotent `ALTER TABLE` on startup |
 | No migrations table | Keep it simple |
 
-See **Database Schema for Configuration** section in PART 5 for full table definitions.
+See **Full Database Schema Summary** section in PART 5 for full table definitions.
 
 ### Schema Updates (Idempotent Approach)
 
@@ -13790,7 +13791,7 @@ The root secret all other derived material hangs off. Without it, in-flight HMAC
 | Generated | First start. Stored in `server.db` row `app_secrets.installation_secret`, base64-encoded. |
 | Scope | Server-wide. Generated on first start and persisted to `server.db`. NEVER appears in a request, response, or log. |
 | Used by | `{security_id}` HMAC (PART 11 → "Security Reports"); PGP private-key KDF (PART 11 → "GPG Keypair Management"); future derived material (cookie signing salts, etc.). |
-| Rotation | Manual via `--maintenance secret rotate installation_secret` (PART 5 → "Secret Rotation"). Sensitive-operation flow (PART 5 → "Sensitive Operations"): re-prompt for the operator token, log to `audit.log` as `security.installation_secret_rotated`. Rotation re-encrypts the PGP private key and re-bases all live HMACs. The previous secret is kept for 7 days to validate any in-flight `{security_id}` URLs that referenced it. |
+| Rotation | Manual via `--maintenance secret rotate installation_secret` (PART 11 → "Secret Rotation"). Sensitive-operation flow (PART 5 → "Sensitive Operations"): re-prompt for the operator token, log to `audit.log` as `security.installation_secret_rotated`. Rotation re-encrypts the PGP private key and re-bases all live HMACs. The previous secret is kept for 7 days to validate any in-flight `{security_id}` URLs that referenced it. |
 | Backup | Always — see PART 21 → "Backup Contents". Required for any restore: without it, the PGP private key in the backup is undecryptable. |
 | Loss = catastrophic | Lost = cannot decrypt PGP private key (and therefore cannot decrypt in-flight encrypted security reports); cannot validate `{security_id}` URLs on existing security.txt copies until the file regenerates. Recovery requires the operator to: regenerate keypair, regenerate `installation_secret`, accept that all in-flight encrypted reports are unreadable. |
 
@@ -13805,7 +13806,7 @@ The root secret all other derived material hangs off. Without it, in-flight HMAC
 
 | Key | Length | Storage | Purpose | Rotation |
 |-----|--------|---------|---------|----------|
-| `server.security.encryption_key` | 32 bytes (AES-256-GCM) | `server.yml` (auto-generated on first run) | At-rest encryption for ALL sensitive server data: API token hashes, security report bodies (used as the AES fallback when no PGP keypair exists, see PART 11 → "Security Reports"), and any future at-rest encrypted data. | Manual via `--maintenance secret rotate encryption_key` (PART 5 → "Secret Rotation"). Sensitive-operation flow (PART 5 → "Sensitive Operations"): re-prompt for the operator token, log to `audit.log` as `security.encryption_key_rotated`. 30-day grace for in-flight encrypted data. |
+| `server.security.encryption_key` | 32 bytes (AES-256-GCM) | `server.yml` (auto-generated on first run) | At-rest encryption for ALL sensitive server data: API token hashes, security report bodies (used as the AES fallback when no PGP keypair exists, see PART 11 → "Security Reports"), and any future at-rest encrypted data. | Manual via `--maintenance secret rotate encryption_key` (PART 11 → "Secret Rotation"). Sensitive-operation flow (PART 5 → "Sensitive Operations"): re-prompt for the operator token, log to `audit.log` as `security.encryption_key_rotated`. 30-day grace for in-flight encrypted data. |
 
 ### Secret Rotation (`--maintenance secret` / `server.token`)
 
@@ -27664,7 +27665,7 @@ server:
 | **Scheduler metrics** | If using background scheduler (PART 18) |
 | **System metrics** | If `include_system: true` in config |
 | **Runtime metrics** | If `include_runtime: true` in config |
-| **Business metrics** | App-specific (users, sessions, etc.) |
+| **Business metrics** | App-specific domain counters (items, jobs, records processed, etc. — this template has no user accounts, so no users/sessions metrics) |
 
 ## Complete Metrics Reference
 
@@ -27832,23 +27833,23 @@ server:
 
 # HELP {project_name}_http_requests_total Total number of HTTP requests
 # TYPE {project_name}_http_requests_total counter
-{project_name}_http_requests_total{method="GET",path="/api/v1/users",status="200"} 1523
-{project_name}_http_requests_total{method="GET",path="/api/v1/users/:id",status="200"} 892
-{project_name}_http_requests_total{method="GET",path="/api/v1/users/:id",status="404"} 23
-{project_name}_http_requests_total{method="POST",path="/api/v1/users",status="201"} 42
+{project_name}_http_requests_total{method="GET",path="/api/v1/items",status="200"} 1523
+{project_name}_http_requests_total{method="GET",path="/api/v1/items/:id",status="200"} 892
+{project_name}_http_requests_total{method="GET",path="/api/v1/items/:id",status="404"} 23
+{project_name}_http_requests_total{method="POST",path="/api/v1/items",status="201"} 42
 {project_name}_http_requests_total{method="GET",path="/server/healthz",status="200"} 8640
 
 # HELP {project_name}_http_request_duration_seconds HTTP request duration in seconds
 # TYPE {project_name}_http_request_duration_seconds histogram
-{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="0.001"} 120
-{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="0.005"} 890
-{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="0.01"} 1400
-{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="0.025"} 1500
-{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="0.05"} 1510
-{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="0.1"} 1520
-{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/users",le="+Inf"} 1523
-{project_name}_http_request_duration_seconds_sum{method="GET",path="/api/v1/users"} 12.456
-{project_name}_http_request_duration_seconds_count{method="GET",path="/api/v1/users"} 1523
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/items",le="0.001"} 120
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/items",le="0.005"} 890
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/items",le="0.01"} 1400
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/items",le="0.025"} 1500
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/items",le="0.05"} 1510
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/items",le="0.1"} 1520
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/items",le="+Inf"} 1523
+{project_name}_http_request_duration_seconds_sum{method="GET",path="/api/v1/items"} 12.456
+{project_name}_http_request_duration_seconds_count{method="GET",path="/api/v1/items"} 1523
 
 # HELP {project_name}_http_active_requests Number of active HTTP requests
 # TYPE {project_name}_http_active_requests gauge
@@ -28125,17 +28126,17 @@ var (
     )
 
     // Business metrics
-    UsersTotal = promauto.NewGauge(
+    ItemsTotal = promauto.NewGauge(
         prometheus.GaugeOpts{
-            Name: "{project_name}_users_total",
-            Help: "Total number of registered users",
+            Name: "{project_name}_items_total",
+            Help: "Total number of items",
         },
     )
 
-    UsersActive = promauto.NewGauge(
+    ItemsActive = promauto.NewGauge(
         prometheus.GaugeOpts{
-            Name: "{project_name}_users_active",
-            Help: "Number of users active in last 24 hours",
+            Name: "{project_name}_items_active",
+            Help: "Number of items updated in last 24 hours",
         },
     )
 
@@ -28706,16 +28707,16 @@ func StartUptimeUpdater() {
 ```
 # HELP {project_name}_http_requests_total Total number of HTTP requests
 # TYPE {project_name}_http_requests_total counter
-{project_name}_http_requests_total{method="GET",path="/api/{api_version}/users",status="200"} 1523
-{project_name}_http_requests_total{method="POST",path="/api/{api_version}/users",status="201"} 42
+{project_name}_http_requests_total{method="GET",path="/api/{api_version}/items",status="200"} 1523
+{project_name}_http_requests_total{method="POST",path="/api/{api_version}/items",status="201"} 42
 
 # HELP {project_name}_http_request_duration_seconds HTTP request duration in seconds
 # TYPE {project_name}_http_request_duration_seconds histogram
-{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/users",le="0.01"} 1400
-{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/users",le="0.1"} 1520
-{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/users",le="+Inf"} 1523
-{project_name}_http_request_duration_seconds_sum{method="GET",path="/api/{api_version}/users"} 12.456
-{project_name}_http_request_duration_seconds_count{method="GET",path="/api/{api_version}/users"} 1523
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/items",le="0.01"} 1400
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/items",le="0.1"} 1520
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/items",le="+Inf"} 1523
+{project_name}_http_request_duration_seconds_sum{method="GET",path="/api/{api_version}/items"} 12.456
+{project_name}_http_request_duration_seconds_count{method="GET",path="/api/{api_version}/items"} 1523
 
 # HELP {project_name}_db_connections_open Number of open database connections
 # TYPE {project_name}_db_connections_open gauge
@@ -28829,7 +28830,7 @@ groups:
 
 ```json
 {
-  "title": "{PROJECT_NAME} Metrics",
+  "title": "{project_name} Metrics",
   "panels": [
     {
       "title": "Request Rate",
@@ -29195,47 +29196,6 @@ Every backup is verified **immediately after creation** - backups must be 100% w
 | `backup.daily_updated` | Daily incremental updated | Filename, changes since last |
 | `backup.skipped_disk_full` | Backup skipped — insufficient free space or disk above threshold | Free space, disk usage %, threshold |
 
-### Backup Files Created (Single Task at 02:00)
-
-**The backup task creates TWO files each run:**
-
-| File | Description | Retention |
-|------|-------------|-----------|
-| `{project_name}_backup_YYYY-MM-DD.tar.gz[.enc]` | Full backup (yesterday's data) | Controlled by `max_backups` |
-| `{project_name}-daily.tar.gz[.enc]` | Daily incremental (changes since full) | Always 1 (replaced each run) |
-| `{project_name}-hourly.tar.gz[.enc]` | Hourly incremental (if enabled) | Always 1 (replaced each run) |
-
-### Retention Configuration
-
-```yaml
-server:
-  backup:
-    retention:
-      # Full backups to keep (default: 1 = yesterday only)
-      max_backups: 1
-      # Optional: keep weekly backup (e.g., every Sunday's backup)
-      keep_weekly: 0
-      # Optional: keep monthly backup (e.g., 1st of month)
-      keep_monthly: 0
-      # Optional: keep yearly backup (e.g., Jan 1st)
-      keep_yearly: 0
-      # Hard size cap: percent of backup volume or absolute size; 0 = disabled
-      max_total_size: "10%"
-```
-
-**Retention Settings:**
-
-| Setting | Default | Valid | Description |
-|---------|---------|-------|-------------|
-| `max_backups` | 1 | ≥1 | Daily full backups to keep |
-| `keep_weekly` | 0 | ≥0 | Weekly backups (Sunday) - 0 = disabled |
-| `keep_monthly` | 0 | ≥0 | Monthly backups (1st) - 0 = disabled |
-| `keep_yearly` | 0 | ≥0 | Yearly backups (Jan 1st) - 0 = disabled |
-| `max_total_size` | `"10%"` | % or bytes | Hard size cap (e.g. `"10%"`, `"50G"`); `0` = disabled; overrides count limits |
-
-**Falsey Values (all mean disabled):**
-- `0`, `false`, `no`, `none`, `disable`, `disabled`, `off`
-
 **Validation (warn, don't error - server must start):**
 
 | Value | Behavior |
@@ -29276,10 +29236,6 @@ WARN: keep_monthly: 24 exceeds recommended 12 (2 years of monthly backups)
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Default: 2 files total (yesterday + today's incremental)**
-
-**With hourly enabled: 3 files total** (yesterday + daily + hourly incrementals)
-
 **Retention Priority Order:**
 ```
 1. Yearly (Jan 1st) - highest priority, never deleted if in keep_yearly count
@@ -29287,6 +29243,16 @@ WARN: keep_monthly: 24 exceeds recommended 12 (2 years of monthly backups)
 3. Weekly (Sunday) - next priority
 4. Daily (max_backups) - lowest priority, oldest deleted first
 ```
+
+### Backup Files Created (Single Task at 02:00)
+
+**The backup task creates TWO files each run:**
+
+| File | Description | Retention |
+|------|-------------|-----------|
+| `{project_name}_backup_YYYY-MM-DD.tar.gz[.enc]` | Full backup (yesterday's data) | Controlled by `max_backups` |
+| `{project_name}-daily.tar.gz[.enc]` | Daily incremental (changes since full) | Always 1 (replaced each run) |
+| `{project_name}-hourly.tar.gz[.enc]` | Hourly incremental (if enabled) | Always 1 (replaced each run) |
 
 **Example: Default settings (max=1, weekly=0, monthly=0, yearly=0)**
 ```
@@ -29327,12 +29293,11 @@ retention:
 Backups on disk (January 15, 2026):
   myapp_backup_2026-01-15.tar.gz.enc    ← Yesterday (daily)
   myapp_backup_2026-01-12.tar.gz.enc    ← Last Sunday (weekly)
-  myapp_backup_2026-01-01.tar.gz.enc    ← 1st of Jan 2026 (monthly + yearly)
+  myapp_backup_2026-01-01.tar.gz.enc    ← 1st of Jan 2026 (yearly — highest priority)
   myapp_backup_2025-12-01.tar.gz.enc    ← 1st of Dec 2025 (monthly, kept until Feb)
-  myapp_backup_2025-01-01.tar.gz.enc    ← 1st of Jan 2025 (yearly)
   myapp-daily.tar.gz.enc                 ← Incremental
 
-Total: 6 files (1 daily + 1 weekly + 2 monthly + 1 yearly + incremental)
+Total: 5 files (1 daily + 1 weekly + 1 monthly + 1 yearly + incremental)
 ```
 
 **Backup Cleanup Logic (runs at startup and after every backup):**
@@ -29427,17 +29392,6 @@ Restoring...
 │                                         │
 │           [Cancel]  [Restore]           │
 └─────────────────────────────────────────┘
-```
-
-**CLI Restore:**
-
-```bash
-# Encrypted backup - password required
-{project_name} --maintenance restore backup_2025-01-15.tar.gz.enc
-# Prompts for password
-
-# Unencrypted backup - no password
-{project_name} --maintenance restore backup_2025-01-15.tar.gz
 ```
 
 ### Restore Verification
@@ -30419,8 +30373,6 @@ useradd --system --uid {id} --gid {id} \
 ```
 
 **Default rule:** create and use a dedicated service user/group.
-
-**Exception:** skip dedicated user creation only when the project is explicitly approved to run permanently as root/Administrator in IDEA.md.
 
 **Exception:** skip dedicated user creation only when the project is explicitly approved to run permanently as root/Administrator in IDEA.md.
 
@@ -31885,8 +31837,8 @@ All compose files mount two volumes:
 
 ```yaml
 volumes:
-  - './volumes/config:/config:z'
-  - './volumes/data:/data:z'
+  - ./volumes/config:/config:z
+  - ./volumes/data:/data:z
 ```
 
 | Host Path | Container Path |
@@ -32194,13 +32146,13 @@ exec $APP_BIN $FLAGS "$@"
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TZ` | `America/New_York` | Timezone for app and scheduler |
-| `MODE` | `development` | `production` (strict) or `development` (relaxed) |
+| `MODE` | `development` | `production` (strict) or `development` (relaxed) — `dev` and `devel` are accepted synonyms for `development` |
 | `DEBUG` | `false` | Enable ALL debug features (pprof, expvar, detailed logging) |
 | `ADDRESS` | `0.0.0.0` | Listen address |
 | `PORT` | `80` | Listen port (update docker-compose ports: to match) |
 
 **MODE vs DEBUG:**
-- `MODE=development`: Relaxed security, verbose logging, no caching (sensible for local dev)
+- `MODE=development` (also accepts `MODE=dev` / `MODE=devel` — all three are synonymous): Relaxed security, verbose logging, no caching (sensible for local dev)
 - `MODE=production`: Strict security, minimal logging, caching enabled
 - `DEBUG=true`: Enables debug endpoints (`/debug/*`), regardless of MODE
 
@@ -32228,6 +32180,8 @@ exec $APP_BIN $FLAGS "$@"
 
 ### Production Compose (`docker/docker-compose.yml`)
 
+**⚠️ FOR HUMAN USE ONLY — AI assistants must NEVER run this file.**
+
 App + Valkey for persistent session/rate-limit cache. NO `DEBUG`/`MODE` env vars — the binary defaults to production behavior.
 
 ```yaml
@@ -32238,8 +32192,8 @@ name: {project_name}
 
 x-logging: &default-logging
   options:
-    max-size: '5m'
-    max-file: '1'
+    max-size: "5m"
+    max-file: "1"
   driver: json-file
 
 services:
@@ -32258,12 +32212,12 @@ services:
       # DATABASE_DRIVER: libsql
       # DATABASE_URL: libsql://your-db.turso.io?authToken={token}
     volumes:
-      - './volumes/config:/config:z'
-      - './volumes/data:/data:z'
+      - ./volumes/config:/config:z
+      - ./volumes/data:/data:z
     ports:
-      - '172.17.0.1:64580:80'
+      - "172.17.0.1:64580:80"
     healthcheck:
-      test: /usr/local/bin/{project_name} --status
+      test: ["CMD", "/usr/local/bin/{project_name}", "--status"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -32281,9 +32235,9 @@ services:
     restart: always
     logging: *default-logging
     volumes:
-      - './volumes/data/db/valkey:/data:z'
+      - ./volumes/data/db/valkey:/data:z
     healthcheck:
-      test: valkey-cli ping || exit 1
+      test: ["CMD-SHELL", "valkey-cli ping || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -32301,15 +32255,17 @@ networks:
 
 | Field | Value | Description |
 |-------|-------|-------------|
-| `name:` | `{project_name}` | Top-level compose project name |
-| `container_name:` | `{project_name}-app`, `{project_name}-db` | e.g., `jokes-app`, `jokes-db` |
+| `name:` (production, `docker-compose.yml`) | `{project_name}` | Top-level compose project name — no suffix |
+| `name:` (development, `docker-compose.dev.yml`) | `{project_name}-dev` | Suffixed so the dev stack can run alongside prod |
+| `name:` (test, `docker-compose.test.yml`) | `{project_name}-test` | Suffixed so the test stack can run alongside prod/dev |
+| `container_name:` | `{project_name}-app`, `{project_name}-db` | e.g., `jokes-app`, `jokes-db` (container names are not suffixed by mode) |
 | Main service | `{project_name}` | Service name matches project name |
 | Database service | `{project_name}-db` | Database service name |
-| `hostname:` | `{project_name}` | Hardcoded container hostname |
+| `hostname:` | `{project_name}` | Hardcoded container hostname — same across all three modes |
 | `restart:` | `always` | Always restart on failure |
 | `pull_policy:` | `always` | Always pull latest image |
 | `logging:` | `*default-logging` | Use the logging anchor |
-| `networks:` | `{project_name}` | Isolated network per project |
+| `networks:` | `{project_name}` (prod) / `{project_name}-dev` (dev) / `{project_name}-test` (test) | Isolated network per project, suffixed to match the compose `name:` for that mode so stacks can coexist |
 
 ### Logging Anchor
 
@@ -32319,9 +32275,9 @@ networks:
 x-logging: &default-logging
   options:
     # Max 5MB per log file
-    max-size: '5m'
+    max-size: "5m"
     # Keep only 1 log file
-    max-file: '1'
+    max-file: "1"
   # JSON format for parsing
   driver: json-file
 ```
@@ -32335,18 +32291,20 @@ services:
 
 ### Development Compose (`docker/docker-compose.dev.yml`)
 
+**FOR HUMAN USE ONLY — AI assistants must NEVER run this file.**
+
 Single-service, in-process memory cache, debug mode enabled. Uses the `:devel` image.
 
 ```yaml
 # nginx proxy address - http://172.17.0.1:{port}
 # {project_name} - development
 
-name: {project_name}
+name: {project_name}-dev
 
 x-logging: &default-logging
   options:
-    max-size: '5m'
-    max-file: '1'
+    max-size: "5m"
+    max-file: "1"
   driver: json-file
 
 services:
@@ -32363,23 +32321,23 @@ services:
       MODE: dev
       TZ: America/New_York
     volumes:
-      - './volumes/config:/config:z'
-      - './volumes/data:/data:z'
+      - ./volumes/config:/config:z
+      - ./volumes/data:/data:z
     ports:
       # Development: accessible from all interfaces, no 172.17.0.1 bind
-      - '64580:80'
+      - "64580:80"
     healthcheck:
-      test: /usr/local/bin/{project_name} --status
+      test: ["CMD", "/usr/local/bin/{project_name}", "--status"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 90s
     networks:
-      - {project_name}
+      - {project_name}-dev
 
 networks:
-  {project_name}:
-    name: {project_name}
+  {project_name}-dev:
+    name: {project_name}-dev
     external: false
 ```
 
@@ -32563,157 +32521,6 @@ rm -rf "$TEMP_DIR"
 - No outdated `.env.example` files to maintain
 - Users can override by editing docker-compose.yml directly
 
-### Docker Compose (Development) - HUMAN USE ONLY
-
-**Location:** `docker/docker-compose.dev.yml`
-
-**FOR HUMAN USE ONLY — AI assistants must NEVER use this file.**
-
-Development mode with in-process memory cache and debug enabled. Uses the `:devel` image.
-
-```yaml
-# nginx proxy address - http://172.17.0.1:{port}
-# {project_name} - development
-
-name: {project_name}
-
-x-logging: &default-logging
-  options:
-    max-size: '5m'
-    max-file: '1'
-  driver: json-file
-
-services:
-  {project_name}:
-    image: {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:devel
-    pull_policy: always
-    container_name: {project_name}-app
-    restart: always
-    logging: *default-logging
-    environment:
-      PORT: 80
-      DEBUG: 1
-      MODE: dev
-      TZ: America/New_York
-    ports:
-      # Development: accessible from all interfaces, no 172.17.0.1 bind
-      - '64580:80'
-    volumes:
-      - './volumes/config:/config:z'
-      - './volumes/data:/data:z'
-    healthcheck:
-      test: /usr/local/bin/{project_name} --status
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 90s
-    networks:
-      - {project_name}
-
-networks:
-  {project_name}:
-    name: {project_name}
-    external: false
-```
-
-**Run:**
-```bash
-mkdir -p "${TMPDIR:-/tmp}/{project_org}"
-TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/{project_org}/{internal_name}-XXXXXX")
-mkdir -p "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
-cp docker/docker-compose.dev.yml "$TEMP_DIR/docker-compose.yml"
-cd "$TEMP_DIR" && docker compose up -d
-```
-
-### Docker Compose (Production) - HUMAN USE ONLY
-
-**Location:** `docker/docker-compose.yml`
-
-**⚠️ FOR HUMAN USE ONLY - AI assistants must NEVER use this file.**
-
-Production has NO `DEBUG`/`MODE` env vars. Debug must be set via CLI if needed. Humans deploy this for production use. Includes the Valkey cache service (persistent volume).
-
-```yaml
-name: {project_name}
-
-x-logging: &default-logging
-  options:
-    max-size: '5m'
-    max-file: '1'
-  driver: json-file
-
-services:
-  {project_name}:
-    image: {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest
-    pull_policy: always
-    container_name: {project_name}-app
-    restart: always
-    logging: *default-logging
-    environment:
-      # Production: strict security, minimal logging, caching enabled
-      # NO DEBUG/MODE - debug must be explicitly set via CLI if needed
-      PORT: 80
-      TZ: America/New_York
-      CACHE_URL: valkey://{project_name}-cache:6379
-      # DOMAIN (optional - auto-detects from reverse proxy headers)
-      # DOMAIN: myapp.com,www.myapp.com
-      # SMTP (optional - autodetects if not set)
-      # SMTP_HOST: smtp.example.com
-      # SMTP_PORT: 587
-      # SMTP_USERNAME: user
-      # SMTP_PASSWORD: pass
-    volumes:
-      # TEMP DIR WORKFLOW: ./volumes/ resolves to $TEMP_DIR/volumes/
-      # NEVER run from project directory - always use temp dir workflow
-      - ./volumes/config:/config:z
-      - ./volumes/data:/data:z
-    ports:
-      # Production: bound to Docker bridge only (reverse proxy handles external)
-      - "172.17.0.1:64580:80"
-    healthcheck:
-      test: /usr/local/bin/{project_name} --status
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 90s
-    depends_on:
-      {project_name}-cache:
-        condition: service_healthy
-    networks:
-      - {project_name}
-
-  {project_name}-cache:
-    image: valkey/valkey:alpine
-    pull_policy: always
-    container_name: {project_name}-cache
-    restart: always
-    logging: *default-logging
-    volumes:
-      - ./volumes/data/db/valkey:/data:z
-    healthcheck:
-      test: valkey-cli ping || exit 1
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    networks:
-      - {project_name}
-
-networks:
-  {project_name}:
-    name: {project_name}
-    external: false
-```
-
-**Run:**
-```bash
-mkdir -p "${TMPDIR:-/tmp}/{project_org}"
-TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/{project_org}/{internal_name}-XXXXXX")
-mkdir -p "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
-cp docker/docker-compose.yml "$TEMP_DIR/"
-cd "$TEMP_DIR" && docker compose up -d
-```
-
 ### Docker Compose (Test) - AI/AUTOMATED TESTING
 
 **Location:** `docker/docker-compose.test.yml`
@@ -32727,8 +32534,8 @@ name: {project_name}-test
 
 x-logging: &default-logging
   options:
-    max-size: '5m'
-    max-file: '1'
+    max-size: "5m"
+    max-file: "1"
   driver: json-file
 
 services:
@@ -32736,6 +32543,7 @@ services:
     image: {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest
     pull_policy: always
     container_name: {project_name}-test
+    hostname: {project_name}
     restart: "no"
     logging: *default-logging
     environment:
@@ -32753,7 +32561,7 @@ services:
     ports:
       - "172.17.0.1:64581:80"
     healthcheck:
-      test: /usr/local/bin/{project_name} --status
+      test: ["CMD", "/usr/local/bin/{project_name}", "--status"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -32773,7 +32581,7 @@ services:
     tmpfs:
       - /data
     healthcheck:
-      test: valkey-cli ping || exit 1
+      test: ["CMD-SHELL", "valkey-cli ping || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -32807,8 +32615,8 @@ name: {project_name}
 
 x-logging: &default-logging
   options:
-    max-size: '5m'
-    max-file: '1'
+    max-size: "5m"
+    max-file: "1"
   driver: json-file
 
 services:
@@ -32837,7 +32645,7 @@ services:
       # Production: bound to Docker bridge only (reverse proxy handles external)
       - "172.17.0.1:64580:80"
     healthcheck:
-      test: /usr/local/bin/{project_name} --status
+      test: ["CMD", "/usr/local/bin/{project_name}", "--status"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -32857,7 +32665,7 @@ services:
     volumes:
       - ./volumes/data/db/valkey/{project_name}:/data:z
     healthcheck:
-      test: valkey-cli ping || exit 1
+      test: ["CMD-SHELL", "valkey-cli ping || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -33012,7 +32820,7 @@ networks:
 | `release.yml` | Tag push (`v*`, `*.*.*`) | Production releases |
 | `beta.yml` | Push to `beta` branch | Beta releases |
 | `daily.yml` | Daily at 3am UTC + push to main/master | Daily builds |
-| `docker.yml` | Any push (all branches) + version tags | Docker images |
+| `docker.yml` | Any push (all branches) + version tags + daily schedule | Docker images (standard, beta, devel) |
 > **Note:** `ci.yml` and `release.yml` are required on every project. Go projects never have `build-toolchain.yml` — `casjaysdev/go:latest` is maintained externally. `beta.yml`, `daily.yml`, and `docker.yml` are project-specific optional workflows — include only when the project requires them.
 
 **Branch push auto-cancel policy:** Any workflow triggered by pushes to `main`, `master`, `devel`, `dev`, or `beta` MUST use workflow concurrency to cancel older in-progress runs for the same ref. This applies to branch-based CI (for example `beta.yml`, `daily.yml`, `docker.yml`, and any project-specific branch-push workflow).
@@ -33562,8 +33370,8 @@ jobs:
 
 | Trigger | Tags |
 |---------|------|
-| **Any push** (all branches) | `devel`, `{commit_id}` |
-| Push to beta branch | `devel`, `beta`, `{commit_id}` |
+| **Any push** (all branches) | `{commit_id}` |
+| Push to beta branch | `beta`, `{commit_id}` |
 | Version tag (`v*`, `*.*.*`) | `{version}`, `latest`, `YYMM` |
 
 **Notes:**
@@ -33571,6 +33379,7 @@ jobs:
 - `YYMM` = year/month (e.g., `2512`)
 - Built for `linux/amd64` and `linux/arm64` using `docker buildx`
 - Registry: `ghcr.io`
+- `:devel` is built by the `build-devel` job in this same workflow, from `docker/Dockerfile.dev`, on a daily schedule and on every non-tag push — see the job in the YAML above.
 
 **File:** `.github/workflows/docker.yml`
 
@@ -33584,6 +33393,8 @@ on:
     tags:
       - 'v*'
       - '*.*.*'
+  schedule:
+    - cron: '0 4 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -33598,6 +33409,7 @@ env:
 jobs:
   build-standard:
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     permissions:
       contents: read
       packages: write
@@ -33642,7 +33454,6 @@ jobs:
             TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
             TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.YYMM }}"
           else
-            TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:devel"
             if [[ "${{ github.ref }}" == refs/heads/beta ]]; then
               TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:beta"
             fi
@@ -33690,6 +33501,71 @@ jobs:
             manifest:org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}
             manifest:org.opencontainers.image.licenses=MIT
 
+  build-devel:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/'))
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3  # v4.1.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4.1.0
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set build info
+        run: |
+          echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "BUILD_DATE=$(date +"%a %b %d, %Y at %H:%M:%S %Z")" >> $GITHUB_ENV
+
+      - name: Build and push (devel)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
+        with:
+          context: .
+          file: docker/Dockerfile.dev
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:devel
+          build-args: |
+            BUILD_DATE=${{ env.BUILD_DATE }}
+            COMMIT_ID=${{ env.COMMIT_ID }}
+          labels: |
+            org.opencontainers.image.vendor={project_org}
+            org.opencontainers.image.authors={project_org}
+            org.opencontainers.image.title=${{ env.PROJECT_NAME }}
+            org.opencontainers.image.base.name=${{ env.PROJECT_NAME }}
+            org.opencontainers.image.description=${{ env.PROJECT_NAME }} - development image (alpine, debug mode)
+            org.opencontainers.image.created=${{ env.BUILD_DATE }}
+            org.opencontainers.image.revision=${{ env.COMMIT_ID }}
+            org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.licenses=MIT
+          annotations: |
+            manifest:org.opencontainers.image.vendor={project_org}
+            manifest:org.opencontainers.image.authors={project_org}
+            manifest:org.opencontainers.image.title=${{ env.PROJECT_NAME }}
+            manifest:org.opencontainers.image.base.name=${{ env.PROJECT_NAME }}
+            manifest:org.opencontainers.image.description=${{ env.PROJECT_NAME }} - development image (alpine, debug mode)
+            manifest:org.opencontainers.image.created=${{ env.BUILD_DATE }}
+            manifest:org.opencontainers.image.revision=${{ env.COMMIT_ID }}
+            manifest:org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}
+            manifest:org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            manifest:org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}
+            manifest:org.opencontainers.image.licenses=MIT
+
 ```
 
 **Image Tag Summary:**
@@ -33698,9 +33574,11 @@ jobs:
 |----------|-----------|
 | Latest stable | `{name}:latest` |
 | Specific version | `{name}:1.2.3` |
-| Development | `{name}:devel` |
+| Development | `{name}:devel` (built by the `build-devel` job in `docker.yml`) |
 | Beta | `{name}:beta` |
 | Commit | `{name}:abc1234` |
+
+**Schedule:** `docker.yml` also runs daily at `0 4 * * *` (in addition to push and `workflow_dispatch`) to keep `:devel` fresh even without new commits; the `build-standard` job skips scheduled runs, so only `build-devel` executes on the daily cron.
 
 ---
 
@@ -33755,7 +33633,7 @@ For self-hosted runners, change `runs-on: ubuntu-latest` to your runner label.
 | `release.yml` | Tag push (`v*`, `*.*.*`) | Production releases |
 | `beta.yml` | Push to `beta` branch | Beta releases |
 | `daily.yml` | Daily at 3am UTC + push to main/master | Daily builds |
-| `docker.yml` | Any push (all branches) + version tags | Docker images |
+| `docker.yml` | Any push (all branches) + version tags + daily schedule | Docker images (standard, beta, devel) |
 
 ## Release Workflow — Stable (Gitea/Forgejo Actions)
 
@@ -34212,6 +34090,8 @@ on:
     tags:
       - 'v*'
       - '*.*.*'
+  schedule:
+    - cron: '0 4 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -34227,6 +34107,7 @@ env:
 jobs:
   build-standard:
     runs-on: ubuntu-latest
+    if: gitea.event_name != 'schedule'
     permissions:
       contents: read
       packages: write
@@ -34283,9 +34164,6 @@ jobs:
             TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
             TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.YYMM }}"
           else
-            # All pushes get devel tag
-            TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:devel"
-
             # Beta branch also gets beta tag
             if [[ "${{ gitea.ref }}" == refs/heads/beta ]]; then
               TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:beta"
@@ -34334,7 +34212,81 @@ jobs:
             manifest:org.opencontainers.image.documentation=${{ gitea.server_url }}/${{ gitea.repository }}
             manifest:org.opencontainers.image.licenses=MIT
 
+  build-devel:
+    runs-on: ubuntu-latest
+    if: gitea.event_name == 'schedule' || gitea.event_name == 'workflow_dispatch' || (gitea.event_name == 'push' && !startsWith(gitea.ref, 'refs/tags/'))
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3  # v4.1.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4.1.0
+
+      - name: Set registry from server URL
+        run: |
+          SERVER_URL="${{ gitea.server_url }}"
+          REGISTRY="${SERVER_URL#https://}"
+          REGISTRY="${REGISTRY#http://}"
+          echo "REGISTRY=${REGISTRY}" >> $GITEA_ENV
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ gitea.actor }}
+          password: ${{ secrets.GITEA_TOKEN }}
+
+      - name: Set build info
+        run: |
+          echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITEA_ENV
+          echo "BUILD_DATE=$(date +"%a %b %d, %Y at %H:%M:%S %Z")" >> $GITEA_ENV
+
+      - name: Build and push (devel)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
+        with:
+          context: .
+          file: docker/Dockerfile.dev
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:devel
+          build-args: |
+            BUILD_DATE=${{ env.BUILD_DATE }}
+            COMMIT_ID=${{ env.COMMIT_ID }}
+          labels: |
+            org.opencontainers.image.vendor={project_org}
+            org.opencontainers.image.authors={project_org}
+            org.opencontainers.image.title=${{ env.PROJECT_NAME }}
+            org.opencontainers.image.base.name=${{ env.PROJECT_NAME }}
+            org.opencontainers.image.description=${{ env.PROJECT_NAME }} - development image (alpine, debug mode)
+            org.opencontainers.image.created=${{ env.BUILD_DATE }}
+            org.opencontainers.image.revision=${{ env.COMMIT_ID }}
+            org.opencontainers.image.url=${{ gitea.server_url }}/${{ gitea.repository }}
+            org.opencontainers.image.source=${{ gitea.server_url }}/${{ gitea.repository }}
+            org.opencontainers.image.documentation=${{ gitea.server_url }}/${{ gitea.repository }}
+            org.opencontainers.image.licenses=MIT
+          annotations: |
+            manifest:org.opencontainers.image.vendor={project_org}
+            manifest:org.opencontainers.image.authors={project_org}
+            manifest:org.opencontainers.image.title=${{ env.PROJECT_NAME }}
+            manifest:org.opencontainers.image.base.name=${{ env.PROJECT_NAME }}
+            manifest:org.opencontainers.image.description=${{ env.PROJECT_NAME }} - development image (alpine, debug mode)
+            manifest:org.opencontainers.image.created=${{ env.BUILD_DATE }}
+            manifest:org.opencontainers.image.revision=${{ env.COMMIT_ID }}
+            manifest:org.opencontainers.image.url=${{ gitea.server_url }}/${{ gitea.repository }}
+            manifest:org.opencontainers.image.source=${{ gitea.server_url }}/${{ gitea.repository }}
+            manifest:org.opencontainers.image.documentation=${{ gitea.server_url }}/${{ gitea.repository }}
+            manifest:org.opencontainers.image.licenses=MIT
+
 ```
+
+**Schedule:** `docker.yml` also runs daily at `0 4 * * *` (in addition to push and `workflow_dispatch`) to keep `:devel` fresh even without new commits; the `build-standard` job skips scheduled runs, so only `build-devel` executes on the daily cron.
 
 ## Variable Mapping (GitHub → Gitea → Forgejo)
 
@@ -34741,10 +34693,10 @@ docker:build:
         TAGS="-t $CI_REGISTRY_IMAGE:$VERSION -t $CI_REGISTRY_IMAGE:latest -t $CI_REGISTRY_IMAGE:$YYMM -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
       elif [ "$CI_COMMIT_BRANCH" = "beta" ]; then
         VERSION="beta-$CI_COMMIT_SHORT_SHA"
-        TAGS="-t $CI_REGISTRY_IMAGE:beta -t $CI_REGISTRY_IMAGE:devel -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+        TAGS="-t $CI_REGISTRY_IMAGE:beta -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
       else
-        VERSION="devel-$CI_COMMIT_SHORT_SHA"
-        TAGS="-t $CI_REGISTRY_IMAGE:devel -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+        VERSION="$CI_COMMIT_SHORT_SHA"
+        TAGS="-t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
       fi
       BUILD_DATE="$(date -Iseconds)"
     - |
@@ -34787,6 +34739,65 @@ docker:build:
     - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"
     - if: $CI_COMMIT_BRANCH == "beta"
 
+# =============================================================================
+# DEVEL IMAGE BUILD (own job — push to any branch + daily schedule)
+# =============================================================================
+# :devel is never built by docker:build above — Dockerfile.dev is built here,
+# on every push (excluding tags) and once daily via a scheduled pipeline, so a
+# broken Dockerfile.dev can never block the release docker:build job. MODE=devel
+# is baked into Dockerfile.dev via ENV — no extra build-arg needed here.
+
+docker:devel:
+  stage: docker
+  image: docker:latest
+  services:
+    - docker:dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_BUILDKIT: "1"
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker buildx create --name multiarch-builder --use 2>/dev/null || docker buildx use multiarch-builder
+  script:
+    - |
+      BUILD_DATE="$(date -Iseconds)"
+    - |
+      docker buildx build \
+        -f docker/Dockerfile.dev \
+        --platform linux/amd64,linux/arm64 \
+        --build-arg COMMIT_ID="${CI_COMMIT_SHORT_SHA}" \
+        --build-arg BUILD_DATE="${BUILD_DATE}" \
+        --label "org.opencontainers.image.vendor=${PROJECT_ORG}" \
+        --label "org.opencontainers.image.authors=${PROJECT_ORG}" \
+        --label "org.opencontainers.image.title=${PROJECT_NAME}" \
+        --label "org.opencontainers.image.base.name=${PROJECT_NAME}" \
+        --label "org.opencontainers.image.description=${PROJECT_NAME} - development image (alpine, debug mode)" \
+        --label "org.opencontainers.image.licenses=MIT" \
+        --label "org.opencontainers.image.created=${BUILD_DATE}" \
+        --label "org.opencontainers.image.revision=${CI_COMMIT_SHORT_SHA}" \
+        --label "org.opencontainers.image.url=${CI_PROJECT_URL}" \
+        --label "org.opencontainers.image.source=${CI_PROJECT_URL}" \
+        --label "org.opencontainers.image.documentation=${CI_PROJECT_URL}" \
+        --annotation "manifest:org.opencontainers.image.vendor=${PROJECT_ORG}" \
+        --annotation "manifest:org.opencontainers.image.authors=${PROJECT_ORG}" \
+        --annotation "manifest:org.opencontainers.image.title=${PROJECT_NAME}" \
+        --annotation "manifest:org.opencontainers.image.base.name=${PROJECT_NAME}" \
+        --annotation "manifest:org.opencontainers.image.description=${PROJECT_NAME} - development image (alpine, debug mode)" \
+        --annotation "manifest:org.opencontainers.image.licenses=MIT" \
+        --annotation "manifest:org.opencontainers.image.created=${BUILD_DATE}" \
+        --annotation "manifest:org.opencontainers.image.revision=${CI_COMMIT_SHORT_SHA}" \
+        --annotation "manifest:org.opencontainers.image.url=${CI_PROJECT_URL}" \
+        --annotation "manifest:org.opencontainers.image.source=${CI_PROJECT_URL}" \
+        --annotation "manifest:org.opencontainers.image.documentation=${CI_PROJECT_URL}" \
+        -t $CI_REGISTRY_IMAGE:devel \
+        --push \
+        .
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_COMMIT_TAG
+      when: never
+    - when: on_success
+
 ```
 
 ## GitLab CI Variables
@@ -34808,6 +34819,16 @@ Create in GitLab Project → Build → Pipeline schedules:
 |-------|-------|
 | Description | Daily Build |
 | Interval Pattern | `0 3 * * *` (3am UTC daily) |
+| Cron Timezone | UTC |
+| Target Branch | `main` or `master` |
+| Activated | Yes |
+
+Also create a second schedule for the devel image, so `docker:devel` runs daily even without new commits:
+
+| Field | Value |
+|-------|-------|
+| Description | Daily Devel Image Build |
+| Interval Pattern | `0 4 * * *` (4am UTC daily) |
 | Cron Timezone | UTC |
 | Target Branch | `main` or `master` |
 | Activated | Yes |
@@ -34855,6 +34876,7 @@ Jenkins provides equivalent functionality to GitHub Actions, Gitea Actions, and 
 | Main/master | `when { anyOf { branch 'main'; branch 'master' } }` | `daily.yml` |
 | Scheduled | `triggers { cron('0 3 * * *') }` | `daily.yml` schedule |
 | All branches | Default (no `when`) | `docker.yml` |
+| All branches + daily | Default (no `when`) + `triggers { cron('0 4 * * *') }` | `docker.yml` `build-devel` job |
 
 ## Jenkinsfile
 
@@ -34865,8 +34887,9 @@ pipeline {
     agent none
 
     triggers {
-        // Daily build at 3am UTC (matches GitHub Actions daily.yml)
-        cron('0 3 * * *')
+        // Daily build at 3am UTC (matches GitHub Actions daily.yml) and
+        // daily devel image rebuild at 4am UTC (matches docker.yml build-devel job)
+        cron('0 3 * * *\n0 4 * * *')
     }
 
     environment {
@@ -35339,13 +35362,12 @@ pipeline {
                         tags += " -t ${REGISTRY}:latest"
                         tags += " -t ${REGISTRY}:${yymm}"
                     } else if (env.BUILD_TYPE == 'beta') {
-                        // Beta branch - beta, devel
+                        // Beta branch - beta
                         tags += " -t ${REGISTRY}:beta"
-                        tags += " -t ${REGISTRY}:devel"
-                    } else {
-                        // All other branches - devel only
-                        tags += " -t ${REGISTRY}:devel"
                     }
+                    // else: all other branches get only the {commit_id} tag
+                    // above — :devel is built separately by the "Docker: Devel"
+                    // stage below, never by this stage
 
                     // Login to container registry
                     // Works with: ghcr.io, registry.gitlab.com, gitea/forgejo, docker.io
@@ -35387,6 +35409,56 @@ pipeline {
                             --annotation "manifest:org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
                             --annotation "manifest:org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
                             ${tags} \
+                            --push \
+                            .
+                    """
+                }
+            }
+        }
+
+        // Docker Devel - matches docker.yml build-devel job (every push + daily cron, never the main Docker stage)
+        stage('Docker: Devel') {
+            agent { label 'amd64' }
+            steps {
+                script {
+                    // Runs on every push (this pipeline's global cron trigger above
+                    // also fires it daily) and always builds Dockerfile.dev with a
+                    // single static :devel tag - MODE=devel is baked into
+                    // Dockerfile.dev via ENV, no extra build-arg needed here.
+                    sh """
+                        echo "\${GIT_TOKEN}" | docker login ${REGISTRY.split('/')[0]} -u ${PROJECT_ORG} --password-stdin
+                    """
+
+                    sh """
+                        docker buildx create --name ${PROJECT_NAME}-devel-builder --use 2>/dev/null || docker buildx use ${PROJECT_NAME}-devel-builder
+                        docker buildx build \
+                            -f docker/Dockerfile.dev \
+                            --platform linux/amd64,linux/arm64 \
+                            --build-arg COMMIT_ID="${COMMIT_ID}" \
+                            --build-arg BUILD_DATE="${BUILD_DATE}" \
+                            --label "org.opencontainers.image.vendor=${PROJECT_ORG}" \
+                            --label "org.opencontainers.image.authors=${PROJECT_ORG}" \
+                            --label "org.opencontainers.image.title=${PROJECT_NAME}" \
+                            --label "org.opencontainers.image.base.name=${PROJECT_NAME}" \
+                            --label "org.opencontainers.image.description=${PROJECT_NAME} - development image (alpine, debug mode)" \
+                            --label "org.opencontainers.image.licenses=MIT" \
+                            --label "org.opencontainers.image.created=${BUILD_DATE}" \
+                            --label "org.opencontainers.image.revision=${COMMIT_ID}" \
+                            --label "org.opencontainers.image.url=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
+                            --label "org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
+                            --label "org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
+                            --annotation "manifest:org.opencontainers.image.vendor=${PROJECT_ORG}" \
+                            --annotation "manifest:org.opencontainers.image.authors=${PROJECT_ORG}" \
+                            --annotation "manifest:org.opencontainers.image.title=${PROJECT_NAME}" \
+                            --annotation "manifest:org.opencontainers.image.base.name=${PROJECT_NAME}" \
+                            --annotation "manifest:org.opencontainers.image.description=${PROJECT_NAME} - development image (alpine, debug mode)" \
+                            --annotation "manifest:org.opencontainers.image.licenses=MIT" \
+                            --annotation "manifest:org.opencontainers.image.created=${BUILD_DATE}" \
+                            --annotation "manifest:org.opencontainers.image.revision=${COMMIT_ID}" \
+                            --annotation "manifest:org.opencontainers.image.url=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
+                            --annotation "manifest:org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
+                            --annotation "manifest:org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECT_NAME}" \
+                            -t ${REGISTRY}:devel \
                             --push \
                             .
                     """
@@ -35465,6 +35537,7 @@ REGISTRY = "ghcr.io/${PROJECT_ORG}/${PROJECT_NAME}"
 | Beta | `beta.yml` (beta branch) | `BUILD_TYPE == 'beta'` (beta branch) |
 | Daily | `daily.yml` (schedule + main) | `BUILD_TYPE == 'daily'` (cron + main/master) |
 | Docker | `docker.yml` (all branches) | Docker stage (always runs) |
+| Docker devel | `docker.yml` `build-devel` job (all branches + daily schedule) | "Docker: Devel" stage (always runs) + 4am cron |
 
 ---
 
@@ -35485,6 +35558,7 @@ Before proceeding, confirm you understand:
 | Beta release | `beta.yml` | `beta.yml` | `rules: beta` | `BUILD_TYPE == 'beta'` |
 | Daily release | `daily.yml` | `daily.yml` | `rules: schedule` | `BUILD_TYPE == 'daily'` |
 | Docker images | `docker.yml` | `docker.yml` | `docker:build` | Docker stage |
+| Docker devel image | `docker.yml` `build-devel` job | `docker.yml` `build-devel` job | `docker:devel` | "Docker: Devel" stage |
 | Self-hosted | No | Yes | Yes | Yes |
 
 ---
@@ -37707,7 +37781,7 @@ docker run --name "{project_name}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -
 ## Links
 
 - [Repository]({PLATFORM_REPO_URL})
-- [Live Demo](https://{project_name}.{project_org}.us) (if applicable)
+- [Live Demo]({official_site}) (if applicable)
 - [API Documentation](/server/docs/swagger) (Swagger UI)
 - [GraphQL Playground](/server/docs/graphql)
 
@@ -40289,8 +40363,7 @@ func (tm *TorManager) UpdateConfig(config *TorConfig) error {
     // Regenerate torrc with new settings (overwrite existing)
     configDir := paths.GetConfigDir()
     torrcPath := filepath.Join(configDir, "tor", "torrc")
-    controlSocket := filepath.Join(tm.dataDir, "control.sock")
-    torrcContent := getTorConfig(controlSocket, config)
+    torrcContent := getTorConfig(config)
 
     if err := updateTorrc(torrcPath, []byte(torrcContent)); err != nil {
         return fmt.Errorf("failed to update torrc: %w", err)
@@ -40483,7 +40556,6 @@ No impact on binary size - Tor is external. Application binary remains small and
 | Tor config directory | `{config_dir}/tor/` | Server creates with 0700 |
 | Tor config file | `{config_dir}/tor/torrc` | Server generates with 0600 |
 | Tor data directory | `{data_dir}/tor/` | Server creates with 0700 |
-| Control socket | `{data_dir}/tor/control.sock` | Unix/macOS/BSD only |
 | Hidden service keys | `{data_dir}/tor/site/` | Server creates with 0700 |
 | Tor process PID | `{data_dir}/tor/tor.pid` | |
 | Tor log file | `{log_dir}/tor.log` | |
@@ -40657,7 +40729,6 @@ func ensureTorFile(path string, content []byte) error {
 | Config dir | `{config_dir}/tor/` | `0700` | app user | Server creates/enforces |
 | torrc | `{config_dir}/tor/torrc` | `0600` | app user | Server generates |
 | Data dir | `{data_dir}/tor/` | `0700` | app user | Server creates/enforces |
-| Control socket | `{data_dir}/tor/control.sock` | `0600` | app user | Unix only |
 | Site dir | `{data_dir}/tor/site/` | `0700` | app user | Server creates/enforces |
 | Private key | `{data_dir}/tor/site/hs_ed25519_secret_key` | `0600` | app user | Tor creates |
 | Public key | `{data_dir}/tor/site/hs_ed25519_public_key` | `0600` | app user | Tor creates |
@@ -42316,44 +42387,44 @@ import (
 )
 
 const (
-	projectOrg  = "{project_org}"
-	projectName = "{project_name}"
+	internalOrg  = "{internal_org}"
+	internalName = "{internal_name}"
 )
 
 // ConfigDir returns the CLI config directory
 func ConfigDir() string {
 	if runtime.GOOS == "windows" {
-		return filepath.Join(os.Getenv("APPDATA"), projectOrg, projectName)
+		return filepath.Join(os.Getenv("APPDATA"), internalOrg, internalName)
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", projectOrg, projectName)
+	return filepath.Join(home, ".config", internalOrg, internalName)
 }
 
 // DataDir returns the CLI data directory
 func DataDir() string {
 	if runtime.GOOS == "windows" {
-		return filepath.Join(os.Getenv("LOCALAPPDATA"), projectOrg, projectName, "data")
+		return filepath.Join(os.Getenv("LOCALAPPDATA"), internalOrg, internalName, "data")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "share", projectOrg, projectName)
+	return filepath.Join(home, ".local", "share", internalOrg, internalName)
 }
 
 // CacheDir returns the CLI cache directory
 func CacheDir() string {
 	if runtime.GOOS == "windows" {
-		return filepath.Join(os.Getenv("LOCALAPPDATA"), projectOrg, projectName, "cache")
+		return filepath.Join(os.Getenv("LOCALAPPDATA"), internalOrg, internalName, "cache")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".cache", projectOrg, projectName)
+	return filepath.Join(home, ".cache", internalOrg, internalName)
 }
 
 // LogDir returns the CLI log directory
 func LogDir() string {
 	if runtime.GOOS == "windows" {
-		return filepath.Join(os.Getenv("LOCALAPPDATA"), projectOrg, projectName, "log")
+		return filepath.Join(os.Getenv("LOCALAPPDATA"), internalOrg, internalName, "log")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "log", projectOrg, projectName)
+	return filepath.Join(home, ".local", "log", internalOrg, internalName)
 }
 
 // ConfigFile returns the CLI config file path
@@ -44035,6 +44106,8 @@ Free-form prose, 1–3 paragraphs.}
 
 project_name:    {project_name}
 project_org:     {project_org}
+# FROZEN — set at creation, defaults to project_org, never changes
+internal_org:    {project_org}
 # FROZEN — equals project_name on first install, never changes
 internal_name:   {project_name}
 app_name:        {project_name}
@@ -44086,6 +44159,7 @@ high-quality developer humor with category filtering and search.
 
 project_name:    jokes-api
 project_org:     casjay
+internal_org:    casjay
 internal_name:   jokes-api
 app_name:        Jokes API
 official_site:   https://jokes.example.com
@@ -44138,6 +44212,7 @@ clicks, and view statistics.
 
 project_name:    linkshort
 project_org:     casjay
+internal_org:    casjay
 internal_name:   linkshort
 app_name:        LinkShort
 official_site:   https://short.example.com
@@ -44190,6 +44265,7 @@ serves it in a unified format. Provides current conditions, forecasts, and alert
 
 project_name:    weather-api
 project_org:     casjay
+internal_org:    casjay
 internal_name:   weather-api
 app_name:        Weather API
 official_site:   https://weather.example.com
@@ -44351,7 +44427,7 @@ maintainer_email: jane@example.com
 |-------|--------|
 | `docker compose up` in project dir | Use temp directory workflow |
 | Runtime data in project directory | `/tmp/{project_org}/{internal_name}-XXXXXX/` |
-| `mktemp -d` (bare) | `mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX"` |
+| `mktemp -d` (bare) | `mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${INTERNAL_NAME}-XXXXXX"` |
 | `/tmp/myfile` | `/tmp/{project_org}/{internal_name}-XXXXXX/myfile` |
 
 ```bash
@@ -44447,7 +44523,7 @@ make docker
 - [ ] BSD paths: Same as Linux
 - [ ] Docker paths: `/config/`, `/data/`
 - [ ] Root vs user path detection works
-- [ ] All path functions use `{project_org}/{internal_name}` structure
+- [ ] All path functions use `{internal_org}/{internal_name}` structure
 
 **PART 5: Configuration**
 - [ ] Config file: `server.yml` (not .yaml, not .json)
@@ -45824,7 +45900,7 @@ Implement the required client, then any project-specific optional features:
 
 #### Step 10: Project-Specific (IDEA.md)
 
-1. **Fill in IDEA.md in AI.md** - Define project-specific endpoints, data, config
+1. **Fill in IDEA.md** - Define project-specific endpoints, data, config
 2. **Implement project-specific features**
 3. **Add project-specific tests**
 4. **Update documentation with project specifics**
