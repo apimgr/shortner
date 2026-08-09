@@ -896,7 +896,7 @@ The `release` job already has `contents: write` to push assets — this covers t
 ```
 --help                       # Show help (-h allowed)
 --version                    # Show version (-v allowed)
---mode {production|development}
+--mode {production|development|debug}
 --config {config_dir}
 --data {data_dir}
 --log {log_dir}
@@ -1024,7 +1024,7 @@ src/
 │   └── theme/
 │       └── colors.go          # Shared color palette
 ├── mode/
-│   └── mode.go                # Application mode (production/development)
+│   └── mode.go                # Application mode (production/development/debug)
 ├── paths/
 │   └── paths.go               # Path resolution
 ├── ssl/
@@ -2179,6 +2179,7 @@ This distinction exists for clarity. When referring to OS-level resources that b
 | `/server/healthz` | Frontend route - content negotiation (HTML for browsers, JSON for API clients, text for CLI) |
 | `/healthz` | Optional root alias for `/server/healthz` when `server.healthz.root.enabled: true` |
 | `/api/{api_version}/server/healthz` | API route - JSON by default; text via standard API text rules |
+| `/api/healthz` | Unversioned direct alias for machine-friendly versionless probing |
 | `/metrics` | Prometheus - all metrics, internal only |
 
 **Optional root health alias:**
@@ -4152,7 +4153,7 @@ If blocked on current feature:
 
 ### Security & Operations
 ```
-□ Mode detection (production/development) working
+□ Mode detection (production/development/debug) working
 □ Debug flag (--debug/DEBUG) working
 □ SSL/TLS support implemented
 □ User authentication implemented
@@ -5997,7 +5998,7 @@ PROJECT_ORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+
 │   ├── Dockerfile.dev      # devel image — same as release but binary runs in debug mode; tagged :devel (project-specific)
 │   ├── docker-compose.yml  # Production compose (NO debug)
 │   ├── docker-compose.dev.yml  # Development compose
-│   ├── docker-compose.test.yml # Test compose (DEBUG: 1, MODE: dev)
+│   ├── docker-compose.test.yml # Test compose (:devel image, DEBUG: true, MODE: development)
 │   └── rootfs/            # Build-time container filesystem overlay (committed)
 │       ├── usr/
 │       │   └── local/
@@ -7363,9 +7364,14 @@ X-Maintenance-Reason: database_connection
 
 ```json
 {
+  "project": {
+    "name": "My Application",
+    "tagline": "The best app ever",
+    "description": "A brief description of what this application does"
+  },
   "status": "maintenance",
   "version": "1.0.0",
-  "mode": "maintenance",
+  "mode": "production",
   "uptime": "2d 5h 30m",
   "maintenance": {
     "reason": "database_connection",
@@ -7385,6 +7391,8 @@ X-Maintenance-Reason: database_connection
   }
 }
 ```
+
+**`mode` always reports the configured MODE (`production`/`development`/`debug`) — maintenance is a state carried by `status`, never a mode. HTTP code: `503 Service Unavailable`.**
 
 ### Recovery (Automatic)
 
@@ -7673,7 +7681,7 @@ func (req *CreateResourceRequest) Parse() (*Resource, error) {
 | `NO_COLOR` | Disable ANSI color output when set and non-empty (see PART 8) |
 | `TERM` | Terminal type; `TERM=dumb` disables ALL ANSI escapes and forces CLI mode (see PART 7) |
 | `DOMAIN` | FQDN override (highest priority for hostname resolution) |
-| `MODE` | `production` (default) or `development`; shortcuts `prod`, `dev`, `devel` accepted; `debug` = development + debug on unless `DEBUG` is explicitly set (see PART 6) |
+| `MODE` | `production` (default; shortcut `prod`) · `development` (shortcuts `dev`, `devel`) · `debug` (explicit opt-in only — see MODE vs DEBUG in PART 6) |
 | `DATABASE_DRIVER` | `sqlite` (+ `sqlite2`, `sqlite3`), `libsql` (+ `turso`) |
 | `DATABASE_URL` | Database connection string |
 | `SMTP_HOST` | SMTP server hostname (if set, skips autodetect) |
@@ -7800,6 +7808,8 @@ sudo {project_name} --service --install
 
 **Default:** service starts with elevated privileges only when needed, then drops to dedicated service user after privileged setup/port binding.
 
+**Drop timing — the privilege drop is the FINAL root-phase action.** It happens only after ALL root-requiring initialization completes: service user/group creation, directory and file creation, ownership and permission setup, privileged port binding (<1024), and spawning managed child processes (e.g. Tor) with setuid/setgid service-user credentials. Nothing after the drop may require root — anything that does is an init-ordering bug. Immediately after dropping, verify with getuid() != 0.
+
 **Permanent-root exception:** allowed only for project-defined cases such as firewall control, packet capture, TUN/TAP/VPN, mount/filesystem management, package/service management, or other ongoing kernel/device operations.
 
 | Step | Running As | Actions |
@@ -7808,15 +7818,17 @@ sudo {project_name} --service --install
 | 2 | **root** | Create system user `{project_name}` (if needed) |
 | 3 | **root** | Create directories, set ownership |
 | 4 | **root** | Bind configured ports (any port works) |
-| 5 | **root→user** | **DROP PRIVILEGES** to `{project_name}` user |
-| 6 | **user** | Initialize config, database, etc. |
-| 7 | **user** | Start serving requests |
+| 5 | **root** | Spawn managed children (e.g. Tor) with setuid/setgid service-user credentials |
+| 6 | **root→user** | **DROP PRIVILEGES** to `{project_name}` user |
+| 7 | **user** | Initialize config, database, etc. |
+| 8 | **user** | Start serving requests |
 
 ```
 Service start (automatic after install):
     ├─ Start as root (service manager)
     ├─ Create user/dirs if needed
     ├─ Bind port 80/443 (root)
+    ├─ Spawn Tor with {project_name} creds (never as root)
     ├─ Drop to {project_name} user
     └─ Serve requests (user)
 ```
@@ -8643,12 +8655,12 @@ Before proceeding, confirm you understand:
 **Debug:**
 1. `--debug` CLI flag (highest priority)
 2. `DEBUG` environment variable (truthy values)
-3. `--mode debug` / `MODE=debug` alias
+3. `--mode debug` / `MODE=debug` (debug mode defaults debug on)
 4. Default: `false`
 
-**`debug` mode alias:** `--mode debug` / `MODE=debug` expands to mode `development` + debug `on`. An explicit `--debug` flag or `DEBUG` env var still wins — `MODE=debug DEBUG=false` runs development mode with debug off.
+**`debug` mode:** `--mode debug` / `MODE=debug` selects debug mode — explicit opt-in only, NEVER implied or auto-enabled. It defaults the debug flag to on; an explicit `--debug` flag or `DEBUG` env var still wins — `MODE=debug DEBUG=false` runs debug mode with the `/debug/*` endpoints off.
 
-## Four Operational States
+## Six Operational States
 
 | State | Mode | Debug | Use Case |
 |-------|------|-------|----------|
@@ -8656,6 +8668,8 @@ Before proceeding, confirm you understand:
 | **Production + Debug** | `production` | `true` | Live debugging (temporary) |
 | **Development** | `development` | `false` | Local development, sensible defaults |
 | **Development + Debug** | `development` | `true` | Full debugging, all features |
+| **Debug** | `debug` | `false` | Debug-mode diagnostics with `/debug/*` explicitly off (`MODE=debug DEBUG=false`) |
+| **Debug + Endpoints** | `debug` | `true` | Full diagnostics (the default when `MODE=debug` and `DEBUG` unset) |
 
 ## Production Mode (Default)
 
@@ -8666,8 +8680,8 @@ Before proceeding, confirm you understand:
 | pprof endpoints | **Disabled** |
 | Error messages | Generic (no stack traces) |
 | Panic recovery | Graceful (logs error, returns 500) |
-| Template caching | Enabled |
-| Static file caching | Enabled |
+| Template caching | Config-driven (default: enabled) |
+| Static file caching | Config-driven (default: enabled) |
 | Rate limiting | Enforced |
 | Security headers | All enabled |
 | Sensitive data | Never shown |
@@ -8684,12 +8698,24 @@ Before proceeding, confirm you understand:
 | pprof endpoints | **Disabled** (use `--debug` to enable) |
 | Error messages | Detailed (stack traces in logs) |
 | Panic recovery | Verbose (full stack in response) |
-| Template caching | Disabled (hot reload) |
-| Static file caching | Disabled (hot reload) |
+| Template caching | Config-driven (default: disabled for hot reload) |
+| Static file caching | Config-driven (default: disabled for hot reload) |
 | Rate limiting | Relaxed/disabled |
 | Security headers | Relaxed (CORS permissive) |
-| Sensitive data | Can be shown (with warning) |
+| Sensitive data | Sanitized — output/log sanitization fully enforced |
 | Request logging | Verbose (headers, body preview) |
+
+## Debug Mode (`MODE=debug`)
+
+**Explicit opt-in only — NEVER implied or auto-enabled. Selecting it defaults the debug flag to on (an explicit `--debug`/`DEBUG` still wins).**
+
+| Setting | Behavior |
+|---------|----------|
+| Logging | `debug` level, maximum verbosity |
+| Sanitization | Minimal — internals, dumps, and stack traces may be exposed |
+| Credentials | Keys, tokens, passwords, secrets ALWAYS redacted — no exceptions |
+| Security checks | Never disabled — authentication and authorization fully enforced |
+| Everything else | As Development Mode |
 
 ## Debug Flag (`--debug` / `DEBUG=true`)
 
@@ -9111,7 +9137,7 @@ server:
   mode: development
 
   # Debug-specific settings — gated by the debug flag
-  # (--debug CLI > DEBUG env > MODE=debug alias), NOT by development mode
+  # (--debug CLI > DEBUG env > MODE=debug default), NOT by development mode
   debug:
     # Enable pprof endpoints
     pprof: true
@@ -9160,12 +9186,15 @@ type AppMode int
 const (
     Production AppMode = iota
     Development
+    Debug
 )
 
 func (m AppMode) String() string {
     switch m {
     case Development:
         return "development"
+    case Debug:
+        return "debug"
     default:
         return "production"
     }
@@ -9177,9 +9206,9 @@ func SetAppMode(m string) {
     case "dev", "devel", "development":
         currentMode = Development
     case "debug":
-        // Alias: development mode + debug on
+        // Debug mode — explicit opt-in only; defaults the debug flag on
         // (an explicit --debug flag or DEBUG env var still wins)
-        currentMode = Development
+        currentMode = Debug
         SetDebugEnabled(true)
     default:
         currentMode = Production
@@ -9236,16 +9265,16 @@ func GetAppModeString() string {
 }
 
 // FromEnv sets mode and debug from environment variables.
-// MODE=debug is an alias for development mode + debug on, but an
-// explicitly set DEBUG env var (truthy OR falsy) always wins over the
-// alias — MODE=debug DEBUG=false runs development mode with debug off.
+// MODE=debug selects debug mode and defaults the debug flag to on, but
+// an explicitly set DEBUG env var (truthy OR falsy) always wins over
+// that default — MODE=debug DEBUG=false runs debug mode with debug off.
 // The --debug CLI flag (applied after this) wins over both.
 func FromEnv() {
     if m := os.Getenv("MODE"); m != "" {
         SetAppMode(m)
     }
     // LookupEnv distinguishes "explicitly set" from "unset": an unset
-    // DEBUG leaves the alias result alone; a set DEBUG overrides it
+    // DEBUG leaves the mode-defaulted value alone; a set DEBUG overrides it
     if v, set := os.LookupEnv("DEBUG"); set {
         SetDebugEnabled(config.IsTruthy(v))
     }
@@ -10091,7 +10120,7 @@ NO_COLOR=1 {project_name} --status | grep -E '✅|❌|⚠️|🚀'
 # Print shell init for eval (auto-detect if SHELL omitted)
 --shell init [SHELL]
 # Set application mode
---mode {production|development}
+--mode {production|development|debug}
 # Set config directory
 --config {config_dir}
 # Set data directory
@@ -10148,7 +10177,7 @@ Shell Integration:
 --shell help                           - Show shell help
 
 Server Configuration:
---mode {production|development}        - Application mode (default: production)
+--mode {production|development|debug}  - Application mode (default: production)
 --config DIR                           - Config directory
 --data DIR                             - Data directory
 --cache DIR                            - Cache directory
@@ -10473,7 +10502,7 @@ PHASE 5: Server startup (actual server start)
    ├─ {cache_dir}   (/var/cache/... or ~/.cache/...)
    ├─ {log_dir}     (/var/log/... or ~/.local/log/...)
    ├─ {backup_dir}  (see PART 8 GetBackupDir - /mnt/Backups/... if writable, else {data_dir}/backup/ in system mode)
-   └─ Never resolve ~/$HOME again after step 8g — the service account's HOME is {data_dir}
+   └─ Never resolve ~/$HOME again after step 8h — the service account's HOME is {data_dir}
 
 8. IF RUNNING AS ROOT - setup system resources BEFORE dropping privileges:
    a. Check/create system user:
@@ -10502,8 +10531,12 @@ PHASE 5: Server startup (actual server start)
       ├─ For each port < 1024: create and bind socket, store fd
       ├─ If ANY privileged port fails: exit with error
       └─ Unprivileged ports (>= 1024) bound later in step 18
-   g. DROP PRIVILEGES to {project_name} user
-   h. Verify privilege drop succeeded (getuid() != 0)
+   g. Start managed child processes (Tor, if tor binary available) while still root:
+      ├─ Write child config first (e.g. {config_dir}/tor/torrc) with service-user ownership
+      ├─ Spawn with setuid/setgid credentials set to {internal_name}:{internal_name}
+      └─ Children NEVER run as root — credentials are applied at spawn time
+   h. DROP PRIVILEGES to {project_name} user
+   i. Verify privilege drop succeeded (getuid() != 0)
 
 9. IF RUNNING AS USER (non-root) - setup user directories:
    ├─ Create {config_dir} (~/.config/{internal_org}/{internal_name}/)
@@ -10569,7 +10602,8 @@ PHASE 5: Server startup (actual server start)
     │   starting scheduler — clears accumulation from crashed/failed prior runs
     └─ Start scheduler goroutine
 
-17. Start Tor (if tor binary available) - see PART 31:
+17. Start Tor (if tor binary available and not already spawned in step 8g) - see PART 31:
+    ├─ Root mode → Tor already running (spawned in step 8g with {internal_name}:{internal_name} setuid credentials before the drop); skip
     ├─ tor not found in PATH → log INFO "Tor not available", skip
     ├─ tor found:
     │   ├─ Create directories: {config_dir}/tor/, {data_dir}/tor/, {data_dir}/tor/site/
@@ -10599,7 +10633,7 @@ PHASE 5: Server startup (actual server start)
 
 20. Log startup complete:
     ├─ Log "Listening on {address}:{port}"
-    ├─ Log "Mode: {production|development}"
+    ├─ Log "Mode: {production|development|debug}"
     ├─ Log "Tor: {.onion address}" (if enabled)
     └─ If first_run: log path to generated `server.yml`
 
@@ -10609,7 +10643,7 @@ PHASE 5: Server startup (actual server start)
 | Step | Runs As | Why |
 |------|---------|-----|
 | 6. Determine context | any | First thing - detect if root, container, etc. |
-| 7. Resolve paths | any | Resolved ONCE and cached — mode locked from start EUID; never re-derived after 8g |
+| 7. Resolve paths | any | Resolved ONCE and cached — mode locked from start EUID; never re-derived after 8h |
 | **IF ROOT (step 8):** | | |
 | 8a. Create system user | **root** | Only root can create system users |
 | 8b. Create directories | **root** | Only root can create /etc/, /var/lib/, etc. |
@@ -10617,28 +10651,32 @@ PHASE 5: Server startup (actual server start)
 | 8d. Set permissions | **root** | Easier while root, ensures correct perms |
 | 8e. Determine ports | **root** | Need to know before binding |
 | 8f. Bind privileged ports | **root** | Only root can bind port < 1024 |
-| **8g. DROP PRIVILEGES** | **root→user** | Security: minimize time running as root |
+| 8g. Spawn children (Tor) | **root** | Children spawned with setuid/setgid {internal_name} credentials — never run as root |
+| **8h. DROP PRIVILEGES** | **root→user** | Security: minimize time running as root |
 | **IF USER (step 9):** | | |
 | 9. Setup user directories | **user** | Create ~/.config/, ~/.local/share/, etc. |
 | **COMMON PATH:** | | |
 | 10-21. Everything else | **user** | Dirs exist, privileged sockets bound (if any) |
 
 **Security principle:** Drop privileges as EARLY as possible, but AFTER:
-1. Creating directories and setting ownership
-2. Binding any privileged ports (< 1024)
+1. Creating the service user/group
+2. Creating directories/files and setting ownership + permissions
+3. Binding any privileged ports (< 1024)
+4. Spawning managed child processes (e.g. Tor) with service-user setuid/setgid credentials
 
-**What REQUIRES root (steps 8a-8f):**
+**What REQUIRES root (steps 8a-8g):**
 - Creating system directories (/etc/, /var/lib/, /var/log/, /var/cache/, /var/backups/)
 - Creating system user/group
 - chown directories to app user
 - Setting permissions on system directories
 - Binding to privileged ports (80, 443, etc.)
+- Spawning managed children (Tor) with setuid/setgid service-user credentials
 
 **What does NOT require root (steps 10-21):**
 - Writing files to directories owned by app user (logging, config, database, PID)
 - Binding to unprivileged ports (>= 1024)
 - Accepting connections on pre-bound privileged sockets
-- Starting child processes (tor, scheduler)
+- Starting child processes in user mode (tor, scheduler) — root mode spawns tor in step 8g before the drop
 - Signal handling
 
 **Port binding examples (see PART 15 for full rules):**
@@ -11864,9 +11902,14 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 
     response := buildHealthResponse()
 
-    // Check shutdown state
+    // Health status → HTTP code (see Health Status Values & HTTP Codes)
     if isShuttingDown() {
         response.Status = "shutting_down"
+        w.WriteHeader(http.StatusServiceUnavailable)
+    } else if maintenanceManager.Active() {
+        response.Status = "maintenance"
+        w.WriteHeader(http.StatusServiceUnavailable)
+    } else if response.Status == "unhealthy" {
         w.WriteHeader(http.StatusServiceUnavailable)
     } else if configManager.PendingRestart() {
         response.Status = "restart_required"
@@ -11875,6 +11918,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
         // Still healthy, just needs restart
         w.WriteHeader(http.StatusOK)
     } else {
+        // healthy or degraded — still serving
         w.WriteHeader(http.StatusOK)
     }
 
@@ -11890,7 +11934,8 @@ func buildHealthResponse() *HealthResponse {
     return &HealthResponse{
         // Project info (from branding config)
         Project: ProjectInfo{
-            Name:        cfg.Branding.Name,
+            Name:        cfg.Branding.Title,
+            Tagline:     cfg.Branding.Tagline,
             Description: cfg.Branding.Description,
         },
 
@@ -11898,7 +11943,7 @@ func buildHealthResponse() *HealthResponse {
         // "healthy", "unhealthy", "degraded"
         Status:    getOverallStatus(),
         Version:   version.Version,
-        // "production" or "development"
+        // "production", "development", or "debug"
         Mode:      cfg.Server.Mode,
         Uptime:    formatUptime(startTime),
         Timestamp: time.Now().UTC(),
@@ -12032,7 +12077,7 @@ $ kill -TERM $(cat /var/run/myapp.pid)
 | `--pid` | `PID_FILE` | PID file path |
 | `--port` | `PORT` | Listen port |
 | `--address` | `LISTEN` | Listen address |
-| `--mode` | `MODE` | Application mode (production/development) |
+| `--mode` | `MODE` | Application mode (production/development/debug) |
 | (none) | `DATABASE_DIR` | SQLite database directory (Docker: `/data/db/sqlite`, Native: `{data_dir}/db/`) |
 | (none) | `BACKUP_DIR` | Backup directory (defaults to `/mnt/Backups/{internal_org}/{internal_name}` when writable, else `{data_dir}/backup/`; changeable) |
 
@@ -12081,7 +12126,7 @@ func GetCacheDir(flagValue string) string {
 }
 
 // startedElevated is captured ONCE at process start, BEFORE any privilege
-// drop, and never re-evaluated. After startup step 8g drops privileges,
+// drop, and never re-evaluated. After startup step 8h drops privileges,
 // geteuid() changes but the directory mode (system vs user) must not.
 var startedElevated = isElevated()
 
@@ -13601,7 +13646,7 @@ func isSerializationError(err error) bool {
 | `build_date` | `/server/healthz`, `--version` | Same as above |
 | `go_version` | `/server/healthz` (under `runtime`) | Build metadata, not a vulnerability vector on its own |
 | `uptime` (seconds or human) | `/server/healthz` | Operational diagnostic |
-| `mode` (`production` / `development`) | `/server/healthz` | Operational diagnostic; debug is gated separately |
+| `mode` (`production` / `development` / `debug`) | `/server/healthz` | Operational diagnostic; debug is gated separately |
 | `db_type` (`sqlite` / `libsql`) | `/server/healthz` | Just the engine family — no host, no creds |
 | `db_locality` (`local` / `remote`) | `/server/healthz` | Fuzzy — no host name or IP |
 | `request_count_24h`, `active_connections`, `total_connections` | `/server/healthz` (under `metrics`) | Operational, aggregate |
@@ -17000,6 +17045,7 @@ All settings above are configured via config file:
 - `/server/healthz` - Frontend route (follows PART 14 content negotiation rules)
 - Optional `/healthz` - root alias to `/server/healthz` only when `server.healthz.root.enabled: true`
 - `/api/{api_version}/server/healthz` - API route (JSON by default; text via PART 14 API rules)
+- `/api/healthz` - unversioned direct alias for machine-friendly versionless probing
 
 **Content negotiation:** Follows standard frontend rules (see PART 14). No special `/server/healthz` rules. If `/healthz` is enabled, it follows the exact same negotiation because it mounts the same handler.
 
@@ -17072,7 +17118,7 @@ type HealthResponse struct {
     // 4. Runtime info (PART 6: application modes)
     // human readable "2d 5h 30m"
     Uptime    string    `json:"uptime"`
-    // "production" or "development"
+    // "production", "development", or "debug"
     Mode      string    `json:"mode"`
     // current UTC time
     Timestamp time.Time `json:"timestamp"`
@@ -17171,12 +17217,15 @@ type StatsInfo struct {
 | `project.tagline` | `cfg.Branding.Tagline` | 16 |
 | `project.description` | `cfg.Branding.Description` | 16 |
 | `status` | `getOverallStatus()` | - |
+| `pending_restart` | `configManager.PendingRestart()` | - |
+| `restart_reason` | `configManager.RestartSettings()` | - |
 | `version` | `version.Version` (build var) | 7 |
 | `go_version` | `runtime.Version()` | 7 |
 | `build.commit` | `version.Commit` (build var) | 7 |
 | `build.date` | `version.Date` (build var) | 7 |
 | `uptime` | `formatUptime(startTime)` | - |
 | `mode` | `cfg.Server.Mode` | 6 |
+| `timestamp` | `time.Now().UTC()` | - |
 | `features.tor.*` | `torManager.*` | 31 |
 | `features.geoip` | `cfg.GeoIP.Enabled` (true/false) | 19 |
 | `features.*` (project-specific) | Show actual status when project-specific optional features used | - |
@@ -17213,7 +17262,7 @@ type StatsInfo struct {
 | Build commit | `<code>` | Optional | `<code>abc1234</code>` |
 | Build date | `<time>` | No | `<time datetime="2024-01-10">Jan 10, 2024</time>` |
 | Uptime | plain text | No | `2d 5h 30m` |
-| Mode | `.badge` | No | `<span class="badge badge-production">Production</span>` |
+| Mode | `.badge` | No | `<span class="badge badge-production">Production</span>` (class is badge-{mode}: badge-production / badge-development / badge-debug) |
 | Timestamp | `<time>` | No | `<time datetime="...">Jan 15, 2024 10:30 AM</time>` |
 | Tor address | `.code-block` | **Yes** | 56-char v3 onion, copy button, horizontal scroll |
 | Feature enabled | `.feature-enabled` | No | `<li class="feature-enabled">🌍 GeoIP</li>` |
@@ -17283,7 +17332,7 @@ type StatsInfo struct {
       <span class="status-icon">✅</span>
       <span class="status-text">All Systems Operational</span>
     </div>
-    <!-- Use .status-ok (healthy), .status-error (unhealthy), .status-warning (degraded) -->
+    <!-- Banner class/icon/text by status — see table below -->
 
     <!-- Version & Build Info -->
     <section class="section-card">
@@ -17369,6 +17418,17 @@ type StatsInfo struct {
 </html>
 ```
 
+**Status banner by `status` value:**
+
+| `status` | Banner class | Icon | Text |
+|----------|--------------|------|------|
+| `healthy` | `.status-ok` | ✅ | All Systems Operational |
+| `degraded` | `.status-warning` | ⚠️ | Degraded Performance |
+| `restart_required` | `.status-warning` | 🔄 | Restart Required |
+| `unhealthy` | `.status-error` | ❌ | Systems Unhealthy |
+| `maintenance` | `.status-error` | 🚧 | Maintenance in Progress |
+| `shutting_down` | `.status-error` | 🛑 | Shutting Down |
+
 **Healthz-specific styles (extends PART 16):**
 
 ```css
@@ -17417,6 +17477,8 @@ type StatsInfo struct {
 
 #### JSON (Accept: application/json)
 
+**Envelope exception:** health responses are BARE — no `{ "ok": ..., "data": ... }` wrapper, on any health route, in any state. Kubernetes probes, uptime monitors, and load balancers expect a flat body; the HTTP status code plus the top-level `status` field carry the health state.
+
 **Fields in canonical order (see "Field Order & Structure" above). References template PARTS.**
 
 **Note:** Only non-negotiable features shown with actual status (true/false, enabled/disabled). If project uses project-specific optional features, those become non-negotiable for that project and show their actual enabled/disabled status.
@@ -17462,7 +17524,9 @@ type StatsInfo struct {
 }
 ```
 
-### /api/{api_version}/server/healthz Security Rules
+### Security Rules (all health responses)
+
+These rules apply to the health payload in every format and on every health route (`/server/healthz`, `/healthz` alias, `/api/{api_version}/server/healthz`, `/api/healthz`).
 
 **NEVER expose in /server/healthz response:**
 
@@ -17486,7 +17550,7 @@ type StatsInfo struct {
 | **Features** | Enabled PUBLIC features only (not /metrics) | `tor: enabled` |
 | **Checks** | Service status (ok/error only) | `database: ok` |
 | **Stats** | Aggregate counts only | `requests_total: 12345` |
-| **Mode** | Production/development | `production` |
+| **Mode** | Production/development/debug | `production` |
 
 **Rule: Health can be expansive if the field is intentionally public-safe and acceptable for any unauthenticated internet viewer to see.**
 
@@ -17550,10 +17614,13 @@ Same underlying health response as `/server/healthz`, but formatted using the st
 | Field | Description |
 |-------|-------------|
 | `project.name` | Application name (from branding config) |
+| `project.tagline` | Application tagline/slogan (from branding config) |
 | `project.description` | Application description (from branding config) |
-| `status` | healthy, degraded, unhealthy |
+| `status` | healthy, degraded, unhealthy, restart_required, maintenance, shutting_down (see Health Status Values & HTTP Codes) |
+| `pending_restart` | Present (`true`) only when a config change requires a restart |
+| `restart_reason` | Settings that changed (only with `pending_restart`) |
 | `version` | Application version (SemVer) |
-| `mode` | production, development |
+| `mode` | production, development, debug |
 | `uptime` | Human-readable uptime |
 | `timestamp` | ISO 8601 timestamp |
 | `go_version` | Go runtime version |
@@ -17568,6 +17635,19 @@ Same underlying health response as `/server/healthz`, but formatted using the st
 | `stats.requests_total` | Total requests served |
 | `stats.requests_24h` | Requests in last 24 hours |
 | `stats.active_connections` | Current active connections |
+
+### Health Status Values & HTTP Codes
+
+**Applies to every health route (`/server/healthz`, `/healthz` alias, `/api/{api_version}/server/healthz`, `/api/healthz`) and every format (HTML/JSON/text). The body renders normally in all states — only the HTTP status code changes.**
+
+| `status` | Meaning | HTTP code |
+|----------|---------|-----------|
+| `healthy` | All checks pass | 200 |
+| `degraded` | Some non-critical checks failing; still serving | 200 |
+| `restart_required` | Healthy, but a config change needs a restart (`pending_restart: true`) | 200 |
+| `unhealthy` | Critical checks failing | 503 |
+| `maintenance` | Maintenance mode active | 503 |
+| `shutting_down` | Graceful shutdown in progress | 503 |
 
 **Who uses health endpoints:**
 - Browsers, curl, and uptime checks use `/server/healthz`
@@ -17881,7 +17961,7 @@ GET /api/{api_version}/items?status=active            ✓ Filtering
 | **Indentation** | 2 spaces — never tabs, never 4 spaces |
 | **Trailing newline** | Every JSON response ends with exactly one `\n` |
 | **No bare arrays at root** | Never emit a top-level JSON array — always wrap: `{ "data": [...] }`. Bare arrays cannot grow new sibling fields (pagination, metadata) without a breaking change, and some older clients reject them as JSON. |
-| **Success shape** | `{ "ok": true, "data": { ... } }` — `ok` is the discriminator; `data` carries the payload |
+| **Success shape** | `{ "ok": true, "data": { ... } }` — `ok` is the discriminator; `data` carries the payload. Exception: health endpoints return the bare health object (see PART 13). |
 | **Error shape** | `{ "ok": false, "error": "CODE", "message": "...", "details": {} }` — see PART 14 |
 
 ```go
@@ -19773,6 +19853,8 @@ func printServerBannerAppModeLine(appMode string, useIcons bool, lang string) {
         icon := "🔒"
         if appMode == "development" {
             icon = "🔧"
+        } else if appMode == "debug" {
+            icon = "🐛"
         }
         fmt.Printf("%s %s: %s\n", icon, i18n.T(lang, "cli.running_in_mode_label"), appMode)
     } else {
@@ -19862,8 +19944,10 @@ Displayed immediately after the header line, before URLs. Shows current mode and
 | production | true | `🔒 Running in mode: production [debugging]` |
 | development | false | `🔧 Running in mode: development` |
 | development | true | `🔧 Running in mode: development [debugging]` |
+| debug | false | `🐛 Running in mode: debug` |
+| debug | true | `🐛 Running in mode: debug [debugging]` |
 
-**Note:** Development mode does NOT enable debug features — only the debug flag does. `[debugging]` shows exactly when the debug flag is on (`--debug` CLI, `DEBUG` env truthy, or `MODE=debug` alias when debug is not explicitly set).
+**Note:** Development mode does NOT enable debug features — only the debug flag does. `[debugging]` shows exactly when the debug flag is on (`--debug` CLI, `DEBUG` env truthy, or the `MODE=debug` default when debug is not explicitly set).
 
 **Port Configuration (Project-Wide, NON-NEGOTIABLE):**
 
@@ -19955,7 +20039,7 @@ formatURL(host, 8443, true)
 - HTTPS adds overhead without additional security benefit
 - Only use HTTPS on overlays when HTTPS-only mode is required (port 443)
 
-**Footer timestamp format:** `%B %-d, %Y at %H:%M:%S %Z` → `December 4, 2025 at 13:05:13 EST` — anything user-facing MUST use this format; use `%Y-%m-%dT%H:%M:%S%:z` (RFC 3339) only where machine-readability matters (API responses, logs, health endpoints)
+**Footer timestamp format:** `%B %d, %Y at %H:%M:%S %Z` → `December 04, 2025 at 13:05:13 EST` — anything user-facing MUST use this format; use `%Y-%m-%dT%H:%M:%S%:z` (RFC 3339) only where machine-readability matters (API responses, logs, health endpoints)
 
 **"Last update" MUST use build date, NEVER hardcoded.** Use `{build_datetime}` template variable which comes from `BUILD_DATE` at compile time. This ensures the footer always shows when the binary was built, not a static date in the source code.
 
@@ -21048,6 +21132,11 @@ document.addEventListener('click', function(e) {
   font-weight: 500;
   white-space: nowrap;
 }
+
+/* Mode badges (badge-{mode}) */
+.badge-production { background: var(--color-success-bg); color: var(--color-success); }
+.badge-development { background: var(--color-warning-bg); color: var(--color-warning); }
+.badge-debug { background: var(--color-error-bg); color: var(--color-error); }
 
 @media (min-width: 768px) {
   .badge {
@@ -25237,15 +25326,15 @@ When the operator sets `custom_html` in `server.yml`, the server logs at startup
 | `{project_name}` | Project name |
 | `{project_org}` | Organization name |
 | `{project_version}` | Application version |
-| `{build_datetime}` | Build date/time (`%B %-d, %Y at %H:%M:%S %Z`) |
-| `{onion_address}` | Tor `.onion` address (only when Tor enabled and running) |
+| `{build_datetime}` | Build date/time (`%B %d, %Y at %H:%M:%S %Z`) |
+| `{onion_address}` | Tor `.onion` address (only when Tor is enabled, running, and an address is published; empty otherwise) |
 
 ### Default Application Footer (Always Shown)
 
 ```html
 <footer class="footer">
-  <!-- Onion address (only shown if Tor is enabled and running) -->
-  {{ if and .TorEnabled .TorRunning }}
+  <!-- Onion address (only shown if Tor is enabled, running, and an onion address is published) -->
+  {{ if and .TorEnabled .TorRunning .OnionAddress }}
   <p class="footer-onion">
     <a href="/server/help#tor-access" aria-label="Tor Support">🧅</a>
     <code class="onion-address">{onion_address}</code>
@@ -26256,9 +26345,9 @@ curl -H "Accept: application/xml" https://jokes.example.com/api/v1/joke</code></
 </div>
 ```
 
-**Tor Access section (only shown if Tor is enabled and running):**
+**Tor Access section (only shown if Tor is enabled, running, and an onion address is published):**
 ```html
-{{ if and .TorEnabled .TorRunning }}
+{{ if and .TorEnabled .TorRunning .OnionAddress }}
 <section id="tor-access" class="tor-access">
   <h3>Tor Access</h3>
   <p>This application is available as a Tor hidden service for enhanced privacy.</p>
@@ -31929,7 +32018,7 @@ See dockerfile_conventions.md → OCI Annotations for the complete list of requi
 |------|-------------|
 | **NEVER modify ENTRYPOINT** | Always use entrypoint.sh for customization |
 | **NEVER modify CMD** | Pass commands to entrypoint.sh instead |
-| **Non-root runtime user** | Runtime stage MUST create and switch to a non-root user. Alpine: `RUN addgroup -S app && adduser -S -G app app` then `USER app`. Debian/Ubuntu: `RUN groupadd -r app && useradd -r -g app app` then `USER app`. Exception: only if the app must bind a privileged port (<1024 — and even then prefer `setcap cap_net_bind_service`), or must manage system services. Document any exception in `IDEA.md`. |
+| **Privilege drop, not Dockerfile users** | NO `USER` directive and no user/group creation in the Dockerfile — the container starts as root and the binary creates its own user/group, creates its directories, sets permissions, then drops privileges after initialization (see "Privileged Port Binding (<1024)" for the run-mode and drop rules). Running permanently as root is the exception and MUST be documented in `IDEA.md`. |
 | **STOPSIGNAL** | Use `SIGRTMIN+3` for proper shutdown |
 | **ENTRYPOINT format** | `[ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]` |
 | **HEALTHCHECK timing** | Start: 10m, Interval: 5m, Timeout: 15s |
@@ -32146,15 +32235,17 @@ exec $APP_BIN $FLAGS "$@"
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TZ` | `America/New_York` | Timezone for app and scheduler |
-| `MODE` | `development` | `production` (strict) or `development` (relaxed) — `dev` and `devel` are accepted synonyms for `development` |
+| `MODE` | `development` | `production` (`prod`) strict · `development` (`dev`/`devel`) relaxed · `debug` explicit-only |
 | `DEBUG` | `false` | Enable ALL debug features (pprof, expvar, detailed logging) |
 | `ADDRESS` | `0.0.0.0` | Listen address |
 | `PORT` | `80` | Listen port (update docker-compose ports: to match) |
 
 **MODE vs DEBUG:**
-- `MODE=development` (also accepts `MODE=dev` / `MODE=devel` — all three are synonymous): Relaxed security, verbose logging, no caching (sensible for local dev)
-- `MODE=production`: Strict security, minimal logging, caching enabled
-- `DEBUG=true`: Enables debug endpoints (`/debug/*`), regardless of MODE
+- `MODE=production` (shortcut `prod` — the default): Strict security, minimal logging, full output/log sanitization
+- `MODE=development` (shortcuts `dev` / `devel`): In between production and debug — relaxed security, verbose logging, sanitization still fully enforced
+- `MODE=debug`: Explicit opt-in only — NEVER implied or auto-enabled. Minimal sanitization (internals, dumps, stack traces may be exposed). Credentials (keys, tokens, passwords, secrets) are ALWAYS redacted in every mode, no exceptions
+- `DEBUG=truthy`: Enables debug endpoints (`/debug/*`) regardless of MODE; nothing else may auto-enable debug
+- Caching: every mode uses the cache when one is configured — cache use is config-driven, not mode-driven
 
 **Note:** Boolean env vars accept all truthy/falsy values (see Boolean Values table). Examples: `DEBUG=yes`, `DEBUG=enable`, `DEBUG=1`, `DEBUG=oui`.
 
@@ -32167,6 +32258,7 @@ exec $APP_BIN $FLAGS "$@"
 | Requirement | Value |
 |-------------|-------|
 | `build:` | **NEVER include** |
+| `image:` tag | `:latest` in `docker-compose.yml` (production) · `:devel` in `docker-compose.dev.yml` and `docker-compose.test.yml` |
 | `version:` | **NEVER include** |
 | `name:` | `{project_name}` (top-level) |
 | `container_name:` | `{project_name}-app` (main), `{project_name}-cache` (Valkey) |
@@ -32176,7 +32268,7 @@ exec $APP_BIN $FLAGS "$@"
 | `x-logging:` | Anchor for consistent logging (see below) |
 | Network | Custom `{project_name}` with `external: false` |
 | Environment variables | **Hardcode with sane defaults** (NEVER use .env files); always YAML map style (`KEY: value`), never list style (`- KEY=value`) |
-| **environment: DEBUG/MODE** | `docker-compose.yml` sets **neither** `DEBUG` nor `MODE` (production defaults apply) · `docker-compose.dev.yml` and `docker-compose.test.yml` both set `DEBUG: 1` and `MODE: dev` |
+| **environment: DEBUG/MODE** | `docker-compose.yml` sets **neither** `DEBUG` nor `MODE` (production defaults apply) · `docker-compose.dev.yml` and `docker-compose.test.yml` both set `DEBUG: true` and `MODE: development` |
 
 ### Production Compose (`docker/docker-compose.yml`)
 
@@ -32317,8 +32409,8 @@ services:
     logging: *default-logging
     environment:
       PORT: 80
-      DEBUG: 1
-      MODE: dev
+      DEBUG: true
+      MODE: development
       TZ: America/New_York
     volumes:
       - ./volumes/config:/config:z
@@ -32358,7 +32450,7 @@ Three compose files ship in the `docker/` directory:
 |------|-----------|-------|---------|
 | `docker/docker-compose.yml` | `:latest` | Valkey, `{project_name}-cache` (persistent volume) | Production deployment |
 | `docker/docker-compose.dev.yml` | `:devel` | None | Local development (human use only) |
-| `docker/docker-compose.test.yml` | `:latest` | Valkey, `{project_name}-cache-test` (ephemeral `tmpfs`) | Automated testing |
+| `docker/docker-compose.test.yml` | `:devel` | Valkey, `{project_name}-cache-test` (ephemeral `tmpfs`) | Automated testing |
 
 **Build Commands:**
 
@@ -32540,7 +32632,7 @@ x-logging: &default-logging
 
 services:
   {project_name}:
-    image: {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest
+    image: {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:devel
     pull_policy: always
     container_name: {project_name}-test
     hostname: {project_name}
@@ -32548,8 +32640,8 @@ services:
     logging: *default-logging
     environment:
       PORT: 80
-      DEBUG: 1
-      MODE: dev
+      DEBUG: true
+      MODE: development
       TZ: America/New_York
       CACHE_URL: valkey://{project_name}-cache-test:6379
     volumes:
@@ -36537,7 +36629,7 @@ docker run --rm \
 
     echo '=== Open API Smoke Test ==='
     # No auth required — all endpoints are publicly accessible
-    curl -q -LSsf http://localhost:64580/server/healthz | grep -q '"ok":true' \
+    curl -q -LSsf http://localhost:64580/server/healthz | grep -q '"status":"healthy"' \
         && echo '✓ Health endpoint works' \
         || echo '✗ FAILED: Health endpoint'
 
@@ -36734,7 +36826,7 @@ incus exec "$CONTAINER_NAME" -- bash -c "
 
     echo '=== Open API Smoke Test ==='
     # No auth required — all endpoints are publicly accessible
-    curl -q -LSsf http://localhost:80/server/healthz | grep -q '"ok":true' \
+    curl -q -LSsf http://localhost:80/server/healthz | grep -q '"status":"healthy"' \
         && echo '✓ Health endpoint works' \
         || echo '✗ FAILED: Health endpoint'
 
@@ -36879,7 +36971,7 @@ sleep 3
 
 # 1. Health check
 echo "Testing health endpoint..."
-curl -q -LSsf http://localhost:64580/server/healthz | grep -q '"ok":true' \
+curl -q -LSsf http://localhost:64580/server/healthz | grep -q '"status":"healthy"' \
     && echo '✓ Health endpoint works' \
     || { echo '✗ FAILED: Health endpoint'; kill $SERVER_PID; exit 1; }
 
@@ -38318,7 +38410,8 @@ var localeFS embed.FS
     "connected": "Conectado",
     "disconnected": "Desconectado",
     "production": "Producción",
-    "development": "Desarrollo"
+    "development": "Desarrollo",
+    "debug": "Depuración"
   },
 
   "status_values": {
@@ -44539,7 +44632,7 @@ make docker
 - [ ] Production mode: Default, optimized, no debug
 - [ ] Development mode: Verbose logging (does NOT enable debug endpoints)
 - [ ] Mode priority: `--mode` CLI flag > `MODE` env var > default production
-- [ ] Debug priority: `--debug` CLI flag > `DEBUG` env var (truthy) > `MODE=debug` alias > default off
+- [ ] Debug priority: `--debug` CLI flag > `DEBUG` env var (truthy) > `MODE=debug` (debug mode defaults debug on) > default off
 - [ ] `/debug/*` endpoints (pprof, expvar) enabled only by debug flag, never by mode
 
 ### Phase 2: Binary Core (PARTS 7-9)
@@ -44566,7 +44659,7 @@ make docker
 - [ ] `--address {addr}` - Listen address
 - [ ] `--port {port}` - Listen port
 - [ ] `--baseurl {path}` - URL path prefix (default: /)
-- [ ] `--mode {production|development}` - Application mode (aliases: prod, dev, devel; `debug` = development + debug on)
+- [ ] `--mode {production|development|debug}` - Application mode (shortcuts: prod, dev, devel; `debug` defaults the debug flag on)
 - [ ] `--status` - Show running status
 - [ ] `--daemon` - Daemonize (detach)
 - [ ] `--debug` - Enable debug mode
@@ -45330,7 +45423,7 @@ make docker
 - [ ] `{baseurl}` - URL path prefix (auto-detected from reverse proxy)
 - [ ] `{port}` - Port number (stripped if 80/443)
 - [ ] `{address}` - Listen IP address
-- [ ] `{app_mode}` - Application mode (production/development)
+- [ ] `{app_mode}` - Application mode (production/development/debug)
 - [ ] `{onion_address}` - Tor .onion address (if enabled)
 - [ ] `{i2p_address}` - I2P address (if enabled)
 - [ ] `{smtp_address}` - SMTP server address (if configured)
