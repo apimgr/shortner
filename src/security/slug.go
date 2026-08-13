@@ -42,21 +42,34 @@ func ValidateSlugFormat(slug string) bool {
 	return slugPattern.MatchString(slug)
 }
 
-// reservedSlugs is a minimal built-in reserved-name list covering routes
-// this codebase already defines or will imminently define (health check,
-// static assets, API prefix, well-known). IDEA.md "Business rules" and
-// AI.md PART 11 "API Token Model" both point custom-slug validation at
-// "the reserved-names list (PART 16 -> Reserved Names)" — that PART does
-// not exist yet in this codebase (see TODO.AI.md). This list is a working
-// subset, not the final one; IsReservedSlug must be re-pointed at the
-// full PART 16 list once it lands, without changing this function's
-// signature.
+// reservedSlugs is the full reserved-name list from AI.md PART 16
+// "Reserved Names (MUST block from registration)", plus this project's own
+// routes referenced elsewhere in the spec (IDEA.md "Business rules",
+// frontend-rules.md "Nested sub-resource pattern"): "health", "admin",
+// "login", "logout", "list" (nav item), and "domains" (nav item, even
+// though this project has no per-user custom domains — see
+// src/httpserver/frontend.go's nav-item decision comment).
 var reservedSlugs = map[string]bool{
-	"api": true, "static": true, "health": true, "healthz": true,
-	"admin": true, "login": true, "logout": true, "stats": true,
-	"about": true, "list": true, "domains": true, "server": true,
-	"well-known": true, "assets": true, "favicon.ico": true,
-	"robots.txt": true, "sitemap.xml": true, "security.txt": true,
+	// System routes
+	"api": true, "server": true, "static": true, "assets": true,
+	"healthz": true, "metrics": true, "webhook": true, "webhooks": true,
+
+	// Common paths
+	"search": true, "explore": true, "discover": true, "trending": true,
+	"help": true, "support": true, "docs": true, "documentation": true,
+	"about": true, "contact": true, "terms": true, "privacy": true,
+	"legal": true, "security": true,
+
+	// Technical
+	"graphql": true, "swagger": true, "rest": true, "rpc": true,
+	"ws": true, "websocket": true,
+	"cdn": true, "media": true, "uploads": true, "files": true, "images": true,
+	".well-known": true, "robots.txt": true, "sitemap.xml": true, "favicon.ico": true,
+
+	// Project-specific: this project's own routes/nav items
+	"health": true, "admin": true, "login": true, "logout": true,
+	"list": true, "domains": true, "stats": true, "well-known": true,
+	"security.txt": true,
 }
 
 // IsReservedSlug reports whether slug (case-insensitive) collides with a

@@ -1,0 +1,22 @@
+{{define "content"}}<article class="ccpa-page">
+<h1>Do Not Sell My Personal Information</h1>
+
+<p>{{.Base.SiteName}} discloses that some data may be sold or shared with
+third parties, as described in our <a href="/server/privacy">Privacy
+Policy</a>. California residents (and residents of other jurisdictions with
+similar rights) may opt out of that sale or sharing below.</p>
+
+<form method="POST" action="/server/consent" class="ccpa-form" data-action="ccpa-form">
+<input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
+<input type="hidden" name="decision" value="custom">
+<input type="hidden" name="preferences" value="1">
+<div class="form-group">
+<label><input type="checkbox" name="analytics" value="1"> Allow analytics cookies</label>
+</div>
+<button type="submit" class="btn btn-primary">Save my choice</button>
+</form>
+
+<p>This choice is stored in a cookie on this device; you will need to make it
+again if you clear cookies or use a different device or browser.</p>
+</article>
+{{end}}

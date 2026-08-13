@@ -1,0 +1,17 @@
+{{define "footer"}}<footer class="site-footer">
+<div class="container">
+{{if .Base.FooterCustomHTML}}
+<div class="footer-custom">{{.Base.FooterCustomHTML}}</div>
+{{else}}
+<p>&copy; {{.Base.CurrentYear}} {{.Base.ProjectOrg}} &middot; {{.Base.SiteName}} v{{.Base.ProjectVersion}} &middot; built {{.Base.BuildDate}}</p>
+{{end}}
+<p class="footer-links">
+<a href="/server/about">About</a>
+<a href="/server/privacy">Privacy</a>
+<a href="/server/terms">Terms</a>
+<a href="/server/contact">Contact</a>
+{{if .Base.TorOnionAddress}}<a href="http://{{.Base.TorOnionAddress}}">Tor</a>{{end}}
+</p>
+</div>
+</footer>
+{{end}}

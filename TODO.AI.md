@@ -173,19 +173,62 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
   - Tor/I2P overlay network TLS handling (PART 31) not addressed here.
     Read: AI.md PART 31
 
-## PART 16: Web frontend
+## PART 16: Web frontend — DONE (core)
 
-- Server-rendered pages: create-link form, redirect landing, `/stats/{id}`
-  analytics view, mobile-first CSS, WCAG 2.1 AA, PWA manifest.
-  Read: AI.md PART 16
-- Home page (`/`) body layout must match the prior Node.js app
-  (`github.com/casjaydns/csj.lol`): centered logo, single-column create-link
-  card, success state with short URL + "create another", Dracula color
-  scheme via CSS custom properties, matching nav/footer structure. Adapt
-  to server-rendered `<form>` (no CDN JS dependency, must work with JS
-  disabled) — do not copy the Vue/CDN implementation verbatim.
-  Reference assets: `docs/reference/csjlol/`.
-  Read: IDEA.md "Frontend design reference", AI.md PART 16
+- Server-rendered pages implemented: home (`/`, create-link form + POST +
+  success state, reuses PART 14's `db.CreateLink*`/`CreateResourceToken`
+  rather than duplicating), `/server/{about,privacy,contact,help,terms}`,
+  `/server` -> 301 -> `/server/about`, `/server/healthz` (HTML variant,
+  falls back to JSON/text via `detectClientType`), `/{slug}/stats` (HTML
+  variant, same fallback). Cookie-consent banner + `/server/consent` POST +
+  `/server/ccpa` (only when `server.privacy.data.sold`). `common.css`/
+  `components.css`/`public.css`, single `static/js/app.js` (vanilla,
+  `data-action` only). `/static/*` served from the embedded FS.
+  All new handlers have real test coverage (`frontend_test.go`) exercising
+  `renderPage()` against the live embedded templates — this is the only
+  way `html/template` field-name mismatches surface, since `go vet` does
+  not catch them.
+
+## PART 16 (continued): deferred sub-items
+
+- Full PWA support (manifest.json, service worker, offline.html) — not
+  implemented this pass; only the create-link page itself was required.
+  Read: AI.md PART 16 "PWA"
+- `sitemap.xml` — not implemented.
+- Remote branding/SEO image fetching + site-verification meta tags — not
+  implemented; `head.tmpl` has no dynamic OG/Twitter image logic beyond
+  static config fields already present.
+- `/favicon.ico` — `head.tmpl`/`home.tmpl` reference it but no icon asset
+  or route exists (`find -iname favicon*` finds nothing). Harmless (browsers
+  handle a missing favicon gracefully; the home-page logo `<img>` uses
+  `alt=""`), but should be added — either a real asset or an explicit
+  `/favicon.ico` route — before PART 16 is called fully complete.
+- `Web.Announcements` (site-banner) — the config struct
+  (`config.WebAnnouncements`/`config.Announcement`) exists and
+  `.site-banner`/`.site-banner-info`/`.site-banner-warning` CSS classes are
+  ready, but no template renders `cfg.Web.Announcements.Items` yet and no
+  handler passes announcement data to `PageData`. Needs wiring: add an
+  `Announcements []config.Announcement` (or similar) field to `PageData`,
+  populate it in `newPageData`, and add a banner partial to
+  `layout/public.tmpl`.
+- GeoIP location data on `/{slug}/stats` — `page/stats.tmpl` already
+  renders "unknown" gracefully when `ClickInfo.Country`/`.Region` are
+  empty; the actual GeoIP lookup that would populate those fields is
+  PART 19 work, not done here.
+- Contact-form email delivery — `contactPost` in `frontend.go` accepts and
+  validates the form (including a static math-captcha check) and shows a
+  success message, but nothing is sent or persisted; real delivery depends
+  on PART 17 (SMTP/notifications), documented as a deliberate no-op in the
+  function's doc comment.
+- `/server/docs/swagger`, `/server/docs/graphql` — confirmed still out of
+  scope per the AI.md `/server` routes table (PART 16); no Swagger/GraphQL
+  doc UI exists.
+- Home page (`/`) body layout should still be diffed against the prior
+  Node.js app (`github.com/casjaydns/csj.lol`) reference assets in
+  `docs/reference/csjlol/` for final visual parity — the current
+  `page/home.tmpl` was written to the Dracula/light CSS variables and the
+  IDEA.md "Frontend design reference" description, but a pixel-level
+  comparison against the reference has not been done.
 
 ## PART 17-22: Features
 

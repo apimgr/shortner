@@ -1,0 +1,58 @@
+{{define "content"}}<article class="privacy-page">
+<h1>Privacy Policy</h1>
+
+{{if .Content}}
+<div class="privacy-custom">{{.Content}}</div>
+{{else}}
+<section>
+<h2>Data We Collect</h2>
+<p>{{if .DataCollection}}{{.DataCollection}}{{else}}We collect the destination URL, an anonymized IP address, user agent, and referrer for each link click, plus the URLs and slugs you submit to shorten.{{end}}</p>
+</section>
+
+<section>
+<h2>How We Use Your Data</h2>
+<p>{{.DataUsage}}</p>
+</section>
+
+<section>
+<h2>Data Security</h2>
+<p>{{if .DataSecurity}}{{.DataSecurity}}{{else}}Visitor IP addresses are anonymized (last octet/segment zeroed) before being written to storage — the raw IP is never persisted.{{end}}</p>
+</section>
+
+<section>
+<h2>Cookie Policy</h2>
+<ul>
+{{if .CookieEssentialEnabled}}<li><strong>Essential</strong> — {{.CookieEssentialDescription}}</li>{{end}}
+{{if .CookiePreferencesEnabled}}<li><strong>Preferences</strong> — {{.CookiePreferencesDescription}}</li>{{end}}
+{{if .CookieAnalyticsEnabled}}<li><strong>Analytics</strong> — {{.CookieAnalyticsDescription}}</li>{{end}}
+</ul>
+</section>
+
+{{if .Sold}}
+<section>
+<h2>Data Sale Disclosure</h2>
+<p>Some data may be sold or shared with third parties as described below.</p>
+</section>
+{{end}}
+
+{{if .ThirdPartyServices}}
+<section>
+<h2>Third-Party Services</h2>
+<table class="table-wrapper">
+<thead><tr><th>Service</th><th>Purpose</th><th>Data Sent</th></tr></thead>
+<tbody>
+{{range .ThirdPartyServices}}
+<tr><td>{{.Name}}</td><td>{{.Purpose}}</td><td>{{.DataSent}}</td></tr>
+{{end}}
+</tbody>
+</table>
+</section>
+{{end}}
+
+<section>
+<h2>Data Retention</h2>
+<p>{{.RetentionPeriod}}</p>
+</section>
+{{end}}
+</article>
+{{end}}

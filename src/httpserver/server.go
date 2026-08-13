@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/apimgr/shortner/src/apperr"
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/server"
 )
 
 // Server wraps the chi router and the underlying *http.Server.
@@ -55,6 +57,8 @@ func New(opts Options) *Server {
 		stats:       stats,
 		access:      opts.AccessLog,
 		operatorTok: cfg.Server.Token,
+		cors:        cfg.Server.CORS,
+		csrf:        cfg.Server.CSRF,
 	}
 
 	r := chi.NewRouter()
@@ -72,7 +76,10 @@ func New(opts Options) *Server {
 		buildDate: opts.BuildDate,
 	}
 
-	r.Get("/server/healthz", hd.healthHandler())
+	// /server/healthz itself is registered below by
+	// fd.registerFrontendRoutes, which negotiates HTML for browsers and
+	// falls back to hd.healthHandler()'s existing JSON/text behavior for
+	// every other client — see frontend.go's healthzHTMLHandler.
 	if cfg.Server.Healthz.Root.Enabled {
 		r.Get("/healthz", hd.healthHandler())
 	}
@@ -88,7 +95,11 @@ func New(opts Options) *Server {
 		})
 	})
 
-	ld.registerLinkRootRoutes(r)
+	fd := &frontendDeps{cfg: cfg, version: opts.Version, buildDate: opts.BuildDate, ld: ld}
+	fd.registerFrontendRoutes(r, hd, ld)
+
+	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(mustSubFS(server.StaticFS, "static")))))
+
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
 		apperr.SendError(w, apperr.New(apperr.CodeNotFound))
 	})
@@ -149,4 +160,18 @@ func (s *Server) Shutdown() error {
 // Addr returns the configured listen address.
 func (s *Server) Addr() string {
 	return s.httpServer.Addr
+}
+
+// mustSubFS returns the dir subtree of embedFS, per AI.md PART 7 "Embedded
+// Assets": the embed directive keeps the "static/" prefix, but
+// http.FileServer must be rooted at the directory's own contents so
+// "/static/css/x.css" maps to "css/x.css" inside the FS. Panics only if
+// the embed itself is malformed (dir missing), which would already be a
+// build-time failure — see src/server/embed.go.
+func mustSubFS(embedFS fs.FS, dir string) fs.FS {
+	sub, err := fs.Sub(embedFS, dir)
+	if err != nil {
+		panic(fmt.Sprintf("httpserver: embedded %q missing: %v", dir, err))
+	}
+	return sub
 }

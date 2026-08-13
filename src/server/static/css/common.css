@@ -1,0 +1,161 @@
+/* Reset + Dracula-based color variables, per AI.md PART 16 "CSS Structure"
+   and src/common/theme/colors.go (ThemePaletteDark/Light). Mobile-first:
+   base rules target small screens, @media (min-width: ...) widens up. */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, h1, h2, h3, h4, h5, h6, p, ul, ol, li, figure, blockquote, dl, dd {
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100vh;
+}
+
+img, picture, video, canvas, svg {
+  display: block;
+  max-width: 100%;
+}
+
+input, button, textarea, select {
+  font: inherit;
+}
+
+/* Dracula palette (dark, default), per src/common/theme/colors.go. */
+:root {
+  --color-bg: #282a36;
+  --color-bg-alt: #21222c;
+  --color-surface: #343746;
+  --color-fg: #f8f8f2;
+  --color-fg-muted: #6272a4;
+  --color-border: #44475a;
+  --color-primary: #bd93f9;
+  --color-secondary: #6272a4;
+  --color-success: #50fa7b;
+  --color-warning: #f1fa8c;
+  --color-error: #ff5555;
+  --color-info: #8be9fd;
+  --color-link: #8be9fd;
+
+  color-scheme: dark;
+}
+
+/* GitHub-Light-based palette, used when data-theme="light" or the browser
+   prefers light and data-theme="auto"/unset. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --color-bg: #ffffff;
+    --color-bg-alt: #f6f8fa;
+    --color-surface: #f6f8fa;
+    --color-fg: #24292f;
+    --color-fg-muted: #57606a;
+    --color-border: #d0d7de;
+    --color-primary: #8250df;
+    --color-secondary: #57606a;
+    --color-success: #1a7f37;
+    --color-warning: #9a6700;
+    --color-error: #cf222e;
+    --color-info: #0969da;
+    --color-link: #0969da;
+
+    color-scheme: light;
+  }
+}
+
+:root[data-theme="light"] {
+  --color-bg: #ffffff;
+  --color-bg-alt: #f6f8fa;
+  --color-surface: #f6f8fa;
+  --color-fg: #24292f;
+  --color-fg-muted: #57606a;
+  --color-border: #d0d7de;
+  --color-primary: #8250df;
+  --color-secondary: #57606a;
+  --color-success: #1a7f37;
+  --color-warning: #9a6700;
+  --color-error: #cf222e;
+  --color-info: #0969da;
+  --color-link: #0969da;
+
+  color-scheme: light;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--color-link);
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.container {
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+@media (min-width: 768px) {
+  .container {
+    max-width: 720px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .container {
+    max-width: 960px;
+  }
+}
+
+/* Visible only to screen readers, per WCAG 2.1 AA skip-link pattern. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--color-surface);
+  color: var(--color-fg);
+  padding: 0.5rem 1rem;
+  z-index: 1000;
+}
+
+.skip-link:focus {
+  left: 0.5rem;
+  top: 0.5rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  padding: 0;
+  margin: -1px;
+}
+
+@media print {
+  .site-header, .site-nav, .site-footer, .cookie-consent, #toast-container, .theme-toggle, .nav-toggle {
+    display: none !important;
+  }
+}

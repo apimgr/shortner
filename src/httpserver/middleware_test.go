@@ -48,6 +48,149 @@ func TestURLNormalizeMiddlewareCollapsesSlashes(t *testing.T) {
 	}
 }
 
+func TestURLNormalizeMiddlewareStripsTrailingSlash(t *testing.T) {
+	h := urlNormalizeMiddleware(okHandler())
+	req := httptest.NewRequest(http.MethodGet, "/server/about/?foo=bar", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMovedPermanently {
+		t.Fatalf("status = %d, want 301", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/server/about?foo=bar" {
+		t.Errorf("Location = %q, want /server/about?foo=bar", loc)
+	}
+}
+
+func TestURLNormalizeMiddlewareKeepsRootAndFileLike(t *testing.T) {
+	h := urlNormalizeMiddleware(okHandler())
+
+	for _, p := range []string{"/", "/robots.txt/"} {
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code == http.StatusMovedPermanently {
+			t.Errorf("path %q: got 301 redirect, want no redirect", p)
+		}
+	}
+}
+
+func TestCSRFMiddlewareIssuesCookieOnGET(t *testing.T) {
+	d := testDeps(t)
+	d.csrf = config.CSRF{Enabled: true, CookieName: "csrf_token", HeaderName: "X-CSRF-Token", TokenLength: 16}
+
+	h := d.csrfMiddleware(okHandler())
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	found := false
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "csrf_token" && c.Value != "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected a csrf_token cookie to be set on a GET request")
+	}
+}
+
+func TestCSRFMiddlewareBlocksPostWithoutToken(t *testing.T) {
+	d := testDeps(t)
+	d.csrf = config.CSRF{Enabled: true, CookieName: "csrf_token", HeaderName: "X-CSRF-Token", TokenLength: 16}
+
+	h := d.csrfMiddleware(okHandler())
+	req := httptest.NewRequest(http.MethodPost, "/server/consent", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+func TestCSRFMiddlewareAllowsMatchingCookieAndHeader(t *testing.T) {
+	d := testDeps(t)
+	d.csrf = config.CSRF{Enabled: true, CookieName: "csrf_token", HeaderName: "X-CSRF-Token", TokenLength: 16}
+
+	h := d.csrfMiddleware(okHandler())
+	req := httptest.NewRequest(http.MethodPost, "/server/consent", nil)
+	req.AddCookie(&http.Cookie{Name: "csrf_token", Value: "abc123"})
+	req.Header.Set("X-CSRF-Token", "abc123")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+}
+
+func TestCSRFMiddlewareBypassesBearerAuth(t *testing.T) {
+	d := testDeps(t)
+	d.csrf = config.CSRF{Enabled: true, CookieName: "csrf_token", HeaderName: "X-CSRF-Token", TokenLength: 16}
+
+	h := d.csrfMiddleware(okHandler())
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/links", nil)
+	req.Header.Set("Authorization", "Bearer tok_something")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (bearer-authed requests bypass CSRF)", rec.Code)
+	}
+}
+
+func TestCORSMiddlewareWildcardWithoutCredentials(t *testing.T) {
+	d := testDeps(t)
+	d.cors = config.CORS{AllowedOrigins: []string{"*"}, AllowCredentials: false}
+
+	h := d.corsMiddleware(okHandler())
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Origin", "https://example.com")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Errorf("Access-Control-Allow-Origin = %q, want *", got)
+	}
+	if rec.Header().Get("Access-Control-Allow-Headers") == "*" {
+		t.Error("Access-Control-Allow-Headers must never be a wildcard")
+	}
+}
+
+func TestCORSMiddlewareExplicitOriginWithCredentials(t *testing.T) {
+	d := testDeps(t)
+	d.cors = config.CORS{AllowedOrigins: []string{"https://trusted.example.com"}, AllowCredentials: true}
+
+	h := d.corsMiddleware(okHandler())
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Origin", "https://trusted.example.com")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://trusted.example.com" {
+		t.Errorf("Access-Control-Allow-Origin = %q, want https://trusted.example.com", got)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+		t.Errorf("Access-Control-Allow-Credentials = %q, want true", got)
+	}
+}
+
+func TestCORSMiddlewareRejectsUnlistedOrigin(t *testing.T) {
+	d := testDeps(t)
+	d.cors = config.CORS{AllowedOrigins: []string{"https://trusted.example.com"}}
+
+	h := d.corsMiddleware(okHandler())
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("Access-Control-Allow-Origin = %q, want empty for an unlisted origin", got)
+	}
+}
+
 func TestRequestIDMiddlewareGeneratesID(t *testing.T) {
 	h := requestIDMiddleware(okHandler())
 	req := httptest.NewRequest(http.MethodGet, "/", nil)

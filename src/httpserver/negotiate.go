@@ -42,3 +42,42 @@ func isHTTPTool(req *http.Request) bool {
 	}
 	return false
 }
+
+// clientType is the three-way content-negotiation outcome for a frontend
+// route, per AI.md PART 16 "Smart Content Detection".
+type clientType int
+
+const (
+	clientHTML clientType = iota
+	clientText
+	clientJSON
+)
+
+// detectClientType classifies req for frontend routes, per AI.md PART 16:
+// a ".json"/".txt" path suffix or explicit Accept header wins outright;
+// otherwise a recognized non-interactive HTTP client (curl/wget/etc., or an
+// empty User-Agent) gets text; a browser (anything else, including an
+// Accept header containing "text/html") gets HTML.
+func detectClientType(req *http.Request) clientType {
+	switch {
+	case strings.HasSuffix(req.URL.Path, ".json"):
+		return clientJSON
+	case strings.HasSuffix(req.URL.Path, ".txt"):
+		return clientText
+	}
+
+	accept := req.Header.Get("Accept")
+	switch {
+	case strings.Contains(accept, "application/json"):
+		return clientJSON
+	case strings.Contains(accept, "text/html"):
+		return clientHTML
+	case strings.Contains(accept, "text/plain"):
+		return clientText
+	}
+
+	if isHTTPTool(req) {
+		return clientText
+	}
+	return clientHTML
+}

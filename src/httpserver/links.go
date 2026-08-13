@@ -8,10 +8,11 @@
 //   - GET    /{slug}                              resolve/redirect (public)
 //   - GET    /{slug}/stats                        vanity alias for stats
 //
-// HTML rendering of these routes is AI.md PART 16 (web frontend), out of
-// scope here (see TODO.AI.md) — the root-scope routes above return the same
-// JSON/text-negotiated bodies as their /api counterparts until PART 16
-// lands.
+// The root-scope /{slug} and /{slug}/stats routes are registered directly
+// by frontend.go's registerFrontendRoutes (AI.md PART 16), which wraps
+// statsHandler with an HTML-negotiating variant for browsers and reuses
+// resolveHandler unchanged; the JSON/text bodies here are still exactly
+// what non-browser clients receive.
 package httpserver
 
 import (
@@ -85,14 +86,6 @@ func (ld *linkDeps) registerLinkAPIRoutes(apiGroup chi.Router) {
 		sr.Delete("/{slug}", ld.deleteLinkHandler)
 		sr.Get("/{slug}/stats", ld.statsHandler)
 	})
-}
-
-// registerLinkRootRoutes mounts the public vanity resolve/stats routes at
-// the root of r, per IDEA.md "Business logic" (short-link redirect) and
-// frontend-rules.md "Nested sub-resource pattern".
-func (ld *linkDeps) registerLinkRootRoutes(r chi.Router) {
-	r.Get("/{slug}", ld.resolveHandler)
-	r.Get("/{slug}/stats", ld.statsHandler)
 }
 
 // corsAPIMiddleware sets the CORS headers required on every API endpoint,

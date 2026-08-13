@@ -1,0 +1,39 @@
+{{define "content"}}<article class="terms-page">
+<h1>Terms of Service</h1>
+
+{{if .Content}}
+<div class="terms-custom">{{.Content}}</div>
+{{else}}
+<section>
+<h2>Acceptance of Terms</h2>
+<p>By using {{.Base.SiteName}}, you agree to these terms.</p>
+</section>
+
+<section>
+<h2>Acceptable Use</h2>
+<p>You may not use this service to create links to content that is illegal,
+infringing, or intended to distribute malware, phishing, or spam. Links
+violating this policy may be removed without notice.</p>
+</section>
+
+<section>
+<h2>Limitation of Liability</h2>
+<p>This service is provided "as is", without warranty of any kind. The
+operator is not liable for any damages arising from use of this service or
+the destinations it redirects to.</p>
+</section>
+
+<section>
+<h2>Changes to These Terms</h2>
+<p>These terms may be updated at any time; continued use of the service
+after a change constitutes acceptance of the revised terms.</p>
+</section>
+
+<section>
+<h2>Governing Law</h2>
+<p>These terms are governed by the laws of the jurisdiction in which the
+operator resides, without regard to conflict-of-law principles.</p>
+</section>
+{{end}}
+</article>
+{{end}}

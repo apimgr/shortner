@@ -12,6 +12,9 @@ package httpserver
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"net/http"
 	"path"
 	"regexp"
@@ -23,6 +26,7 @@ import (
 
 	"github.com/apimgr/shortner/src/apperr"
 	"github.com/apimgr/shortner/src/applog"
+	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/security"
 )
 
@@ -34,6 +38,8 @@ type deps struct {
 	stats       *Stats
 	access      *applog.Logger
 	operatorTok string
+	cors        config.CORS
+	csrf        config.CSRF
 }
 
 // setupMiddleware wraps handler with the full PART 12 chain, per AI.md
@@ -50,26 +56,232 @@ func (d *deps) setupMiddleware(handler http.Handler) http.Handler {
 	handler = pathSecurityMiddleware(handler)    // 3
 	handler = requestIDMiddleware(handler)       // 2
 	handler = urlNormalizeMiddleware(handler)    // 1
+	handler = d.corsMiddleware(handler)
+	handler = d.csrfMiddleware(handler)
 	return handler
 }
 
 // repeatedSlashes matches two or more consecutive "/" for URLNormalize.
 var repeatedSlashes = regexp.MustCompile(`/{2,}`)
 
-// urlNormalizeMiddleware collapses repeated slashes in the request path
-// (execution position 1), per AI.md PART 5 "Middleware Order" and the
-// "GET //api///v1//items" -> "/api/{api_version}/items" example.
+// urlNormalizeMiddleware collapses repeated slashes and strips a trailing
+// slash (execution position 1), per AI.md PART 5 "Middleware Order" and
+// PART 16 "URL Normalization Middleware": the root path and paths that look
+// like a static file (contain a "." in the final segment) are exempt from
+// trailing-slash stripping. A redirect preserves the query string and uses
+// 301 (permanent), matching the spec's canonicalization intent.
 func urlNormalizeMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "//") {
-			cleaned := repeatedSlashes.ReplaceAllString(r.URL.Path, "/")
-			if cleaned != "/" && strings.HasSuffix(r.URL.Path, "/") && !strings.HasSuffix(cleaned, "/") {
+		p := r.URL.Path
+		if strings.Contains(p, "//") {
+			cleaned := repeatedSlashes.ReplaceAllString(p, "/")
+			if cleaned != "/" && strings.HasSuffix(p, "/") && !strings.HasSuffix(cleaned, "/") {
 				cleaned += "/"
 			}
-			r.URL.Path = cleaned
+			p = cleaned
+		}
+
+		if p != "/" && strings.HasSuffix(p, "/") {
+			trimmed := strings.TrimRight(p, "/")
+			if trimmed == "" {
+				trimmed = "/"
+			}
+			last := trimmed
+			if idx := strings.LastIndex(trimmed, "/"); idx >= 0 {
+				last = trimmed[idx+1:]
+			}
+			if !strings.Contains(last, ".") {
+				dest := trimmed
+				if r.URL.RawQuery != "" {
+					dest += "?" + r.URL.RawQuery
+				}
+				http.Redirect(w, r, dest, http.StatusMovedPermanently)
+				return
+			}
+			p = trimmed
+		}
+
+		r.URL.Path = p
+		next.ServeHTTP(w, r)
+	})
+}
+
+// csrfExemptPaths are always bypassed regardless of config, since they are
+// consumed by non-browser clients that never carry the csrf_token cookie.
+var csrfExemptPaths = []string{"/api/"}
+
+// csrfMiddleware implements the double-submit-cookie CSRF pattern, per
+// AI.md PART 16 "CSRF Protection". State-changing requests (POST/PUT/PATCH/
+// DELETE) authenticated with a bearer/API token (never carried by a
+// browser form) bypass the check, as do GET/HEAD/OPTIONS, WebSocket
+// upgrades, and configured/explicit exempt paths.
+func (d *deps) csrfMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !d.csrf.Enabled {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		switch r.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions:
+			ensureCSRFCookie(w, r, d.csrf)
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if ExtractToken(r) != "" {
+			// Bearer/API-token auth never carries the CSRF cookie; a
+			// forged cross-site request can't read/send it either.
+			next.ServeHTTP(w, r)
+			return
+		}
+		for _, p := range csrfExemptPaths {
+			if strings.HasPrefix(r.URL.Path, p) {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+		for _, p := range d.csrf.ExemptPaths {
+			if p != "" && strings.HasPrefix(r.URL.Path, p) {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
+		cookieName := d.csrf.CookieName
+		if cookieName == "" {
+			cookieName = "csrf_token"
+		}
+		headerName := d.csrf.HeaderName
+		if headerName == "" {
+			headerName = "X-CSRF-Token"
+		}
+
+		cookie, err := r.Cookie(cookieName)
+		if err != nil || cookie.Value == "" {
+			d.logCSRFFailure(r, "missing cookie")
+			apperr.SendError(w, apperr.New(apperr.CodeCSRFFailed))
+			return
+		}
+
+		submitted := r.Header.Get(headerName)
+		if submitted == "" {
+			submitted = r.FormValue("csrf_token")
+		}
+		if submitted == "" || subtle.ConstantTimeCompare([]byte(submitted), []byte(cookie.Value)) != 1 {
+			d.logCSRFFailure(r, "token mismatch")
+			apperr.SendError(w, apperr.New(apperr.CodeCSRFFailed))
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (d *deps) logCSRFFailure(r *http.Request, reason string) {
+	if d.access == nil {
+		return
+	}
+	_ = d.access.WriteLine(applog.LevelWarn, "csrf_failure ip="+d.resolver.ResolveClientIP(r)+
+		" path="+r.URL.Path+" reason="+reason)
+}
+
+// ensureCSRFCookie issues a csrf_token cookie on a safe (GET/HEAD/OPTIONS)
+// request if one isn't already set, so a subsequent form POST/JS request on
+// the same origin has a token to submit. SameSite=Strict and NOT HttpOnly
+// (JS needs to read it to set the request header) per AI.md PART 16.
+func ensureCSRFCookie(w http.ResponseWriter, r *http.Request, csrf config.CSRF) {
+	cookieName := csrf.CookieName
+	if cookieName == "" {
+		cookieName = "csrf_token"
+	}
+	if _, err := r.Cookie(cookieName); err == nil {
+		return
+	}
+
+	length := csrf.TokenLength
+	if length <= 0 {
+		length = 32
+	}
+	buf := make([]byte, length)
+	if _, err := rand.Read(buf); err != nil {
+		return
+	}
+	token := hex.EncodeToString(buf)
+
+	secure := csrf.Secure == "true" || (csrf.Secure == "auto" && r.TLS != nil)
+	http.SetCookie(w, &http.Cookie{
+		Name:     cookieName,
+		Value:    token,
+		Path:     "/",
+		SameSite: http.SameSiteStrictMode,
+		Secure:   secure,
+		HttpOnly: false,
+	})
+}
+
+// corsMiddleware sets frontend CORS headers per AI.md PART 16 "CORS".
+// Access-Control-Allow-Origin is never "*" when credentials are allowed;
+// Allow-Headers enumerates the exact header set AuthMiddleware/ExtractToken
+// accept, never a wildcard.
+func (d *deps) corsMiddleware(next http.Handler) http.Handler {
+	allowHeaders := "Authorization, X-API-Key, API-Key, X-Auth-Token, " +
+		"X-Access-Token, X-Token, Token, Content-Type, X-CSRF-Token, X-Request-ID"
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			h := w.Header()
+			allowed, explicit := d.originAllowed(origin)
+			if allowed {
+				if explicit {
+					h.Set("Access-Control-Allow-Origin", origin)
+					h.Set("Vary", "Origin")
+					if d.cors.AllowCredentials {
+						h.Set("Access-Control-Allow-Credentials", "true")
+					}
+				} else {
+					h.Set("Access-Control-Allow-Origin", "*")
+				}
+				h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+				h.Set("Access-Control-Allow-Headers", allowHeaders)
+				if d.cors.MaxAge > 0 {
+					h.Set("Access-Control-Max-Age", strconv.Itoa(d.cors.MaxAge))
+				}
+			}
+		}
+
+		if r.Method == http.MethodOptions && origin != "" {
+			w.WriteHeader(http.StatusNoContent)
+			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// originAllowed reports whether origin may receive CORS headers, and
+// whether the match was an explicit origin (vs. the "*" wildcard) — an
+// explicit match is required before Allow-Credentials can ever be set.
+func (d *deps) originAllowed(origin string) (allowed, explicit bool) {
+	if len(d.cors.AllowedOrigins) == 0 {
+		return true, false
+	}
+	for _, o := range d.cors.AllowedOrigins {
+		if o == "*" {
+			if d.cors.AllowCredentials {
+				continue // "*" never pairs with credentials; skip to an explicit match
+			}
+			return true, false
+		}
+		if strings.EqualFold(o, origin) {
+			return true, true
+		}
+	}
+	return false, false
 }
 
 // requestIDMiddleware attaches a request ID (execution position 2), per

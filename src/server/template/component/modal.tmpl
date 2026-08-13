@@ -1,0 +1,21 @@
+{{define "consent-preferences-dialog"}}<dialog id="consent-preferences-dialog" class="modal" aria-labelledby="consent-preferences-title">
+<form method="POST" action="/server/consent" data-action="consent-preferences-form">
+<input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
+<input type="hidden" name="decision" value="custom">
+<h2 id="consent-preferences-title">Cookie Preferences</h2>
+<div class="form-group">
+<label><input type="checkbox" checked disabled> Essential — {{.Base.CookieEssentialDescription}}</label>
+</div>
+<div class="form-group">
+<label><input type="checkbox" name="preferences" value="1" checked> Preferences — {{.Base.CookiePreferencesDescription}}</label>
+</div>
+<div class="form-group">
+<label><input type="checkbox" name="analytics" value="1"> Analytics — {{.Base.CookieAnalyticsDescription}}</label>
+</div>
+<div class="modal-actions">
+<button type="button" class="btn btn-secondary" data-action="close-dialog">Cancel</button>
+<button type="submit" class="btn btn-primary">Save preferences</button>
+</div>
+</form>
+</dialog>
+{{end}}

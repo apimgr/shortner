@@ -1,0 +1,12 @@
+{{define "content"}}<article class="healthz-page">
+<h1>Server Health</h1>
+
+<div class="info-list">
+<div class="info-row"><span class="info-label">Status</span><span class="info-value badge badge-{{if eq .Health.Status "healthy"}}success{{else}}warning{{end}}">{{.Health.Status}}</span></div>
+<div class="info-row"><span class="info-label">Version</span><span class="info-value">{{.Health.Version}}</span></div>
+<div class="info-row"><span class="info-label">Uptime</span><span class="info-value">{{.Health.Uptime}}</span></div>
+<div class="info-row"><span class="info-label">Mode</span><span class="info-value">{{.Health.Mode}}</span></div>
+<div class="info-row"><span class="info-label">Go version</span><span class="info-value">{{.Health.GoVersion}}</span></div>
+</div>
+</article>
+{{end}}

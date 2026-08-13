@@ -73,10 +73,15 @@
 - Full spec (HOW, ~46k lines): `AI.md` ← **SOURCE OF TRUTH**
 
 ## Current Project State
-- Last read AI.md: 2026-08-07 (PART 14, 15)
-- Current task: PART 14 (API structure) and PART 15 (SSL/TLS & Let's
-  Encrypt, HTTP-01/TLS-ALPN-01 only) implemented and tested
-- Relevant PARTs: 0-6, 12-15 done; 7-11, 16-32 tracked in TODO.AI.md
+- Last read AI.md: 2026-08-13 (PART 16)
+- Current task: PART 16 (Web frontend) implemented and tested — templates,
+  CSS, single `app.js`, `/server/*` pages, cookie consent, CCPA, home page
+  create-link form (reuses PART 14 link-creation logic), HTML variants of
+  `/server/healthz` and `/{slug}/stats`
+- Relevant PARTs: 0-6, 12-16 done; 7-11, 17-32 tracked in TODO.AI.md
   (PART 15 has deferred sub-items — DNS-01 provider matrix, credential
-  encryption at rest, autocert-to-spec-layout bridging — logged in
-  TODO.AI.md rather than silently dropped)
+  encryption at rest, autocert-to-spec-layout bridging; PART 16 has
+  deferred sub-items — PWA, sitemap.xml, favicon.ico, announcements-banner
+  rendering, GeoIP on stats page, contact-form email delivery, Swagger/
+  GraphQL doc pages — all logged in TODO.AI.md rather than silently
+  dropped)

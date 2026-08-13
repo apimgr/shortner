@@ -11,5 +11,6 @@ container_name="shortner-test-$(set +o pipefail; tr -dc 'a-z0-9' </dev/urandom |
 docker run --rm --name "$container_name" \
   -v "$project_dir:/app" -w /app \
   -e GOFLAGS=-buildvcs=false \
+  -e CGO_ENABLED=0 \
   casjaysdev/go:latest \
   go test -cover ./...

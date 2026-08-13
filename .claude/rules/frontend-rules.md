@@ -33,6 +33,13 @@
 - Vanity routing: `/{slug}` → `/{resource}/{slug}` → `/api/{api_version}/{resource}/{slug}`
 - Nested sub-resource pattern: `/{slug}/{sub}` (e.g. `/{slug}/stats` for
   click analytics, per IDEA.md business logic)
+- Implemented: `src/httpserver/frontend.go` (home + `/server/*` pages +
+  consent/CCPA + HTML variants of healthz/stats), `src/httpserver/
+  render.go` (buffered template execution), `src/httpserver/pagedata.go`
+  (shared `PageData`), templates under `src/server/template/`, CSS/JS
+  under `src/server/static/`. Deferred sub-items (PWA, sitemap.xml,
+  favicon.ico, announcements-banner rendering, GeoIP on stats, contact-form
+  email delivery, Swagger/GraphQL docs) are tracked in `TODO.AI.md`.
 
 ---
 For complete details, see AI.md PART 16

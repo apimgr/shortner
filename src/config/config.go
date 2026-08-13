@@ -18,6 +18,8 @@ const tokenAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01234
 // Config is the root of server.yml.
 type Config struct {
 	Server Server `yaml:"server"`
+	Web    Web    `yaml:"web"`
+	Pages  Pages  `yaml:"pages"`
 }
 
 // Server holds the top-level `server:` block of server.yml.
@@ -36,6 +38,226 @@ type Server struct {
 	Cache          CacheConfig    `yaml:"cache"`
 	Healthz        Healthz        `yaml:"healthz"`
 	TLS            TLS            `yaml:"tls"`
+	CORS           CORS           `yaml:"cors"`
+	CSRF           CSRF           `yaml:"csrf"`
+	Branding       Branding       `yaml:"branding"`
+	SEO            SEO            `yaml:"seo"`
+	Contact        Contact        `yaml:"contact"`
+	Privacy        Privacy        `yaml:"privacy"`
+}
+
+// CORS holds `server.cors`, per AI.md PART 16 "CORS" -> "Configuration".
+type CORS struct {
+	AllowedOrigins   []string `yaml:"allowed_origins"`
+	AllowCredentials bool     `yaml:"allow_credentials"`
+	MaxAge           int      `yaml:"max_age"`
+}
+
+// CSRF holds `server.csrf`, per AI.md PART 16 "CSRF Protection" ->
+// "Configuration".
+type CSRF struct {
+	Enabled     bool   `yaml:"enabled"`
+	TokenLength int    `yaml:"token_length"`
+	CookieName  string `yaml:"cookie_name"`
+	HeaderName  string `yaml:"header_name"`
+	// Secure is "auto" (Secure when the request is HTTPS), "true", or
+	// "false".
+	Secure      string   `yaml:"secure"`
+	ExemptPaths []string `yaml:"exempt_paths"`
+}
+
+// Branding holds `server.branding`, per AI.md PART 16 "Branding & SEO".
+// Remote image fetching/scaling is not implemented yet (see TODO.AI.md) —
+// only the static local/URL fields are wired.
+type Branding struct {
+	SiteName string `yaml:"site_name"`
+	Tagline  string `yaml:"tagline"`
+	LogoURL  string `yaml:"logo_url"`
+}
+
+// SEO holds `server.seo`, per AI.md PART 16 "SEO Meta Tags". Site-
+// verification meta tags are not implemented yet (see TODO.AI.md).
+type SEO struct {
+	Description string `yaml:"description"`
+	Keywords    string `yaml:"keywords"`
+}
+
+// Contact holds `server.contact`, per AI.md PART 16 "/server/contact" ->
+// "Configuration". Admin.Email is never rendered on the public contact
+// page — only General.Email and Abuse.Email are, per the page's spec'd
+// "Abuse Reports" section.
+type Contact struct {
+	General ContactRecipient `yaml:"general"`
+	Admin   ContactRecipient `yaml:"admin"`
+	Abuse   ContactRecipient `yaml:"abuse"`
+}
+
+// ContactRecipient is one named contact-form recipient.
+type ContactRecipient struct {
+	Email string `yaml:"email"`
+}
+
+// Privacy holds `server.privacy`, per AI.md PART 16 "/server/privacy" ->
+// "Privacy Configuration (config file)".
+type Privacy struct {
+	Data       PrivacyData       `yaml:"data"`
+	Consent    PrivacyConsent    `yaml:"consent"`
+	Cookies    PrivacyCookies    `yaml:"cookies"`
+	Content    PrivacyContent    `yaml:"content"`
+	Retention  PrivacyRetention  `yaml:"retention"`
+	ThirdParty PrivacyThirdParty `yaml:"third_party"`
+}
+
+// PrivacyData holds `server.privacy.data`.
+type PrivacyData struct {
+	Sold           bool               `yaml:"sold"`
+	StoredOnServer bool               `yaml:"stored_on_server"`
+	Sharing        []PrivacyDataShare `yaml:"sharing"`
+}
+
+// PrivacyDataShare is one `server.privacy.data.sharing[]` entry.
+type PrivacyDataShare struct {
+	Condition string `yaml:"condition"`
+	When      string `yaml:"when"`
+	Data      string `yaml:"data"`
+}
+
+// PrivacyConsent holds `server.privacy.consent`, the cookie-consent banner
+// text, per AI.md PART 16 "Cookie Consent Banner" -> "Implementation".
+type PrivacyConsent struct {
+	Message         string                `yaml:"message"`
+	MessageIfSold   string                `yaml:"message_if_sold"`
+	Policy          PrivacyConsentPolicy  `yaml:"policy"`
+	Buttons         PrivacyConsentButtons `yaml:"buttons"`
+	PreferencesText string                `yaml:"preferences_text"`
+}
+
+// PrivacyConsentPolicy holds the consent banner's policy link.
+type PrivacyConsentPolicy struct {
+	URL  string `yaml:"url"`
+	Text string `yaml:"text"`
+}
+
+// PrivacyConsentButtons holds the consent banner's button labels.
+type PrivacyConsentButtons struct {
+	Decline string `yaml:"decline"`
+	Accept  string `yaml:"accept"`
+}
+
+// GetConsentMessage returns MessageIfSold when Data.Sold is true, else
+// Message, per AI.md PART 16 "Dynamic Message Selection".
+func (p Privacy) GetConsentMessage() string {
+	if p.Data.Sold && p.Consent.MessageIfSold != "" {
+		return p.Consent.MessageIfSold
+	}
+	return p.Consent.Message
+}
+
+// PrivacyCookies holds `server.privacy.cookies`.
+type PrivacyCookies struct {
+	Essential   PrivacyCookieCategory `yaml:"essential"`
+	Preferences PrivacyCookieCategory `yaml:"preferences"`
+	Analytics   PrivacyCookieCategory `yaml:"analytics"`
+}
+
+// PrivacyCookieCategory describes one cookie category shown in the
+// consent-preferences dialog and the privacy policy's Cookie Policy
+// section.
+type PrivacyCookieCategory struct {
+	Enabled     bool   `yaml:"enabled"`
+	Description string `yaml:"description"`
+}
+
+// PrivacyContent holds `server.privacy.content` (Markdown-flagged fields;
+// rendered as plain paragraphs — a Markdown renderer is not wired yet, see
+// TODO.AI.md).
+type PrivacyContent struct {
+	DataCollection  string `yaml:"data_collection"`
+	DataUsage       string `yaml:"data_usage"`
+	DataUsageIfSold string `yaml:"data_usage_if_sold"`
+	DataSecurity    string `yaml:"data_security"`
+}
+
+// GetDataUsageContent returns DataUsageIfSold when Data.Sold is true, else
+// DataUsage, per AI.md PART 16 "Dynamic Fields" -> "content.data_usage".
+func (p Privacy) GetDataUsageContent() string {
+	if p.Data.Sold && p.Content.DataUsageIfSold != "" {
+		return p.Content.DataUsageIfSold
+	}
+	return p.Content.DataUsage
+}
+
+// PrivacyRetention holds `server.privacy.retention`.
+type PrivacyRetention struct {
+	Period            string `yaml:"period"`
+	ExportAvailable   bool   `yaml:"export_available"`
+	DeletionAvailable bool   `yaml:"deletion_available"`
+}
+
+// PrivacyThirdParty holds `server.privacy.third_party`.
+type PrivacyThirdParty struct {
+	Services []PrivacyThirdPartyService `yaml:"services"`
+}
+
+// PrivacyThirdPartyService is one third-party service disclosure entry.
+type PrivacyThirdPartyService struct {
+	Name      string `yaml:"name"`
+	Purpose   string `yaml:"purpose"`
+	DataSent  string `yaml:"data_sent"`
+	PolicyURL string `yaml:"policy_url"`
+}
+
+// Web holds the top-level `web:` block of server.yml, per AI.md PART 16
+// "Footer Customization" and "Announcements".
+type Web struct {
+	Footer        WebFooter        `yaml:"footer"`
+	Announcements WebAnnouncements `yaml:"announcements"`
+	Theme         string           `yaml:"theme"`
+}
+
+// WebFooter holds `web.footer`.
+type WebFooter struct {
+	// CustomHTML is sanitized via src/common/sanitize.SanitizeFooterHTML
+	// before every render — never trust this field directly in a
+	// template. "" = default branding; " " = branding disabled.
+	CustomHTML string `yaml:"custom_html"`
+}
+
+// WebAnnouncements holds `web.announcements`, per AI.md PART 16
+// "Announcements".
+type WebAnnouncements struct {
+	Items []Announcement `yaml:"items"`
+}
+
+// Announcement is one operator-configured announcement banner entry.
+type Announcement struct {
+	ID      string `yaml:"id"`
+	Message string `yaml:"message"`
+	Level   string `yaml:"level"`
+	Enabled bool   `yaml:"enabled"`
+}
+
+// Pages holds the top-level `pages:` block of server.yml, per AI.md
+// PART 16 "Pages Configuration (config file)".
+type Pages struct {
+	About   PageContent `yaml:"about"`
+	Privacy PageContent `yaml:"privacy"`
+	Contact ContactPage `yaml:"contact"`
+	Help    PageContent `yaml:"help"`
+	Terms   PageContent `yaml:"terms"`
+}
+
+// PageContent is a simple operator-overridable content block (Markdown-
+// flagged; see PrivacyContent's doc comment on Markdown rendering status).
+type PageContent struct {
+	Content string `yaml:"content"`
+}
+
+// ContactPage holds `pages.contact`.
+type ContactPage struct {
+	Enabled        bool   `yaml:"enabled"`
+	Captcha        string `yaml:"captcha"`
+	SuccessMessage string `yaml:"success_message"`
 }
 
 // TLS holds `server.tls`, per AI.md PART 15 "Built-in Let's Encrypt
@@ -188,6 +410,60 @@ func Default(dbPath string) *Config {
 			},
 			TLS: TLS{
 				Enabled: false,
+			},
+			CORS: CORS{
+				AllowedOrigins:   []string{"*"},
+				AllowCredentials: false,
+				MaxAge:           600,
+			},
+			CSRF: CSRF{
+				Enabled:     true,
+				TokenLength: 32,
+				CookieName:  "csrf_token",
+				HeaderName:  "X-CSRF-Token",
+				Secure:      "auto",
+			},
+			Contact: Contact{},
+			Privacy: Privacy{
+				Consent: PrivacyConsent{
+					Message: "We use essential cookies to make this site work. " +
+						"With your consent, we may also use cookies to improve " +
+						"your experience.",
+					Buttons: PrivacyConsentButtons{
+						Decline: "Decline",
+						Accept:  "Accept",
+					},
+					PreferencesText: "Cookie preferences",
+				},
+				Cookies: PrivacyCookies{
+					Essential: PrivacyCookieCategory{
+						Enabled:     true,
+						Description: "Required for the site to function (e.g. theme, CSRF protection).",
+					},
+					Preferences: PrivacyCookieCategory{
+						Enabled:     true,
+						Description: "Remembers your display preferences.",
+					},
+					Analytics: PrivacyCookieCategory{
+						Enabled:     false,
+						Description: "Not used by this server.",
+					},
+				},
+				Retention: PrivacyRetention{
+					Period:            "Link and click data is retained until deleted by the owner.",
+					ExportAvailable:   false,
+					DeletionAvailable: false,
+				},
+			},
+		},
+		Web: Web{
+			Theme: "auto",
+		},
+		Pages: Pages{
+			Contact: ContactPage{
+				Enabled:        true,
+				Captcha:        "simple",
+				SuccessMessage: "Thank you for your message. We'll respond soon.",
 			},
 		},
 	}

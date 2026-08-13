@@ -1,0 +1,94 @@
+{{define "content"}}<article class="help-page">
+<h1>Help</h1>
+
+<section id="getting-started">
+<h2>Getting Started</h2>
+<p>Shorten a URL with a single request — no API key required:</p>
+<pre><code>curl -X POST {{.Base.SiteName}}/api/v1/links \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com/very/long/path"}'</code></pre>
+<p>Response:</p>
+<pre><code>{
+  "short_code": "aZ3kQ1",
+  "short_url": "https://example.com/aZ3kQ1",
+  "destination_url": "https://example.com/very/long/path",
+  "owner_token": "tok_...",
+  "created_at": "2026-08-07T00:00:00Z"
+}</code></pre>
+<p>Save the <code>owner_token</code> — it authorizes later edits or deletion of that
+link and is shown only once.</p>
+</section>
+
+<section id="features">
+<h2>Features</h2>
+
+<h3>Custom slugs</h3>
+<p>Request a specific short code instead of an auto-generated one:</p>
+<pre><code>curl -X POST {{.Base.SiteName}}/api/v1/links \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com","slug":"my-link"}'</code></pre>
+<p>Slugs must be 3-20 characters, letters/numbers/hyphens, and cannot collide
+with a reserved system name (e.g. <code>api</code>, <code>server</code>,
+<code>static</code>, <code>about</code>).</p>
+
+<h3>Managing a link</h3>
+<p>Update or delete a link using the <code>owner_token</code> from creation:</p>
+<pre><code>curl -X PATCH {{.Base.SiteName}}/api/v1/links/my-link \
+  -H "Authorization: Bearer tok_..." \
+  -d '{"destination_url":"https://example.com/new-path"}'
+
+curl -X DELETE {{.Base.SiteName}}/api/v1/links/my-link \
+  -H "Authorization: Bearer tok_..."</code></pre>
+
+<h3>Click analytics</h3>
+<p>Every link has a stats page — visit it in a browser, or fetch it as JSON:</p>
+<pre><code>curl {{.Base.SiteName}}/my-link/stats -H "Accept: application/json"</code></pre>
+<p>Visitor IP addresses are anonymized before being stored, so stats show
+aggregate traffic without exposing individual visitors.</p>
+</section>
+
+<div class="api-docs">
+<h3>API Documentation</h3>
+<p>This application provides a full REST API. See the API reference for the
+complete endpoint list and request/response formats.</p>
+</div>
+
+{{if and .Base.TorOnionAddress}}
+<section id="tor-access" class="tor-access">
+<h3>Tor Access</h3>
+<p>This application is available as a Tor hidden service for enhanced privacy.</p>
+<h4>Onion Address</h4>
+<div class="code-block">
+<code class="long-string monospace-data">{{.Base.TorOnionAddress}}</code>
+<button type="button" class="copy-btn" data-copy="{{.Base.TorOnionAddress}}" aria-label="Copy to clipboard">
+<span aria-hidden="true">&#128203;</span>
+</button>
+</div>
+<p class="note">Using Tor provides additional privacy by hiding your IP address
+and encrypting your connection through the Tor network.</p>
+</section>
+{{end}}
+
+<section id="faq">
+<h2>FAQ</h2>
+<h3>Do I need an account?</h3>
+<p>No. Anyone can create a short link anonymously; the response's
+<code>owner_token</code> is your only credential for managing that link.</p>
+<h3>Is there a rate limit?</h3>
+<p>Yes — anonymous link creation is rate-limited per IP address to prevent abuse.</p>
+<h3>What happens to expired links?</h3>
+<p>A resolve request for an expired link returns <code>410 Gone</code> instead of redirecting.</p>
+</section>
+
+<section id="troubleshooting">
+<h2>Troubleshooting</h2>
+<h3>404 on a short link</h3>
+<p>The link doesn't exist, was deleted, or the slug was mistyped.</p>
+<h3>410 Gone</h3>
+<p>The link existed but has expired.</p>
+<h3>409 Conflict when creating a custom slug</h3>
+<p>That slug is already taken or is a reserved system name — choose another.</p>
+</section>
+{{if .HelpContent}}<div class="help-extra">{{.HelpContent}}</div>{{end}}
+</article>
+{{end}}

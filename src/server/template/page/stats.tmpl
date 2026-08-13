@@ -1,0 +1,57 @@
+{{define "content"}}<article class="stats-page">
+<h1>Click Statistics: <code>{{.Stats.ShortCode}}</code></h1>
+
+<div class="info-list">
+<div class="info-row"><span class="info-label">Total clicks</span><span class="info-value">{{.Stats.TotalClicks}}</span></div>
+</div>
+
+<section>
+<h2>Clicks by Day</h2>
+{{if .Stats.TimeSeries}}
+<div class="table-wrapper">
+<table>
+<thead><tr><th>Date</th><th>Clicks</th></tr></thead>
+<tbody>
+{{range .Stats.TimeSeries}}<tr><td>{{.Date}}</td><td>{{.Count}}</td></tr>{{end}}
+</tbody>
+</table>
+</div>
+{{else}}<p>No clicks recorded yet.</p>{{end}}
+</section>
+
+<section>
+<h2>Top Referrers</h2>
+{{if .Stats.Referrers}}
+<div class="table-wrapper">
+<table>
+<thead><tr><th>Referrer</th><th>Clicks</th></tr></thead>
+<tbody>
+{{range $ref, $count := .Stats.Referrers}}<tr><td class="long-string">{{$ref}}</td><td>{{$count}}</td></tr>{{end}}
+</tbody>
+</table>
+</div>
+{{else}}<p>No referrer data yet.</p>{{end}}
+</section>
+
+<section>
+<h2>Recent Clicks</h2>
+{{if .Stats.Recent}}
+<div class="table-wrapper">
+<table>
+<thead><tr><th>Time</th><th>IP (anonymized)</th><th>Location</th><th>Referrer</th></tr></thead>
+<tbody>
+{{range .Stats.Recent}}
+<tr>
+<td>{{.Timestamp}}</td>
+<td class="monospace-data">{{.IP}}</td>
+<td>{{if .Country}}{{.Country}}{{if .Region}}, {{.Region}}{{end}}{{else}}unknown{{end}}</td>
+<td class="long-string">{{if .Referrer}}{{.Referrer}}{{else}}direct{{end}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</div>
+{{else}}<p>No clicks recorded yet.</p>{{end}}
+</section>
+</article>
+{{end}}
