@@ -457,7 +457,9 @@ func Default(dbPath string) *Config {
 			},
 		},
 		Web: Web{
-			Theme: "auto",
+			// Dark is the required default per AI.md PART 16's "Three
+			// Required Themes" table (Dark: Default = YES, Auto: No).
+			Theme: "dark",
 		},
 		Pages: Pages{
 			Contact: ContactPage{

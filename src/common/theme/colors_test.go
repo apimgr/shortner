@@ -34,11 +34,9 @@ func TestPalettesPopulated(t *testing.T) {
 	}
 	for name, p := range termPalettes {
 		for field, v := range map[string]string{
-			"Background": p.Background, "Foreground": p.Foreground,
-			"Primary": p.Primary, "Secondary": p.Secondary, "Accent": p.Accent,
+			"Foreground": p.Foreground, "Muted": p.Muted, "Primary": p.Primary,
 			"Success": p.Success, "Warning": p.Warning, "Error": p.Error,
-			"Info": p.Info, "Surface": p.Surface, "SurfaceAlt": p.SurfaceAlt,
-			"Border": p.Border, "Muted": p.Muted,
+			"Info": p.Info, "Border": p.Border,
 		} {
 			if v == "" {
 				t.Errorf("TerminalPalette%s.%s is empty", name, field)

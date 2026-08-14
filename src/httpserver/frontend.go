@@ -57,6 +57,7 @@ func (fd *frontendDeps) registerFrontendRoutes(r chi.Router, hd *healthDeps, ld 
 	r.Post("/server/contact", fd.contactHandler)
 	r.Post("/server/consent", fd.consentHandler)
 	r.Get("/server/ccpa", fd.ccpaHandler)
+	r.Post("/server/theme", fd.themeHandler)
 
 	r.Get("/server/healthz", fd.healthzHTMLHandler(hd))
 	r.Get("/{slug}", ld.resolveHandler)
@@ -84,7 +85,7 @@ func (fd *frontendDeps) homeHandler(w http.ResponseWriter, r *http.Request) {
 		fd.homePost(w, r)
 		return
 	}
-	data := homePageData{Base: fd.newPageData(requestCSRFToken(r, fd.cfg), "Shorten a URL", fd.cfg.Server.SEO.Description)}
+	data := homePageData{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Shorten a URL", fd.cfg.Server.SEO.Description)}
 	_ = renderPage(w, http.StatusOK, "home", data)
 }
 
@@ -141,7 +142,7 @@ func (fd *frontendDeps) homePost(w http.ResponseWriter, r *http.Request) {
 
 	shortURL := fd.ld.resolver.BuildURL(r, "/"+link.ShortCode)
 	data := homePageData{
-		Base: fd.newPageData(requestCSRFToken(r, fd.cfg), "Shorten a URL", fd.cfg.Server.SEO.Description),
+		Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Shorten a URL", fd.cfg.Server.SEO.Description),
 		Link: &homeLinkResult{ShortURL: shortURL, OwnerToken: raw},
 	}
 	_ = renderPage(w, http.StatusCreated, "home", data)
@@ -149,7 +150,7 @@ func (fd *frontendDeps) homePost(w http.ResponseWriter, r *http.Request) {
 
 func (fd *frontendDeps) homeError(w http.ResponseWriter, r *http.Request, msg, dest, slug string, status int) {
 	data := homePageData{
-		Base:        fd.newPageData(requestCSRFToken(r, fd.cfg), "Shorten a URL", fd.cfg.Server.SEO.Description),
+		Base:        fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Shorten a URL", fd.cfg.Server.SEO.Description),
 		Error:       msg,
 		Destination: dest,
 		CustomSlug:  slug,
@@ -168,7 +169,7 @@ type aboutPageData struct {
 
 func (fd *frontendDeps) aboutHandler(w http.ResponseWriter, r *http.Request) {
 	data := aboutPageData{
-		Base:         fd.newPageData(requestCSRFToken(r, fd.cfg), "About", fd.cfg.Server.SEO.Description),
+		Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), "About", fd.cfg.Server.SEO.Description),
 		AboutContent: template.HTML(sanitize.SanitizeFooterHTML(fd.cfg.Pages.About.Content)),
 	}
 	_ = renderPage(w, http.StatusOK, "about", data)
@@ -182,7 +183,7 @@ type helpPageData struct {
 
 func (fd *frontendDeps) helpHandler(w http.ResponseWriter, r *http.Request) {
 	data := helpPageData{
-		Base:        fd.newPageData(requestCSRFToken(r, fd.cfg), "Help", fd.cfg.Server.SEO.Description),
+		Base:        fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Help", fd.cfg.Server.SEO.Description),
 		HelpContent: template.HTML(sanitize.SanitizeFooterHTML(fd.cfg.Pages.Help.Content)),
 	}
 	_ = renderPage(w, http.StatusOK, "help", data)
@@ -201,7 +202,7 @@ func (fd *frontendDeps) termsHandler(w http.ResponseWriter, r *http.Request) {
 		content = template.HTML(sanitize.SanitizeFooterHTML(custom))
 	}
 	data := termsPageData{
-		Base:    fd.newPageData(requestCSRFToken(r, fd.cfg), "Terms of Service", fd.cfg.Server.SEO.Description),
+		Base:    fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Terms of Service", fd.cfg.Server.SEO.Description),
 		Content: content,
 	}
 	_ = renderPage(w, http.StatusOK, "terms", data)
@@ -239,7 +240,7 @@ func (fd *frontendDeps) privacyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := privacyPageData{
-		Base:    fd.newPageData(requestCSRFToken(r, fd.cfg), "Privacy Policy", fd.cfg.Server.SEO.Description),
+		Base:    fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Privacy Policy", fd.cfg.Server.SEO.Description),
 		Content: content,
 
 		DataCollection: priv.Content.DataCollection,
@@ -280,7 +281,7 @@ func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := contactPageData{
-		Base:       fd.newPageData(requestCSRFToken(r, fd.cfg), "Contact", fd.cfg.Server.SEO.Description),
+		Base:       fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Contact", fd.cfg.Server.SEO.Description),
 		Enabled:    fd.cfg.Pages.Contact.Enabled,
 		AbuseEmail: fd.cfg.Server.Contact.Abuse.Email,
 	}
@@ -293,7 +294,7 @@ func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
 // and the visitor is shown success, but nothing is sent or persisted past
 // the request. This is a deliberate, documented no-op, not a bug.
 func (fd *frontendDeps) contactPost(w http.ResponseWriter, r *http.Request) {
-	base := fd.newPageData(requestCSRFToken(r, fd.cfg), "Contact", fd.cfg.Server.SEO.Description)
+	base := fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Contact", fd.cfg.Server.SEO.Description)
 	abuseEmail := fd.cfg.Server.Contact.Abuse.Email
 
 	if !fd.cfg.Pages.Contact.Enabled {
@@ -419,7 +420,7 @@ func (fd *frontendDeps) ccpaHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	data := struct {
 		Base PageData
-	}{Base: fd.newPageData(requestCSRFToken(r, fd.cfg), "Do Not Sell My Personal Information", fd.cfg.Server.SEO.Description)}
+	}{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Do Not Sell My Personal Information", fd.cfg.Server.SEO.Description)}
 	_ = renderPage(w, http.StatusOK, "ccpa", data)
 }
 
@@ -445,7 +446,7 @@ func (fd *frontendDeps) healthzHTMLHandler(hd *healthDeps) http.HandlerFunc {
 			status = http.StatusServiceUnavailable
 		}
 		data := healthzPageData{
-			Base:   fd.newPageData(requestCSRFToken(r, fd.cfg), "Server Health", fd.cfg.Server.SEO.Description),
+			Base:   fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Server Health", fd.cfg.Server.SEO.Description),
 			Health: resp,
 		}
 		_ = renderPage(w, status, "healthz", data)
@@ -484,7 +485,7 @@ func (fd *frontendDeps) statsHTMLHandler(ld *linkDeps) http.HandlerFunc {
 		}
 		resp := buildStatsResponse(link, clicks)
 		data := statsPageData{
-			Base:  fd.newPageData(requestCSRFToken(r, fd.cfg), "Stats: "+resp.ShortCode, fd.cfg.Server.SEO.Description),
+			Base:  fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Stats: "+resp.ShortCode, fd.cfg.Server.SEO.Description),
 			Stats: resp,
 		}
 		_ = renderPage(w, http.StatusOK, "stats", data)

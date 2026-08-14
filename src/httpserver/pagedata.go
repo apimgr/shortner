@@ -25,6 +25,7 @@ type PageData struct {
 	BuildDate      string
 	CurrentYear    int
 	Theme          string
+	CurrentPath    string
 	CSRFToken      string
 	CSRFCookieName string
 
@@ -58,14 +59,22 @@ type frontendDeps struct {
 
 // newPageData builds the common PageData for one request, using r's
 // csrf_token cookie (set by csrfMiddleware on every GET) as the value a
-// same-origin POST form must echo back.
-func (fd *frontendDeps) newPageData(csrfToken, title, description string) PageData {
+// same-origin POST form must echo back, and r's theme cookie (falling
+// back to the operator's configured default, then "dark") to render the
+// theme-{dark,light,auto} class on <html> with zero FOUC — see
+// requestTheme in theme.go and AI.md PART 16 "Theme Detection Flow".
+func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, description string) PageData {
 	cfg := fd.cfg
 	footerHTML, _ := sanitize.ValidateFooterHTML(cfg.Web.Footer.CustomHTML)
 
 	cookieName := cfg.Server.CSRF.CookieName
 	if cookieName == "" {
 		cookieName = "csrf_token"
+	}
+
+	currentPath := r.URL.Path
+	if r.URL.RawQuery != "" {
+		currentPath += "?" + r.URL.RawQuery
 	}
 
 	return PageData{
@@ -77,7 +86,8 @@ func (fd *frontendDeps) newPageData(csrfToken, title, description string) PageDa
 		ProjectVersion: fd.version,
 		BuildDate:      fd.buildDate,
 		CurrentYear:    time.Now().Year(),
-		Theme:          cfg.Web.Theme,
+		Theme:          requestTheme(r, cfg),
+		CurrentPath:    currentPath,
 		CSRFToken:      csrfToken,
 		CSRFCookieName: cookieName,
 

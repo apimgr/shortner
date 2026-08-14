@@ -229,7 +229,6 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
   `page/home.tmpl` was written to the Dracula/light CSS variables and the
   IDEA.md "Frontend design reference" description, but a pixel-level
   comparison against the reference has not been done.
-
 ## PART 17-22: Features
 
 - Email & notifications.

@@ -46,13 +46,43 @@
     document.cookie = "theme=" + theme + "; path=/; max-age=" + maxAge + "; samesite=lax";
   }
 
-  function toggleTheme() {
+  var THEME_ICONS = { dark: "☽", light: "☀", auto: "🔄" };
+
+  function currentThemeClass(root) {
+    if (root.classList.contains("theme-light")) {
+      return "light";
+    }
+    if (root.classList.contains("theme-auto")) {
+      return "auto";
+    }
+    return "dark";
+  }
+
+  function applyTheme(theme) {
     var root = document.documentElement;
-    var current = root.getAttribute("data-theme");
-    var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-    var effectiveCurrent = current === "light" || current === "dark" ? current : (prefersDark ? "dark" : "light");
-    var next = effectiveCurrent === "dark" ? "light" : "dark";
-    root.setAttribute("data-theme", next);
+    root.classList.remove("theme-dark", "theme-light", "theme-auto");
+    root.classList.add("theme-" + theme);
+
+    var button = document.querySelector('[data-action="toggle-theme"]');
+    if (button) {
+      button.setAttribute("data-theme", theme);
+      button.setAttribute("aria-label", "Theme: " + theme + " (select to switch between dark, light, and auto)");
+      var icon = button.querySelector("[data-theme-icon]");
+      if (icon) {
+        icon.textContent = THEME_ICONS[theme] || THEME_ICONS.dark;
+      }
+    }
+  }
+
+  // toggleTheme cycles dark -> light -> auto -> dark, per AI.md PART 16
+  // "Theme Switching": no page reload — the class on <html> is swapped
+  // directly and the theme cookie is set so the next server render (and
+  // any no-JS navigation) picks up the same choice.
+  function toggleTheme() {
+    var order = ["dark", "light", "auto"];
+    var current = currentThemeClass(document.documentElement);
+    var next = order[(order.indexOf(current) + 1) % order.length];
+    applyTheme(next);
     setThemeCookie(next);
   }
 

@@ -1,9 +1,18 @@
 {{define "header"}}<header class="site-header">
 <div class="container site-header-inner">
 <a href="/" class="brand">{{.Base.SiteName}}</a>
-<button type="button" class="theme-toggle" data-action="toggle-theme" aria-label="Toggle dark/light theme">
-<span aria-hidden="true">&#9788;</span>
+<button type="button" class="theme-toggle" data-action="toggle-theme" data-theme="{{.Base.Theme}}" aria-label="Theme: {{.Base.Theme}} (select to switch between dark, light, and auto)">
+<span aria-hidden="true" data-theme-icon>{{if eq .Base.Theme "light"}}&#9728;{{else if eq .Base.Theme "auto"}}&#128260;{{else}}&#127769;{{end}}</span>
 </button>
+<noscript>
+<form method="POST" action="/server/theme" class="theme-noscript-form">
+<input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
+<input type="hidden" name="return_to" value="{{.Base.CurrentPath}}">
+<button type="submit" name="theme" value="dark">Dark</button>
+<button type="submit" name="theme" value="light">Light</button>
+<button type="submit" name="theme" value="auto">Auto</button>
+</form>
+</noscript>
 </div>
 </header>
 {{end}}
