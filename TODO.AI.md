@@ -24,26 +24,40 @@ Everything below is deferred work, in dependency order.
   added later.
   Read: AI.md PART 2, 10
 
-## PART 7-8: Binary requirements & server CLI
+## PART 7: Binary requirements — DONE
 
-- `src/common/theme` (Unified Color Palette / `ThemePalette`) is deferred —
-  it depends on the PART 16 web frontend theme system, which does not
-  exist yet.
-  Read: AI.md PART 7 "Theme Package", PART 16 "Unified Color Palette"
-- Concrete `src/data/*.json` application data files — no later PART has
-  defined their schema/content yet; `src/data/embed.go` embeds the
-  directory (currently only `.gitkeep`) so real files just need to be
-  added once a PART specifies them.
-  Read: AI.md PART 7 "Embedded Assets"
-- `src/signal` installs OS signal handlers (`Start()`, non-blocking) and
-  the PID-file-removal shutdown hook is already registered in
-  `src/main.go`'s `run()`. Still missing: actually closing HTTP
-  listeners/flushing logs on shutdown, and making `run()` block until a
-  shutdown signal arrives — both require the HTTP server (PART 9+) to
-  exist first; `run()` currently returns immediately after startup since
-  there's nothing yet to keep the process alive.
-  Read: AI.md PART 7 "Default Behavior", PART 8 "Signal Handling &
-  Graceful Shutdown"
+- Single static binary: `CGO_ENABLED=0` in every Makefile target and the
+  Docker toolchain build; pure-Go dependencies only (`modernc.org/sqlite`
+  etc.).
+- Default behavior: no-args init+start, first-run `server.yml` +
+  directories + banner, PID file — all implemented in `src/main.go`.
+- Embedded assets: `src/server/embed.go` (`//go:embed all:template`,
+  `all:static`), `src/data/embed.go` (`//go:embed all:*`, currently just
+  `.gitkeep` — no later PART has defined concrete `src/data/*.json`
+  schemas yet, so this stays a placeholder until one does).
+- External Data (GeoIP/blocklists/CVE/Trivy) is explicitly PART 18/19
+  scheduler work, not PART 7 — tracked under "PART 17-22: Features" below.
+- Display Environment Detection: `src/common/display/detect.go`,
+  `detect_unix.go`, `detect_windows.go` — `DisplayMode`/`DisplayEnv`/
+  `DetectDisplayEnv`/`autoDetectDisplayMode`/`IsDumbTerminal`/`CanUseANSI`,
+  plus `NewSpinner`/`TextSpinner`/`ANSISpinner`/`ShowProgress`
+  (`src/common/display/spinner.go`) for the TERM=dumb fallback behavior.
+- Terminal Package: `src/common/terminal/size.go` — `SizeMode` breakpoints
+  and `ShowASCIIArt`/`ShowBorders`/`ShowSidebar`/`ShowIcons` helpers,
+  matching `calculateMode`'s thresholds exactly.
+- Theme Package: `src/common/theme/colors.go` (`ThemePalette`,
+  `ThemePaletteDark`/`Light`, `TerminalPalette`, Dracula-based per
+  IDEA.md) plus `src/common/theme/detect.go`
+  (`GetThemePalette`/`IsSystemDarkTheme`) — `IsSystemDarkTheme` is a
+  best-effort COLORFGBG heuristic with no CLI/TUI consumer yet (PART 32);
+  see the doc comment for the platform-API gap this leaves for a future
+  CLI build.
+- Banner Package: `src/common/banner/banner.go` —
+  `PrintStartupBanner`/full/compact/minimal/micro variants.
+- Signal handling: `src/signal` installs SIGTERM/SIGINT/SIGHUP handlers;
+  `src/main.go`'s `run()` blocks on `startHTTPServer(srv)` until a
+  shutdown signal closes the HTTP server, DB, access log, and removes the
+  PID file.
 
 ## PART 9-11: Backend core
 
