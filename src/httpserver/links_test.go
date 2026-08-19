@@ -196,12 +196,25 @@ func TestGetLinkHandler(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	var resp LinkResponse
+	var resp struct {
+		OK   bool         `json:"ok"`
+		Data LinkResponse `json:"data"`
+	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if resp.ShortCode != slug {
-		t.Errorf("short_code = %q, want %q", resp.ShortCode, slug)
+	if !resp.OK {
+		t.Errorf("ok = false, want true")
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "\n  \"data\": {") {
+		t.Errorf("body is not indented with 2 spaces per PART 14: %s", body)
+	}
+	if !strings.HasSuffix(body, "}\n") || strings.HasSuffix(body, "\n\n") {
+		t.Errorf("body must end with exactly one trailing newline: %q", body)
+	}
+	if resp.Data.ShortCode != slug {
+		t.Errorf("short_code = %q, want %q", resp.Data.ShortCode, slug)
 	}
 }
 
@@ -414,9 +427,16 @@ func TestStatsHandler(t *testing.T) {
 	if statsRec.Code != http.StatusOK {
 		t.Fatalf("stats status = %d, want 200; body=%s", statsRec.Code, statsRec.Body.String())
 	}
-	var resp StatsResponse
-	if err := json.Unmarshal(statsRec.Body.Bytes(), &resp); err != nil {
+	var envelope struct {
+		OK   bool          `json:"ok"`
+		Data StatsResponse `json:"data"`
+	}
+	if err := json.Unmarshal(statsRec.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("unmarshal: %v", err)
+	}
+	resp := envelope.Data
+	if !envelope.OK {
+		t.Errorf("ok = false, want true")
 	}
 	if resp.TotalClicks != 1 {
 		t.Errorf("total_clicks = %d, want 1", resp.TotalClicks)
@@ -503,11 +523,14 @@ func TestCorsAPIMiddleware(t *testing.T) {
 	}
 }
 
-func TestMin(t *testing.T) {
-	if min(3, 5) != 3 {
-		t.Error("min(3,5) != 3")
+func TestValidateDestinationURLLength(t *testing.T) {
+	long := "https://example.com/" + strings.Repeat("a", maxDestinationURLLen)
+	if _, ok := validateDestinationURL(long); ok {
+		t.Errorf("validateDestinationURL(%d bytes) ok = true, want false", len(long))
 	}
-	if min(5, 3) != 3 {
-		t.Error("min(5,3) != 3")
+
+	atLimit := "https://example.com/" + strings.Repeat("a", maxDestinationURLLen-len("https://example.com/"))
+	if _, ok := validateDestinationURL(atLimit); !ok {
+		t.Errorf("validateDestinationURL(%d bytes) ok = false, want true", len(atLimit))
 	}
 }

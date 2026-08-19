@@ -169,6 +169,53 @@ func TestHealthHandlerText(t *testing.T) {
 	}
 }
 
+// TestFormatHealthTextCanonicalOrder locks the flattened text output to the
+// canonical field order of AI.md PART 13 "Plain Text (Accept: text/plain)".
+func TestFormatHealthTextCanonicalOrder(t *testing.T) {
+	h := testHealthDeps(t, openTestDB(t))
+	body := formatHealthText(h.buildHealthResponse(context.Background()))
+
+	want := []string{
+		"project.name: ",
+		"project.tagline: ",
+		"project.description: ",
+		"status: ",
+		"version: ",
+		"go_version: ",
+		"build.commit: ",
+		"build.date: ",
+		"uptime: ",
+		"mode: ",
+		"timestamp: ",
+		"features.tor.enabled: ",
+		"features.tor.running: ",
+		"features.tor.status: ",
+		"features.tor.hostname: ",
+		"features.i2p.enabled: ",
+		"features.i2p.running: ",
+		"features.i2p.status: ",
+		"features.i2p.hostname: ",
+		"features.i2p.provider: ",
+		"features.geoip: ",
+		"checks.database: ",
+		"checks.cache: ",
+		"checks.disk: ",
+		"checks.scheduler: ",
+		"stats.requests_total: ",
+		"stats.requests_24h: ",
+		"stats.active_connections: ",
+	}
+
+	pos := 0
+	for _, key := range want {
+		idx := strings.Index(body[pos:], key)
+		if idx < 0 {
+			t.Fatalf("body missing %q or out of order:\n%s", key, body)
+		}
+		pos += idx + len(key)
+	}
+}
+
 func TestHealthHandlerUnhealthyReturns503(t *testing.T) {
 	db := openTestDB(t)
 	db.Close()

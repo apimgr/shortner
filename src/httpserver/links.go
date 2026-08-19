@@ -31,6 +31,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/apimgr/shortner/src/apperr"
+	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/security"
 )
@@ -39,6 +40,10 @@ import (
 type linkDeps struct {
 	sqlDB    *sql.DB
 	resolver *ProxyResolver
+	// log records non-fatal failures that must not break a redirect, such
+	// as a click that could not be persisted (AI.md PART 9 "Error
+	// Logging": all errors are logged with context). Nil in tests.
+	log *applog.Logger
 }
 
 // LinkResponse is the canonical public shape of a link, per the "Single
@@ -188,13 +193,20 @@ func (ld *linkDeps) createLinkHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(apperr.APIResponse{OK: true, Data: resp})
+	apperr.WriteJSON(w, apperr.APIResponse{OK: true, Data: resp})
 }
 
-// validateDestinationURL requires an absolute http(s) URL with a host.
+// maxDestinationURLLen bounds a stored destination URL. Without it the
+// only ceiling is the request body limit (10 MB by default), so a single
+// link could persist a multi-megabyte URL and have it echoed back in
+// every Location header and stats response.
+const maxDestinationURLLen = 2048
+
+// validateDestinationURL requires an absolute http(s) URL with a host, no
+// longer than maxDestinationURLLen.
 func validateDestinationURL(raw string) (string, bool) {
 	raw = strings.TrimSpace(raw)
-	if raw == "" {
+	if raw == "" || len(raw) > maxDestinationURLLen {
 		return "", false
 	}
 	u, err := url.Parse(raw)
@@ -229,7 +241,7 @@ func (ld *linkDeps) getLinkHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	apperr.WriteJSON(w, apperr.APIResponse{OK: true, Data: resp})
 }
 
 // updateLinkRequest is the PATCH /links/{slug} body. ExpiresAt semantics:
@@ -392,7 +404,9 @@ func (ld *linkDeps) resolveHandler(w http.ResponseWriter, r *http.Request) {
 	ua := r.Header.Get("User-Agent")
 	if !isBotUserAgent(ua) {
 		ip := ld.resolver.ResolveClientIP(r)
-		_, _ = db.RecordClick(r.Context(), ld.sqlDB, link.ID, ip, ua, r.Header.Get("Referer"))
+		if _, err := db.RecordClick(r.Context(), ld.sqlDB, link.ID, ip, ua, r.Header.Get("Referer")); err != nil && ld.log != nil {
+			_ = ld.log.WriteLine(applog.LevelError, fmt.Sprintf("click not recorded for %s: %v", link.ShortCode, err))
+		}
 	}
 
 	http.Redirect(w, r, link.DestinationURL, http.StatusFound)
@@ -457,7 +471,7 @@ func (ld *linkDeps) statsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	apperr.WriteJSON(w, apperr.APIResponse{OK: true, Data: resp})
 }
 
 const statsRecentLimit = 50
@@ -503,13 +517,6 @@ func buildStatsResponse(link *db.Link, clicks []db.Click) StatsResponse {
 		TimeSeries:  series,
 		Recent:      recent,
 	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // lookupLink fetches a link by slug, converting db.ErrNotFound into a

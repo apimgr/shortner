@@ -6,7 +6,6 @@ package httpserver
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apimgr/shortner/src/apperr"
 	"github.com/apimgr/shortner/src/mode"
 )
 
@@ -57,15 +57,16 @@ type BuildInfo struct {
 }
 
 // FeaturesInfo lists PUBLIC non-negotiable features, per AI.md PART 13.
-// Tor (PART 31) and GeoIP (PART 19) are not implemented yet — reported
-// honestly as disabled.
+// Tor (PART 31.1), I2P (PART 31.2) and GeoIP (PART 19) are not implemented
+// yet — reported honestly as disabled.
 type FeaturesInfo struct {
 	Tor   TorInfo `json:"tor"`
+	I2P   I2PInfo `json:"i2p"`
 	GeoIP bool    `json:"geoip"`
 }
 
 // TorInfo describes the Tor hidden service, per AI.md PART 13. Always the
-// zero value until PART 31 lands — see TODO.AI.md.
+// zero value until PART 31.1 lands — see TODO.AI.md.
 type TorInfo struct {
 	Enabled  bool   `json:"enabled"`
 	Running  bool   `json:"running"`
@@ -73,13 +74,27 @@ type TorInfo struct {
 	Hostname string `json:"hostname"`
 }
 
+// I2PInfo describes the opt-in I2P eepsite, per AI.md PART 13. I2P is
+// opt-in and off by default, so every field stays zero-valued with
+// provider "none" until PART 31.2 lands — see TODO.AI.md.
+type I2PInfo struct {
+	Enabled  bool   `json:"enabled"`
+	Running  bool   `json:"running"`
+	Status   string `json:"status"`
+	Hostname string `json:"hostname"`
+	Provider string `json:"provider"`
+}
+
 // ChecksInfo reports component health as "ok"/"error" only, per AI.md
-// PART 13 "Security: Public Info Only".
+// PART 13 "Security: Public Info Only". checks.tor and checks.i2p are
+// omitted entirely until the overlay networks of PART 31 are built.
 type ChecksInfo struct {
 	Database  string `json:"database"`
 	Cache     string `json:"cache"`
 	Disk      string `json:"disk"`
 	Scheduler string `json:"scheduler"`
+	Tor       string `json:"tor,omitempty"`
+	I2P       string `json:"i2p,omitempty"`
 }
 
 // StatsInfo carries public-safe aggregate request statistics, per AI.md
@@ -139,6 +154,7 @@ func (h *healthDeps) buildHealthResponse(ctx context.Context) HealthResponse {
 		Timestamp: time.Now().UTC(),
 		Features: FeaturesInfo{
 			Tor:   TorInfo{},
+			I2P:   I2PInfo{Provider: "none"},
 			GeoIP: false,
 		},
 		Checks: ChecksInfo{
@@ -219,30 +235,61 @@ func (h *healthDeps) healthHandler() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
-		_ = json.NewEncoder(w).Encode(resp)
+		apperr.WriteJSON(w, resp)
 	}
 }
 
-// formatHealthText renders resp as simple "key: value" lines for
-// non-interactive/text clients.
+// formatHealthText renders resp as flattened "key: value" lines in the
+// canonical field order of AI.md PART 13 "Plain Text (Accept: text/plain)".
 func formatHealthText(resp HealthResponse) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "project: %s\n", resp.Project.Name)
+	fmt.Fprintf(&b, "project.name: %s\n", resp.Project.Name)
+	fmt.Fprintf(&b, "project.tagline: %s\n", resp.Project.Tagline)
+	fmt.Fprintf(&b, "project.description: %s\n", resp.Project.Description)
 	fmt.Fprintf(&b, "status: %s\n", resp.Status)
+	if resp.PendingRestart {
+		fmt.Fprintf(&b, "pending_restart: %s\n", strconv.FormatBool(resp.PendingRestart))
+		fmt.Fprintf(&b, "restart_reason: %s\n", strings.Join(resp.RestartReason, ", "))
+	}
 	fmt.Fprintf(&b, "version: %s\n", resp.Version)
 	fmt.Fprintf(&b, "go_version: %s\n", resp.GoVersion)
-	fmt.Fprintf(&b, "build_commit: %s\n", resp.Build.Commit)
-	fmt.Fprintf(&b, "build_date: %s\n", resp.Build.Date)
+	fmt.Fprintf(&b, "build.commit: %s\n", resp.Build.Commit)
+	fmt.Fprintf(&b, "build.date: %s\n", resp.Build.Date)
 	fmt.Fprintf(&b, "uptime: %s\n", resp.Uptime)
 	fmt.Fprintf(&b, "mode: %s\n", resp.Mode)
 	fmt.Fprintf(&b, "timestamp: %s\n", resp.Timestamp.Format(time.RFC3339))
+	fmt.Fprintf(&b, "features.tor.enabled: %s\n", strconv.FormatBool(resp.Features.Tor.Enabled))
+	fmt.Fprintf(&b, "features.tor.running: %s\n", strconv.FormatBool(resp.Features.Tor.Running))
+	fmt.Fprintf(&b, "features.tor.status: %s\n", statusOrDisabled(resp.Features.Tor.Status))
+	fmt.Fprintf(&b, "features.tor.hostname: %s\n", resp.Features.Tor.Hostname)
+	fmt.Fprintf(&b, "features.i2p.enabled: %s\n", strconv.FormatBool(resp.Features.I2P.Enabled))
+	fmt.Fprintf(&b, "features.i2p.running: %s\n", strconv.FormatBool(resp.Features.I2P.Running))
+	fmt.Fprintf(&b, "features.i2p.status: %s\n", statusOrDisabled(resp.Features.I2P.Status))
+	fmt.Fprintf(&b, "features.i2p.hostname: %s\n", resp.Features.I2P.Hostname)
+	fmt.Fprintf(&b, "features.i2p.provider: %s\n", resp.Features.I2P.Provider)
+	fmt.Fprintf(&b, "features.geoip: %s\n", strconv.FormatBool(resp.Features.GeoIP))
 	fmt.Fprintf(&b, "checks.database: %s\n", resp.Checks.Database)
 	fmt.Fprintf(&b, "checks.cache: %s\n", resp.Checks.Cache)
 	fmt.Fprintf(&b, "checks.disk: %s\n", resp.Checks.Disk)
 	fmt.Fprintf(&b, "checks.scheduler: %s\n", resp.Checks.Scheduler)
-	fmt.Fprintf(&b, "features.geoip: %s\n", strconv.FormatBool(resp.Features.GeoIP))
+	if resp.Checks.Tor != "" {
+		fmt.Fprintf(&b, "checks.tor: %s\n", resp.Checks.Tor)
+	}
+	if resp.Checks.I2P != "" {
+		fmt.Fprintf(&b, "checks.i2p: %s\n", resp.Checks.I2P)
+	}
 	fmt.Fprintf(&b, "stats.requests_total: %d\n", resp.Stats.RequestsTotal)
 	fmt.Fprintf(&b, "stats.requests_24h: %d\n", resp.Stats.Requests24h)
 	fmt.Fprintf(&b, "stats.active_connections: %d\n", resp.Stats.ActiveConns)
 	return b.String()
+}
+
+// statusOrDisabled renders an overlay-network status field, substituting
+// the spec's "disabled" wording for the zero value used in JSON, per AI.md
+// PART 13 "Health Response Fields".
+func statusOrDisabled(status string) string {
+	if status == "" {
+		return "disabled"
+	}
+	return status
 }

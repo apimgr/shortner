@@ -157,11 +157,20 @@ func MapCodeToHTTPStatus(code Code) int {
 	}
 }
 
+// WriteJSON encodes v as the project's canonical JSON body: 2-space
+// indentation and exactly one trailing newline, per AI.md PART 14
+// "Response Formatting". Every JSON response goes through this helper.
+func WriteJSON(w http.ResponseWriter, v any) {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(v)
+}
+
 // SendOK writes a success envelope with status 200.
 func SendOK(w http.ResponseWriter, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(APIResponse{OK: true, Data: data})
+	WriteJSON(w, APIResponse{OK: true, Data: data})
 }
 
 // SendError writes an error envelope, status mapped from err.Code.
@@ -172,7 +181,7 @@ func SendError(w http.ResponseWriter, err *AppError) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(APIResponse{
+	WriteJSON(w, APIResponse{
 		OK:      false,
 		Error:   string(err.Code),
 		Message: err.Message,
