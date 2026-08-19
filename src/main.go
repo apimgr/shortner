@@ -95,17 +95,10 @@ func run(args []string) int {
 
 	// Immediate-exit subcommands (AI.md PART 8 "Server Startup Sequence"
 	// PHASE 1-4): none of these touch the filesystem or start the server.
+	// PHASE 1 flags (--help, --version, --status, --shell) are handled
+	// before the PHASE 2-4 --service/--maintenance/--update subcommands.
 	if flagWasSet(fs, "shell") {
 		return runShell(binaryName, *shellFlag, firstArg(fs.Args()))
-	}
-	if flagWasSet(fs, "service") {
-		return runService(binaryName, *serviceFlag)
-	}
-	if flagWasSet(fs, "maintenance") {
-		return runMaintenance(binaryName, *maintenanceFlag)
-	}
-	if flagWasSet(fs, "update") {
-		return runUpdate(binaryName, *updateFlag, firstArg(fs.Args()))
 	}
 
 	forceColor, err := color.ParseFlag(*colorFlag)
@@ -150,6 +143,18 @@ func run(args []string) int {
 		return runStatus(binaryName, p.PIDFile)
 	}
 
+	// PHASE 2-4 subcommands (AI.md PART 8 "Server Startup Sequence"):
+	// executed after every PHASE 1 flag, and never start the server.
+	if flagWasSet(fs, "service") {
+		return runService(binaryName, *serviceFlag)
+	}
+	if flagWasSet(fs, "maintenance") {
+		return runMaintenance(binaryName, *maintenanceFlag)
+	}
+	if flagWasSet(fs, "update") {
+		return runUpdate(binaryName, *updateFlag, firstArg(fs.Args()))
+	}
+
 	// --daemon (manual start only; --service start would auto-detect the
 	// service manager and ignore this, but --service's real actions are
 	// not implemented yet — see service.go).
@@ -173,7 +178,17 @@ func run(args []string) int {
 		return 1
 	}
 
-	cfg, err := config.Load(p.ConfigFile, p.DB+string(os.PathSeparator)+"server.db")
+	// PID file: written at process start, removed on clean exit. AI.md
+	// PART 8 "Server Startup Sequence" steps 11-12 place the PID check and
+	// write BEFORE the configuration load (step 13). A no-op inside
+	// containers, per "PID File Handling".
+	if err := pidfile.WritePIDFile(p.PIDFile); err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
+	defer pidfile.RemovePIDFile(p.PIDFile)
+
+	cfg, err := config.Load(p.ConfigFile, filepath.Join(p.DB, "server.db"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
@@ -211,23 +226,12 @@ func run(args []string) int {
 		cfg.Server.BaseURL = *baseURL
 	}
 
-	// PID file: written at process start, removed on clean exit. See
-	// AI.md PART 8 "PID File Handling" — a no-op inside containers.
-	if err := pidfile.WritePIDFile(p.PIDFile); err != nil {
-		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
-		return 1
-	}
-	pidPath := p.PIDFile
-	signal.Register(func() { pidfile.RemovePIDFile(pidPath) })
-	defer pidfile.RemovePIDFile(p.PIDFile)
-
 	sqlDB, err := db.Open(cfg.Server.Database.URL, db.DefaultPool())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
 	defer sqlDB.Close()
-	signal.Register(func() { sqlDB.Close() })
 
 	accessLog, err := applog.Open(filepath.Join(p.Logs, "access.log"), applog.LevelInfo)
 	if err != nil {
@@ -235,7 +239,6 @@ func run(args []string) int {
 		return 1
 	}
 	defer accessLog.Close()
-	signal.Register(func() { accessLog.Close() })
 
 	// TLS (AI.md PART 15 "Built-in Let's Encrypt Support"): only attempted
 	// for a real, publicly-resolvable FQDN — never for dev-only TLDs
@@ -260,11 +263,19 @@ func run(args []string) int {
 		StartTime: time.Now(),
 		TLSConfig: tlsConfig,
 	})
+	// Shutdown hooks run in registration order, so they are registered in
+	// the order AI.md PART 8 "Graceful Shutdown Sequence" prescribes: stop
+	// accepting connections and drain in-flight requests (steps 2-4), close
+	// database connections (step 5), flush logs (step 6), remove the PID
+	// file last (step 9).
+	pidPath := p.PIDFile
 	signal.Register(func() { srv.Shutdown() })
+	signal.Register(func() { sqlDB.Close() })
+	signal.Register(func() { accessLog.Close() })
+	signal.Register(func() { pidfile.RemovePIDFile(pidPath) })
 
 	// Non-blocking: installs OS signal handlers and returns immediately;
-	// the shutdown hooks registered above (PID removal, DB close, access
-	// log close, HTTP server shutdown) run when a signal arrives.
+	// the shutdown hooks registered above run when a signal arrives.
 	signal.Start()
 
 	fmt.Println(mode.Banner())

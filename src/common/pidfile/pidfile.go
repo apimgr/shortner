@@ -71,13 +71,20 @@ func WritePIDFile(pidPath string) error {
 		return fmt.Errorf("already running (pid %d)", existingPID)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(pidPath), 0o750); err != nil {
+	// AI.md PART 8 "Permissions": root → directories 0755, PID 0644;
+	// unprivileged user → directories 0700, PID 0600.
+	dirPerm, filePerm := os.FileMode(0o700), os.FileMode(0o600)
+	if os.Geteuid() == 0 {
+		dirPerm, filePerm = 0o755, 0o644
+	}
+
+	if err := os.MkdirAll(filepath.Dir(pidPath), dirPerm); err != nil {
 		return fmt.Errorf("creating pid file directory: %w", err)
 	}
 
 	// Write our PID.
 	pid := os.Getpid()
-	return os.WriteFile(pidPath, []byte(strconv.Itoa(pid)), 0o644)
+	return os.WriteFile(pidPath, []byte(strconv.Itoa(pid)), filePerm)
 }
 
 // RemovePIDFile removes the PID file on shutdown. Inside a container this

@@ -41,6 +41,7 @@ func Start() {
 			default:
 				log.Printf("received %v, starting graceful shutdown", sig)
 				runShutdownHooks()
+				log.Println("Graceful shutdown complete")
 				os.Exit(0)
 			}
 		}

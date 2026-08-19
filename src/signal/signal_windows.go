@@ -21,6 +21,7 @@ func Start() {
 		for sig := range sigChan {
 			log.Printf("received %v, starting graceful shutdown", sig)
 			runShutdownHooks()
+			log.Println("Graceful shutdown complete")
 			os.Exit(0)
 		}
 	}()
