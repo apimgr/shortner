@@ -141,14 +141,23 @@ func (r *ProxyResolver) GetURLVars(req *http.Request) (proto, fqdn, port string)
 	if req.TLS != nil {
 		proto = "https"
 	}
+	// Priority per AI.md PART 8 "{proto} Resolution": X-Forwarded-Proto,
+	// X-Forwarded-Ssl, X-Url-Scheme, Front-End-Https (Microsoft), then the
+	// TLS state of the connection, then "http".
 	if trusted {
 		switch {
-		case req.Header.Get("X-Forwarded-Ssl") == "on":
-			proto = "https"
-		case strings.EqualFold(req.Header.Get("X-Url-Scheme"), "https"):
-			proto = "https"
 		case req.Header.Get("X-Forwarded-Proto") != "":
 			proto = strings.ToLower(strings.TrimSpace(strings.Split(req.Header.Get("X-Forwarded-Proto"), ",")[0]))
+		case strings.EqualFold(req.Header.Get("X-Forwarded-Ssl"), "on"):
+			proto = "https"
+		case strings.EqualFold(req.Header.Get("X-Forwarded-Ssl"), "off"):
+			proto = "http"
+		case strings.EqualFold(req.Header.Get("X-Url-Scheme"), "https"):
+			proto = "https"
+		case strings.EqualFold(req.Header.Get("X-Url-Scheme"), "http"):
+			proto = "http"
+		case strings.EqualFold(req.Header.Get("Front-End-Https"), "on"):
+			proto = "https"
 		}
 	}
 
@@ -163,9 +172,14 @@ func (r *ProxyResolver) GetURLVars(req *http.Request) (proto, fqdn, port string)
 	}
 	fqdn, hostPort := splitHostPort(host)
 	port = hostPort
+	// X-Real-Port is the nginx alternative to X-Forwarded-Port (AI.md
+	// PART 8 "Port Detection").
 	if trusted {
-		if v := strings.TrimSpace(req.Header.Get("X-Forwarded-Port")); v != "" {
-			port = v
+		for _, h := range []string{"X-Forwarded-Port", "X-Real-Port"} {
+			if v := strings.TrimSpace(req.Header.Get(h)); v != "" {
+				port = v
+				break
+			}
 		}
 	}
 	return proto, fqdn, port
