@@ -3,17 +3,14 @@
 package config
 
 import (
-	"crypto/rand"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"gopkg.in/yaml.v3"
-)
 
-// tokenAlphabet is the URL-safe base62 alphabet used for generated tokens.
-const tokenAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+	"github.com/apimgr/shortner/src/security"
+)
 
 // Config is the root of server.yml.
 type Config struct {
@@ -552,15 +549,9 @@ func EnsureToken(cfg *Config) (bool, error) {
 }
 
 func generateToken() (string, error) {
-	const n = 32
-	buf := make([]byte, n)
-	if _, err := rand.Read(buf); err != nil {
+	tok, err := security.GenerateToken()
+	if err != nil {
 		return "", fmt.Errorf("config: generate token: %w", err)
 	}
-	var b strings.Builder
-	b.WriteString("tok_")
-	for _, v := range buf {
-		b.WriteByte(tokenAlphabet[int(v)%len(tokenAlphabet)])
-	}
-	return b.String(), nil
+	return tok, nil
 }
