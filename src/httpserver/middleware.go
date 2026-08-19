@@ -11,10 +11,12 @@
 package httpserver
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
+	"net"
 	"net/http"
 	"path"
 	"regexp"
@@ -472,6 +474,25 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 	n, err := s.ResponseWriter.Write(b)
 	s.size += int64(n)
 	return n, err
+}
+
+// Flush forwards to the wrapped ResponseWriter so streaming responses
+// (e.g. server-sent events) are not buffered until the handler returns.
+// Without this, wrapping silently strips the http.Flusher capability.
+func (s *statusRecorder) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Hijack forwards to the wrapped ResponseWriter so protocol upgrades
+// (e.g. WebSocket) still work through the logging middleware.
+func (s *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := s.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, http.ErrNotSupported
+	}
+	return h.Hijack()
 }
 
 // loggingMiddleware writes one access-log line per request and updates
