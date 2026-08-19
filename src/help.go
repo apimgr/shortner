@@ -29,7 +29,7 @@ Shell Integration:
 --shell help                           - Show shell help
 
 Server Configuration:
---mode {production|development}        - Application mode (default: production)
+--mode {production|development|debug}  - Application mode (default: production)
 --config DIR                           - Config directory
 --data DIR                             - Data directory
 --cache DIR                            - Cache directory
