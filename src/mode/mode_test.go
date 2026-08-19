@@ -20,6 +20,7 @@ func TestAppModeString(t *testing.T) {
 	}{
 		{"production", Production, "production"},
 		{"development", Development, "development"},
+		{"debug", Debug, "debug"},
 		{"unknown value falls back to production", AppMode(99), "production"},
 	}
 	for _, tt := range tests {
@@ -41,8 +42,8 @@ func TestSetAppMode(t *testing.T) {
 		{"dev alias", "dev", Development, false},
 		{"devel alias", "devel", Development, false},
 		{"development full", "development", Development, false},
-		{"debug alias enables debug too", "debug", Development, true},
-		{"uppercase normalizes", "DEBUG", Development, true},
+		{"debug selects debug mode and enables debug", "debug", Debug, true},
+		{"uppercase normalizes", "DEBUG", Debug, true},
 		{"whitespace trimmed", "  dev  ", Development, false},
 		{"empty defaults to production", "", Production, false},
 		{"unknown defaults to production", "bogus", Production, false},
@@ -95,8 +96,8 @@ func TestGetAppModeString(t *testing.T) {
 
 	resetModeState()
 	SetAppMode("debug")
-	if got := GetAppModeString(); got != "development [debugging]" {
-		t.Errorf("GetAppModeString() = %q, want %q", got, "development [debugging]")
+	if got := GetAppModeString(); got != "debug [debugging]" {
+		t.Errorf("GetAppModeString() = %q, want %q", got, "debug [debugging]")
 	}
 }
 
@@ -114,9 +115,9 @@ func TestBanner(t *testing.T) {
 	}
 }
 
-// TestFromEnv covers the MODE/DEBUG env var priority rules: MODE=debug is
-// an alias for dev+debug, but an explicitly set DEBUG (even DEBUG=false)
-// always wins over the alias.
+// TestFromEnv covers the MODE/DEBUG env var priority rules: MODE=debug
+// selects debug mode and defaults debug on, but an explicitly set DEBUG
+// (even DEBUG=false) always wins over that default.
 func TestFromEnv(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -128,8 +129,8 @@ func TestFromEnv(t *testing.T) {
 	}{
 		{"MODE unset, DEBUG unset", "", "", false, Production, false},
 		{"MODE=development", "development", "", false, Development, false},
-		{"MODE=debug sets dev+debug", "debug", "", false, Development, true},
-		{"MODE=debug DEBUG=false disables debug but keeps dev", "debug", "false", true, Development, false},
+		{"MODE=debug sets debug mode + debug on", "debug", "", false, Debug, true},
+		{"MODE=debug DEBUG=false disables debug but keeps debug mode", "debug", "false", true, Debug, false},
 		{"MODE=production DEBUG=true", "production", "true", true, Production, true},
 		{"DEBUG=1 alone enables debug, mode stays production", "", "1", true, Production, true},
 	}

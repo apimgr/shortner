@@ -24,6 +24,9 @@ const (
 	Production AppMode = iota
 	// Development relaxes caching and logging for local work.
 	Development
+	// Debug is the explicit-opt-in diagnostics mode; it behaves as
+	// Development but defaults the debug flag on.
+	Debug
 )
 
 // String returns the lowercase mode name.
@@ -31,20 +34,23 @@ func (m AppMode) String() string {
 	switch m {
 	case Development:
 		return "development"
+	case Debug:
+		return "debug"
 	default:
 		return "production"
 	}
 }
 
 // SetAppMode sets the application mode from a raw --mode/MODE value.
-// "debug" is an alias for development mode + debug on; an explicit
-// --debug flag or DEBUG env var applied after this still wins.
+// "debug" selects debug mode — explicit opt-in only — and defaults the
+// debug flag on; an explicit --debug flag or DEBUG env var applied after
+// this still wins.
 func SetAppMode(m string) {
 	switch strings.ToLower(strings.TrimSpace(m)) {
 	case "dev", "devel", "development":
 		currentMode = Development
 	case "debug":
-		currentMode = Development
+		currentMode = Debug
 		SetDebugEnabled(true)
 	default:
 		currentMode = Production
@@ -101,9 +107,9 @@ func GetAppModeString() string {
 }
 
 // FromEnv sets mode and debug from environment variables.
-// MODE=debug is an alias for development mode + debug on, but an
-// explicitly set DEBUG env var (truthy OR falsy) always wins over the
-// alias — MODE=debug DEBUG=false runs development mode with debug off.
+// MODE=debug selects debug mode and defaults the debug flag on, but an
+// explicitly set DEBUG env var (truthy OR falsy) always wins over that
+// default — MODE=debug DEBUG=false runs debug mode with debug off.
 // The --debug CLI flag (applied after this) wins over both.
 func FromEnv() {
 	if m := os.Getenv("MODE"); m != "" {
@@ -124,7 +130,7 @@ func Banner() string {
 		return "Running in mode: " + GetAppModeString()
 	}
 	icon := "🔒"
-	if currentMode == Development {
+	if currentMode == Development || currentMode == Debug {
 		icon = "🔧"
 	}
 	return icon + " Running in mode: " + GetAppModeString()
