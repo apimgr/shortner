@@ -54,10 +54,23 @@ Everything below is deferred work, in dependency order.
   CLI build.
 - Banner Package: `src/common/banner/banner.go` —
   `PrintStartupBanner`/full/compact/minimal/micro variants.
-- Signal handling: `src/signal` installs SIGTERM/SIGINT/SIGHUP handlers;
-  `src/main.go`'s `run()` blocks on `startHTTPServer(srv)` until a
-  shutdown signal closes the HTTP server, DB, access log, and removes the
-  PID file.
+- Signal handling: `src/signal` installs SIGTERM/SIGINT shutdown handlers
+  (plus SIGQUIT/SIGRTMIN+3, SIGUSR1 log-reopen, SIGUSR2 status-dump on
+  Unix); SIGHUP is explicitly ignored — config reload is a file-watcher
+  concern, not a signal, per PART 8 "Smart Config Reload". `src/main.go`'s
+  `run()` blocks on `startHTTPServer(srv)` until a shutdown signal closes
+  the HTTP server, DB, access log, and removes the PID file.
+- Deferred, no gap: `src/common/terminal/resize.go` (SIGWINCH) and
+  `symbols.go` (Unicode/ASCII symbol set) from PART 7's module-structure
+  listing have no consumer yet — nothing interactive resizes or renders
+  symbols until the CLI/TUI binary (PART 32) exists. Same for
+  `src/common/display/mode.go` (its content already lives correctly in
+  `detect.go` — no separate file needed) and `src/common/banner/ascii.go`
+  (ASCII art is inline in `banner.go`'s size-tiered renderers, no
+  standalone generator needed yet). `src/common/theme/css.go` (CSS
+  variable generation) is not needed here either — the web frontend's CSS
+  custom properties already live in `src/server/static/css/common.css`
+  under PART 16, using the same hex values as `ThemePaletteDark`/`Light`.
 
 ## PART 9-11: Backend core
 
