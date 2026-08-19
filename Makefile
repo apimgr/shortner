@@ -1,8 +1,8 @@
 # Makefile — local dev only, NOT used by CI/CD. See AI.md PART 25.
 # Six core targets. DO NOT ADD MORE.
 
-PROJECT_NAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$$|\1|' || basename "$$(pwd)")
-PROJECT_ORG  := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || basename "$$(dirname "$$(pwd)")")
+PROJECT_NAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|\.git/?$$||' | sed -E 's|.*/||' || basename "$$(pwd)")
+PROJECT_ORG  := $(shell git remote get-url origin 2>/dev/null | sed -E 's|\.git/?$$||' | sed -E 's|.*/([^/]+)/[^/]+$$|\1|' || basename "$$(dirname "$$(pwd)")")
 
 # Version precedence: release.txt (wins if it exists) > VERSION env var > "devel" fallback
 VERSION := $(shell cat release.txt 2>/dev/null || echo "$${VERSION:-devel}")
