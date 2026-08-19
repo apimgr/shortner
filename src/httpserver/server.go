@@ -84,7 +84,7 @@ func New(opts Options) *Server {
 		r.Get("/healthz", hd.healthHandler())
 	}
 
-	ld := &linkDeps{sqlDB: opts.DB, resolver: resolver}
+	ld := &linkDeps{sqlDB: opts.DB, resolver: resolver, log: opts.AccessLog}
 
 	r.Route("/api", func(api chi.Router) {
 		api.Use(corsAPIMiddleware)
