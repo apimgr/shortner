@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -173,6 +174,45 @@ func TestLinkCreateGetUpdateDelete(t *testing.T) {
 	}
 	if err := DeleteLink(ctx, sqlDB, link.ID); err != ErrNotFound {
 		t.Errorf("DeleteLink(already deleted) error = %v, want ErrNotFound", err)
+	}
+}
+
+// TestDeleteLinkWithClicksAndToken covers the case that used to fail with
+// a FOREIGN KEY constraint error: clicks.link_id references links(id) and
+// the connection runs with PRAGMA foreign_keys(1), so a link that has ever
+// been clicked could not be deleted at all. It also asserts that the
+// link's owner token is revoked with it rather than left valid for a
+// resource that no longer exists.
+func TestDeleteLinkWithClicksAndToken(t *testing.T) {
+	sqlDB := openTestDB(t)
+	ctx := context.Background()
+
+	link, err := CreateLinkAutoCode(ctx, sqlDB, "https://example.com", nil)
+	if err != nil {
+		t.Fatalf("CreateLinkAutoCode() error = %v", err)
+	}
+	if _, err := RecordClick(ctx, sqlDB, link.ID, "203.0.113.42", "agent/1.0", ""); err != nil {
+		t.Fatalf("RecordClick() error = %v", err)
+	}
+	raw, _, err := CreateResourceToken(ctx, sqlDB, "link", strconv.FormatInt(link.ID, 10), nil)
+	if err != nil {
+		t.Fatalf("CreateResourceToken() error = %v", err)
+	}
+
+	if err := DeleteLink(ctx, sqlDB, link.ID); err != nil {
+		t.Fatalf("DeleteLink(link with clicks) error = %v, want nil", err)
+	}
+
+	var clicks int
+	if err := sqlDB.QueryRow(`SELECT COUNT(*) FROM clicks WHERE link_id = ?`, link.ID).Scan(&clicks); err != nil {
+		t.Fatalf("count clicks: %v", err)
+	}
+	if clicks != 0 {
+		t.Errorf("clicks remaining = %d, want 0", clicks)
+	}
+
+	if _, err := LookupTokenByRaw(ctx, sqlDB, raw); err == nil {
+		t.Errorf("LookupTokenByRaw(token for deleted link) error = nil, want not-found")
 	}
 }
 

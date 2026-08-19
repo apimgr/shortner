@@ -14,6 +14,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -41,11 +42,27 @@ func DefaultPool() Pool {
 	}
 }
 
+// escapeDSNPath percent-encodes a filesystem path for use as the file
+// component of a SQLite URI DSN. url.PathEscape is not used directly
+// because it also escapes "/", which must stay literal in a path.
+func escapeDSNPath(path string) string {
+	segments := strings.Split(path, "/")
+	for i, segment := range segments {
+		segments[i] = url.PathEscape(segment)
+	}
+	return strings.Join(segments, "/")
+}
+
 // Open opens a SQLite database at path, configures the connection pool,
 // verifies connectivity, and applies the idempotent schema. Per AI.md
 // PART 10 "Implementation" / "Schema Updates".
 func Open(path string, pool Pool) (*sql.DB, error) {
-	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)", path)
+	// The path is percent-encoded before interpolation: a raw "?" or "#"
+	// in the configured database path would otherwise terminate the file
+	// component and let the remainder be parsed as extra DSN parameters,
+	// silently overriding the pragmas set below.
+	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)",
+		escapeDSNPath(path))
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("db: open %s: %w", path, err)

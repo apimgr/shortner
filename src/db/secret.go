@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"time"
 
@@ -62,7 +63,7 @@ func EnsureSecret(ctx context.Context, sqlDB *sql.DB, name string) (string, erro
 	if err == nil {
 		return value, nil
 	}
-	if err != ErrNotFound {
+	if !errors.Is(err, ErrNotFound) {
 		return "", err
 	}
 

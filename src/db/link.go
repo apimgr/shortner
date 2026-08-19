@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -169,15 +170,25 @@ func UpdateLinkDestination(ctx context.Context, sqlDB *sql.DB, id int64, destina
 	return checkRowsAffected(res, err)
 }
 
-// DeleteLink removes a link (and, via FK, is expected to be paired with
-// click cleanup by the caller if desired — clicks are kept by default for
-// historical analytics unless the operator explicitly deletes the link).
+// DeleteLink removes a link together with everything that references it,
+// in a single transaction: its clicks (clicks.link_id is a NOT NULL
+// foreign key into links(id) and the connection runs with
+// PRAGMA foreign_keys(1), so the link row cannot be removed while any
+// click survives) and any API token scoped to it (an owner token whose
+// resource no longer exists must not stay valid).
 func DeleteLink(ctx context.Context, sqlDB *sql.DB, id int64) error {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	res, err := sqlDB.ExecContext(ctx, `DELETE FROM links WHERE id = ?`, id)
-	return checkRowsAffected(res, err)
+	return WithTransaction(ctx, sqlDB, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM clicks WHERE link_id = ?`, id); err != nil {
+			return HandleQueryError(err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM api_tokens WHERE resource_type = 'link' AND resource_id = ?`,
+			strconv.FormatInt(id, 10)); err != nil {
+			return HandleQueryError(err)
+		}
+		res, err := tx.ExecContext(ctx, `DELETE FROM links WHERE id = ?`, id)
+		return checkRowsAffected(res, err)
+	})
 }
 
 // IncrementClickCount atomically increments a link's click_count.
