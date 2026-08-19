@@ -13,11 +13,21 @@ func timeRFC3339(t time.Time) string {
 	return t.Format(time.RFC3339)
 }
 
+// sanitizeLine strips the characters that would let attacker-controlled
+// input (a request path, User-Agent, or Referer) forge additional log
+// records or corrupt a line-oriented parser: CR, LF, and NUL are replaced
+// with a space. Every formatter in this file runs untrusted values through
+// it, except where the value is already quoted with strconv.Quote (which
+// escapes them itself).
+func sanitizeLine(v string) string {
+	return strings.NewReplacer("\r", " ", "\n", " ", "\x00", " ").Replace(v)
+}
+
 // FormatText renders a server/error/debug log line, per AI.md PART 11
 // "Text Log Format": "2024-10-10T13:55:36-04:00 [INFO] Server started on
 // :8080".
 func FormatText(t time.Time, level, msg string) string {
-	return fmt.Sprintf("%s [%s] %s\n", timeRFC3339(t), strings.ToUpper(level), msg)
+	return fmt.Sprintf("%s [%s] %s\n", timeRFC3339(t), strings.ToUpper(level), sanitizeLine(msg))
 }
 
 // FormatLogfmt renders an app.log line, per AI.md PART 11 "app.log
@@ -96,8 +106,9 @@ func FormatApache(e AccessLogEntry) string {
 		proto = "HTTP/1.1"
 	}
 	return fmt.Sprintf("%s - - [%s] \"%s %s %s\" %d %d \"%s\" \"%s\"\n",
-		e.IP, e.Time.Format("02/Jan/2006:15:04:05 -0700"),
-		e.Method, e.Path, proto, e.Status, e.Size, referer, ua)
+		sanitizeLine(e.IP), e.Time.Format("02/Jan/2006:15:04:05 -0700"),
+		sanitizeLine(e.Method), sanitizeLine(e.Path), sanitizeLine(proto),
+		e.Status, e.Size, sanitizeLine(referer), sanitizeLine(ua))
 }
 
 // FormatNginx renders e in Nginx Common Log Format, per AI.md PART 11
@@ -108,8 +119,9 @@ func FormatNginx(e AccessLogEntry) string {
 		proto = "HTTP/1.1"
 	}
 	return fmt.Sprintf("%s - - [%s] \"%s %s %s\" %d %d\n",
-		e.IP, e.Time.Format("02/Jan/2006:15:04:05 -0700"),
-		e.Method, e.Path, proto, e.Status, e.Size)
+		sanitizeLine(e.IP), e.Time.Format("02/Jan/2006:15:04:05 -0700"),
+		sanitizeLine(e.Method), sanitizeLine(e.Path), sanitizeLine(proto),
+		e.Status, e.Size)
 }
 
 // FormatAccessJSON renders e as structured JSON, per AI.md PART 11
@@ -130,14 +142,15 @@ func jsonString(v string) string {
 // "auth.log (syslog RFC 3164) — example line": "<MMM DD HH:MM:SS>
 // <hostname> <program>[<pid>]:" followed by structured message.
 func FormatSyslogRFC3164(hostname, program string, pid int, t time.Time, message string) string {
-	return fmt.Sprintf("%s %s %s[%d]: %s\n", t.Format("Jan  2 15:04:05"), hostname, program, pid, message)
+	return fmt.Sprintf("%s %s %s[%d]: %s\n", t.Format("Jan  2 15:04:05"),
+		sanitizeLine(hostname), sanitizeLine(program), pid, sanitizeLine(message))
 }
 
 // FormatFail2ban renders a security.log line, per AI.md PART 11
 // "Fail2ban Format": "2024-10-10T13:55:36-04:00 [security] Failed
 // authentication attempt from 192.168.1.100".
 func FormatFail2ban(t time.Time, message string) string {
-	return fmt.Sprintf("%s [security] %s\n", timeRFC3339(t), message)
+	return fmt.Sprintf("%s [security] %s\n", timeRFC3339(t), sanitizeLine(message))
 }
 
 // FormatCEF renders a minimal ArcSight Common Event Format line for
@@ -154,7 +167,18 @@ func FormatCEF(vendor, product, version string, severity int, event, message str
 		ext.WriteString(cefEscape(extension[k]))
 	}
 	return fmt.Sprintf("CEF:0|%s|%s|%s|%s|%s|%d|%s\n",
-		vendor, product, version, event, message, severity, ext.String())
+		cefHeaderEscape(vendor), cefHeaderEscape(product), cefHeaderEscape(version),
+		cefHeaderEscape(event), cefHeaderEscape(message), severity, ext.String())
+}
+
+// cefHeaderEscape escapes the CEF header-field reserved characters (`\`
+// and `|`) and flattens newlines, per the CEF specification. Header
+// fields use different escaping rules from extension fields, where `=` is
+// reserved instead of `|` (see cefEscape).
+func cefHeaderEscape(v string) string {
+	v = strings.ReplaceAll(v, "\\", "\\\\")
+	v = strings.ReplaceAll(v, "|", "\\|")
+	return sanitizeLine(v)
 }
 
 // cefEscape escapes CEF extension-field reserved characters (`=`, `\`,
@@ -163,5 +187,6 @@ func cefEscape(v string) string {
 	v = strings.ReplaceAll(v, "\\", "\\\\")
 	v = strings.ReplaceAll(v, "=", "\\=")
 	v = strings.ReplaceAll(v, "\n", "\\n")
+	v = strings.ReplaceAll(v, "\r", "\\r")
 	return v
 }
