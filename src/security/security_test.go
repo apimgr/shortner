@@ -170,3 +170,46 @@ func TestIsReservedSlug(t *testing.T) {
 		t.Errorf("IsReservedSlug(my-custom-link) = true, want false")
 	}
 }
+
+// TestRandomStringIsUnbiased guards the rejection sampling in
+// RandomString. Mapping a raw crypto/rand byte with `%% len(alphabet)`
+// is only uniform when the alphabet size divides 256; for base62 it does
+// not (256 = 4*62 + 8), which over-selects the first 8 characters by 25%%.
+// A chi-squared-style spread check catches a regression to modulo mapping.
+func TestRandomStringIsUnbiased(t *testing.T) {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+	const draws = 200000
+
+	out, err := RandomString(alphabet, draws)
+	if err != nil {
+		t.Fatalf("RandomString() error = %v", err)
+	}
+	if len(out) != draws {
+		t.Fatalf("len = %d, want %d", len(out), draws)
+	}
+
+	counts := map[rune]int{}
+	for _, r := range out {
+		counts[r]++
+	}
+	if len(counts) != len(alphabet) {
+		t.Errorf("distinct characters = %d, want %d", len(counts), len(alphabet))
+	}
+
+	expected := float64(draws) / float64(len(alphabet))
+	// Modulo bias would push the first 8 characters to ~1.25x expected;
+	// 10% is comfortably inside sampling noise at this sample size but
+	// well below that.
+	for r, n := range counts {
+		deviation := (float64(n) - expected) / expected
+		if deviation > 0.10 || deviation < -0.10 {
+			t.Errorf("character %q drawn %d times, expected ~%.0f (deviation %.2f)", r, n, expected, deviation)
+		}
+	}
+}
+
+func TestRandomStringRejectsBadAlphabet(t *testing.T) {
+	if _, err := RandomString("", 4); err == nil {
+		t.Error("RandomString(empty alphabet) error = nil, want error")
+	}
+}

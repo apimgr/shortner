@@ -1,7 +1,6 @@
 package security
 
 import (
-	"crypto/rand"
 	"fmt"
 	"regexp"
 	"strings"
@@ -19,15 +18,11 @@ const ShortCodeLength = 6
 // drawn from the 62-character keyspace. Callers are responsible for
 // retrying on a uniqueness collision (see src/db CreateLinkAutoCode).
 func GenerateShortCode() (string, error) {
-	buf := make([]byte, ShortCodeLength)
-	if _, err := rand.Read(buf); err != nil {
+	out, err := RandomString(shortCodeAlphabet, ShortCodeLength)
+	if err != nil {
 		return "", fmt.Errorf("security: generate short code: %w", err)
 	}
-	out := make([]byte, ShortCodeLength)
-	for i, v := range buf {
-		out[i] = shortCodeAlphabet[int(v)%len(shortCodeAlphabet)]
-	}
-	return string(out), nil
+	return out, nil
 }
 
 // slugPattern matches a valid custom slug: 3-20 chars, alphanumeric plus
