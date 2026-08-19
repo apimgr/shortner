@@ -20,6 +20,7 @@
 | Cron | internal scheduler (PART 18), never external cron/systemd timers | PART 1, 18 |
 | GeoIP use | click-analytics IP anonymization | PART 19, IDEA.md |
 | Update mechanism | `--update` CLI flag path | PART 22 |
+| Overlay health tasks | `tor_health` every 10m; `i2p_health` every 10m (only when I2P opt-in enabled) | PART 18, 31 |
 
 ## QUICK REFERENCE
 - None of PART 17-22 is implemented yet — tracked in `TODO.AI.md`
