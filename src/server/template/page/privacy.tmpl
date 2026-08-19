@@ -19,13 +19,25 @@
 <p>{{if .DataSecurity}}{{.DataSecurity}}{{else}}Visitor IP addresses are anonymized (last octet/segment zeroed) before being written to storage — the raw IP is never persisted.{{end}}</p>
 </section>
 
-<section>
+<section id="cookies">
 <h2>Cookie Policy</h2>
 <ul>
 {{if .CookieEssentialEnabled}}<li><strong>Essential</strong> — {{.CookieEssentialDescription}}</li>{{end}}
 {{if .CookiePreferencesEnabled}}<li><strong>Preferences</strong> — {{.CookiePreferencesDescription}}</li>{{end}}
 {{if .CookieAnalyticsEnabled}}<li><strong>Analytics</strong> — {{.CookieAnalyticsDescription}}</li>{{end}}
 </ul>
+<div class="cookie-buttons">
+<form method="POST" action="/server/consent">
+<input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
+<input type="hidden" name="decision" value="decline">
+<button type="submit" class="btn-decline">{{.Base.ConsentDeclineLabel}}</button>
+</form>
+<form method="POST" action="/server/consent">
+<input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
+<input type="hidden" name="decision" value="accept">
+<button type="submit" class="btn-accept">{{.Base.ConsentAcceptLabel}}</button>
+</form>
+</div>
 </section>
 
 {{if .Sold}}

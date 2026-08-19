@@ -123,6 +123,43 @@ article pre {
   border-top: 1px solid var(--color-border);
 }
 
+/* Footer rows, per AI.md PART 16 "Default Application Footer": consecutive
+   <p> rows with no <br> spacers and a deliberately tight vertical rhythm;
+   a disabled feature drops its row without leaving a gap. */
+.site-footer {
+  border-top: 1px solid var(--color-border);
+  padding: 1.25rem 0;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--color-fg-muted);
+}
+
+.site-footer p {
+  margin: 0.25rem 0;
+}
+
+.site-footer a {
+  text-decoration: none;
+}
+
+.site-footer a:hover {
+  text-decoration: underline;
+}
+
+.footer-links,
+.footer-branding,
+.footer-onion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.onion-address {
+  max-width: 100%;
+}
+
 .stats-page h1 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }

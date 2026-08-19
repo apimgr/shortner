@@ -14,6 +14,16 @@ import (
 	"github.com/apimgr/shortner/src/config"
 )
 
+// footerRepoURL is the {PLATFORM_REPO_URL} of the default application
+// footer's "Made with ❤️" row, per AI.md PART 16 "Default Application
+// Footer". Taken from the repository's own origin remote.
+const footerRepoURL = "https://github.com/apimgr/shortner"
+
+// footerTimeLayout is AI.md PART 16's user-facing timestamp format
+// (`%B %d, %Y at %H:%M:%S %Z`). RFC 3339 is reserved for machine-readable
+// output (API responses, logs, health endpoints).
+const footerTimeLayout = "January 02, 2006 at 15:04:05 MST"
+
 // PageData holds the shared branding/footer/consent fields.
 type PageData struct {
 	Title          string
@@ -23,6 +33,11 @@ type PageData struct {
 	ProjectOrg     string
 	ProjectVersion string
 	BuildDate      string
+	// BuildDateTime is BuildDate rendered in the user-facing footer format
+	// (AI.md PART 16: `%B %d, %Y at %H:%M:%S %Z`); BuildDate itself stays
+	// machine-readable for any non-display use.
+	BuildDateTime  string
+	RepoURL        string
 	CurrentYear    int
 	Theme          string
 	CurrentPath    string
@@ -34,6 +49,11 @@ type PageData struct {
 	// the template slot exists so wiring it later needs no template edit.
 	TorOnionAddress string
 
+	// HasConsentCookie gates the cookie-consent banner server-side, per
+	// AI.md PART 16 "Cookie Consent Banner" -> "Server-side behavior": the
+	// banner is rendered visible only when no cookie_consent cookie exists,
+	// never hidden and revealed by a script.
+	HasConsentCookie             bool
 	ConsentMessage               string
 	ConsentPolicyURL             string
 	ConsentPolicyText            string
@@ -85,6 +105,8 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 		ProjectOrg:     "apimgr",
 		ProjectVersion: fd.version,
 		BuildDate:      fd.buildDate,
+		BuildDateTime:  footerBuildDateTime(fd.buildDate),
+		RepoURL:        footerRepoURL,
 		CurrentYear:    time.Now().Year(),
 		Theme:          requestTheme(r, cfg),
 		CurrentPath:    currentPath,
@@ -94,6 +116,7 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 		FooterCustomHTML: template.HTML(footerHTML),
 		TorOnionAddress:  "",
 
+		HasConsentCookie:             hasConsentCookie(r),
 		ConsentMessage:               cfg.Server.Privacy.GetConsentMessage(),
 		ConsentPolicyURL:             cfg.Server.Privacy.Consent.Policy.URL,
 		ConsentPolicyText:            defaultString(cfg.Server.Privacy.Consent.Policy.Text, "Privacy Policy"),
@@ -105,6 +128,25 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 		CookieAnalyticsDescription:   cfg.Server.Privacy.Cookies.Analytics.Description,
 		CCPAEnabled:                  cfg.Server.Privacy.Data.Sold,
 	}
+}
+
+// footerBuildDateTime renders the embedded build timestamp (RFC 3339 UTC,
+// derived from the BuildEpoch ldflag in src/common/version) in the
+// user-facing footer format, in the server's local zone. Unparseable or
+// unset values ("N/A" on a `go run`/`go test` build) pass through as-is.
+func footerBuildDateTime(buildDate string) string {
+	t, err := time.Parse(time.RFC3339, buildDate)
+	if err != nil {
+		return buildDate
+	}
+	return t.Local().Format(footerTimeLayout)
+}
+
+// hasConsentCookie reports whether r already carries a cookie_consent
+// cookie, i.e. whether the visitor has answered the banner.
+func hasConsentCookie(r *http.Request) bool {
+	c, err := r.Cookie(consentCookieName)
+	return err == nil && c.Value != ""
 }
 
 func defaultString(v, fallback string) string {

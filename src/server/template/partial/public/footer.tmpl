@@ -2,15 +2,36 @@
 <div class="container">
 {{if .Base.FooterCustomHTML}}
 <div class="footer-custom">{{.Base.FooterCustomHTML}}</div>
-{{else}}
-<p>&copy; {{.Base.CurrentYear}} {{.Base.ProjectOrg}} &middot; {{.Base.SiteName}} v{{.Base.ProjectVersion}} &middot; built {{.Base.BuildDate}}</p>
+{{end}}
+{{if .Base.TorOnionAddress}}
+<p class="footer-onion">
+<a href="/server/help#tor-access" aria-label="Tor Support">&#129483;</a>
+<code class="onion-address long-string monospace-data">{{.Base.TorOnionAddress}}</code>
+<button type="button" class="copy-btn" data-copy="{{.Base.TorOnionAddress}}" aria-live="polite" aria-label="Copy onion address"><span aria-hidden="true">&#128203;</span></button>
+</p>
 {{end}}
 <p class="footer-links">
 <a href="/server/about">About</a>
+<span aria-hidden="true">&middot;</span>
 <a href="/server/privacy">Privacy</a>
+<span aria-hidden="true">&middot;</span>
 <a href="/server/terms">Terms</a>
+<span aria-hidden="true">&middot;</span>
 <a href="/server/contact">Contact</a>
-{{if .Base.TorOnionAddress}}<a href="http://{{.Base.TorOnionAddress}}">Tor</a>{{end}}
+<span aria-hidden="true">&middot;</span>
+<a href="/server/help">Help</a>
+<span aria-hidden="true">&middot;</span>
+<a href="/server/privacy#cookies" data-action="open-consent-preferences">Cookie Preferences</a>
+</p>
+<p class="footer-branding">
+&copy; {{.Base.CurrentYear}} {{.Base.ProjectOrg}}
+<span aria-hidden="true">&middot;</span>
+<a href="{{.Base.RepoURL}}" target="_blank" rel="noopener">Made with</a> &#10084;&#65039;
+<span aria-hidden="true">&middot;</span>
+<span>{{.Base.SiteName}} v{{.Base.ProjectVersion}}</span>
+</p>
+<p class="footer-build">
+<a href="/server/healthz">Last update: {{.Base.BuildDateTime}}</a>
 </p>
 </div>
 </footer>

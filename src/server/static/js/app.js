@@ -122,7 +122,11 @@
       case "toggle-nav":
         toggleNav(el);
         break;
+      // The footer trigger is a real link to /server/privacy#cookies so the
+      // preferences stay reachable without JS; with JS the dialog opens
+      // instead of navigating.
       case "open-consent-preferences":
+        event.preventDefault();
         openDialog("consent-preferences-dialog");
         break;
       case "close-dialog":
@@ -142,16 +146,11 @@
     }
   });
 
-  // Cookie-consent banner: shown only when no consent cookie exists yet
-  // (server sets/reads cookie_consent; on first paint before any request
-  // roundtrip we just check document.cookie so the banner never flashes
-  // for returning visitors after JS loads).
+  // The cookie-consent banner is rendered server-side only when the request
+  // carries no cookie_consent cookie (AI.md PART 16 "Server-side behavior":
+  // no display:none, no reveal script), so there is nothing for JS to show
+  // or hide here — its forms POST to /server/consent and work without JS.
   document.addEventListener("DOMContentLoaded", function () {
-    var banner = document.getElementById("cookie-consent");
-    if (banner && document.cookie.indexOf("cookie_consent=") === -1) {
-      banner.hidden = false;
-    }
-
     // After a successful link creation (server-rendered success card),
     // offer a one-click copy of the new short URL.
     var successCopy = document.querySelector(".success-card [data-copy]");

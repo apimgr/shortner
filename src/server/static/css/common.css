@@ -37,14 +37,15 @@ input, button, textarea, select {
 :root {
   --color-bg: #282a36;
   --color-bg-alt: #21222c;
-  --color-surface: #343746;
+  --color-surface: #2b2d3a;
   --color-fg: #f8f8f2;
   --color-fg-muted: #6272a4;
   --color-border: #44475a;
   --color-primary: #bd93f9;
   --color-secondary: #50fa7b;
+  --color-accent: #ff79c6;
   --color-success: #50fa7b;
-  --color-warning: #f1fa8c;
+  --color-warning: #ffb86c;
   --color-error: #ff5555;
   --color-info: #8be9fd;
   --color-link: #8be9fd;
@@ -59,16 +60,17 @@ input, button, textarea, select {
 @media (prefers-color-scheme: light) {
   html:not(.theme-dark) {
     --color-bg: #ffffff;
-    --color-bg-alt: #f6f8fa;
+    --color-bg-alt: #eff2f5;
     --color-surface: #f6f8fa;
-    --color-fg: #24292f;
-    --color-fg-muted: #57606a;
-    --color-border: #d0d7de;
-    --color-primary: #8250df;
+    --color-fg: #1f2328;
+    --color-fg-muted: #59636e;
+    --color-border: #d1d9e0;
+    --color-primary: #0969da;
     --color-secondary: #1a7f37;
+    --color-accent: #8250df;
     --color-success: #1a7f37;
     --color-warning: #9a6700;
-    --color-error: #cf222e;
+    --color-error: #d1242f;
     --color-info: #0969da;
     --color-link: #0969da;
 
@@ -79,16 +81,17 @@ input, button, textarea, select {
 /* Explicit light selection always wins, regardless of system preference. */
 html.theme-light {
   --color-bg: #ffffff;
-  --color-bg-alt: #f6f8fa;
+  --color-bg-alt: #eff2f5;
   --color-surface: #f6f8fa;
-  --color-fg: #24292f;
-  --color-fg-muted: #57606a;
-  --color-border: #d0d7de;
-  --color-primary: #8250df;
+  --color-fg: #1f2328;
+  --color-fg-muted: #59636e;
+  --color-border: #d1d9e0;
+  --color-primary: #0969da;
   --color-secondary: #1a7f37;
+  --color-accent: #8250df;
   --color-success: #1a7f37;
   --color-warning: #9a6700;
-  --color-error: #cf222e;
+  --color-error: #d1242f;
   --color-info: #0969da;
   --color-link: #0969da;
 
@@ -163,7 +166,7 @@ textarea:focus-visible,
 }
 
 @media print {
-  .site-header, .site-nav, .site-footer, .cookie-consent, #toast-container, .theme-toggle, .nav-toggle {
+  .site-header, .site-nav, .site-footer, .cookie-banner, #toast-container, .theme-toggle, .nav-toggle {
     display: none !important;
   }
 }

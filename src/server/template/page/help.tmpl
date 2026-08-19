@@ -53,17 +53,24 @@ aggregate traffic without exposing individual visitors.</p>
 complete endpoint list and request/response formats.</p>
 </div>
 
-{{if and .Base.TorOnionAddress}}
+{{if .Base.TorOnionAddress}}
 <section id="tor-access" class="tor-access">
 <h3>Tor Access</h3>
 <p>This application is available as a Tor hidden service for enhanced privacy.</p>
 <h4>Onion Address</h4>
 <div class="code-block">
-<code class="long-string monospace-data">{{.Base.TorOnionAddress}}</code>
+<code class="code-content">{{.Base.TorOnionAddress}}</code>
 <button type="button" class="copy-btn" data-copy="{{.Base.TorOnionAddress}}" aria-label="Copy to clipboard">
-<span aria-hidden="true">&#128203;</span>
+<span class="copy-icon" aria-hidden="true">&#128203;</span>
+<span class="copy-text" aria-live="polite">Copy</span>
 </button>
 </div>
+<h4>How to Connect</h4>
+<ol>
+<li>Download <a href="https://www.torproject.org/download/" target="_blank" rel="noopener">Tor Browser</a></li>
+<li>Open Tor Browser and wait for it to connect</li>
+<li>Copy the onion address above and paste it into the Tor Browser address bar</li>
+</ol>
 <p class="note">Using Tor provides additional privacy by hiding your IP address
 and encrypting your connection through the Tor network.</p>
 </section>
