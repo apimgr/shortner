@@ -14,8 +14,6 @@ type ctxKey int
 
 const (
 	ctxKeyRequestID ctxKey = iota
-	ctxKeyClientIP
-	ctxKeyOriginalPeer
 	ctxKeyAllowlisted
 	ctxKeyOperator
 )
@@ -24,14 +22,6 @@ const (
 // or "" if none is present.
 func RequestIDFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(ctxKeyRequestID).(string)
-	return v
-}
-
-// ClientIPFromContext returns the resolved client IP attached by
-// LoggingMiddleware/RateLimitMiddleware's shared resolver, or "" if none is
-// present.
-func ClientIPFromContext(ctx context.Context) string {
-	v, _ := ctx.Value(ctxKeyClientIP).(string)
 	return v
 }
 
