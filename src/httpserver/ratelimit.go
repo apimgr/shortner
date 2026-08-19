@@ -27,14 +27,21 @@ type window struct {
 	windowStart time.Time
 }
 
+// rlSweepInterval is how often Allow prunes windows whose period has
+// already elapsed. Without it the per-IP maps grow without bound — every
+// distinct source address ever seen would be retained forever, which is a
+// remotely triggerable memory-exhaustion vector.
+const rlSweepInterval = time.Minute
+
 // RateLimiter implements AI.md PART 12 "Rate Limiting": independent
 // per-class per-IP sliding windows, plus a global-burst ceiling per IP
 // across all classes.
 type RateLimiter struct {
-	mu      sync.Mutex
-	cfg     config.RateLimit
-	byClass map[rlClass]map[string]*window
-	global  map[string]*window
+	mu        sync.Mutex
+	cfg       config.RateLimit
+	byClass   map[rlClass]map[string]*window
+	global    map[string]*window
+	lastSweep time.Time
 }
 
 // NewRateLimiter builds a RateLimiter from server.yml's rate_limit config.
@@ -72,6 +79,7 @@ func (rl *RateLimiter) Allow(ip string, class rlClass) (allowed bool, retryAfter
 	defer rl.mu.Unlock()
 
 	now := time.Now()
+	rl.sweepLocked(now)
 
 	limit := rl.classLimit(class)
 	classWindows := rl.byClass[class]
@@ -97,6 +105,32 @@ func (rl *RateLimiter) Allow(ip string, class rlClass) (allowed bool, retryAfter
 	w.count++
 	gw.count++
 	return true, 0
+}
+
+// sweepLocked drops every per-IP window whose period has already elapsed,
+// at most once per rlSweepInterval. An expired window carries no state —
+// Allow resets it in place on the next request from that IP — so removing
+// it is behaviourally identical to keeping it, but bounds memory to the
+// set of IPs active within the last window. rl.mu must be held.
+func (rl *RateLimiter) sweepLocked(now time.Time) {
+	if now.Sub(rl.lastSweep) < rlSweepInterval {
+		return
+	}
+	rl.lastSweep = now
+
+	for class, windows := range rl.byClass {
+		span := time.Duration(rl.classLimit(class).Window) * time.Second
+		for ip, w := range windows {
+			if now.Sub(w.windowStart) >= span {
+				delete(windows, ip)
+			}
+		}
+	}
+	for ip, gw := range rl.global {
+		if now.Sub(gw.windowStart) >= time.Minute {
+			delete(rl.global, ip)
+		}
+	}
 }
 
 // remainingSeconds returns the whole seconds left until start+span,
