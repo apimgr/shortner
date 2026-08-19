@@ -149,10 +149,10 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// Shutdown gracefully stops the server, waiting up to 10s for in-flight
-// requests to finish.
+// Shutdown gracefully stops the server, waiting up to 30s for in-flight
+// requests to finish, per the AI.md PART 8 "Shutdown Timeouts" table.
 func (s *Server) Shutdown() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	return s.httpServer.Shutdown(ctx)
 }
