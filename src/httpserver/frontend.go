@@ -365,8 +365,11 @@ func (fd *frontendDeps) consentHandler(w http.ResponseWriter, r *http.Request) {
 		choice.Preferences = true
 		choice.Analytics = fd.cfg.Server.Privacy.Cookies.Analytics.Enabled
 	case "custom":
-		choice.Preferences = r.FormValue("preferences") == "1"
-		choice.Analytics = r.FormValue("analytics") == "1"
+		// Every boolean source goes through config.IsTruthy, per AI.md
+		// PART 5 "Boolean Parsing" — an unchecked box submits nothing,
+		// which parses as false.
+		choice.Preferences = config.IsTruthy(r.FormValue("preferences"))
+		choice.Analytics = config.IsTruthy(r.FormValue("analytics"))
 	default:
 		// "decline" (or anything else): essential only.
 	}
