@@ -1,4 +1,5 @@
-# shortner - development compose (hot-reload friendly, verbose logging)
+# nginx proxy address - http://172.17.0.1:64580
+# shortner - development
 
 name: shortner-dev
 
@@ -10,23 +11,29 @@ x-logging: &default-logging
 
 services:
   shortner:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.dev
-    container_name: shortner-dev-app
-    hostname: shortner-dev
-    restart: unless-stopped
+    image: ghcr.io/apimgr/shortner:devel
+    container_name: shortner-app
+    hostname: shortner
+    restart: always
+    pull_policy: always
     logging: *default-logging
     environment:
       PORT: 80
+      DEBUG: true
+      MODE: development
       TZ: America/New_York
-      MODE: dev
-      DEBUG: 1
     volumes:
       - './volumes/config:/config:z'
       - './volumes/data:/data:z'
     ports:
-      - '127.0.0.1:64580:80'
+      # Development: accessible from all interfaces, no 172.17.0.1 bind
+      - '64580:80'
+    healthcheck:
+      test: ['CMD', '/usr/local/bin/shortner', '--status']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
     networks:
       - shortner-dev
 

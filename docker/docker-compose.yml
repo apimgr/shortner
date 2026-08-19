@@ -30,7 +30,7 @@ services:
     ports:
       - '172.17.0.1:64580:80'
     healthcheck:
-      test: /usr/local/bin/shortner --status
+      test: ['CMD', '/usr/local/bin/shortner', '--status']
       interval: 10s
       timeout: 5s
       retries: 3
@@ -50,7 +50,7 @@ services:
     volumes:
       - './volumes/data/db/valkey:/data:z'
     healthcheck:
-      test: valkey-cli ping || exit 1
+      test: ['CMD-SHELL', 'valkey-cli ping || exit 1']
       interval: 10s
       timeout: 5s
       retries: 3

@@ -8,7 +8,8 @@ RUN apk add --no-cache git bash
 
 ARG TARGETARCH
 ARG VERSION=dev
-ARG BUILD_DATE
+# BUILD_EPOCH is the single embedded time source; BuildDate is derived from it at process start
+ARG BUILD_EPOCH
 ARG COMMIT_ID
 # Optional: set via --build-arg OFFICIAL_SITE=... (empty by default)
 ARG OFFICIAL_SITE
@@ -23,7 +24,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} GOFLAGS=-buildvcs=false go build \
     -trimpath \
-    -ldflags "-s -w -X 'github.com/apimgr/shortner/src/common/version.Version=${VERSION}' -X 'github.com/apimgr/shortner/src/common/version.CommitID=${COMMIT_ID}' -X 'github.com/apimgr/shortner/src/common/version.BuildDate=${BUILD_DATE}' -X 'github.com/apimgr/shortner/src/common/version.OfficialSite=${OFFICIAL_SITE}'" \
+    -ldflags "-s -w -X 'github.com/apimgr/shortner/src/common/version.Version=${VERSION}' -X 'github.com/apimgr/shortner/src/common/version.CommitID=${COMMIT_ID}' -X 'github.com/apimgr/shortner/src/common/version.BuildEpoch=${BUILD_EPOCH}' -X 'github.com/apimgr/shortner/src/common/version.OfficialSite=${OFFICIAL_SITE}'" \
     -o /app/binary/shortner ./src
 
 # =============================================================================
@@ -32,8 +33,11 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} GOFLAGS=-buildvcs=false go bui
 FROM alpine:latest
 
 # ARGs for build-time values (set by docker build --build-arg)
+# BUILD_DATE is passed here only because org.opencontainers.image.created
+# annotations are set from this value at build time
 ARG VERSION=dev
 ARG BUILD_DATE
+ARG BUILD_EPOCH
 ARG COMMIT_ID
 ARG LICENSE=MIT
 

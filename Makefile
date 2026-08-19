@@ -7,19 +7,24 @@ PROJECT_ORG  := $(shell git remote get-url origin 2>/dev/null | sed -E 's|\.git/
 # Version precedence: release.txt (wins if it exists) > VERSION env var > "devel" fallback
 VERSION := $(shell cat release.txt 2>/dev/null || echo "$${VERSION:-devel}")
 
-# Build info - ISO 8601 UTC
-BUILD_DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+# Build info - BUILD_EPOCH is the single captured time source
+# Unix build timestamp (seconds, UTC) - used by the updater's daily-channel check
+BUILD_EPOCH := $(shell date -u +%s)
+# Derived from BUILD_EPOCH - ISO 8601 UTC, e.g. "2025-12-04T13:05:13Z"
+# Used only for Docker OCI labels (org.opencontainers.image.created); not an ldflag
+BUILD_DATE := $(shell date -u -d @$(BUILD_EPOCH) +"%Y-%m-%dT%H:%M:%SZ")
 COMMIT_ID  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "N/A")
 
 # Official site URL (OPTIONAL - never guess or assume)
 OFFICIAL_SITE := $(shell [ -f site.txt ] && cat site.txt || echo "$${OFFICIAL_SITE:-}")
 
 # Linker flags to embed build info — see src/common/version
+# BuildDate is NOT embedded - it is derived from BuildEpoch at process start
 VERSION_PKG := github.com/$(PROJECT_ORG)/$(PROJECT_NAME)/src/common/version
 LDFLAGS := -s -w \
 	-X '$(VERSION_PKG).Version=$(VERSION)' \
 	-X '$(VERSION_PKG).CommitID=$(COMMIT_ID)' \
-	-X '$(VERSION_PKG).BuildDate=$(BUILD_DATE)' \
+	-X '$(VERSION_PKG).BuildEpoch=$(BUILD_EPOCH)' \
 	-X '$(VERSION_PKG).OfficialSite=$(OFFICIAL_SITE)'
 
 # Directories
@@ -134,6 +139,9 @@ release: build
 		--exclude='binaries' --exclude='releases' --exclude='*.tar.gz' \
 		-czf $(RELDIR)/$(PROJECT_NAME)-$(VERSION)-source.tar.gz .
 
+	# Generate checksums
+	@cd $(RELDIR) && FILES="$$(ls)" && sha256sum $$FILES > sha256.txt && sha512sum $$FILES > sha512.txt
+
 	@gh release delete $(VERSION) --yes 2>/dev/null || true
 	@git tag -d $(VERSION) 2>/dev/null || true
 	@git push origin :refs/tags/$(VERSION) 2>/dev/null || true
@@ -162,6 +170,7 @@ docker:
 		--push \
 		--build-arg VERSION="$(VERSION)" \
 		--build-arg BUILD_DATE="$(BUILD_DATE)" \
+		--build-arg BUILD_EPOCH="$(BUILD_EPOCH)" \
 		--build-arg COMMIT_ID="$(COMMIT_ID)" \
 		-t $(REGISTRY):$(VERSION) \
 		-t $(REGISTRY):latest \

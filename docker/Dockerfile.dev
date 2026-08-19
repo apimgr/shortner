@@ -9,7 +9,8 @@ RUN apk add --no-cache git bash
 
 ARG TARGETARCH
 ARG VERSION=devel
-ARG BUILD_DATE
+# BUILD_EPOCH is the single embedded time source; BuildDate is derived from it at process start
+ARG BUILD_EPOCH
 ARG COMMIT_ID
 
 WORKDIR /app
@@ -20,7 +21,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} GOFLAGS=-buildvcs=false go build \
     -trimpath \
-    -ldflags "-X 'github.com/apimgr/shortner/src/common/version.Version=${VERSION}' -X 'github.com/apimgr/shortner/src/common/version.CommitID=${COMMIT_ID}' -X 'github.com/apimgr/shortner/src/common/version.BuildDate=${BUILD_DATE}'" \
+    -ldflags "-X 'github.com/apimgr/shortner/src/common/version.Version=${VERSION}' -X 'github.com/apimgr/shortner/src/common/version.CommitID=${COMMIT_ID}' -X 'github.com/apimgr/shortner/src/common/version.BuildEpoch=${BUILD_EPOCH}'" \
     -o /app/binary/shortner ./src
 
 # =============================================================================
@@ -37,7 +38,7 @@ RUN chmod 755 /usr/local/bin/*
 ENV TZ=America/New_York \
     DATABASE_DIR=/data/db/sqlite \
     MODE=development \
-    DEBUG=1
+    DEBUG=true
 
 EXPOSE 80
 
