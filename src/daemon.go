@@ -3,12 +3,13 @@
 // daemon_unix.go and daemon_windows.go.
 package main
 
-// filterDaemonFlag removes --daemon from args before re-exec, to prevent
-// an infinite fork loop.
+// filterDaemonFlag removes the daemon flag from args before re-exec, to
+// prevent an infinite fork loop. Matches AI.md PART 8 "Daemonization"
+// exactly: filters "--daemon" and its short form "-d".
 func filterDaemonFlag(args []string) []string {
 	filtered := make([]string, 0, len(args))
 	for _, arg := range args {
-		if arg != "--daemon" {
+		if arg != "--daemon" && arg != "-d" {
 			filtered = append(filtered, arg)
 		}
 	}
