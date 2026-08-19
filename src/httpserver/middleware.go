@@ -46,8 +46,13 @@ type deps struct {
 // PART 5 "Middleware Order". Wrapping order is reversed from execution
 // order: the last middleware applied here runs first.
 func (d *deps) setupMiddleware(handler http.Handler) http.Handler {
-	handler = d.loggingMiddleware(handler)       // 10
-	handler = d.authMiddleware(handler)          // 9
+	handler = d.loggingMiddleware(handler) // 10
+	handler = d.authMiddleware(handler)    // 9
+	// CSRF is not one of PART 5's ten numbered stages. It is placed after
+	// RateLimit(7)/GeoIP(8) so that a flood of forged form posts is
+	// throttled before any request body is parsed; running it ahead of the
+	// chain would make body parsing reachable without a rate-limit check.
+	handler = d.csrfMiddleware(handler)
 	handler = d.geoIPMiddleware(handler)         // 8
 	handler = d.rateLimitMiddleware(handler)     // 7
 	handler = d.blocklistMiddleware(handler)     // 6
@@ -56,8 +61,9 @@ func (d *deps) setupMiddleware(handler http.Handler) http.Handler {
 	handler = pathSecurityMiddleware(handler)    // 3
 	handler = requestIDMiddleware(handler)       // 2
 	handler = urlNormalizeMiddleware(handler)    // 1
+	// CORS stays outermost so its headers are present on every response,
+	// including ones short-circuited by an earlier stage (429, 403).
 	handler = d.corsMiddleware(handler)
-	handler = d.csrfMiddleware(handler)
 	return handler
 }
 
