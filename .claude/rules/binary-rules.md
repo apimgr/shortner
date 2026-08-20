@@ -41,8 +41,23 @@
   `--uninstall`/`--help`), and the positional `tor` / `i2p` subcommands
   (PART 31 — `tor status|validate|restart|regenerate|vanity start|vanity
   apply|import-keys <path>`, `i2p status|validate|regenerate`);
-  most `--maintenance` actions, `--daemon`,
-  and the client binary itself are NOT yet implemented (see `TODO.AI.md`)
+  most `--maintenance` actions and `--daemon` are NOT yet implemented
+  (see `TODO.AI.md`)
+- PART 32 is implemented: `shortner-cli` lives in `src/client/`
+  (`main.go` plus `cmd/`, `config/`, `paths/`, `api/`, `tui/`, `setup/`).
+  It carries every universal flag (`--help`, `--version`, `--shell`,
+  `--debug`, `--color`, `--lang`) plus `--server`, `--token`,
+  `--token-file`, `--config`, `--output`, `--update`, `--quiet`,
+  `--verbose`; the verbs `shorten`/`get`/`list`/`update`/`delete`/
+  `stats`/`health`/`setup` with smart argument detection (a bare URL
+  shortens, a bare slug is looked up, stdin is read in a pipe); shell
+  completions for bash, zsh, fish, sh, dash, ksh, powershell, pwsh; and a
+  bubbletea TUI that launches automatically when the client is run with
+  no command in a terminal. There is NO `--tui`/`--cli`/`--gui` flag and
+  no `tui` subcommand — PART 32 forbids them; only `display.mode` in
+  `cli.yml` overrides auto-detection. The native GUI is deferred behind a
+  `gui` build tag (cgo conflicts with `CGO_ENABLED=0`) and falls back to
+  the feature-identical TUI
 
 ---
 For complete details, see AI.md PART 7, 8, 32

@@ -49,9 +49,9 @@ Everything below is deferred work, in dependency order.
   `ThemePaletteDark`/`Light`, `TerminalPalette`, Dracula-based per
   IDEA.md) plus `src/common/theme/detect.go`
   (`GetThemePalette`/`IsSystemDarkTheme`) — `IsSystemDarkTheme` is a
-  best-effort COLORFGBG heuristic with no CLI/TUI consumer yet (PART 32);
-  see the doc comment for the platform-API gap this leaves for a future
-  CLI build.
+  best-effort COLORFGBG heuristic, now consumed by the client's
+  `tui.ResolveTUITheme`/`stylesForTheme` (PART 32); see the doc comment
+  for the platform-API gap it still leaves.
 - Banner Package: `src/common/banner/banner.go` —
   `PrintStartupBanner`/full/compact/minimal/micro variants.
 - Signal handling: `src/signal` installs SIGTERM/SIGINT shutdown handlers
@@ -62,8 +62,9 @@ Everything below is deferred work, in dependency order.
   the HTTP server, DB, access log, and removes the PID file.
 - Deferred, no gap: `src/common/terminal/resize.go` (SIGWINCH) and
   `symbols.go` (Unicode/ASCII symbol set) from PART 7's module-structure
-  listing have no consumer yet — nothing interactive resizes or renders
-  symbols until the CLI/TUI binary (PART 32) exists. Same for
+  listing have no consumer — the client's TUI handles resize through
+  bubbletea's own `tea.WindowSizeMsg` and carries its symbol sets in
+  `src/client/tui/symbols.go`, so neither shared file is needed. Same for
   `src/common/display/mode.go` (its content already lives correctly in
   `detect.go` — no separate file needed) and `src/common/banner/ascii.go`
   (ASCII art is inline in `banner.go`'s size-tiered renderers, no
@@ -571,14 +572,22 @@ The remaining items below are environment limits, not unbuilt work.
   `tests/test_content_negotiation.sh` report this as a SKIP rather than
   faking a pass. Add extension-stripping to the router.
   Read: AI.md PART 13, 14
-- `make build` and `make local` fail whenever `src/client/` exists without
-  a `package main` — both targets build `./src/client` unconditionally on
-  directory existence. `tests/common.sh` works around it with
-  `has_client_main()`; the Makefile should use the same guard.
+- DONE (no longer reachable): `make build`/`make local` used to fail when
+  `src/client/` existed without a `package main`. `src/client/main.go` is
+  now a real `package main`, so both targets build the client on all 8
+  platforms. The `has_client_main()` guard in `tests/common.sh` is now
+  redundant but harmless.
   Read: AI.md PART 25
-- The client binary `shortner-cli` still does not exist (`src/client` has
-  only `doc.go`), so every CLI check in `tests/suite.sh` reports SKIP.
-  Read: AI.md PART 8, 32
+- DONE: `tests/suite.sh`'s CLI checks are un-gated and extended.
+  `__has_client_main()` now succeeds, so `__test_cli` runs for real: it
+  asserts `--version`/`--help` (including that `--tui`/`--gui` are absent,
+  per PART 32), `--shell completions bash`, and then drives `health`,
+  `shorten`, `get`, `stats`, and `list` against the live server with
+  `--output json` under a throwaway `HOME`. It also asserts the PART 32
+  no-command/no-tty usage exit (64) and the 0600 mode on the written
+  `cli.yml`. The `__has_client_main()` probe stays as a build-error guard
+  for a tree mid-refactor, with its skip reason reworded accordingly.
+  Read: AI.md PART 8, 28, 32
 - AI.md PART 28 line 37584 references a "Testing Operator-Token Routes"
   section that does not exist anywhere in the spec — the nearest real
   section is "Testing Open API Routes". Spec defect, recorded here
@@ -609,15 +618,15 @@ The remaining items below are environment limits, not unbuilt work.
   Read: AI.md PART 29
 - README.md is stale against the shipped code: it lists GeoIP under
   "Planned (not yet shipped)" although PART 19 is implemented, and it
-  documents `shortner-cli` with `--server`/`--token`/`--output` as though
-  the client binary exists (it does not — `src/client` is a stub).
-  Reconcile README.md against `docs/` now that PART 29 is written.
+  still lists `shortner-cli` only in passing. The client now exists, so
+  README.md and `docs/cli.md` both need a real client section (verbs,
+  flags, setup wizard, TUI keys, completions) and the GeoIP correction.
   Read: AI.md PART 29, PART 32
 - PART 30 (I18N & A11Y) is DONE for the server binary and the Web UI:
   `src/common/i18n/` (embedded `locales/*.json` for all 7 spec languages,
   `Translate`/`TranslateFormat`/`TranslatePlural`/`IsSupported`/
   `LangFromRequest`/`SetLanguageCookie`/`Direction`/`RawLocale`/
-  `Languages`/`CLILanguage`), `cmd/i18n-validate` + the `i18n-validate`
+  `Languages`/`CLILanguage`), `src/cmd/i18n-validate` + the `i18n-validate`
   Makefile target, `src/httpserver/i18n.go` (`LanguageMiddleware`, the
   `t`/`tf`/`tp` FuncMap funcs, the `/locales/{lang}.json` route),
   `src/config/i18n.go` (`server.i18n.*`), `src/lang.go` (the CLI output
@@ -626,11 +635,10 @@ The remaining items below are environment limits, not unbuilt work.
   landmarks, live regions, `.sr-only`, focus-visible and 44px touch
   targets in the CSS.
   Read: AI.md PART 30
-- PART 30 deferred sub-item: client-binary i18n. `src/client` is a stub
-  and `shortner-cli` does not exist yet, so the client's `--lang` flag,
-  its help text, and its own catalog are not built. Do this as part of
-  PART 32, reusing `src/common/i18n` unchanged (it imports no project
-  package, so the client can embed the same catalog).
+- DONE: PART 30's client-binary i18n. `shortner-cli` embeds the same
+  `src/common/i18n` catalog, honors `--lang`, and its `--help`/`--version`
+  output is fully translated through a new `client.*` section (22 keys)
+  added to all 7 locale files.
   Read: AI.md PART 30, PART 32
 - PART 30 deferred sub-item: subcommand help text is still hardcoded
   English. `src/service.go`, `src/update.go`, `src/email_cli.go`,
@@ -795,9 +803,40 @@ banner row.
 
 ## PART 32: Client
 
-- `shortner-cli` client binary (currently only a `doc.go` placeholder in
-  `src/client/`) — setup wizard, `--server`/`--token`/`--output` flags.
+- DONE: the `shortner-cli` client binary is implemented.
+  `src/client/main.go` (entry point), `src/client/cmd/` (flag parsing,
+  dispatch, smart argument detection, output formats, `--shell`
+  completions for all 8 shells, `--help`/`--version`, the 6-step CLI
+  auto-update flow with SHA-256 verification and re-exec),
+  `src/client/config/` (`cli.yml`, precedence CLI > env `SHORTNER_*` >
+  file > default, the flag-to-config save rule, 0700 dirs / 0600 files),
+  `src/client/paths/` (user-scope XDG paths only),
+  `src/client/api/` (typed API client, `shortner-cli/{version}`
+  User-Agent), `src/client/tui/` (bubbletea app — keyboard navigation,
+  search, `?` help, `q`/ctrl+c quit, window resize, 7-breakpoint
+  responsive layout, viewport scrolling, Unicode/ASCII symbol sets, dark
+  and light lipgloss themes), and `src/client/setup/` (the wizard, whose
+  mode follows PART 32's SSH/Mosh > display > terminal > error order).
+  Verified in Docker: `gofmt`, `go build ./...`, `go vet`, and an
+  8-platform cross-compile of `./src/client` all pass.
   Read: AI.md PART 32
+- PART 32 deferred sub-item: the native GUI. AI.md forbids Electron and a
+  TUI-in-a-window wrapper, and every real Go GUI toolkit needs cgo, which
+  the project's `CGO_ENABLED=0` rule forbids for the shipped binaries.
+  The GUI therefore stays behind a future `gui` build tag; `setup.Run`
+  and `runInteractive` both fall back to the feature-identical TUI, which
+  is what a headless/SSH session gets anyway.
+  Read: AI.md PART 32 "GUI Mode Requirements"
+- PART 32 deferred sub-item: the server side of CLI auto-update does not
+  exist yet. The client implements the full flow, but no handler serves
+  `/api/autodiscover` with a `cli_versions`/`cli_min_version` document and
+  nothing serves `{base}/cli/binaries/{project}-cli-{os}-{arch}` or its
+  checksum. The client degrades gracefully (404 is cached as "no update
+  service" and never blocks a command); the endpoints still need building
+  on the server, together with PART 32's `cli.update_started`,
+  `cli.update_completed`, `cli.update_checksum_invalid`,
+  `cli.update_forced`, and `cli.token_revoked_detected` audit events.
+  Read: AI.md PART 32 "CLI Auto-Update"
 
 ## Repo-level (calling session, not this bootstrap)
 

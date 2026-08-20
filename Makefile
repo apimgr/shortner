@@ -184,7 +184,7 @@ docker:
 i18n-validate:
 	@mkdir -p $(GO_CACHE) $(GO_BUILD)
 	@echo "Validating translation files..."
-	@$(GO_DOCKER) go run ./cmd/i18n-validate src/common/i18n/locales/
+	@$(GO_DOCKER) go run ./src/cmd/i18n-validate src/common/i18n/locales/
 
 # =============================================================================
 # TEST - Run all tests with coverage enforcement (via Docker)

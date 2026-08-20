@@ -10,7 +10,7 @@
 # Environment contract (all optional except SUITE_BIN):
 #   SUITE_BIN      absolute path to the server binary inside the container
 #   SUITE_CLI      absolute path to the client binary, or empty when the
-#                  client has not been built (src/client has no package main)
+#                  caller chose not to push shortner-cli into the container
 #   SUITE_ROOT     writable working root for config/logs/rename copies
 #   SUITE_PORT     listen port (PART 28 reserves 64000-64999 for tests)
 #   SUITE_HOST     listen address, default 127.0.0.1
@@ -470,17 +470,59 @@ __test_authorization() {
 __test_cli() {
   __section "Client binary (PART 8/32)"
   if [ -z "$cli" ] || [ ! -x "$cli" ]; then
-    __skip "client binary checks" "shortner-cli not built — src/client has no package main yet"
+    __skip "client binary checks" "shortner-cli was not pushed into the container"
     return 0
   fi
 
-  local out
+  local out code
   out="$("$cli" --version 2>&1 || true)"
   __assert_nonempty "client --version produces output" "$out"
   out="$("$cli" --help 2>&1 || true)"
   __assert_contains "client --help documents --server" "--server" "$out"
   __assert_contains "client --help documents --token" "--token" "$out"
   __assert_contains "client --help documents --output" "--output" "$out"
+  __assert_not_contains "client --help never offers --tui" "--tui" "$out"
+  __assert_not_contains "client --help never offers --gui" "--gui" "$out"
+
+  out="$("$cli" --shell completions bash 2>&1 || true)"
+  __assert_nonempty "client emits bash completions" "$out"
+
+  # The client keeps its config under the user's own directories, so give it
+  # a throwaway HOME rather than letting it touch the container's real one.
+  local cli_home="$root/clihome"
+  mkdir -p "$cli_home"
+
+  out="$(HOME="$cli_home" "$cli" --server "$base_url" --output json health 2>&1 || true)"
+  __assert_contains "client health reaches the server" '"status"' "$out"
+
+  out="$(HOME="$cli_home" "$cli" --server "$base_url" --output json \
+    shorten "https://example.com/client-suite" 2>&1 || true)"
+  code="$(printf '%s' "$out" | sed -n 's/.*"short_code"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  __assert_nonempty "client shorten returns a short code" "$code"
+
+  if [ -n "$code" ]; then
+    out="$(HOME="$cli_home" "$cli" --server "$base_url" --output json get "$code" 2>&1 || true)"
+    __assert_contains "client get finds the link it just created" "$code" "$out"
+    out="$(HOME="$cli_home" "$cli" --server "$base_url" --output json stats "$code" 2>&1 || true)"
+    __assert_contains "client stats reports clicks" "clicks" "$out"
+  fi
+
+  out="$(HOME="$cli_home" "$cli" --server "$base_url" --output json list 2>&1 || true)"
+  __assert_nonempty "client list produces output" "$out"
+
+  # PART 32: no command and no terminal attached is a usage error, never a hang.
+  local status=0
+  HOME="$cli_home" "$cli" --server "$base_url" </dev/null >/dev/null 2>&1 || status=$?
+  __assert_eq "client with no command and no tty exits 64" 64 "$status"
+
+  # The config can hold an API token, so PART 32 requires 0600 on the file.
+  local cli_config="$cli_home/.config/apimgr/shortner/cli.yml"
+  if [ -f "$cli_config" ]; then
+    __assert_eq "client config file is mode 600" 600 \
+      "$(stat -c '%a' "$cli_config" 2>/dev/null || stat -f '%Lp' "$cli_config")"
+  else
+    __skip "client config file mode" "cli.yml was not written by these commands"
+  fi
 }
 
 __test_rate_limit() {

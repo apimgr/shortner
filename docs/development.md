@@ -21,7 +21,7 @@ are condensed quick references generated from `AI.md`.
 | Path | Contents |
 |------|----------|
 | `src/` | All Go source. `src/main.go` is the server entry point. |
-| `src/client/` | Placeholder for the `shortner-cli` client binary (not yet implemented). |
+| `src/client/` | The `shortner-cli` client binary: `main.go`, `cmd/`, `config/`, `paths/`, `api/`, `tui/`, `setup/`. |
 | `src/server/template/`, `src/server/static/` | Embedded HTML templates, CSS, JS, and email templates. |
 | `tests/` | Shell test entry points and the chromedp browser suite. |
 | `docker/` | `Dockerfile`, `Dockerfile.dev`, compose files, and the runtime rootfs overlay. |
@@ -137,7 +137,7 @@ The shell entry points in `tests/` layer integration testing on top:
 | `tests/run_tests.sh` | Two-phase entry point: runs `make test`, then auto-detects Incus (falls back to Docker) and dispatches |
 | `tests/docker.sh` | Builds in `casjaysdev/go:latest`, runs the suite inside a disposable `alpine:latest` container |
 | `tests/incus.sh` | Same suite inside `images:debian/trixie`, plus a real systemd service install/uninstall lifecycle |
-| `tests/suite.sh` | The shared in-container suite (binary info, first run, health, content negotiation, well-known, frontend pages, link CRUD, redirect/410/404, stats, token authorization, rate limiting) |
+| `tests/suite.sh` | The shared in-container suite (binary info, first run, health, content negotiation, well-known, frontend pages, link CRUD, redirect/410/404, stats, token authorization, the `shortner-cli` client, rate limiting) |
 | `tests/test_content_negotiation.sh` | Standalone negotiation matrix against any running instance |
 | `tests/e2e.sh` + `tests/e2e/` | chromedp browser suite behind the `e2e` build tag; standalone, never invoked by `run_tests.sh` |
 

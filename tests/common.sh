@@ -71,10 +71,9 @@ __build_version() {
   fi
 }
 
-# Reports whether src/client is a real buildable `package main` yet. The
-# client binary is REQUIRED by PART 8, but until its main package exists a
-# build attempt is a hard error, so the test scripts probe first and skip
-# the CLI checks loudly rather than failing the whole run.
+# Reports whether src/client is a real buildable `package main`. It is, as
+# of PART 32, but the probe stays so a tree mid-refactor skips the CLI
+# checks loudly instead of failing the whole run on a build error.
 __has_client_main() {
   [ -d "$project_dir/src/client" ] || return 1
   grep -rqs --include='*.go' -- '^package main' "$project_dir/src/client" || return 1

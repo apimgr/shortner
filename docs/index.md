@@ -90,10 +90,10 @@ backup and restore, the self-updater, service installation, and CI/CD.
 Some features described by the project specification are not yet built and
 are **not** documented here as if they were. The most visible gaps:
 
-- The companion client binary `shortner-cli` does not exist yet. See
-  [CLI Reference](cli.md).
-- Tor hidden-service and I2P eepsite support are not implemented. The
-  health endpoint reports them as disabled, honestly.
+- The client binary `shortner-cli` has no native GUI; it falls back to
+  its terminal interface. See [CLI Reference](cli.md).
+- The server does not publish `/api/autodiscover` or host client
+  binaries, so the client's `--update` has nothing to talk to yet.
 - There are no Swagger or GraphQL documentation endpoints.
 - Configuration is not hot-reloadable; changes require a restart.
 

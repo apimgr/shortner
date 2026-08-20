@@ -77,12 +77,41 @@
 - Full spec (HOW, ~48k lines): `AI.md` ← **SOURCE OF TRUTH**
 
 ## Current Project State
-- Last read AI.md: 2026-08-20 (PART 31 Overlay Networks — 31.1 Tor
-  overview/configuration/CLI/logging rules, 31.2 I2P provider model and
-  `--status` output; plus PART 8's `--help` layout, PART 12's overlay HTTP
-  semantics, PART 16's footer-variable table, and PART 20's banner
-  examples)
-- Current task: implemented PART 31 (Overlay Networks — Tor & I2P) in
+- Last read AI.md: 2026-08-20 (PART 32 CLIENT in full — overview, binary
+  naming, open-API access, config-file permissions, CLI auto-update and
+  the flag-to-config save rules, automatic mode detection, display
+  environment detection, the first-run flow, GUI requirements, theming,
+  responsive layout, professional UI/UX standards, configuration and
+  `cli.yml`, standard flags, shell completions, `--help`/`--version`
+  output, commands, authentication, HTTP client identity, URL encoding,
+  output formats, smart argument detection, build integration, and the
+  TUI requirements including Minimum Features)
+- Current task: implemented PART 32 (Client). New binary `shortner-cli`
+  under `src/client/`: `main.go` (entry point), `cmd/` (flag parsing,
+  dispatch with smart argument detection, table/json/yaml/plain output,
+  `--shell` completions for all 8 shells, translated `--help`/
+  `--version`, and the 6-step CLI auto-update — `/api/autodiscover`
+  discovery with a TTL'd on-disk cache and negative caching,
+  `cli_min_version` refusal gate, download, mandatory SHA-256
+  verification, atomic `replaceBinary()` per OS, re-exec with the
+  original argv), `config/` (`cli.yml`, precedence CLI > env `SHORTNER_*`
+  > file > compiled default, the flag-persists-only-when-empty-or-invalid
+  rule), `paths/` (user-scope XDG paths, 0700 dirs / 0600 files, never a
+  system path), `api/` (typed client, `shortner-cli/{version}`
+  User-Agent, `src/common/urlutil` encoding), `tui/` (bubbletea app with
+  keyboard navigation, search, `?` help, `q`/ctrl+c quit, resize
+  handling, the 7-breakpoint responsive layout, viewport scrolling,
+  Unicode/ASCII symbol sets, and both the ANSI terminal palette and the
+  dark/light lipgloss themes), and `setup/` (the wizard, mode order
+  SSH/Mosh → TUI, display → GUI, terminal → TUI, else error). A new
+  `client.*` i18n section (22 keys) was added to all 7 locales. Verified
+  in Docker: `gofmt -l .` clean, `go build ./...`, `go vet ./...`, and an
+  8-platform cross-compile of both `./src` and `./src/client`. Deferred:
+  the native GUI (cgo vs `CGO_ENABLED=0`, so it stays behind a `gui`
+  build tag and falls back to the TUI) and the server side of CLI
+  auto-update (`/api/autodiscover`, `/cli/binaries/*`, and PART 32's
+  `cli.*` audit events) — both logged in TODO.AI.md.
+- Previous task: implemented PART 31 (Overlay Networks — Tor & I2P) in
   full. New packages `src/tor/` (bine-driven dedicated Tor process, v3
   hidden service, SafeLogging, dedicated loopback backend port, HAProxy
   PROXY-protocol circuit-ID ingest, vanity search/apply, key import,
@@ -121,7 +150,7 @@
   eepsite tunnel are unexercised — logged in TODO.AI.md.
 - Previous task: implemented PART 30 (I18N & A11Y) — `src/common/i18n/`
   (embedded 7-language catalog, literal `{token}` interpolation, CLDR
-  plurals, request/CLI language resolution), `cmd/i18n-validate` + the
+  plurals, request/CLI language resolution), `src/cmd/i18n-validate` + the
   `i18n-validate` Makefile target, `src/httpserver/i18n.go`
   (`LanguageMiddleware`, `t`/`tf`/`tp` template funcs,
   `/locales/{lang}.json`), `src/config/i18n.go` (`server.i18n.*`),
@@ -266,8 +295,10 @@
   validation). Verified in Docker: `go build`/`go vet`/`go test ./...
   -cover` all pass; `src/backup` 77.6%, `src/config` 86.0%,
   `src/scheduler` 81.8%, `src` 61.5% coverage (gate is 60%); go-lint clean.
-- Relevant PARTs: 0-6, 9-24, 27, 31 done; 7-8, 25-26, 28-30, 32 tracked in
-  TODO.AI.md (PART 11 has two deferred sub-items — GPG keypair
+- Relevant PARTs: 0-6, 9-24, 27, 31, 32 done; 7-8, 25-26, 28-30 tracked in
+  TODO.AI.md (PART 32 has two deferred sub-items — the native GUI behind
+  a `gui` build tag, and the server side of CLI auto-update; PART 11 has
+  two deferred sub-items — GPG keypair
   management CLI and the `/server/security/report/{tracking_id}` status
   page; PART 15 has deferred sub-items — DNS-01 provider matrix,
   credential encryption at rest, autocert-to-spec-layout bridging; PART 16

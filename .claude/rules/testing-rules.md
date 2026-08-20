@@ -68,7 +68,7 @@
   output, and an unsupplied token stays visible. Plurals use CLDR
   categories via `golang.org/x/text/feature/plural`, with an explicit
   `zero` form preferred at count 0 when the catalog defines one.
-  `cmd/i18n-validate` + `make i18n-validate` enforce key-set, `{token}`,
+  `src/cmd/i18n-validate` + `make i18n-validate` enforce key-set, `{token}`,
   and plural-category parity across all 7 files. Web language priority:
   `?lang=` (sets the `lang` cookie) > cookie > `Accept-Language` >
   server default. CLI priority: `--lang` > config `lang` (unless
