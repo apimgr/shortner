@@ -19,10 +19,84 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
 
 ## Business logic
 
-**Target users:**
-- Individuals and small teams wanting a self-hosted URL shortener
-- Developers integrating link shortening via API + Bearer token
-- Anyone sharing links who wants basic click analytics without a full account system
+### Product scope & non-goals
+- Self-hosted URL shortener: create short links (auto-generated code or custom slug),
+  anonymous redirect resolution, per-link click analytics.
+- Target users: individuals/small teams self-hosting a shortener; developers integrating
+  via API + Bearer token; anyone wanting basic click analytics without a full account
+  system.
+- Non-goals: no user accounts, no passwords, no sessions, no per-user/per-tenant custom
+  domains (single fixed domain: `official_site` — there is no owner entity to scope a
+  custom domain to), no team/multi-tenant features, no destination-URL content
+  moderation beyond operator manual takedown (see "Security decisions & exceptions").
+
+### Roles & permissions
+- **Anonymous (public)**: may create a link (subject to write rate limits), resolve/
+  redirect any link, and view any link's click-stats page — all without authentication.
+- **Resource owner** (holds that link's `owner_token`, issued once at creation, per
+  PART 11's API Token Model): may update destination/expiration or delete that link
+  only. There are no accounts — the token itself is the sole credential; losing it means
+  losing management access to that link, with no account-recovery path.
+- **Operator** (holds `server.token` from `server.yml`): global access — may moderate/
+  delete any link and revoke any resource owner token
+  (`--maintenance token revoke <prefix>` / `token list`, PART 8/11).
+- No other roles exist; no admin web UI (PART 16 public-nav rule — nav is app-focused
+  only).
+
+### Data model & sensitivity
+- Link: id, short_code (or custom slug), destination_url, created_at, expires_at,
+  click_count. Tier 2/3 (PART 11) — destination_url and click_count are shown on the
+  link's public stats page; no owner-identifying data is stored since there are no
+  accounts.
+- Click: id, link_id, timestamp, ip (anonymized — IPv4: last octet zeroed; IPv6: last 80
+  bits zeroed — before any write; the raw IP is never persisted), user_agent, referrer,
+  country/region (GeoIP, derived from the already-anonymized IP where possible).
+- `api_tokens` (PART 11): `SHA-256(owner_token)`, `resource_type="link"`, `resource_id`,
+  `revoked_at`, `expires_at`, `last_used_at` — the raw token is shown once at creation
+  and never stored or retrievable again.
+- No Tier 1 data is ever collected: no passwords, no accounts, no raw visitor IPs after
+  anonymization.
+
+### Trust boundaries & external services
+- GeoIP database (PART 19): local/offline lookup only, used to derive approximate click
+  location from the already-anonymized IP — not a live third-party API call per click.
+- No identity provider, no OAuth, no payment processor, no webhook integrations.
+- User-supplied `destination_url` is untrusted input: validated for well-formed URL
+  syntax only. No SSRF exposure server-side, since redirects are 302 responses sent to
+  the client's browser — the server never fetches, renders, or proxies the destination.
+
+### Threat model & abuse cases
+- Primary assets: integrity of the link → destination-URL mapping, visitor privacy in
+  click-analytics data (via IP anonymization), and resource owner tokens (link
+  management authority).
+- Untrusted inputs: `destination_url`, custom slug, and the `User-Agent`/`Referer`
+  headers on both link creation and click events.
+- Attacker/abuser goals: mass-create links for spam/phishing redirect abuse, brute-force
+  or guess a resource owner token to hijack a link, scrape/enumerate short codes to
+  discover all live links, deanonymize a visitor from click data.
+- Abuse cases & defenses:
+  - Spam/phishing redirect abuse → write-rate-limited anonymous creation (PART 9/11);
+    no proactive destination-URL blocklist/scanning is implemented (see below).
+  - Resource owner token brute-force/hijack → `tok_` + 32 random base62 chars keyspace,
+    SHA-256 hashed at rest, constant-time compare (PART 11).
+  - Short-code enumeration/scraping → 62^6 random keyspace for auto-generated codes; no
+    list-all-links endpoint exists (PART 14/16).
+  - Visitor deanonymization via click data → IP anonymized before any write, the public
+    stats page exposes only Tier 2/3 fields (never a raw visitor IP), and known bot/
+    crawler user agents are excluded from click counts.
+
+### Security decisions & exceptions
+- Anonymous, unauthenticated link creation is an intentional design choice (no account
+  system, per "Product scope & non-goals"); the only abuse mitigation is rate limiting
+  plus operator-initiated takedown via `server.token` — there is no automated
+  destination-URL content/malware scanning. This is a deliberate scope exception, not an
+  oversight.
+- Resource owner tokens are bearer credentials with no recovery path if lost —
+  intentional, since there are no accounts to recover through; the operator can still
+  delete a link via `server.token` if it needs removing without its owner token.
+- Single fixed domain, no per-tenant custom domains — there is no user/owner entity to
+  scope a custom domain to, so custom domains are out of scope entirely, not merely
+  deferred.
 
 **Features:**
 - **URL shortening**: generate a short code (auto) or a custom slug on create
@@ -31,18 +105,6 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
   approximate location (GeoIP), all with the visitor's IP anonymized before storage
 - **Management**: update destination, set/clear expiration, delete — via resource owner
   token (issued at creation) or the operator's `server.token`
-- **API tokens**: every created link is a "resource" per PART 11's API Token Model —
-  no user accounts, no passwords, no sessions. Anonymous POST creates a link (subject to
-  write rate limits) and returns a one-time `owner_token`; that token (Bearer header or
-  the `owner_token` cookie for the web UI) authorizes later edits/deletes on that link
-  only. The operator's global `server.token` can moderate/delete any link.
-
-**Data models:**
-- Link: id, short_code (or custom slug), destination_url, created_at, expires_at,
-  click_count
-- Click: id, link_id, timestamp, ip (anonymized — last octet/segment zeroed before
-  storage), user_agent, referrer, country/region (GeoIP, derived from anonymized IP
-  where possible)
 
 **Business rules:**
 - Short codes: 6-char alphanumeric, auto-generated (62^6 keyspace)
@@ -70,7 +132,7 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
 - Database for links and clicks — see PART 10
 - GeoIP for approximate click location — see PART 19
 
-## Frontend design reference
+### Frontend design reference
 
 The prior implementation of this project was a Node.js app
 (`github.com/casjaydns/csj.lol`). The new Go frontend's home page (`/`) body
