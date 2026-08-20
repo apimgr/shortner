@@ -511,9 +511,14 @@ The remaining items below are environment limits, not unbuilt work.
   Action SHA independently verified against GitHub's tag refs (annotated
   tags dereferenced to their commit) before pinning — all 11 matched
   AI.md's example SHAs exactly. `act --list -W {file}` passes for all 5
-  files; the `workflow-policy` SHA-pin grep also passes locally. Not yet
-  observed: an actual push-triggered run (no push has happened since these
-  files were added).
+  files; the `workflow-policy` SHA-pin grep also passes locally. Verified
+  with a real push-triggered run: the first push's `lint` job caught 3
+  pre-existing staticcheck/gofmt violations unrelated to the workflow
+  files themselves (`src/metrics/dbdriver.go` deprecated `Begin()`
+  fallback needing a `//lint:ignore SA1019`, an unused `gcLast` field, a
+  `gofmt` misalignment, and an identical-expression `!=` comparison in
+  `src/security/security_test.go`); fixed in a follow-up commit, after
+  which `ci.yml`, `daily.yml`, and `docker.yml` all completed `success`.
   Read: AI.md PART 27
 
 ## PART 28-30: Testing, docs, i18n

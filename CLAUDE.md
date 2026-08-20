@@ -239,7 +239,12 @@
   init-system install/uninstall cycle, real system account creation, and
   Windows SCM registration; PART 27 is fully built for GitHub Actions
   (Gitea/Forgejo/GitLab/Jenkins do not apply, this repo's only provider is
-  GitHub) but has not yet seen an actual triggered run; a pre-existing
-  unrelated `gofmt` violation in `src/metrics/metrics.go`; and the
-  previously-logged `gocron` external-cron-dependency review item under
-  PART 18 — all logged in TODO.AI.md rather than silently dropped)
+  GitHub) and has now been verified end-to-end with a real triggered run —
+  the first push surfaced 3 pre-existing staticcheck/gofmt violations
+  (`src/metrics/dbdriver.go` deprecated `Begin()` fallback, unused
+  `gcLast` field, a `gofmt` misalignment, and an identical-expression
+  `!=` comparison in `src/security/security_test.go`) which were fixed
+  in a follow-up commit; `ci.yml`/`daily.yml`/`docker.yml` all completed
+  `success` on the second push; and the previously-logged `gocron`
+  external-cron-dependency review item under PART 18 — all logged in
+  TODO.AI.md rather than silently dropped)
