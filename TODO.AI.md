@@ -250,14 +250,17 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
 - `/server/docs/swagger`, `/server/docs/graphql` — confirmed still out of
   scope per the AI.md `/server` routes table (PART 16); no Swagger/GraphQL
   doc UI exists.
-- Home page (`/`) body LAYOUT should still be diffed against the prior
-  Node.js app (`github.com/casjaydns/csj.lol`) reference assets in
-  `reference/csjlol/` for final visual parity — the current
-  `page/home.tmpl` was written to AI.md PART 16's own `theme-dark`/
-  `theme-light` CSS variables (not the reference app's markup/CSS) and the
-  IDEA.md "Frontend design reference" description, but a pixel-level
-  layout comparison against the reference has not been done. Theming is
-  intentionally AI.md's own system, not the reference app's — see IDEA.md.
+- DONE: Home page (`/`) body LAYOUT diffed against the prior Node.js app
+  (`github.com/casjaydns/csj.lol`, reference assets formerly at
+  `reference/csjlol/`) — `page/home.tmpl` (centered logo, h1 site name,
+  tagline, single-column create-link card with url+slug inputs and submit,
+  success state with short URL + "Create another") already matched the
+  reference's `<main id="app">` structure. The one real gap found was
+  `nav.tmpl`'s mobile menu, which was JS-only (`data-action="toggle-nav"`)
+  in violation of AI.md PART 16 "CSS-Only Mobile Menu (NO JavaScript)" —
+  fixed to a checkbox/label CSS-only pattern. `reference/csjlol/` has been
+  deleted; theming was never derived from it (AI.md's own `theme-dark`/
+  `theme-light` CSS variables throughout, per IDEA.md).
 ## PART 17-22: Features
 
 - Email & notifications.

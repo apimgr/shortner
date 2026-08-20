@@ -89,8 +89,9 @@ from the same Dracula colors the reference app used, so visually the
 result should be close — but the CSS variables and theme-toggle mechanism
 must be AI.md's own, not copied from the reference app.
 
-Reference files saved for PART 16 implementation:
-`reference/csjlol/{index.html,styles.css,app.js,config.js,nav.js,navBar.js}`.
+The layout parity described above has been implemented and verified against
+the reference app's markup (`reference/csjlol/`, since removed — see
+TODO.AI.md "PART 16" for the comparison record).
 
 **Adapt, do not copy verbatim** — the reference app used Vue 2 loaded from
 `unpkg.com` CDN and Tailwind-generated `styles.css`. This project is a
