@@ -41,6 +41,22 @@ type Server struct {
 	SEO            SEO            `yaml:"seo"`
 	Contact        Contact        `yaml:"contact"`
 	Privacy        Privacy        `yaml:"privacy"`
+	Scheduler      Scheduler      `yaml:"scheduler"`
+}
+
+// Scheduler holds `server.scheduler`, per AI.md PART 18 "Task
+// Configuration". The scheduler itself is always running — there is no
+// top-level enable/disable, only per-task overrides.
+type Scheduler struct {
+	Timezone      string                       `yaml:"timezone"`
+	CatchUpWindow string                       `yaml:"catch_up_window"`
+	Tasks         map[string]SchedulerTaskYAML `yaml:"tasks"`
+}
+
+// SchedulerTaskYAML is one entry under `server.scheduler.tasks`.
+type SchedulerTaskYAML struct {
+	Schedule string `yaml:"schedule"`
+	Enabled  bool   `yaml:"enabled"`
 }
 
 // CORS holds `server.cors`, per AI.md PART 16 "CORS" -> "Configuration".
@@ -421,6 +437,24 @@ func Default(dbPath string) *Config {
 				Secure:      "auto",
 			},
 			Contact: Contact{},
+			Scheduler: Scheduler{
+				Timezone:      "America/New_York",
+				CatchUpWindow: "1h",
+				Tasks: map[string]SchedulerTaskYAML{
+					"ssl_renewal":      {Schedule: "0 3 * * *", Enabled: true},
+					"geoip_update":     {Schedule: "0 3 * * 0", Enabled: true},
+					"blocklist_update": {Schedule: "0 4 * * *", Enabled: true},
+					"cve_update":       {Schedule: "0 5 * * *", Enabled: true},
+					"update_check":     {Schedule: "0 6 * * *", Enabled: true},
+					"token_cleanup":    {Schedule: "@every 15m", Enabled: true},
+					"log_rotation":     {Schedule: "0 0 * * *", Enabled: true},
+					"backup_daily":     {Schedule: "0 2 * * *", Enabled: true},
+					"backup_hourly":    {Schedule: "@hourly", Enabled: false},
+					"healthcheck_self": {Schedule: "@every 5m", Enabled: true},
+					"tor_health":       {Schedule: "@every 10m", Enabled: true},
+					"i2p_health":       {Schedule: "@every 10m", Enabled: false},
+				},
+			},
 			Privacy: Privacy{
 				Consent: PrivacyConsent{
 					Message: "We use essential cookies to make this site work. " +

@@ -265,8 +265,23 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
 
 - Email & notifications.
   Read: AI.md PART 17
-- Internal scheduler (link expiry sweep, cleanup jobs — never external
-  cron).
+- DONE: Internal scheduler (`src/scheduler/`, `src/db/scheduler.go`,
+  `src/scheduler_cli.go`, wired into `src/main.go` startup/shutdown).
+  All 12 AI.md PART 18 "Built-in Tasks (Required)" are registered with
+  their default schedules (config-overridable per task via
+  `server.scheduler.tasks`); 4 have real implementations
+  (`token_cleanup`, `log_rotation`, `healthcheck_self`, `ssl_renewal`);
+  the remaining 8 (`geoip_update`, `blocklist_update`, `cve_update`,
+  `update_check`, `backup_daily`, `backup_hourly`, `tor_health`,
+  `i2p_health`) are honest no-op "skipped" stand-ins until their
+  underlying subsystem lands (PART 19, PART 9/11, PART 9, PART 22,
+  PART 21 x2, PART 31.1, PART 31.2 respectively) — each is wired up to
+  real work as its subsystem's own TODO item below is implemented, not
+  here. `--scheduler list/show/run/enable/disable/history` CLI dispatch
+  implemented in `src/scheduler_cli.go`; startup catch-up window and
+  graceful shutdown (drain running tasks, no forced timeout kill yet —
+  AI.md's 30s force-release is not implemented, tracked separately)
+  implemented in `src/scheduler/scheduler.go`.
   Read: AI.md PART 18
 - GeoIP integration for click-analytics IP anonymization.
   Read: AI.md PART 19, IDEA.md Business logic

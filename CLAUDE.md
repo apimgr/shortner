@@ -77,18 +77,23 @@
 - Full spec (HOW, ~48k lines): `AI.md` ← **SOURCE OF TRUTH**
 
 ## Current Project State
-- Last read AI.md: 2026-08-19 (full compliance audit against the revised
-  spec — commits 6e8b85d7c615 and 575f0957e6bd)
-- Current task: added the public "List" feature — `GET /list` (HTML page)
-  and `GET /api/{api_version}/links` (JSON/text, paginated per PART 14's
-  `{data, pagination}` shape) list every created link, newest first; nav
-  now reads Home/List/About/Help/Contact. IDEA.md's "Business logic"
-  restructured into PART 0's six required subsections (was previously
-  missing this structure and had an extra top-level section).
-- Relevant PARTs: 0-6, 12-16 done; 7-11, 17-32 tracked in TODO.AI.md
-  (PART 15 has deferred sub-items — DNS-01 provider matrix, credential
-  encryption at rest, autocert-to-spec-layout bridging; PART 16 has
-  deferred sub-items — PWA, sitemap.xml, favicon.ico, announcements-banner
-  rendering, GeoIP on stats page, contact-form email delivery, Swagger/
-  GraphQL doc pages — all logged in TODO.AI.md rather than silently
-  dropped)
+- Last read AI.md: 2026-08-20 (PART 18 Scheduler, full section, to
+  implement and verify the built-in scheduler)
+- Current task: implemented the built-in scheduler (AI.md PART 18) —
+  `src/scheduler/` (gocron/v2-backed engine, DB-persisted task state,
+  startup catch-up, graceful shutdown), `src/db/scheduler.go`
+  (`scheduler_tasks`/`scheduler_history` queries), `src/scheduler_cli.go`
+  (`--scheduler list/show/run/enable/disable/history` dispatch), wired
+  into `src/main.go` start/stop lifecycle. All 12 required built-in tasks
+  registered; 4 have real implementations (token_cleanup, log_rotation,
+  healthcheck_self, ssl_renewal), 8 honestly skip pending their subsystem
+  (geoip_update, blocklist_update, cve_update, update_check, backup_daily,
+  backup_hourly, tor_health, i2p_health — each tracked under its own PART
+  in TODO.AI.md).
+- Relevant PARTs: 0-6, 12-16, 18 done; 7-11, 17, 19-32 tracked in
+  TODO.AI.md (PART 15 has deferred sub-items — DNS-01 provider matrix,
+  credential encryption at rest, autocert-to-spec-layout bridging; PART 16
+  has deferred sub-items — PWA, sitemap.xml, favicon.ico,
+  announcements-banner rendering, GeoIP on stats page, contact-form email
+  delivery, Swagger/GraphQL doc pages — all logged in TODO.AI.md rather
+  than silently dropped)

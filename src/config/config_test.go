@@ -70,6 +70,47 @@ func TestLoadParsesExistingFile(t *testing.T) {
 	}
 }
 
+// TestLoadPartialSchedulerOverridePreservesOtherDefaults confirms that an
+// operator server.yml overriding only one AI.md PART 18 built-in task keeps
+// the other 11 default tasks (schedule/enabled) intact — yaml.v3's map
+// decode merges into the pre-populated Default() map key-by-key rather
+// than replacing the whole map, so a partial `scheduler.tasks:` block
+// never silently drops the rest.
+func TestLoadPartialSchedulerOverridePreservesOtherDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	yamlContent := "server:\n  scheduler:\n    tasks:\n      backup_hourly:\n        schedule: \"@hourly\"\n        enabled: true\n"
+	if err := os.WriteFile(path, []byte(yamlContent), 0o600); err != nil {
+		t.Fatalf("setup: WriteFile: %v", err)
+	}
+
+	cfg, err := Load(path, "/unused")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if got := cfg.Server.Scheduler.Tasks["backup_hourly"]; !got.Enabled {
+		t.Errorf("backup_hourly.Enabled = %v, want true (operator override)", got.Enabled)
+	}
+	want := Default("/unused").Server.Scheduler.Tasks
+	for id, def := range want {
+		if id == "backup_hourly" {
+			continue
+		}
+		got, ok := cfg.Server.Scheduler.Tasks[id]
+		if !ok {
+			t.Errorf("task %q missing after partial override — default was silently dropped", id)
+			continue
+		}
+		if got.Schedule != def.Schedule || got.Enabled != def.Enabled {
+			t.Errorf("task %q = %+v, want default %+v", id, got, def)
+		}
+	}
+	if len(cfg.Server.Scheduler.Tasks) != len(want) {
+		t.Errorf("len(Tasks) = %d, want %d (all 12 built-in tasks present)", len(cfg.Server.Scheduler.Tasks), len(want))
+	}
+}
+
 func TestLoadInvalidYAMLReturnsError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "server.yml")

@@ -141,6 +141,33 @@ var createStatements = []string{
 		created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
 		rotated_at INTEGER
 	)`,
+
+	// Scheduler task state and history, per AI.md PART 18 "Scheduler
+	// State (Persistent)" and PART 10's literal schema.
+	`CREATE TABLE IF NOT EXISTS scheduler_tasks (
+		id          TEXT PRIMARY KEY,
+		name        TEXT NOT NULL,
+		enabled     INTEGER NOT NULL DEFAULT 1,
+		schedule    TEXT NOT NULL,
+		last_run    INTEGER,
+		next_run    INTEGER,
+		last_status TEXT,
+		last_error  TEXT,
+		run_count   INTEGER NOT NULL DEFAULT 0,
+		fail_count  INTEGER NOT NULL DEFAULT 0
+	)`,
+
+	`CREATE TABLE IF NOT EXISTS scheduler_history (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		task_id     TEXT NOT NULL,
+		started_at  INTEGER NOT NULL,
+		finished_at INTEGER,
+		status      TEXT NOT NULL,
+		error       TEXT,
+		duration_ms INTEGER
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_scheduler_history_task    ON scheduler_history(task_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_scheduler_history_started ON scheduler_history(started_at)`,
 }
 
 // schemaUpdates holds idempotent ALTER TABLE / index additions applied

@@ -23,7 +23,12 @@
 | Overlay health tasks | `tor_health` every 10m; `i2p_health` every 10m (only when I2P opt-in enabled) | PART 18, 31 |
 
 ## QUICK REFERENCE
-- None of PART 17-22 is implemented yet — tracked in `TODO.AI.md`
+- PART 18 (Scheduler) is implemented: `src/scheduler/`, `src/db/scheduler.go`,
+  `src/scheduler_cli.go`, wired into `src/main.go`. All 12 required built-in
+  tasks are registered; 4 do real work (token_cleanup, log_rotation,
+  healthcheck_self, ssl_renewal), 8 honestly skip pending their own
+  subsystem (PART 19, 21, 22, 31.1, 31.2) — see `TODO.AI.md`.
+- PART 17, 19-22 are NOT implemented yet — tracked in `TODO.AI.md`
 
 ---
 For complete details, see AI.md PART 17, 18, 19, 20, 21, 22

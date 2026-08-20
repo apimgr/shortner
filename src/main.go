@@ -3,7 +3,9 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
+	"database/sql"
 	"flag"
 	"fmt"
 	"os"
@@ -22,6 +24,7 @@ import (
 	"github.com/apimgr/shortner/src/httpserver"
 	"github.com/apimgr/shortner/src/mode"
 	"github.com/apimgr/shortner/src/paths"
+	"github.com/apimgr/shortner/src/scheduler"
 	"github.com/apimgr/shortner/src/signal"
 )
 
@@ -70,6 +73,7 @@ func run(args []string) int {
 	serviceFlag := fs.String("service", "", "Service management: start, restart, stop, reload, --install, --uninstall, --disable, --help")
 	maintenanceFlag := fs.String("maintenance", "", "Maintenance operations: backup, restore, update, mode, setup, pgp, secret, token, data, compliance, --help")
 	updateFlag := fs.String("update", "", "Check/perform updates: check, yes, branch, --help")
+	schedulerFlag := fs.String("scheduler", "", "Scheduler management: list, show <id>, run <id>, enable <id>, disable <id>, history <id>, --help")
 	fs.BoolVar(showHelp, "h", false, "Show help")
 	fs.BoolVar(showVersion, "v", false, "Show version")
 
@@ -240,6 +244,29 @@ func run(args []string) int {
 	}
 	defer accessLog.Close()
 
+	schedulerLog, err := applog.Open(filepath.Join(p.Logs, "scheduler.log"), applog.LevelInfo)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
+	defer schedulerLog.Close()
+
+	fqdnHost := fqdn.GetFQDN(internalName)
+	sched, err := newBuiltinScheduler(cfg, sqlDB, schedulerLog, accessLog, p.Config, fqdnHost)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
+
+	// --scheduler is a PHASE 2-4-style subcommand (AI.md PART 18 "CLI
+	// Commands") that reuses server.db directly and never starts the HTTP
+	// server, but (unlike --service/--maintenance/--update) it genuinely
+	// needs the config-derived task schedules and an open database, so it
+	// is dispatched here rather than earlier alongside those flags.
+	if flagWasSet(fs, "scheduler") {
+		return runSchedulerCLI(binaryName, sched, *schedulerFlag, firstArg(fs.Args()))
+	}
+
 	// TLS (AI.md PART 15 "Built-in Let's Encrypt Support"): only attempted
 	// for a real, publicly-resolvable FQDN — never for dev-only TLDs
 	// (.local, .test, the project's own name, etc.), which can never get a
@@ -268,10 +295,19 @@ func run(args []string) int {
 	// accepting connections and drain in-flight requests (steps 2-4), close
 	// database connections (step 5), flush logs (step 6), remove the PID
 	// file last (step 9).
+	// Scheduler (AI.md PART 18 "Always Running"): started alongside the
+	// HTTP server and stopped as part of the same shutdown sequence.
+	if err := sched.Start(context.Background()); err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
+
 	pidPath := p.PIDFile
 	signal.Register(func() { srv.Shutdown() })
+	signal.Register(func() { _ = sched.Stop() })
 	signal.Register(func() { sqlDB.Close() })
 	signal.Register(func() { accessLog.Close() })
+	signal.Register(func() { schedulerLog.Close() })
 	signal.Register(func() { pidfile.RemovePIDFile(pidPath) })
 
 	// Non-blocking: installs OS signal handlers and returns immediately;
@@ -316,6 +352,32 @@ func buildTLSConfig(cfg *config.Config, configDir string) (*tls.Config, error) {
 	}
 	tlsConfig, _ := certmgr.NewTLSConfig(configDir, host, "")
 	return tlsConfig, nil
+}
+
+// newBuiltinScheduler builds a scheduler.Scheduler with every AI.md
+// PART 18 "Built-in Tasks (Required)" registered, using cfg's per-task
+// schedule/enabled overrides. It does not start the scheduler.
+func newBuiltinScheduler(cfg *config.Config, sqlDB *sql.DB, schedulerLog, accessLog *applog.Logger, configDir, host string) (*scheduler.Scheduler, error) {
+	sched, err := scheduler.New(sqlDB, schedulerLog, cfg.Server.Scheduler.Timezone, cfg.Server.Scheduler.CatchUpWindow)
+	if err != nil {
+		return nil, err
+	}
+
+	deps := scheduler.Deps{
+		DB:         sqlDB,
+		Logs:       []*applog.Logger{schedulerLog, accessLog},
+		TLSEnabled: cfg.Server.TLS.Enabled,
+		ConfigDir:  configDir,
+		FQDN:       host,
+		DevTLD:     fqdn.IsDevTLD(host, internalName),
+	}
+	ctx := context.Background()
+	for _, t := range scheduler.BuiltinTasks(cfg.Server.Scheduler, deps) {
+		if err := sched.Register(ctx, t); err != nil {
+			return nil, err
+		}
+	}
+	return sched, nil
 }
 
 // flagWasSet reports whether name was explicitly passed on the command

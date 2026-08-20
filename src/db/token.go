@@ -136,6 +136,27 @@ func RevokeToken(ctx context.Context, sqlDB *sql.DB, prefix, reason string) erro
 	return checkRowsAffected(res, err)
 }
 
+// CleanupExpiredTokens permanently deletes tokens whose expires_at has
+// passed, per AI.md PART 18 "Built-in Tasks" -> `token_cleanup`: "Remove
+// expired API tokens and sessions". It returns the number of rows removed.
+// Revoked-but-not-yet-expired tokens are left in place (RevokeToken already
+// makes them inactive; deletion is reserved for tokens whose own expiry has
+// passed).
+func CleanupExpiredTokens(ctx context.Context, sqlDB *sql.DB) (int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	res, err := sqlDB.ExecContext(ctx,
+		`DELETE FROM api_tokens WHERE expires_at IS NOT NULL AND expires_at < strftime('%s', 'now')`)
+	if err != nil {
+		return 0, HandleQueryError(err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, HandleQueryError(err)
+	}
+	return n, nil
+}
+
 // ListActiveTokens returns all non-revoked tokens, per AI.md PART 11
 // "Operator revocation": "{project_name} --maintenance token list".
 func ListActiveTokens(ctx context.Context, sqlDB *sql.DB) ([]APIToken, error) {
