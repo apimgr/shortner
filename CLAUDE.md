@@ -77,10 +77,27 @@
 - Full spec (HOW, ~48k lines): `AI.md` ← **SOURCE OF TRUTH**
 
 ## Current Project State
-- Last read AI.md: 2026-08-20 (PART 22 Update Command, full section, to
-  implement the `--update` flag, channels, defer window, and the
-  `update_check` task)
-- Current task: implemented Update Command (AI.md PART 22) — `src/updater/`
+- Last read AI.md: 2026-08-20 (PART 11 Security & Logging — security
+  headers, well-known files, security reports, compliance routes, abuse
+  detection, IP block management)
+- Current task: implemented PART 11's HTTP layer — `src/httpserver/`
+  (`headers.go` header matrix/CSP/Permissions-Policy/COOP-COEP-CORP/HSTS/
+  Clear-Site-Data/Server-Timing, `privacy_signals.go` DNT+GPC,
+  `secfetch.go`, `reports.go` Reporting API always-204,
+  `wellknown.go` robots.txt/security.txt/llms.txt/pgp-key.asc under the
+  allowlist-only well-known contract, `securitypages.go`
+  `/server/security[/policy|/thanks]` + `/server/dpo`,
+  `securityreport.go` the `/server/contact?security_id=` mode switch,
+  `ipblock.go` allowlist/temporary+permanent blocks/abuse detection wired
+  into the PART 5 middleware order), plus `src/security/seal.go`
+  (AES-256-GCM at-rest sealing), `src/security/securityid.go`,
+  `src/security/bot.go`, `src/db/securityreport.go` (`security_reports`
+  table, sealed bodies only), `server.security.*` +
+  `server.contact.security`/`.dpo` config, and the `ip_block_release`
+  per-minute scheduler task registered in `src/main.go`. Deferred: GPG
+  keypair CLI, the two security-report notification emails (PART 17), and
+  `/server/security/report/{tracking_id}` — all logged in TODO.AI.md.
+- Previous task: implemented Update Command (AI.md PART 22) — `src/updater/`
   (`updater.go` GitHub Releases lookup + cumulative channel selection +
   `defer_days` eligibility + SHA-256 verification; `state.go` cached
   `update.json`; build-tagged `update_unix.go`/`update_windows.go` binary
@@ -90,7 +107,7 @@
   default), `server.update.*` config + `validateUpdate` warnings.
   Verified in Docker: `go build`/`go vet`/`go test ./... -cover` pass;
   all 8 target platforms cross-compile.
-- Previous task: implemented Backup & Restore (AI.md PART 21) — `src/backup/`
+- Earlier task: implemented Backup & Restore (AI.md PART 21) — `src/backup/`
   (`crypt.go` AES-256-GCM sealed under an Argon2id-derived key reusing
   `src/security`'s existing parameters; `archive.go` tar+gzip with
   manifest.json + path-traversal guard; `backup.go` create/verify/
@@ -107,14 +124,15 @@
   validation). Verified in Docker: `go build`/`go vet`/`go test ./...
   -cover` all pass; `src/backup` 77.6%, `src/config` 86.0%,
   `src/scheduler` 81.8%, `src` 61.5% coverage (gate is 60%); go-lint clean.
-- Relevant PARTs: 0-6, 12-16, 18-22 done; 7-11, 17, 23-32 tracked in
-  TODO.AI.md (PART 15 has deferred sub-items — DNS-01 provider matrix,
+- Relevant PARTs: 0-6, 9-16, 18-22 done; 7-8, 17, 23-32 tracked in
+  TODO.AI.md (PART 11 has three deferred sub-items — GPG keypair
+  management CLI, the maintainer/researcher notification emails waiting on
+  PART 17, and the `/server/security/report/{tracking_id}` status page;
+  PART 15 has deferred sub-items — DNS-01 provider matrix,
   credential encryption at rest, autocert-to-spec-layout bridging; PART 16
   has deferred sub-items — PWA, sitemap.xml, favicon.ico,
   announcements-banner rendering, contact-form email delivery,
-  Swagger/GraphQL doc pages; PART 19 has one deferred sub-item — allowlist
-  bypass of country blocking, waiting on PART 11's allowlist backing
-  store; PART 20 has three deferred sub-items — business metrics
+  Swagger/GraphQL doc pages; PART 20 has three deferred sub-items — business metrics
   (`LinksTotal`/`LinksCreated24h`/`LinksClicked24h`/`APITokensActive`)
   unpopulated, cache metrics inert since `src/cache` is unwired, Tor/I2P
   metrics deferred to PART 31; PART 21 has five deferred sub-items —

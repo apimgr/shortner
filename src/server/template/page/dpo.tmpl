@@ -1,0 +1,17 @@
+{{define "content"}}<article class="dpo-page">
+<h1>Data Protection Officer</h1>
+
+<p>You can contact our Data Protection Officer about how {{.Base.SiteName}}
+collects, uses, and stores personal data, or to exercise your rights under
+applicable data-protection law.</p>
+
+<dl class="dpo-details">
+{{if .Name}}<dt>Name</dt><dd>{{.Name}}</dd>{{end}}
+{{if .Email}}<dt>Email</dt><dd><a href="mailto:{{.Email}}">{{.Email}}</a></dd>{{end}}
+{{if .Address}}<dt>Postal address</dt><dd>{{.Address}}</dd>{{end}}
+</dl>
+
+<p>See our <a href="/server/privacy">Privacy Policy</a> for what we collect
+and why.</p>
+</article>
+{{end}}

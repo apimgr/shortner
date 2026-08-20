@@ -58,6 +58,10 @@ func (fd *frontendDeps) registerFrontendRoutes(r chi.Router, hd *healthDeps, ld 
 	r.Post("/server/contact", fd.contactHandler)
 	r.Post("/server/consent", fd.consentHandler)
 	r.Get("/server/ccpa", fd.ccpaHandler)
+	r.Get("/server/security", fd.securityHandler)
+	r.Get("/server/security/policy", fd.securityPolicyHandler)
+	r.Get("/server/security/thanks", fd.securityThanksHandler)
+	r.Get("/server/dpo", fd.dpoHandler)
 	r.Post("/server/theme", fd.themeHandler)
 
 	r.Get("/server/healthz", fd.healthzHTMLHandler(hd))
@@ -263,6 +267,11 @@ func (fd *frontendDeps) privacyHandler(w http.ResponseWriter, r *http.Request) {
 	_ = renderPage(w, http.StatusOK, "privacy", data)
 }
 
+// contactCaptchaAnswer is the expected answer to the contact form's
+// no-JavaScript math question ("What is 3 + 4?"), shared by the standard
+// and security-report submission paths.
+const contactCaptchaAnswer = "7"
+
 // contactPageData is the data bound to page/contact.tmpl.
 type contactPageData struct {
 	Base           PageData
@@ -277,7 +286,42 @@ type contactPageData struct {
 	AbuseEmail     string
 }
 
+// securityContactPageData is the data bound to page/contact_security.tmpl
+// — the security-report mode of /server/contact, per AI.md PART 11
+// "`/server/contact?security_id={id}` — Mode Switch".
+type securityContactPageData struct {
+	Base         PageData
+	SecurityMode bool
+	SecurityID   string
+	Severities   []string
+	Components   []string
+	CreditPrefs  []string
+	Form         securityReportForm
+	Error        string
+	Submitted    bool
+	TrackingID   string
+}
+
 func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
+	// AI.md PART 11: a valid {security_id} switches the form into security
+	// mode; an absent or invalid one falls through to standard contact.
+	if fd.cfg.Pages.Contact.Enabled && fd.securityMode(r) {
+		if r.Method == http.MethodPost {
+			fd.securityReportPost(w, r)
+			return
+		}
+		data := securityContactPageData{
+			Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Report a vulnerability", fd.cfg.Server.SEO.Description),
+			SecurityMode: true,
+			SecurityID:   r.FormValue("security_id"),
+			Severities:   securitySeverities,
+			Components:   securityComponents,
+			CreditPrefs:  securityCreditPrefs,
+			Form:         securityReportForm{DisclosureDays: defaultDisclosureDays},
+		}
+		_ = renderPage(w, http.StatusOK, "contact_security", data)
+		return
+	}
 	if r.Method == http.MethodPost {
 		fd.contactPost(w, r)
 		return
@@ -327,7 +371,7 @@ func (fd *frontendDeps) contactPost(w http.ResponseWriter, r *http.Request) {
 		data.Error = "All fields are required."
 		_ = renderPage(w, http.StatusBadRequest, "contact", data)
 		return
-	case captcha != "7":
+	case captcha != contactCaptchaAnswer:
 		data.Error = "That doesn't look right — try the math question again."
 		_ = renderPage(w, http.StatusBadRequest, "contact", data)
 		return

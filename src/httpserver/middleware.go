@@ -49,6 +49,16 @@ type deps struct {
 	// metrics is nil when server.metrics.enabled is false — every metrics
 	// call site below checks for nil first.
 	metrics *metrics.Metrics
+
+	// The PART 11 security stages. cfgHeaders drives Sec-Fetch validation,
+	// headers renders the full response-header matrix, privacy handles the
+	// DNT/GPC signals, and allowlist/blocks/abuse back stages 5 and 6.
+	cfgHeaders config.Headers
+	headers    *headerDeps
+	privacy    *privacyDeps
+	allowlist  *AllowlistLookup
+	blocks     *BlockStore
+	abuse      *AbuseDetector
 }
 
 // setupMiddleware wraps handler with the full PART 12 chain, per AI.md
@@ -62,14 +72,22 @@ func (d *deps) setupMiddleware(handler http.Handler) http.Handler {
 	// throttled before any request body is parsed; running it ahead of the
 	// chain would make body parsing reachable without a rate-limit check.
 	handler = d.csrfMiddleware(handler)
-	handler = d.geoIPMiddleware(handler)         // 8
-	handler = d.rateLimitMiddleware(handler)     // 7
-	handler = d.blocklistMiddleware(handler)     // 6
-	handler = d.allowlistMiddleware(handler)     // 5
-	handler = securityHeadersMiddleware(handler) // 4
-	handler = pathSecurityMiddleware(handler)    // 3
-	handler = requestIDMiddleware(handler)       // 2
-	handler = urlNormalizeMiddleware(handler)    // 1
+	// Sec-Fetch validation runs just ahead of CSRF: both answer "did this
+	// request really come from where it claims?", and the cheaper
+	// header-only check should reject before any token comparison.
+	handler = d.secFetchMiddleware(handler)
+	handler = d.geoIPMiddleware(handler)     // 8
+	handler = d.rateLimitMiddleware(handler) // 7
+	handler = d.blocklistMiddleware(handler) // 6
+	handler = d.allowlistMiddleware(handler) // 5
+	// The privacy signal stage sits immediately inside SecurityHeaders so
+	// the GPC opt-out flag is on the context before any handler decides
+	// whether to set a non-essential cookie.
+	handler = d.privacy.privacySignalMiddleware(handler)
+	handler = d.headers.securityHeadersMiddleware(handler) // 4
+	handler = pathSecurityMiddleware(handler)              // 3
+	handler = requestIDMiddleware(handler)                 // 2
+	handler = urlNormalizeMiddleware(handler)              // 1
 	// CORS stays outermost so its headers are present on every response,
 	// including ones short-circuited by an earlier stage (429, 403).
 	handler = d.corsMiddleware(handler)
@@ -348,43 +366,6 @@ func pathSecurityMiddleware(next http.Handler) http.Handler {
 		}
 		r.URL.Path = cleaned
 
-		next.ServeHTTP(w, r)
-	})
-}
-
-// securityHeadersMiddleware sets a baseline set of security response
-// headers (execution position 4). This is a partial implementation of
-// AI.md PART 11's Security Headers section — CSP reporting, Permissions-
-// Policy, Cross-Origin Isolation, and the full header matrix are deferred
-// (see TODO.AI.md).
-func securityHeadersMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h := w.Header()
-		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("X-Frame-Options", "SAMEORIGIN")
-		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		h.Set("Content-Security-Policy", "default-src 'self'")
-		next.ServeHTTP(w, r)
-	})
-}
-
-// allowlistMiddleware sets a context flag when the resolved client IP is
-// allowlisted (execution position 5). Real, wired, but always false — the
-// backing `server.security.allowlist` config doesn't exist yet (see
-// TODO.AI.md, AI.md PART 11 "Allowlist").
-func (d *deps) allowlistMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := context.WithValue(r.Context(), ctxKeyAllowlisted, false)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-// blocklistMiddleware checks the resolved client IP/domain against the
-// configured blocklist (execution position 6). Real, wired pass-through —
-// the backing blocklist store doesn't exist yet (see TODO.AI.md, AI.md
-// PART 11 "Blocklists").
-func (d *deps) blocklistMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r)
 	})
 }

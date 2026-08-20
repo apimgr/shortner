@@ -23,10 +23,15 @@ type Config struct {
 type Server struct {
 	// Token is the global operator token (tok_ prefix). Auto-generated on
 	// first run if empty. See AI.md PART 11 "API Token Model".
-	Token          string         `yaml:"token"`
-	Listen         string         `yaml:"listen"`
-	Port           string         `yaml:"port"`
-	BaseURL        string         `yaml:"baseurl"`
+	Token   string `yaml:"token"`
+	Listen  string `yaml:"listen"`
+	Port    string `yaml:"port"`
+	BaseURL string `yaml:"baseurl"`
+	// APIVersion is the version segment of /api/{api_version}/ routes. The
+	// router itself accepts any segment (AI.md PART 14 route naming); this
+	// value is what the server writes into generated URLs — the Reporting
+	// API headers, the CSP report-uri, security.txt, and llms.txt.
+	APIVersion     string         `yaml:"api_version"`
 	Database       Database       `yaml:"database"`
 	Limits         Limits         `yaml:"limits"`
 	Compression    Compression    `yaml:"compression"`
@@ -47,6 +52,7 @@ type Server struct {
 	Backup         Backup         `yaml:"backup"`
 	Compliance     Compliance     `yaml:"compliance"`
 	Update         Update         `yaml:"update"`
+	Security       Security       `yaml:"security"`
 }
 
 // Update holds `server.update`, per AI.md PART 22 "Update Configuration".
@@ -113,9 +119,78 @@ type BackupRetention struct {
 }
 
 // Compliance holds `server.compliance`, per AI.md PART 21 "Compliance Mode
-// Enforcement". When Enabled, backups refuse to run unencrypted.
+// Enforcement" and PART 11 "Compliance Standards". When Enabled, backups
+// refuse to run unencrypted. Every individual standard is disabled by
+// default and enabled one key at a time.
 type Compliance struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled  bool `yaml:"enabled"`
+	GDPR     bool `yaml:"gdpr"`
+	CCPA     bool `yaml:"ccpa"`
+	HIPAA    bool `yaml:"hipaa"`
+	SOC2     bool `yaml:"soc2"`
+	PCIDSS   bool `yaml:"pci_dss"`
+	ISO27001 bool `yaml:"iso27001"`
+	FedRAMP  bool `yaml:"fedramp"`
+	LGPD     bool `yaml:"lgpd"`
+	PIPEDA   bool `yaml:"pipeda"`
+	APPI     bool `yaml:"appi"`
+	PDPA     bool `yaml:"pdpa"`
+}
+
+// EnabledStandards returns the enabled standard names in the AI.md PART 11
+// "Available Standards" table order, for the compliance report and the
+// compliance audit events.
+func (c Compliance) EnabledStandards() []string {
+	pairs := []struct {
+		name string
+		on   bool
+	}{
+		{"gdpr", c.GDPR}, {"ccpa", c.CCPA}, {"hipaa", c.HIPAA},
+		{"soc2", c.SOC2}, {"pci_dss", c.PCIDSS}, {"iso27001", c.ISO27001},
+		{"fedramp", c.FedRAMP}, {"lgpd", c.LGPD}, {"pipeda", c.PIPEDA},
+		{"appi", c.APPI}, {"pdpa", c.PDPA},
+	}
+	out := make([]string, 0, len(pairs))
+	for _, p := range pairs {
+		if p.on {
+			out = append(out, p.name)
+		}
+	}
+	return out
+}
+
+// AuditRetentionYears returns the longest audit-log retention any enabled
+// standard requires, per AI.md PART 11 "Compliance Requirements Matrix"
+// and "Overlap Resolution" ("Retention period: use longest"). 0 means no
+// standard imposes one.
+func (c Compliance) AuditRetentionYears() int {
+	years := 0
+	bump := func(on bool, n int) {
+		if on && n > years {
+			years = n
+		}
+	}
+	bump(c.GDPR, 1)
+	bump(c.CCPA, 1)
+	bump(c.HIPAA, 6)
+	bump(c.SOC2, 1)
+	bump(c.PCIDSS, 1)
+	bump(c.ISO27001, 3)
+	return years
+}
+
+// RequiresConsentBanner reports whether any enabled standard requires the
+// cookie-consent banner before tracking, per AI.md PART 11
+// "Compliance-Specific Behaviors" (GDPR/CCPA/LGPD/PIPEDA/APPI/PDPA).
+func (c Compliance) RequiresConsentBanner() bool {
+	return c.GDPR || c.CCPA || c.LGPD || c.PIPEDA || c.APPI || c.PDPA
+}
+
+// RequiresDPOContact reports whether the GDPR Data Protection Officer
+// contact page (/server/dpo) must be served, per AI.md PART 11
+// "Compliance Routes" and "GDPR (gdpr: true)" -> "DPO contact".
+func (c Compliance) RequiresDPOContact() bool {
+	return c.GDPR || c.LGPD
 }
 
 // Metrics holds `server.metrics`, per AI.md PART 20 "Metrics". Metrics are
@@ -247,11 +322,26 @@ type Contact struct {
 	General ContactRecipient `yaml:"general"`
 	Admin   ContactRecipient `yaml:"admin"`
 	Abuse   ContactRecipient `yaml:"abuse"`
+	// Security is the RFC 2142 security@ role mailbox — the CC channel for
+	// vulnerability reports, surfaced in security.txt's mailto Contact
+	// line and in the PGP keypair's UID.
+	Security ContactRecipient `yaml:"security"`
+	// DPO backs the GDPR Data Protection Officer page (AI.md PART 11
+	// "Compliance Routes"). The page 404s unless a standard requiring a
+	// DPO is enabled, so these stay empty for most deployments.
+	DPO ContactDPO `yaml:"dpo"`
 }
 
 // ContactRecipient is one named contact-form recipient.
 type ContactRecipient struct {
 	Email string `yaml:"email"`
+}
+
+// ContactDPO is the Data Protection Officer's published contact details.
+type ContactDPO struct {
+	Name    string `yaml:"name"`
+	Email   string `yaml:"email"`
+	Address string `yaml:"address"`
 }
 
 // Privacy holds `server.privacy`, per AI.md PART 16 "/server/privacy" ->
@@ -370,6 +460,18 @@ type Web struct {
 	Footer        WebFooter        `yaml:"footer"`
 	Announcements WebAnnouncements `yaml:"announcements"`
 	Theme         string           `yaml:"theme"`
+
+	// The PART 11 header/well-known blocks. See src/config/security.go for
+	// each type's spec reference.
+	HSTS              HSTS              `yaml:"hsts"`
+	PermissionsPolicy map[string]string `yaml:"permissions_policy"`
+	Headers           Headers           `yaml:"headers"`
+	CSP               CSP               `yaml:"csp"`
+	Reports           Reports           `yaml:"reports"`
+	Robots            Robots            `yaml:"robots"`
+	Security          WebSecurity       `yaml:"security"`
+	LLMs              LLMs              `yaml:"llms"`
+	WellKnown         WellKnown         `yaml:"well_known"`
 }
 
 // WebFooter holds `web.footer`.
@@ -524,9 +626,10 @@ type HealthzRoot struct {
 func Default(dbPath string) *Config {
 	return &Config{
 		Server: Server{
-			Listen:  "0.0.0.0",
-			Port:    "8090",
-			BaseURL: "/",
+			Listen:     "0.0.0.0",
+			Port:       "8090",
+			BaseURL:    "/",
+			APIVersion: "v1",
 			Database: Database{
 				Driver: "sqlite",
 				URL:    dbPath,
@@ -649,6 +752,7 @@ func Default(dbPath string) *Config {
 				AutoInstall: false,
 				DeferDays:   0,
 			},
+			Security: DefaultSecurity(),
 			Privacy: Privacy{
 				Consent: PrivacyConsent{
 					Message: "We use essential cookies to make this site work. " +
@@ -684,7 +788,16 @@ func Default(dbPath string) *Config {
 		Web: Web{
 			// Dark is the required default per AI.md PART 16's "Three
 			// Required Themes" table (Dark: Default = YES, Auto: No).
-			Theme: "dark",
+			Theme:             "dark",
+			HSTS:              DefaultHSTS(),
+			PermissionsPolicy: DefaultPermissionsPolicy(),
+			Headers:           DefaultHeaders(),
+			CSP:               DefaultCSP(),
+			Reports:           DefaultReports(),
+			Robots:            DefaultRobots(),
+			Security:          DefaultWebSecurity(),
+			LLMs:              DefaultLLMs(),
+			WellKnown:         DefaultWellKnown(),
 		},
 		Pages: Pages{
 			Contact: ContactPage{
@@ -712,7 +825,31 @@ func Load(path, dbPath string) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("config: parse %s: %w", path, err)
 	}
+	cfg.Web.CSP.ModeExplicit = cspModeIsExplicit(data)
 	return cfg, nil
+}
+
+// cspModeExplicitProbe re-decodes just `web.csp.mode` as a pointer so a
+// key the operator actually wrote can be told apart from the default
+// Default() supplies.
+type cspModeExplicitProbe struct {
+	Web struct {
+		CSP struct {
+			Mode *string `yaml:"mode"`
+		} `yaml:"csp"`
+	} `yaml:"web"`
+}
+
+// cspModeIsExplicit reports whether the config file itself sets
+// `web.csp.mode`. AI.md PART 11 "Report-Only Mode" auto-applies
+// report-only in development "unless `mode: enforce` set explicitly", so
+// the enforcing default alone must not defeat the downgrade.
+func cspModeIsExplicit(data []byte) bool {
+	var probe cspModeExplicitProbe
+	if err := yaml.Unmarshal(data, &probe); err != nil {
+		return false
+	}
+	return probe.Web.CSP.Mode != nil
 }
 
 // Save writes cfg to path as server.yml, creating parent directories as

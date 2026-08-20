@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/common/sanitize"
 	"github.com/apimgr/shortner/src/config"
 )
@@ -73,8 +74,17 @@ type PageData struct {
 type frontendDeps struct {
 	cfg       *config.Config
 	version   string
+	commitID  string
 	buildDate string
 	ld        *linkDeps
+	// The PART 11 security-page inputs: resolver builds the per-request
+	// URLs the pages display, installSecret derives the rotating
+	// {security_id} the contact form validates, and audit records
+	// security.security_id_invalid.
+	resolver      *ProxyResolver
+	installSecret string
+	audit         *applog.AuditLogger
+	configDir     string
 }
 
 // newPageData builds the common PageData for one request, using r's

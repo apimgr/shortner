@@ -5,6 +5,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -139,8 +140,193 @@ func Validate(cfg *Config) []string {
 
 	warnings = append(warnings, validateBackup(cfg, defaults)...)
 	warnings = append(warnings, validateUpdate(cfg, defaults)...)
+	if v := strings.TrimSpace(cfg.Server.APIVersion); v == "" {
+		cfg.Server.APIVersion = defaults.Server.APIVersion
+	} else if strings.ContainsAny(v, "/ ?#") {
+		warnings = append(warnings, fmt.Sprintf("invalid server.api_version %q, using default %q", v, defaults.Server.APIVersion))
+		cfg.Server.APIVersion = defaults.Server.APIVersion
+	} else {
+		cfg.Server.APIVersion = v
+	}
+	warnings = append(warnings, validateSecurity(cfg, defaults)...)
+	warnings = append(warnings, validateWebHeaders(cfg, defaults)...)
 
 	return warnings
+}
+
+// validateSecurity applies the Config Validation Rule to
+// `server.security`: every allowlist/blocklist entry must be a valid IP or
+// CIDR, overly broad prefixes are rejected outright (an operator cannot
+// accidentally allowlist half the internet), and the flood multiplier and
+// block duration must parse. Per AI.md PART 11 "IP Block Management" ->
+// "Validation".
+func validateSecurity(cfg *Config, defaults *Config) []string {
+	var warnings []string
+	sec := &cfg.Server.Security
+
+	keptAllow := sec.Allowlist[:0]
+	for _, e := range sec.Allowlist {
+		norm, err := NormalizeCIDR(e.CIDR)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("invalid server.security.allowlist entry %q: %v, entry ignored", e.CIDR, err))
+			continue
+		}
+		e.CIDR = norm
+		keptAllow = append(keptAllow, e)
+	}
+	sec.Allowlist = keptAllow
+
+	keptBlock := sec.BlockedIPs[:0]
+	for _, e := range sec.BlockedIPs {
+		norm, err := NormalizeCIDR(e.CIDR)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("invalid server.security.blocked_ips entry %q: %v, entry ignored", e.CIDR, err))
+			continue
+		}
+		e.CIDR = norm
+		keptBlock = append(keptBlock, e)
+	}
+	sec.BlockedIPs = keptBlock
+
+	ad := &sec.AbuseDetection
+	dad := defaults.Server.Security.AbuseDetection
+	if ad.RequestFlood.Multiplier < 2 {
+		warnings = append(warnings, fmt.Sprintf("invalid server.security.abuse_detection.request_flood.multiplier %d (must be >= 2), using default %d",
+			ad.RequestFlood.Multiplier, dad.RequestFlood.Multiplier))
+		ad.RequestFlood.Multiplier = dad.RequestFlood.Multiplier
+	}
+	if _, err := ParseDuration(ad.RequestFlood.BlockDuration, 0); err != nil {
+		warnings = append(warnings, fmt.Sprintf("invalid server.security.abuse_detection.request_flood.block_duration %q, using default %q",
+			ad.RequestFlood.BlockDuration, dad.RequestFlood.BlockDuration))
+		ad.RequestFlood.BlockDuration = dad.RequestFlood.BlockDuration
+	}
+
+	return warnings
+}
+
+// validateWebHeaders applies the Config Validation Rule to `web.hsts`,
+// `web.headers`, `web.csp`, and `web.reports`. Per AI.md PART 11 "Security
+// Header Config", an HSTS max-age below one year makes the site
+// preload-ineligible and a max-age of 0 disables HSTS entirely — both are
+// legal, both warn.
+func validateWebHeaders(cfg *Config, defaults *Config) []string {
+	var warnings []string
+
+	h := &cfg.Web.HSTS
+	dh := defaults.Web.HSTS
+	switch {
+	case h.MaxAgeSeconds < 0:
+		warnings = append(warnings, fmt.Sprintf("invalid web.hsts.max_age_seconds %d, using default %d", h.MaxAgeSeconds, dh.MaxAgeSeconds))
+		h.MaxAgeSeconds = dh.MaxAgeSeconds
+	case h.Enabled && h.MaxAgeSeconds == 0:
+		warnings = append(warnings, "web.hsts.max_age_seconds is 0 — HSTS is disabled entirely")
+	case h.Enabled && h.MaxAgeSeconds < 31536000:
+		warnings = append(warnings, fmt.Sprintf("web.hsts.max_age_seconds %d is below one year — this site is not eligible for the HSTS preload list", h.MaxAgeSeconds))
+	}
+
+	hd := &cfg.Web.Headers
+	dhd := defaults.Web.Headers
+	hd.COOP = validateEnum("web.headers.coop", hd.COOP, dhd.COOP,
+		[]string{"unsafe-none", "same-origin", "same-origin-allow-popups"}, &warnings)
+	hd.COEP = validateEnum("web.headers.coep", hd.COEP, dhd.COEP,
+		[]string{"unsafe-none", "require-corp", "credentialless"}, &warnings)
+	hd.CORP = validateEnum("web.headers.corp", hd.CORP, dhd.CORP,
+		[]string{"same-site", "same-origin", "cross-origin"}, &warnings)
+	hd.CrossDomainPolicies = validateEnum("web.headers.cross_domain_policies", hd.CrossDomainPolicies, dhd.CrossDomainPolicies,
+		[]string{"none", "master-only", "by-content-type", "all"}, &warnings)
+	if hd.DNSPrefetchControl != "" && hd.DNSPrefetchControl != "on" && hd.DNSPrefetchControl != "off" {
+		warnings = append(warnings, fmt.Sprintf("invalid web.headers.dns_prefetch_control %q (valid: \"\", \"on\", \"off\"), omitting header", hd.DNSPrefetchControl))
+		hd.DNSPrefetchControl = ""
+	}
+	if hd.NEL.SampleRate < 0 || hd.NEL.SampleRate > 1 {
+		warnings = append(warnings, fmt.Sprintf("invalid web.headers.nel.sample_rate %v (valid range 0.0-1.0), using default %v", hd.NEL.SampleRate, dhd.NEL.SampleRate))
+		hd.NEL.SampleRate = dhd.NEL.SampleRate
+	}
+	if hd.NEL.MaxAgeSeconds < 0 {
+		warnings = append(warnings, fmt.Sprintf("invalid web.headers.nel.max_age_seconds %d, using default %d", hd.NEL.MaxAgeSeconds, dhd.NEL.MaxAgeSeconds))
+		hd.NEL.MaxAgeSeconds = dhd.NEL.MaxAgeSeconds
+	}
+
+	csp := &cfg.Web.CSP
+	dcsp := defaults.Web.CSP
+	csp.Mode = validateEnum("web.csp.mode", csp.Mode, dcsp.Mode, []string{"enforce", "report-only"}, &warnings)
+	if csp.ReportsSampleRate < 0 || csp.ReportsSampleRate > 1 {
+		warnings = append(warnings, fmt.Sprintf("invalid web.csp.reports_sample_rate %v (valid range 0.0-1.0), using default %v", csp.ReportsSampleRate, dcsp.ReportsSampleRate))
+		csp.ReportsSampleRate = dcsp.ReportsSampleRate
+	}
+
+	rep := &cfg.Web.Reports
+	drep := defaults.Web.Reports
+	if rep.RateLimitPerMinute <= 0 {
+		warnings = append(warnings, fmt.Sprintf("invalid web.reports.rate_limit_per_minute %d, using default %d", rep.RateLimitPerMinute, drep.RateLimitPerMinute))
+		rep.RateLimitPerMinute = drep.RateLimitPerMinute
+	}
+	if rep.RateLimitPerIPBurst <= 0 {
+		warnings = append(warnings, fmt.Sprintf("invalid web.reports.rate_limit_per_ip_burst %d, using default %d", rep.RateLimitPerIPBurst, drep.RateLimitPerIPBurst))
+		rep.RateLimitPerIPBurst = drep.RateLimitPerIPBurst
+	}
+
+	if len(cfg.Web.PermissionsPolicy) == 0 {
+		cfg.Web.PermissionsPolicy = DefaultPermissionsPolicy()
+	}
+
+	if cfg.Web.WellKnown.UnsupportedBehavior != 404 {
+		warnings = append(warnings, "web.well_known.unsupported_behavior is fixed at 404 by the Well-Known Namespace Contract; the configured value is ignored")
+		cfg.Web.WellKnown.UnsupportedBehavior = 404
+	}
+
+	return warnings
+}
+
+// validateEnum returns value when it is one of allowed (or def when it is
+// empty), appending a warning and returning def otherwise.
+func validateEnum(name, value, def string, allowed []string, warnings *[]string) string {
+	if value == "" {
+		return def
+	}
+	for _, a := range allowed {
+		if value == a {
+			return value
+		}
+	}
+	*warnings = append(*warnings, fmt.Sprintf("invalid %s %q (valid: %s), using default %q", name, value, strings.Join(allowed, ", "), def))
+	return def
+}
+
+// NormalizeCIDR validates an allowlist/blocklist entry and expands a bare
+// IP to its single-host prefix (/32 for IPv4, /128 for IPv6), per AI.md
+// PART 11 "IP Block Management" -> "Validation". Overly broad prefixes
+// (/0-/7 for IPv4, /0-/15 for IPv6) are rejected: the spec asks for a
+// confirmation step, and a config file has no way to prompt, so refusing
+// the entry is the only fail-safe reading.
+func NormalizeCIDR(entry string) (string, error) {
+	s := strings.TrimSpace(entry)
+	if s == "" {
+		return "", fmt.Errorf("empty entry")
+	}
+	if !strings.Contains(s, "/") {
+		ip := net.ParseIP(s)
+		if ip == nil {
+			return "", fmt.Errorf("not a valid IP address")
+		}
+		if ip.To4() != nil {
+			return ip.String() + "/32", nil
+		}
+		return ip.String() + "/128", nil
+	}
+
+	_, network, err := net.ParseCIDR(s)
+	if err != nil {
+		return "", fmt.Errorf("not a valid CIDR: %w", err)
+	}
+	ones, bits := network.Mask.Size()
+	if bits == 32 && ones < 8 {
+		return "", fmt.Errorf("prefix /%d is too broad (minimum /8 for IPv4)", ones)
+	}
+	if bits == 128 && ones < 16 {
+		return "", fmt.Errorf("prefix /%d is too broad (minimum /16 for IPv6)", ones)
+	}
+	return network.String(), nil
 }
 
 // validateUpdate applies AI.md PART 22 "Update Configuration" to

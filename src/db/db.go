@@ -186,6 +186,20 @@ var createStatements = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_scheduler_history_task    ON scheduler_history(task_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_scheduler_history_started ON scheduler_history(started_at)`,
+
+	// Coordinated-disclosure security reports, per AI.md PART 11 "Security
+	// Reports" -> "Submission Flow". Only triage metadata is stored in the
+	// clear; the researcher's identity and the vulnerability body live in
+	// `sealed`, encrypted at rest and never persisted as plaintext.
+	`CREATE TABLE IF NOT EXISTS security_reports (
+		tracking_id TEXT PRIMARY KEY,
+		received_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+		severity    TEXT NOT NULL,
+		component   TEXT NOT NULL,
+		status      TEXT NOT NULL DEFAULT 'received',
+		sealed      TEXT NOT NULL
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_security_reports_received ON security_reports(received_at)`,
 }
 
 // schemaUpdates holds idempotent ALTER TABLE / index additions applied

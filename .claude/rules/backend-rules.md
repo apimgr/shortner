@@ -56,6 +56,20 @@
 ## QUICK REFERENCE
 - Before adding any new public field/endpoint, classify it against the
   Tier 1/2/3 table in AI.md PART 11 before writing the handler
+- PART 11's HTTP layer is implemented: `src/httpserver/headers.go`
+  (header matrix, CSP, Permissions-Policy, COOP/COEP/CORP, HSTS,
+  Clear-Site-Data, Server-Timing), `privacy_signals.go` (DNT/GPC),
+  `secfetch.go`, `reports.go` (`/api/{api_version}/server/reports/*`,
+  always 204), `wellknown.go` (robots.txt, security.txt, llms.txt,
+  pgp-key.asc — allowlist-only, GET/HEAD only, never redirect),
+  `securitypages.go` (`/server/security[/policy|/thanks]`, `/server/dpo`),
+  `securityreport.go` (`/server/contact?security_id=` mode switch,
+  AES-256-GCM sealed at rest via `server.security.encryption_key`),
+  `ipblock.go` (allowlist / temporary+permanent blocks / abuse detection,
+  swept every minute by the `ip_block_release` scheduler task)
+- Deferred under PART 11: GPG keypair management CLI, the two
+  security-report notification emails (need PART 17), and
+  `/server/security/report/{tracking_id}` — see `TODO.AI.md`
 
 ---
 For complete details, see AI.md PART 9, 10, 11, 31 (31.1 Tor, 31.2 I2P)

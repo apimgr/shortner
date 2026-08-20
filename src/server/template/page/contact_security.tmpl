@@ -1,0 +1,106 @@
+{{define "content"}}<article class="contact-page security-report-page">
+<h1>Report a vulnerability</h1>
+
+{{if .Submitted}}
+<p class="form-success" role="status">We received your report. Keep the
+tracking id below — it is the only copy you will be given.</p>
+<p class="tracking-id"><strong>Tracking id:</strong> <code>{{.TrackingID}}</code></p>
+<p>Your report was encrypted at rest the moment it arrived. A maintainer
+will triage it and follow the coordinated-disclosure window described in
+our <a href="/server/security/policy">disclosure policy</a>.</p>
+{{else}}
+<p>You reached this form from our <a href="/.well-known/security.txt">security.txt</a>,
+so the security-report fields below are enabled. Everything you submit is
+encrypted before it is stored.</p>
+
+<form method="POST" action="/server/contact" class="contact-form" novalidate>
+<input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
+<input type="hidden" name="security_id" value="{{.SecurityID}}">
+{{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
+
+<div class="form-group">
+<label for="name">Name</label>
+<input type="text" id="name" name="name" required class="input-field" value="{{.Form.Name}}">
+</div>
+<div class="form-group">
+<label for="email">Email</label>
+<input type="email" id="email" name="email" required class="input-field" value="{{.Form.Email}}">
+</div>
+<div class="form-group">
+<label for="researcher_gpg">Your GPG key <span class="form-optional">(optional)</span></label>
+<textarea id="researcher_gpg" name="researcher_gpg" class="input-field" rows="3"
+  aria-describedby="researcher_gpg_help">{{.Form.ResearcherGPG}}</textarea>
+<p id="researcher_gpg_help" class="form-help">An <code>https://</code> URL
+(keyservers are fine) or a pasted public-key block.</p>
+</div>
+
+<div class="form-group">
+<label for="component">Affected component</label>
+<select id="component" name="component" required class="input-field">
+{{range .Components}}<option value="{{.}}"{{if eq . $.Form.Component}} selected{{end}}>{{.}}</option>{{end}}
+</select>
+</div>
+<div class="form-group">
+<label for="component_other">If you chose &quot;Other&quot;, which component? <span class="form-optional">(optional)</span></label>
+<input type="text" id="component_other" name="component_other" class="input-field">
+</div>
+<div class="form-group">
+<label for="endpoint">Affected endpoint or URL <span class="form-optional">(optional)</span></label>
+<input type="text" id="endpoint" name="endpoint" class="input-field" value="{{.Form.Endpoint}}">
+</div>
+
+<div class="form-group">
+<label for="severity">Severity (your assessment)</label>
+<select id="severity" name="severity" required class="input-field">
+{{range .Severities}}<option value="{{.}}"{{if eq . $.Form.Severity}} selected{{end}}>{{.}}</option>{{end}}
+</select>
+</div>
+
+<div class="form-group">
+<label for="summary">Vulnerability summary</label>
+<input type="text" id="summary" name="summary" required class="input-field" value="{{.Form.Summary}}">
+</div>
+<div class="form-group">
+<label for="steps">Steps to reproduce</label>
+<textarea id="steps" name="steps" required class="input-field" rows="6">{{.Form.Steps}}</textarea>
+</div>
+<div class="form-group">
+<label for="impact">Impact</label>
+<textarea id="impact" name="impact" required class="input-field" rows="4">{{.Form.Impact}}</textarea>
+</div>
+<div class="form-group">
+<label for="suggested_fix">Suggested fix <span class="form-optional">(optional)</span></label>
+<textarea id="suggested_fix" name="suggested_fix" class="input-field" rows="4">{{.Form.SuggestedFix}}</textarea>
+</div>
+
+<div class="form-group form-check">
+<input type="checkbox" id="cve_requested" name="cve_requested" value="true"{{if .Form.CVERequested}} checked{{end}}>
+<label for="cve_requested">Request a CVE assignment after triage</label>
+</div>
+<div class="form-group">
+<label for="disclosure_days">Preferred disclosure window (days)</label>
+<input type="number" id="disclosure_days" name="disclosure_days" min="1" class="input-field" value="{{.Form.DisclosureDays}}">
+</div>
+<div class="form-group">
+<label for="credit_preference">Credit preference</label>
+<select id="credit_preference" name="credit_preference" required class="input-field">
+{{range .CreditPrefs}}<option value="{{.}}"{{if eq . $.Form.CreditPref}} selected{{end}}>{{.}}</option>{{end}}
+</select>
+</div>
+
+<div class="form-group form-check">
+<input type="checkbox" id="agreed_disclosure" name="agreed_disclosure" value="true" required{{if .Form.AgreedDisclosure}} checked{{end}}>
+<label for="agreed_disclosure">I agree to coordinated disclosure — no public
+release until the coordinated date or 90 days, whichever comes first.</label>
+</div>
+
+<div class="form-group">
+<label for="captcha">What is 3 + 4?</label>
+<input type="text" id="captcha" name="captcha" required class="input-field" autocomplete="off">
+</div>
+
+<button type="submit" class="btn btn-primary">Submit report</button>
+</form>
+{{end}}
+</article>
+{{end}}

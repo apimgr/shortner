@@ -103,6 +103,13 @@ func (a *AuditLogger) Close() error {
 // AI.md PART 11 "Audit Log Rules" -> "NEVER Log" and use MaskToken for
 // any token/ID reference.
 func (a *AuditLogger) Write(e Entry) error {
+	// A nil logger means audit logging was never opened (the caller
+	// warned at startup). Dropping the entry is correct here: an audit
+	// sink that does not exist must never fail the request that
+	// triggered it.
+	if a == nil {
+		return nil
+	}
 	if e.ID == "" {
 		id, err := GenerateULID()
 		if err != nil {

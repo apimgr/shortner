@@ -19,12 +19,21 @@ func testDeps(t *testing.T) *deps {
 	}
 	t.Cleanup(func() { logger.Close() })
 
+	cfg := config.Default(filepath.Join(t.TempDir(), "server.db"))
+	resolver := NewProxyResolver(nil)
+
 	return &deps{
-		resolver:    NewProxyResolver(nil),
+		resolver:    resolver,
 		rateLimiter: NewRateLimiter(config.RateLimit{Enabled: false}),
 		stats:       NewStats(),
 		access:      logger,
 		operatorTok: "tok_test-operator",
+		cfgHeaders:  cfg.Web.Headers,
+		headers:     newHeaderDeps(cfg, resolver),
+		privacy:     &privacyDeps{cfg: cfg, resolver: resolver},
+		allowlist:   NewAllowlistLookup(cfg.Server.Security.Allowlist),
+		blocks:      NewBlockStore(cfg.Server.Security.BlockedIPs, nil),
+		abuse:       NewAbuseDetector(cfg.Server.Security.AbuseDetection, cfg.Server.RateLimit.Read.Requests),
 	}
 }
 
@@ -249,7 +258,7 @@ func TestPathSecurityMiddlewareAllowsCleanPath(t *testing.T) {
 }
 
 func TestSecurityHeadersMiddlewareSetsHeaders(t *testing.T) {
-	h := securityHeadersMiddleware(okHandler())
+	h := testDeps(t).headers.securityHeadersMiddleware(okHandler())
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

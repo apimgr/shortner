@@ -224,7 +224,16 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
-	if generated {
+	// server.security.encryption_key is the canonical at-rest AES-256-GCM
+	// key (AI.md PART 11 "Cryptographic Keys"). It lives in server.yml, not
+	// in server.db, and is generated on first run alongside the operator
+	// token so both land in the same Save below.
+	keyGenerated, err := config.EnsureEncryptionKey(cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
+	if generated || keyGenerated {
 		if err := config.Save(p.ConfigFile, cfg); err != nil {
 			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 			return 1
@@ -296,6 +305,15 @@ func run(args []string) int {
 	}
 	defer auditLog.Close()
 
+	// installation_secret (AI.md PART 11 "Cryptographic Keys") backs the
+	// rotating {security_id} published in security.txt. A failure here is
+	// not fatal: the server still serves, security.txt simply omits the
+	// contact-form line rather than publishing a forgeable id.
+	installSecret, _, _, err := db.EnsureCoreSecrets(context.Background(), sqlDB)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": warning: "+err.Error())
+	}
+
 	// GeoIP (AI.md PART 19): opens whatever MMDB files already exist in
 	// cfg.Server.GeoIP.Dir (none on a genuinely first run) and, if enabled,
 	// kicks off a background download so first run still works with zero
@@ -354,12 +372,35 @@ func run(args []string) int {
 		TLSConfig: tlsConfig,
 		GeoIP:     geoManager,
 		Metrics:   appMetrics,
+
+		ConfigDir:     p.Config,
+		AuditLog:      auditLog,
+		InstallSecret: installSecret,
 	})
 	// Shutdown hooks run in registration order, so they are registered in
 	// the order AI.md PART 8 "Graceful Shutdown Sequence" prescribes: stop
 	// accepting connections and drain in-flight requests (steps 2-4), close
 	// database connections (step 5), flush logs (step 6), remove the PID
 	// file last (step 9).
+	// AI.md PART 11 "IP Block Management" -> "Auto-Release" requires expired
+	// temporary IP blocks to be "checked every minute by scheduler". The task
+	// is registered here rather than in scheduler.BuiltinTasks because it
+	// needs the live HTTP server's in-memory block store, which does not
+	// exist when the scheduler is built.
+	if err := sched.Register(context.Background(), scheduler.TaskDef{
+		ID:       "ip_block_release",
+		Name:     "IP Block Auto-Release",
+		Schedule: "* * * * *",
+		Enabled:  true,
+		Run: func(context.Context) error {
+			srv.ReleaseExpiredBlocks()
+			return nil
+		},
+	}); err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
+
 	// Scheduler (AI.md PART 18 "Always Running"): started alongside the
 	// HTTP server and stopped as part of the same shutdown sequence.
 	if err := sched.Start(context.Background()); err != nil {

@@ -85,34 +85,53 @@ helpers, Link/Click/api_tokens/app_secrets CRUD), `src/applog`
 logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
 `make test` passes with 77.5% coverage.
 
-- Response-layer wiring (calling `apperr.SendOK`/`SendError` from actual
-  HTTP handlers, expired-link 410 Gone response) needs the HTTP server,
-  which doesn't exist yet.
-  Read: AI.md PART 9, PART 14
-- Security Headers, CSP, CORS, Permissions-Policy, Cross-Origin Isolation,
-  Privacy Signal Headers, Sec-Fetch-* validation, Reporting API,
-  Server-Timing, Well-Known Files (robots.txt/security.txt/llms.txt),
-  Security Reports/GPG keypair management, Compliance Standards/routes,
-  Abuse Detection middleware, IP Block Management middleware — all
-  require `http.Request`/middleware chains that don't exist until the
-  HTTP server (PART 12+) is built.
-  Read: AI.md PART 11 (sections after "Cryptographic Keys")
-- `src/security/slug.go`'s `reservedSlugs` list is a minimal provisional
-  set (api, static, health, admin, login, ...), not the canonical list —
-  PART 16 hasn't defined the full reserved-names table yet.
-  Read: AI.md PART 16
-- Click bot/crawler filtering (IDEA.md "Business rules": "Click tracking
-  excludes known bot/crawler user agents") needs a UA-classification list
-  this project has not defined yet; `db.RecordClick` always records —
-  callers must decide whether to call it.
-  Read: IDEA.md Business logic
+**PART 11's HTTP-dependent work is now implemented** (2026-08-20): the
+security-header matrix + CSP + Permissions-Policy + Cross-Origin Isolation
+(`src/httpserver/headers.go`), privacy signals DNT/GPC
+(`privacy_signals.go`), Sec-Fetch-* validation (`secfetch.go`), the
+Reporting API endpoints (`reports.go`), well-known files
+(`wellknown.go` — robots.txt, security.txt, llms.txt, pgp-key.asc),
+the security pages (`securitypages.go` — `/server/security`,
+`/server/security/policy`, `/server/security/thanks`, `/server/dpo`), the
+coordinated-disclosure submission path (`securityreport.go` +
+`src/db/securityreport.go` + `src/security/seal.go`), and allowlist /
+IP-block / abuse-detection middleware (`ipblock.go`) wired into the PART 5
+middleware order. `server.security.*` (including `encryption_key`) and
+`server.contact.security`/`server.contact.dpo` are in `src/config`.
+
+Already done, verified rather than reimplemented:
+- Response-layer wiring — `apperr.SendOK`/`SendError` are called from
+  `src/httpserver/{server,middleware,frontend,links}.go`, and the
+  expired-link 410 Gone lives at `src/httpserver/links.go` (`link.IsExpired()`
+  → `apperr.CodeGone` → `http.StatusGone`).
+- `src/security/slug.go`'s `reservedSlugs` is already a superset of PART
+  16's canonical `reservedNames` table.
+- Click bot/crawler filtering — `src/security/bot.go` holds the UA token
+  list (neither AI.md nor IDEA.md defines a canonical one), and
+  `src/httpserver/links.go`'s `isBotUserAgent` delegates to it.
+
+Still open under PART 9-11:
+- GPG keypair management (`--maintenance pgp generate|rotate|publish|
+  export|import|delete`) is not implemented: it needs an OpenPGP
+  implementation (not in `go.mod`) and the keyserver publish flow. Today
+  `/.well-known/pgp-key.asc` serves `{config_dir}/security/pgp.pub.asc`
+  when an operator places one there and 404s otherwise, and security.txt
+  emits `Encryption:` only when that file exists.
+  Read: AI.md PART 11 "GPG Keypair Management"
+- Security-report notification emails (Submission Flow steps 4 and 5 —
+  PGP-encrypted maintainer notification and researcher acknowledgment)
+  wait on PART 17 (notifications/SMTP). AI.md itself calls these "the CC
+  path, never the primary channel"; the tracking id is issued and shown
+  server-side in the meantime.
+  Read: AI.md PART 11 "Submission Flow", PART 17
+- `/server/security/report/{tracking_id}` researcher status page (one-shot
+  token, triage state machine, maintainer comments) is not implemented —
+  triage state has no writer until the maintainer notification path above
+  exists.
+  Read: AI.md PART 11 "Public Pages"
 - `src/db` only supports `modernc.org/sqlite`; libsql/Turso remote-DB
   support depends on the full `server.yml` database schema.
   Read: AI.md PART 10, PART 12
-- `server.security.encryption_key` (server.yml-stored secret, distinct
-  from the three DB-stored secrets in `src/db/secret.go`) isn't wired
-  into `src/config` yet — needs the full server.yml schema.
-  Read: AI.md PART 11 "Cryptographic Keys", PART 12
 - `src/applog.Logger.Rotate()` is a manual, callable rotation only — the
   scheduled daily/weekly/size-based rotation and `keep:` retention
   policies (AI.md PART 11 "Log Rotation" / "Audit Log Retention") need
@@ -307,10 +326,10 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
   attribution (DB-IP HTML link + NRO text notice) added to
   `page/about.tmpl` (reachable from every screen via nav) and
   `LICENSE.md`'s Third-Party Licenses section.
-  Deferred: `server.security.allowlist` bypassing country-blocking is not
-  wired — PART 11's allowlist backing store doesn't exist yet, so
-  `IsAllowlisted(ctx)` is a permanent pass-through stub; revisit once
-  PART 11's allowlist lands.
+  Allowlist bypass of country-blocking is now wired (2026-08-20): PART
+  11's `AllowlistLookup` backs `allowlistMiddleware`, which marks the
+  request context, and `geoIPMiddleware` short-circuits on
+  `IsAllowlisted(ctx)`.
   Read: AI.md PART 19, IDEA.md Business logic
 - Metrics endpoint — DONE. `src/metrics/` (Prometheus registry, HTTP/DB/
   scheduler/system/runtime metrics, instrumented sql driver wrapper),

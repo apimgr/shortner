@@ -1,0 +1,18 @@
+{{define "content"}}<article class="security-thanks-page">
+<h1>Security Acknowledgments</h1>
+
+{{if .Thanks}}
+<p>Thank you to the researchers below, who reported issues responsibly and
+agreed to be credited.</p>
+<ul class="security-thanks-list">
+{{range .Thanks}}<li><strong>{{.Name}}</strong>{{if .Year}} &mdash; {{.Year}}{{end}}{{if .Credit}}: {{.Credit}}{{end}}</li>
+{{end}}</ul>
+{{else}}
+<p>No acknowledgments have been published yet. Researchers who report an
+issue and ask to be credited will be listed here once the issue is
+disclosed.</p>
+{{end}}
+
+<p><a href="/server/security">Back to security</a></p>
+</article>
+{{end}}

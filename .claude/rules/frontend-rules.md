@@ -38,6 +38,11 @@
   of healthz/stats), `src/httpserver/render.go` (buffered template
   execution), `src/httpserver/pagedata.go` (shared `PageData`), templates
   under `src/server/template/`, CSS/JS under `src/server/static/`.
+  PART 11 adds `/server/security`, `/server/security/policy`,
+  `/server/security/thanks`, `/server/dpo`
+  (`src/httpserver/securitypages.go`) and the
+  `/server/contact?security_id=` security-report mode
+  (`src/httpserver/securityreport.go`, `page/contact_security.tmpl`).
   Deferred sub-items (PWA, sitemap.xml, favicon.ico, announcements-banner
   rendering, GeoIP on stats, contact-form email delivery, Swagger/GraphQL
   docs) are tracked in `TODO.AI.md`.

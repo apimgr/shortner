@@ -26,6 +26,8 @@ import (
 type Server struct {
 	httpServer *http.Server
 	stats      *Stats
+	blocks     *BlockStore
+	allowlist  *AllowlistLookup
 }
 
 // Options configures New.
@@ -52,6 +54,18 @@ type Options struct {
 	// aliases and the middleware chain records HTTP/rate-limit/auth
 	// metrics.
 	Metrics *metrics.Metrics
+	// ConfigDir is the resolved config directory (AI.md PART 4). The PGP
+	// public key served at /.well-known/pgp-key.asc lives under it.
+	ConfigDir string
+	// AuditLog receives the PART 11 security/compliance audit events. May
+	// be nil, in which case those events are dropped rather than failing
+	// the request.
+	AuditLog *applog.AuditLogger
+	// InstallSecret is the persisted `installation_secret` used to derive
+	// the rotating {security_id} in security.txt (AI.md PART 11). It is a
+	// Tier 1 value: never logged, never rendered anywhere but as the HMAC
+	// input.
+	InstallSecret string
 }
 
 // New builds a Server ready for Start. Listen address is
@@ -63,6 +77,8 @@ func New(opts Options) *Server {
 	stats := NewStats()
 
 	resolver := NewProxyResolver(cfg.Server.TrustedProxies.Additional)
+	allowlist := NewAllowlistLookup(cfg.Server.Security.Allowlist)
+	blocks := NewBlockStore(cfg.Server.Security.BlockedIPs, opts.AuditLog)
 	d := &deps{
 		resolver:    resolver,
 		rateLimiter: NewRateLimiter(cfg.Server.RateLimit),
@@ -74,6 +90,12 @@ func New(opts Options) *Server {
 		geo:         opts.GeoIP,
 		geoCfg:      cfg.Server.GeoIP,
 		metrics:     opts.Metrics,
+		cfgHeaders:  cfg.Web.Headers,
+		headers:     newHeaderDeps(cfg, resolver),
+		privacy:     &privacyDeps{cfg: cfg, resolver: resolver, audit: opts.AuditLog},
+		allowlist:   allowlist,
+		blocks:      blocks,
+		abuse:       NewAbuseDetector(cfg.Server.Security.AbuseDetection, cfg.Server.RateLimit.Read.Requests),
 	}
 
 	r := chi.NewRouter()
@@ -101,18 +123,40 @@ func New(opts Options) *Server {
 
 	ld := &linkDeps{sqlDB: opts.DB, resolver: resolver, log: opts.AccessLog, geo: opts.GeoIP}
 
+	rd := newReportDeps(cfg, resolver, opts.AuditLog)
+
 	r.Route("/api", func(api chi.Router) {
 		api.Use(corsAPIMiddleware)
 		api.Get("/healthz", hd.healthHandler())
 		api.Route("/{api_version}", func(v chi.Router) {
 			v.Get("/server/healthz", hd.healthHandler())
 			RegisterVersionedMetricsRoutes(v, cfg.Server.Metrics, opts.Metrics, opts.AccessLog)
+			rd.registerReportRoutes(v)
 			ld.registerLinkAPIRoutes(v)
 		})
 	})
 	RegisterMetricsRoutes(r, cfg.Server.Metrics, opts.Metrics, opts.AccessLog)
 
-	fd := &frontendDeps{cfg: cfg, version: opts.Version, buildDate: opts.BuildDate, ld: ld}
+	wk := &wellKnownDeps{
+		cfg:           cfg,
+		resolver:      resolver,
+		dataDir:       opts.DataDir,
+		configDir:     opts.ConfigDir,
+		installSecret: opts.InstallSecret,
+	}
+	wk.registerWellKnownRoutes(r)
+
+	fd := &frontendDeps{
+		cfg:           cfg,
+		version:       opts.Version,
+		commitID:      opts.CommitID,
+		buildDate:     opts.BuildDate,
+		ld:            ld,
+		resolver:      resolver,
+		installSecret: opts.InstallSecret,
+		audit:         opts.AuditLog,
+		configDir:     opts.ConfigDir,
+	}
 	fd.registerFrontendRoutes(r, hd, ld)
 
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(mustSubFS(server.StaticFS, "static")))))
@@ -135,7 +179,9 @@ func New(opts Options) *Server {
 
 	addr := fmt.Sprintf("%s:%s", cfg.Server.Listen, cfg.Server.Port)
 	return &Server{
-		stats: stats,
+		stats:     stats,
+		blocks:    blocks,
+		allowlist: allowlist,
 		httpServer: &http.Server{
 			Addr:         addr,
 			Handler:      limitedHandler,
@@ -172,6 +218,22 @@ func (s *Server) Shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	return s.httpServer.Shutdown(ctx)
+}
+
+// ReleaseExpiredBlocks drops every temporary IP block whose window has
+// passed, plus any whose address is now allowlisted, and returns how many
+// were released, per AI.md PART 11 "IP Block Management" -> "Auto-Release"
+// ("checked every minute by scheduler" — the ip_block_release task in
+// src/main.go drives it).
+//
+// Enforcement never depends on this running: BlockStore.Blocked treats an
+// expired entry as released at read time, so a missed sweep can only cost
+// memory, never keep an address blocked past its window.
+func (s *Server) ReleaseExpiredBlocks() int {
+	if s.blocks == nil {
+		return 0
+	}
+	return s.blocks.ReleaseExpired(time.Now()) + s.blocks.ReleaseAllowlisted(s.allowlist)
 }
 
 // Addr returns the configured listen address.

@@ -476,26 +476,11 @@ func (ld *linkDeps) authorized(r *http.Request, linkID int64) bool {
 	return tok.ResourceType == "link" && tok.ResourceID == strconv.FormatInt(linkID, 10)
 }
 
-// botUserAgentSubstrings identifies known bot/crawler user agents, per
-// IDEA.md "Business rules": "Click tracking excludes known bot/crawler user
-// agents." Not exhaustive — a minimal, commonly-seen working set.
-var botUserAgentSubstrings = []string{
-	"bot", "crawl", "spider", "slurp", "bingpreview", "facebookexternalhit",
-	"whatsapp", "telegrambot", "discordbot", "pingdom", "uptimerobot",
-	"monitor", "curl/", "wget/", "python-requests",
-}
-
+// isBotUserAgent defers to the shared classifier in src/security so the
+// token list has exactly one home, per IDEA.md "Business rules": "Click
+// tracking excludes known bot/crawler user agents."
 func isBotUserAgent(ua string) bool {
-	ua = strings.ToLower(strings.TrimSpace(ua))
-	if ua == "" {
-		return true
-	}
-	for _, s := range botUserAgentSubstrings {
-		if strings.Contains(ua, s) {
-			return true
-		}
-	}
-	return false
+	return security.IsBotUserAgent(ua)
 }
 
 // resolveHandler is the public GET /{slug} route: 302 redirects to the
