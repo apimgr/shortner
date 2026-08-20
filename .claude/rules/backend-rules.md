@@ -67,8 +67,12 @@
   AES-256-GCM sealed at rest via `server.security.encryption_key`),
   `ipblock.go` (allowlist / temporary+permanent blocks / abuse detection,
   swept every minute by the `ip_block_release` scheduler task)
-- Deferred under PART 11: GPG keypair management CLI, the two
-  security-report notification emails (need PART 17), and
+- PART 11's Submission Flow steps 4 and 5 (maintainer notification and
+  researcher acknowledgment) are sent via the PART 17 notifier and are
+  always "the CC path, never the primary channel" — a send failure never
+  affects the submission or the tracking id
+- Deferred under PART 11: GPG keypair management CLI, the maintainer
+  email carrying inline AES armor instead of a PGP MIME attachment, and
   `/server/security/report/{tracking_id}` — see `TODO.AI.md`
 
 ---

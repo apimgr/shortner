@@ -21,6 +21,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -334,11 +335,10 @@ func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
 	_ = renderPage(w, http.StatusOK, "contact", data)
 }
 
-// contactPost validates and "submits" the contact form. Actually delivering
-// the message by email depends on AI.md PART 17 (notifications/SMTP),
-// which is not implemented yet (see TODO.AI.md) — the message is accepted
-// and the visitor is shown success, but nothing is sent or persisted past
-// the request. This is a deliberate, documented no-op, not a bug.
+// contactPost validates and submits the contact form. A validated message
+// is relayed to the operator's contact address through the AI.md PART 17
+// notifier; per that PART's SMTP Requirement the relay is best-effort, so
+// the visitor is shown success either way and nothing is ever queued.
 func (fd *frontendDeps) contactPost(w http.ResponseWriter, r *http.Request) {
 	base := fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Contact", fd.cfg.Server.SEO.Description)
 	abuseEmail := fd.cfg.Server.Contact.Abuse.Email
@@ -377,12 +377,36 @@ func (fd *frontendDeps) contactPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fd.relayContactMessage(name, email, subject, message)
+
 	data.Submitted = true
 	data.SuccessMessage = fd.cfg.Pages.Contact.SuccessMessage
 	if data.SuccessMessage == "" {
 		data.SuccessMessage = "Thank you for your message. We'll respond soon."
 	}
 	_ = renderPage(w, http.StatusOK, "contact", data)
+}
+
+// relayContactMessage forwards a validated contact submission to the
+// operator's general contact address. It is best-effort by design: the
+// visitor has already been told their message was accepted, and per AI.md
+// PART 17 "SMTP Requirement" there is no queue — with no working SMTP the
+// message is simply not relayed, and nothing is logged as "would have
+// sent".
+func (fd *frontendDeps) relayContactMessage(name, email, subject, message string) {
+	if !fd.notifier.Enabled() {
+		return
+	}
+	to := strings.TrimSpace(fd.cfg.Server.Contact.General.Email)
+	if to == "" {
+		to = strings.TrimSpace(fd.cfg.Server.Contact.Admin.Email)
+	}
+	if to == "" {
+		return
+	}
+	body := fmt.Sprintf("A message was submitted through the contact form.\n\nFrom: %s <%s>\nSubject: %s\n\n%s\n",
+		name, email, subject, message)
+	_ = fd.notifier.SendRaw([]string{to}, "[Contact] "+subject, body)
 }
 
 // consentCookieName is the granular cookie-consent cookie, per AI.md

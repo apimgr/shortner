@@ -43,8 +43,10 @@
   (`src/httpserver/securitypages.go`) and the
   `/server/contact?security_id=` security-report mode
   (`src/httpserver/securityreport.go`, `page/contact_security.tmpl`).
-  Deferred sub-items (PWA, sitemap.xml, favicon.ico, announcements-banner
-  rendering, GeoIP on stats, contact-form email delivery, Swagger/GraphQL
+  The contact form now relays to the operator's contact address through
+  the PART 17 notifier (`relayContactMessage`), best-effort and never
+  queued. Deferred sub-items (PWA, sitemap.xml, favicon.ico,
+  announcements-banner rendering, Web-UI toast rendering, Swagger/GraphQL
   docs) are tracked in `TODO.AI.md`.
 
 ---

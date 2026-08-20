@@ -53,6 +53,7 @@ type Server struct {
 	Compliance     Compliance     `yaml:"compliance"`
 	Update         Update         `yaml:"update"`
 	Security       Security       `yaml:"security"`
+	Notifications  Notifications  `yaml:"notifications"`
 }
 
 // Update holds `server.update`, per AI.md PART 22 "Update Configuration".
@@ -752,7 +753,8 @@ func Default(dbPath string) *Config {
 				AutoInstall: false,
 				DeferDays:   0,
 			},
-			Security: DefaultSecurity(),
+			Security:      DefaultSecurity(),
+			Notifications: DefaultNotifications(),
 			Privacy: Privacy{
 				Consent: PrivacyConsent{
 					Message: "We use essential cookies to make this site work. " +

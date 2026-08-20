@@ -48,6 +48,7 @@ Service Management:
 --service CMD                          - Service management (run --service help for details)
 --maintenance CMD                      - Maintenance operations (run --maintenance help for details)
 --update [CMD]                         - Check/perform updates (run --update help for details)
+email [CMD]                            - Email templates and test send (run 'email --help' for details)
 --include-ssl                          - Include SSL certificates in --maintenance backup
 --include-data                         - Include the data directory in --maintenance backup
 

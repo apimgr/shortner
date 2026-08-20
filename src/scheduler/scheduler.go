@@ -22,6 +22,7 @@ import (
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/metrics"
+	"github.com/apimgr/shortner/src/notify"
 )
 
 // TaskFunc is the work a scheduled task performs. A nil return means
@@ -52,6 +53,9 @@ type Scheduler struct {
 	jobs  map[string]gocron.Job
 
 	metrics *metrics.Metrics
+	// notifier raises the AI.md PART 17 `scheduler_error` email event on a
+	// failed run. Nil-safe: notify.Notifier's methods are inert on nil.
+	notifier *notify.Notifier
 }
 
 // SetMetrics attaches m so future task runs are recorded to the
@@ -203,6 +207,10 @@ func (s *Scheduler) runTask(id string) {
 		if nr, err := job.NextRun(); err == nil {
 			next = &nr
 		}
+	}
+
+	if status == "failed" {
+		s.notifySchedulerError(id, t.Name, errMsg, next)
 	}
 
 	if err := db.RecordSchedulerRun(ctx, s.sqlDB, id, started, finished, next, status, errMsg); err != nil && s.logger != nil {

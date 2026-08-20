@@ -11,6 +11,7 @@ import (
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/geoip"
+	"github.com/apimgr/shortner/src/notify"
 )
 
 // builtinDef is the static (id, name) pair and honest-skip explanation for
@@ -54,6 +55,12 @@ type Deps struct {
 	// Update feeds update_check (AI.md PART 22). A zero value leaves the
 	// task registered but inert.
 	Update UpdateDeps
+	// Notifier raises the AI.md PART 17 email events a task owns
+	// (backup_complete/backup_failed, ssl_expiring/ssl_renewal_failed,
+	// update_available/update_installed). Nil is safe — every Notifier
+	// method is inert on a nil receiver, which is exactly PART 17's
+	// "no SMTP = no email, ever" behaviour.
+	Notifier *notify.Notifier
 }
 
 // BuiltinTasks returns every AI.md PART 18 "Built-in Tasks (Required)"
@@ -170,11 +177,36 @@ func sslRenewalTask(deps Deps) TaskFunc {
 			// in that case.
 			return nil
 		}
-		if certmgr.NeedsRenewal(cert.NotAfter) {
-			return fmt.Errorf("ssl_renewal: certificate for %s expires %s (within renewal window)", deps.FQDN, cert.NotAfter.Format(time.RFC3339))
+		if !certmgr.NeedsRenewal(cert.NotAfter) {
+			return nil
 		}
-		return nil
+		notifySSL(deps, cert.NotAfter)
+		return fmt.Errorf("ssl_renewal: certificate for %s expires %s (within renewal window)", deps.FQDN, cert.NotAfter.Format(time.RFC3339))
 	}
+}
+
+// notifySSL raises the AI.md PART 17 SSL event matching the certificate's
+// state: `ssl_renewal_failed` once the certificate has actually lapsed
+// (autocert's on-demand renewal has demonstrably not happened), otherwise
+// `ssl_expiring` for the ordinary inside-the-window warning.
+func notifySSL(deps Deps, notAfter time.Time) {
+	now := time.Now().UTC()
+	days := int(notAfter.UTC().Sub(now).Hours() / 24)
+	vars := map[string]string{
+		"fqdn":        deps.FQDN,
+		"expires_in":  fmt.Sprintf("%d days", days),
+		"expiry_date": notAfter.UTC().Format(time.RFC3339),
+	}
+	if days > 0 {
+		_ = deps.Notifier.Send(notify.EventSSLExpiring, vars)
+		return
+	}
+	vars["error"] = fmt.Sprintf("certificate for %s expired on %s and has not been renewed", deps.FQDN, notAfter.UTC().Format(time.RFC3339))
+	// Renewal is attempted by autocert during the next TLS handshake, and
+	// this task re-checks on its own schedule; naming the task's next run
+	// would be misleading, so the handshake is named instead.
+	vars["next_retry"] = "on the next TLS handshake"
+	_ = deps.Notifier.Send(notify.EventSSLRenewalFailed, vars)
 }
 
 // geoipUpdateTask re-downloads the enabled MMDB files and reloads the

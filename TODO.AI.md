@@ -118,11 +118,14 @@ Still open under PART 9-11:
   when an operator places one there and 404s otherwise, and security.txt
   emits `Encryption:` only when that file exists.
   Read: AI.md PART 11 "GPG Keypair Management"
-- Security-report notification emails (Submission Flow steps 4 and 5 —
-  PGP-encrypted maintainer notification and researcher acknowledgment)
-  wait on PART 17 (notifications/SMTP). AI.md itself calls these "the CC
-  path, never the primary channel"; the tracking id is issued and shown
-  server-side in the meantime.
+- DONE: Security-report notification emails (Submission Flow steps 4 and
+  5 — maintainer notification and researcher acknowledgment) are sent by
+  `src/httpserver/securityreport.go` now that PART 17 exists. AI.md calls
+  these "the CC path, never the primary channel", so a send failure never
+  affects the submission: the tracking id is still issued and shown
+  server-side. The maintainer copy carries the report body as inline
+  AES-256-GCM armor rather than a PGP MIME attachment — see the PART 17
+  deferred sub-items below and the GPG keypair item above.
   Read: AI.md PART 11 "Submission Flow", PART 17
 - `/server/security/report/{tracking_id}` researcher status page (one-shot
   token, triage state machine, maintainer comments) is not implemented —
@@ -260,11 +263,12 @@ Still open under PART 9-11:
 - DONE: GeoIP location data on `/{slug}/stats` — `page/stats.tmpl` renders
   "unknown" gracefully when empty, and now gets real values: PART 19's
   `src/geoip` lookup populates `ClickInfo.Country`/`.Region` at click time.
-- Contact-form email delivery — `contactPost` in `frontend.go` accepts and
-  validates the form (including a static math-captcha check) and shows a
-  success message, but nothing is sent or persisted; real delivery depends
-  on PART 17 (SMTP/notifications), documented as a deliberate no-op in the
-  function's doc comment.
+- DONE: Contact-form email delivery — `contactPost` in `frontend.go`
+  validates the form (including the static math-captcha check) and
+  `relayContactMessage` forwards it to `server.contact.general.email`
+  (falling back to `.admin.email`) through the PART 17 notifier. The
+  relay is best-effort by design: with no working SMTP the message is
+  simply not relayed, per PART 17's no-queue rule.
 - `/server/docs/swagger`, `/server/docs/graphql` — confirmed still out of
   scope per the AI.md `/server` routes table (PART 16); no Swagger/GraphQL
   doc UI exists.
@@ -281,7 +285,48 @@ Still open under PART 9-11:
   `theme-light` CSS variables throughout, per IDEA.md).
 ## PART 17-22: Features
 
-- Email & notifications.
+- DONE: Email & notifications (`src/notify/`, `src/notifications.go`,
+  `src/email_cli.go`). `src/notify/template.go` parses AI.md PART 17's
+  `Subject: ...` / `---` / body wire format and does `{variable}`
+  substitution (a valid-but-unset placeholder renders empty; a malformed
+  token is left verbatim), `events.go` carries all 12 events plus the
+  per-event variable table and the `server.notifications.email.events.*`
+  switches, `store.go` resolves custom `{config_dir}/template/email/` over
+  the embedded `src/server/template/email/` defaults with live reload and
+  reset-by-deletion, `validate.go` implements PART 17 "Template Validation"
+  including the "Did you mean {x}?" suggestions, `detect.go` implements
+  the priority-ordered SMTP auto-detection (7 hosts x ports 25/465/587,
+  EHLO handshake test), `smtp.go` builds and sends RFC 5322 messages over
+  `net/smtp` + `crypto/tls` (auto/starttls/tls/none) with CRLF-injection
+  and dot-stuffing guards, and `notify.go` is the nil-safe `Notifier` that
+  enforces PART 17's SMTP Requirement by construction — no SMTP means no
+  send, no queue, and no "would have sent" log line.
+  `config.ApplySMTPEnv` layers the `SMTP_*` overrides; the `email
+  [test|list|preview|validate|reset]` subcommand implements PART 17
+  "Email Template Configuration". Wired call sites: `startup`/`shutdown`
+  (`src/notifications.go`, `src/main.go`), `security_alert`
+  (`src/httpserver/ipblock.go` abuse detection), the PART 11 Submission
+  Flow steps 4/5 emails (`src/httpserver/securityreport.go`),
+  `backup_complete`/`backup_failed`/`scheduler_error` with PART 17's
+  suppression rule (`src/scheduler/notify.go`),
+  `ssl_expiring`/`ssl_renewal_failed` (`src/scheduler/tasks.go`), and
+  `update_available`/`update_installed` (`src/scheduler/update.go`).
+  Deferred sub-items:
+  - `ssl_renewed` has an embedded template and a config switch but no
+    sender: AI.md PART 15 leaves re-issuance inside autocert's on-demand
+    TLS-handshake path, so nothing in-process observes a successful
+    renewal. It gets wired when PART 15's deferred
+    autocert-to-spec-layout bridging lands.
+    Read: AI.md PART 15, PART 17 "ssl_renewed"
+  - The PART 11 maintainer notification carries the report body as
+    inline AES-256-GCM armor rather than a real PGP MIME attachment —
+    OpenPGP is still absent from `go.mod` (see the PART 9-11 GPG keypair
+    item). The email remains "the CC path, never the primary channel".
+    Read: AI.md PART 11 "Submission Flow", PART 17
+  - Web-UI toast notifications (`server.notifications.webui.*`) are
+    configured and validated but not yet rendered by any template; only
+    the email channel is delivered.
+    Read: AI.md PART 17 "Notification Systems"
   Read: AI.md PART 17
 - DONE: Internal scheduler (`src/scheduler/`, `src/db/scheduler.go`,
   `src/scheduler_cli.go`, wired into `src/main.go` startup/shutdown).
@@ -395,9 +440,10 @@ Still open under PART 9-11:
   `MOVEFILE_DELAY_UNTIL_REBOOT` replacement, service-aware restart, and
   the `update_check` task with once-per-version notification.
   Read: AI.md PART 22
-- `update_available` email event (AI.md PART 22 "Surfacing rules"). The
-  WARN log line, `--update check`, and `--status` surfaces exist; email
-  delivery needs PART 17's notification system, which is not built yet.
+- DONE: `update_available` email event (AI.md PART 22 "Surfacing rules").
+  `UpdateDeps.notify` now emits the WARN log line *and* the PART 17
+  `update_available` email once per version; `update_installed` fires
+  after a successful `auto_install`.
   Read: AI.md PART 17, PART 22
 - `--update` progress reporting during the download. AI.md PART 22's flow
   is implemented end to end, but the download streams silently — a large

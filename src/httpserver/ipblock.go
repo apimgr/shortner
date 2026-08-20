@@ -4,6 +4,7 @@ package httpserver
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"github.com/apimgr/shortner/src/apperr"
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/notify"
 )
 
 // BlockType distinguishes an auto-releasing block from an operator's
@@ -354,10 +356,24 @@ func (d *deps) blocklistMiddleware(next http.Handler) http.Handler {
 
 		if d.abuse.Record(ip, now) {
 			d.blocks.BlockTemporarily(ip, "request flood", d.abuse.BlockDuration(), now)
+			d.notifyAbuseBlock(ip, now)
 			apperr.SendError(w, apperr.New(apperr.CodeForbidden))
 			return
 		}
 
 		next.ServeHTTP(w, r)
+	})
+}
+
+// notifyAbuseBlock raises the AI.md PART 17 `security_alert` event for an
+// abuse-detection block. The blocked IP is an attacker address in an
+// operator-only email, not visitor PII, so PART 17's own `{ip}` variable
+// carries it verbatim.
+func (d *deps) notifyAbuseBlock(ip string, now time.Time) {
+	_ = d.notifier.Send(notify.EventSecurityAlert, map[string]string{
+		"event": "IP blocked for request flooding",
+		"ip":    ip,
+		"details": fmt.Sprintf("%s exceeded the flood threshold and is blocked until %s.",
+			ip, now.Add(d.abuse.BlockDuration()).UTC().Format(time.RFC3339)),
 	})
 }

@@ -101,6 +101,14 @@ func getGlobalIPv6() string {
 	return ""
 }
 
+// GlobalIPv4 returns the first public IPv4 address on any local interface,
+// or "" when the host has none. It is the exported form of the same lookup
+// GetFQDN uses internally, consumed by AI.md PART 17's SMTP auto-detection
+// (priority 5, "{global_ipv4}").
+func GlobalIPv4() string {
+	return getGlobalIPv4()
+}
+
 // getGlobalIPv4 returns the first public IPv4 address on any local
 // interface, excluding loopback/private/link-local ranges.
 func getGlobalIPv4() string {

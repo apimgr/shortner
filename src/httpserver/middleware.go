@@ -31,6 +31,7 @@ import (
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/geoip"
 	"github.com/apimgr/shortner/src/metrics"
+	"github.com/apimgr/shortner/src/notify"
 	"github.com/apimgr/shortner/src/security"
 )
 
@@ -59,6 +60,11 @@ type deps struct {
 	allowlist  *AllowlistLookup
 	blocks     *BlockStore
 	abuse      *AbuseDetector
+
+	// notifier raises the AI.md PART 17 `security_alert` email event when
+	// abuse detection blocks an IP. Nil-safe: every notify.Notifier method
+	// is inert on a nil receiver.
+	notifier *notify.Notifier
 }
 
 // setupMiddleware wraps handler with the full PART 12 chain, per AI.md

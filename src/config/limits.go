@@ -149,6 +149,7 @@ func Validate(cfg *Config) []string {
 		cfg.Server.APIVersion = v
 	}
 	warnings = append(warnings, validateSecurity(cfg, defaults)...)
+	warnings = append(warnings, validateNotifications(cfg, defaults)...)
 	warnings = append(warnings, validateWebHeaders(cfg, defaults)...)
 
 	return warnings

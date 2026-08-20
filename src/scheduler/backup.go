@@ -9,6 +9,7 @@ import (
 
 	"github.com/apimgr/shortner/src/backup"
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/notify"
 )
 
 // BackupDeps carries everything the AI.md PART 21 backup tasks need. Dir is
@@ -101,7 +102,7 @@ func (b BackupDeps) options(kind backup.Kind) backup.Options {
 // retention only once everything verified.
 func backupDailyTask(deps Deps) TaskFunc {
 	return func(ctx context.Context) error {
-		return runBackupCycle(deps.Backup)
+		return runBackupCycle(deps.Backup, deps.Notifier)
 	}
 }
 
@@ -123,7 +124,9 @@ func backupHourlyTask(deps Deps) TaskFunc {
 		opts.Base = newestManifest(b, files)
 		res, err := backup.Create(opts)
 		if err != nil {
-			backup.AuditFailure(b.Audit, backup.FileName(b.Prefix, backup.KindHourly, opts.Now, b.encrypt()), err)
+			name := backup.FileName(b.Prefix, backup.KindHourly, opts.Now, b.encrypt())
+			backup.AuditFailure(b.Audit, name, err)
+			notifyBackupFailed(deps.Notifier, name, err)
 			return fmt.Errorf("backup_hourly: %w", err)
 		}
 		backup.AuditDailyUpdated(b.Audit, res)
@@ -132,7 +135,7 @@ func backupHourlyTask(deps Deps) TaskFunc {
 }
 
 // runBackupCycle performs the AI.md PART 21 daily flow end to end.
-func runBackupCycle(b BackupDeps) error {
+func runBackupCycle(b BackupDeps, n *notify.Notifier) error {
 	if !b.configured() {
 		return nil
 	}
@@ -166,6 +169,7 @@ func runBackupCycle(b BackupDeps) error {
 		if errors.As(err, &full) {
 			backup.AuditSkippedDiskFull(b.Audit, full)
 		}
+		notifyBackupFailed(n, "", err)
 		return fmt.Errorf("backup_daily: %w", err)
 	}
 
@@ -173,17 +177,22 @@ func runBackupCycle(b BackupDeps) error {
 	fullOpts := b.options(backup.KindFull)
 	full, err := backup.Create(fullOpts)
 	if err != nil {
-		backup.AuditFailure(b.Audit, backup.FileName(b.Prefix, backup.KindFull, fullOpts.Now, b.encrypt()), err)
+		name := backup.FileName(b.Prefix, backup.KindFull, fullOpts.Now, b.encrypt())
+		backup.AuditFailure(b.Audit, name, err)
+		notifyBackupFailed(n, name, err)
 		return fmt.Errorf("backup_daily: %w", err)
 	}
 	backup.AuditCreated(b.Audit, full)
+	notifyBackupComplete(n, full)
 
 	// Steps 5-6: incremental against the full just written, verified too.
 	incOpts := b.options(backup.KindDaily)
 	incOpts.Base = &full.Manifest
 	inc, err := backup.Create(incOpts)
 	if err != nil {
-		backup.AuditFailure(b.Audit, backup.FileName(b.Prefix, backup.KindDaily, incOpts.Now, b.encrypt()), err)
+		name := backup.FileName(b.Prefix, backup.KindDaily, incOpts.Now, b.encrypt())
+		backup.AuditFailure(b.Audit, name, err)
+		notifyBackupFailed(n, name, err)
 		return fmt.Errorf("backup_daily: incremental: %w", err)
 	}
 	backup.AuditDailyUpdated(b.Audit, inc)

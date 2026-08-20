@@ -7,6 +7,8 @@
   (PART 18)
 - Skip GeoIP-based IP anonymization for click analytics (IDEA.md business
   logic requires anonymized IPs)
+- Queue email, retry it, or log "would have sent" when SMTP is missing —
+  PART 17 says no SMTP means email is simply off
 
 ## CRITICAL - ALWAYS DO
 - Built-in scheduler, GeoIP, metrics, email/notifications, backup, and
@@ -20,6 +22,8 @@
 | Cron | internal scheduler (PART 18), never external cron/systemd timers | PART 1, 18 |
 | GeoIP use | click-analytics IP anonymization | PART 19, IDEA.md |
 | Update mechanism | `--update` CLI flag path | PART 22 |
+| No SMTP | email completely disabled — no send, no queue, no "would have sent" log | PART 17 |
+| Email templates | embedded defaults, custom override in `{config_dir}/template/email/`, reset = delete the file | PART 17 |
 | Overlay health tasks | `tor_health` every 10m; `i2p_health` every 10m (only when I2P opt-in enabled) | PART 18, 31 |
 
 ## QUICK REFERENCE
@@ -68,7 +72,26 @@
   fires once per version). Deferred sub-items — the `update_available`
   email event (needs PART 17), download progress output, and the Windows
   reboot-cleanup notice — see `TODO.AI.md`.
-- PART 17 is NOT implemented yet — tracked in `TODO.AI.md`
+- PART 17 (Email & Notifications) is implemented: `src/notify/`
+  (`template.go` the `Subject:`/`---`/body wire format + `{variable}`
+  substitution, `events.go` all 12 events and their variable tables,
+  `store.go` custom `{config_dir}/template/email/` over embedded
+  `src/server/template/email/` defaults with live reload and
+  reset-by-deletion, `validate.go` errors/warnings + "Did you mean {x}?",
+  `detect.go` priority-ordered SMTP auto-detection with an EHLO handshake
+  test, `smtp.go` RFC 5322 messages over `net/smtp` + `crypto/tls`
+  (auto/starttls/tls/none), `notify.go` the nil-safe `Notifier`),
+  `config.ApplySMTPEnv` (`SMTP_*` overrides), `src/notifications.go`
+  (startup check + auto-detected server persisted), and `src/email_cli.go`
+  (`email test|list|preview|validate|reset`). Every event is wired to a
+  real call site: startup/shutdown, `security_alert` (abuse detection),
+  the PART 11 security-report emails, backup complete/failed,
+  `scheduler_error` (with PART 17's suppression rule), SSL expiring/
+  renewal-failed, and update available/installed. Deferred sub-items —
+  `ssl_renewed` has no in-process observer until PART 15's autocert
+  bridging lands, the PART 11 maintainer email uses inline AES armor
+  instead of a PGP MIME attachment, and Web-UI toasts are configured but
+  not rendered — see `TODO.AI.md`.
 
 ---
 For complete details, see AI.md PART 17, 18, 19, 20, 21, 22

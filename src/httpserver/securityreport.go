@@ -89,12 +89,13 @@ func (fd *frontendDeps) securityMode(r *http.Request) bool {
 
 // securityReportPost handles a security-mode contact submission: it
 // re-validates the id server-side, seals the report, allocates a tracking
-// id, and renders the canonical success message — AI.md PART 11
-// "Submission Flow" steps 1, 2, 3, 6 and 7.
+// id, notifies both parties, and renders the canonical success message —
+// AI.md PART 11 "Submission Flow" steps 1 through 7.
 //
-// Steps 4 and 5 (the PGP-encrypted maintainer and researcher emails) are
-// the CC path AI.md explicitly subordinates to this primary channel; they
-// wait on PART 17 (notifications/SMTP) and are tracked in TODO.AI.md.
+// Steps 4 and 5 are the email CC path AI.md subordinates to this primary
+// channel: they are attempted only when SMTP works (PART 17), and a
+// delivery failure never fails the submission — the report is already
+// sealed in the database at that point.
 func (fd *frontendDeps) securityReportPost(w http.ResponseWriter, r *http.Request) {
 	base := fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Report a vulnerability", fd.cfg.Server.SEO.Description)
 	data := securityContactPageData{
@@ -119,6 +120,9 @@ func (fd *frontendDeps) securityReportPost(w http.ResponseWriter, r *http.Reques
 		_ = renderPage(w, http.StatusInternalServerError, "contact_security", data)
 		return
 	}
+
+	// Steps 4 and 5: maintainer notification and researcher acknowledgment.
+	fd.notifySecurityReport(r, trackingID, data.Form)
 
 	// Step 7: metadata only — no researcher PII, no vulnerability content.
 	_ = fd.audit.Write(applog.Entry{

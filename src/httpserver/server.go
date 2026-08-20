@@ -19,6 +19,7 @@ import (
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/geoip"
 	"github.com/apimgr/shortner/src/metrics"
+	"github.com/apimgr/shortner/src/notify"
 	"github.com/apimgr/shortner/src/server"
 )
 
@@ -66,6 +67,12 @@ type Options struct {
 	// Tier 1 value: never logged, never rendered anywhere but as the HMAC
 	// input.
 	InstallSecret string
+	// Notifier delivers the AI.md PART 17 email events raised from the
+	// HTTP layer: the PART 11 security-report maintainer notification and
+	// researcher acknowledgment, and the PART 16 contact-form relay. Nil
+	// (no working SMTP) means nothing is ever sent — PART 17's "No SMTP =
+	// no emails" rule, with no queue and no "would have sent" log line.
+	Notifier *notify.Notifier
 }
 
 // New builds a Server ready for Start. Listen address is
@@ -96,6 +103,7 @@ func New(opts Options) *Server {
 		allowlist:   allowlist,
 		blocks:      blocks,
 		abuse:       NewAbuseDetector(cfg.Server.Security.AbuseDetection, cfg.Server.RateLimit.Read.Requests),
+		notifier:    opts.Notifier,
 	}
 
 	r := chi.NewRouter()
@@ -156,6 +164,7 @@ func New(opts Options) *Server {
 		installSecret: opts.InstallSecret,
 		audit:         opts.AuditLog,
 		configDir:     opts.ConfigDir,
+		notifier:      opts.Notifier,
 	}
 	fd.registerFrontendRoutes(r, hd, ld)
 

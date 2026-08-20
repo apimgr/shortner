@@ -7,6 +7,7 @@ import (
 
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/notify"
 	"github.com/apimgr/shortner/src/updater"
 )
 
@@ -79,7 +80,7 @@ func updateCheckTask(deps Deps) TaskFunc {
 		// new eligible version is first seen, never re-sent per run.
 		if state.NotifiedKey != release.Key() {
 			state.NotifiedKey = release.Key()
-			u.notify(release)
+			u.notify(deps.Notifier, release)
 		}
 		if err := updater.SaveState(u.StatePath, state); err != nil {
 			return fmt.Errorf("update_check: %w", err)
@@ -92,6 +93,12 @@ func updateCheckTask(deps Deps) TaskFunc {
 			return fmt.Errorf("update_check: %w", err)
 		}
 		u.log(applog.LevelWarn, fmt.Sprintf("update_check: installed %s, restarting", release.Version()))
+		// Sent before the restart, because the restart replaces this
+		// process and no code after it is guaranteed to run.
+		_ = deps.Notifier.Send(notify.EventUpdateInstalled, map[string]string{
+			"previous_version": u.CurrentVersion,
+			"new_version":      release.Version(),
+		})
 		if err := restart(); err != nil {
 			return fmt.Errorf("update_check: restart after update: %w", err)
 		}
@@ -99,13 +106,18 @@ func updateCheckTask(deps Deps) TaskFunc {
 	}
 }
 
-// notify emits the operator-only "update available" WARN line. The
-// matching `update_available` email event belongs to PART 17's
-// notification system (not built yet — see TODO.AI.md); nothing here ever
-// reaches a public endpoint, per PART 22's surfacing rules.
-func (u UpdateDeps) notify(release *updater.Release) {
+// notify emits the operator-only "update available" WARN line plus the
+// matching AI.md PART 17 `update_available` email event. Both channels are
+// operator-only — nothing here ever reaches a public endpoint, per PART
+// 22's surfacing rules.
+func (u UpdateDeps) notify(n *notify.Notifier, release *updater.Release) {
 	u.log(applog.LevelWarn, fmt.Sprintf("update_check: update available: %s -> %s (channel %s)",
 		u.CurrentVersion, release.Version(), u.Cfg.Branch))
+	_ = n.Send(notify.EventUpdateAvailable, map[string]string{
+		"current_version": u.CurrentVersion,
+		"new_version":     release.Version(),
+		"channel":         u.Cfg.Branch,
+	})
 }
 
 // log writes one line to the scheduler log, if one was provided.

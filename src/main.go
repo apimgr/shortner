@@ -26,6 +26,7 @@ import (
 	"github.com/apimgr/shortner/src/httpserver"
 	"github.com/apimgr/shortner/src/metrics"
 	"github.com/apimgr/shortner/src/mode"
+	"github.com/apimgr/shortner/src/notify"
 	"github.com/apimgr/shortner/src/paths"
 	"github.com/apimgr/shortner/src/scheduler"
 	"github.com/apimgr/shortner/src/signal"
@@ -170,6 +171,12 @@ func run(args []string) int {
 			includeData: *includeData,
 		})
 	}
+	// `email [COMMAND]` is a positional subcommand (AI.md PART 17 uses the
+	// literal form `{project_name} email test`), so it is dispatched from
+	// the leftover args rather than from a flag.
+	if a := fs.Args(); len(a) > 0 && a[0] == "email" {
+		return runEmail(binaryName, p, firstArg(a[1:]), firstArg(a[2:]))
+	}
 	if flagWasSet(fs, "update") {
 		return runUpdate(binaryName, p, *updateFlag, firstArg(fs.Args()))
 	}
@@ -254,6 +261,13 @@ func run(args []string) int {
 		cfg.Server.BaseURL = *baseURL
 	}
 
+	// AI.md PART 17 "Environment Variable Priority": SMTP_* env vars
+	// override the config file. Applied before the connection test so the
+	// server that gets tested is the one that will actually be used.
+	for _, warning := range config.ApplySMTPEnv(cfg) {
+		fmt.Fprintln(os.Stderr, binaryName+": warning: "+warning)
+	}
+
 	// GeoIP directory defaults to "{data_dir}/security/geoip" per AI.md
 	// PART 19 "Configuration" — config.Default can't derive this itself
 	// (it only receives a DB file path), so it's resolved here the same
@@ -332,12 +346,19 @@ func run(args []string) int {
 	}
 
 	fqdnHost := fqdn.GetFQDN(internalName)
-	sched, err := newBuiltinScheduler(cfg, sqlDB, schedulerLog, accessLog, p, fqdnHost, geoManager, auditLog)
+
+	// Email notifications (AI.md PART 17). Built before the scheduler and
+	// the HTTP server because both raise events through it.
+	notifier := newNotifier(cfg, p, fqdnHost)
+	startupNotifications(binaryName, notifier, cfg, p, fqdnHost, accessLog)
+
+	sched, err := newBuiltinScheduler(cfg, sqlDB, schedulerLog, accessLog, p, fqdnHost, geoManager, auditLog, notifier)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
 	sched.SetMetrics(appMetrics)
+	sched.SetNotifier(notifier)
 
 	// --scheduler is a PHASE 2-4-style subcommand (AI.md PART 18 "CLI
 	// Commands") that reuses server.db directly and never starts the HTTP
@@ -376,6 +397,7 @@ func run(args []string) int {
 		ConfigDir:     p.Config,
 		AuditLog:      auditLog,
 		InstallSecret: installSecret,
+		Notifier:      notifier,
 	})
 	// Shutdown hooks run in registration order, so they are registered in
 	// the order AI.md PART 8 "Graceful Shutdown Sequence" prescribes: stop
@@ -411,6 +433,10 @@ func run(args []string) int {
 	pidPath := p.PIDFile
 	signal.Register(func() { srv.Shutdown() })
 	signal.Register(func() { _ = sched.Stop() })
+	// AI.md PART 17 `shutdown` event: sent after the listener is closed and
+	// the scheduler is stopped, while the logs and SMTP connection are
+	// still usable.
+	signal.Register(func() { _ = notifier.Send(notify.EventShutdown, nil) })
 	signal.Register(func() { _ = geoManager.Close() })
 	signal.Register(func() { sqlDB.Close() })
 	signal.Register(func() { accessLog.Close() })
@@ -464,7 +490,7 @@ func buildTLSConfig(cfg *config.Config, configDir string) (*tls.Config, error) {
 // newBuiltinScheduler builds a scheduler.Scheduler with every AI.md
 // PART 18 "Built-in Tasks (Required)" registered, using cfg's per-task
 // schedule/enabled overrides. It does not start the scheduler.
-func newBuiltinScheduler(cfg *config.Config, sqlDB *sql.DB, schedulerLog, accessLog *applog.Logger, p paths.Paths, host string, geoManager *geoip.Manager, auditLog backup.Auditor) (*scheduler.Scheduler, error) {
+func newBuiltinScheduler(cfg *config.Config, sqlDB *sql.DB, schedulerLog, accessLog *applog.Logger, p paths.Paths, host string, geoManager *geoip.Manager, auditLog backup.Auditor, notifier *notify.Notifier) (*scheduler.Scheduler, error) {
 	sched, err := scheduler.New(sqlDB, schedulerLog, cfg.Server.Scheduler.Timezone, cfg.Server.Scheduler.CatchUpWindow)
 	if err != nil {
 		return nil, err
@@ -503,6 +529,9 @@ func newBuiltinScheduler(cfg *config.Config, sqlDB *sql.DB, schedulerLog, access
 			StatePath:      updater.StatePath(p.Data),
 			Log:            schedulerLog,
 		},
+		// AI.md PART 17: the tasks that own a failure/success email event
+		// raise it through this notifier.
+		Notifier: notifier,
 	}
 	ctx := context.Background()
 	for _, t := range scheduler.BuiltinTasks(cfg.Server.Scheduler, deps) {

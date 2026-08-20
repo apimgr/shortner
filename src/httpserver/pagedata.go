@@ -13,6 +13,7 @@ import (
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/common/sanitize"
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/notify"
 )
 
 // footerRepoURL is the {PLATFORM_REPO_URL} of the default application
@@ -85,6 +86,9 @@ type frontendDeps struct {
 	installSecret string
 	audit         *applog.AuditLogger
 	configDir     string
+	// notifier sends the AI.md PART 17 email events the frontend raises.
+	// Nil-safe: every notify.Notifier method is inert on a nil receiver.
+	notifier *notify.Notifier
 }
 
 // newPageData builds the common PageData for one request, using r's
