@@ -252,7 +252,7 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
   doc UI exists.
 - Home page (`/`) body layout should still be diffed against the prior
   Node.js app (`github.com/casjaydns/csj.lol`) reference assets in
-  `docs/reference/csjlol/` for final visual parity — the current
+  `reference/csjlol/` for final visual parity — the current
   `page/home.tmpl` was written to the Dracula/light CSS variables and the
   IDEA.md "Frontend design reference" description, but a pixel-level
   comparison against the reference has not been done.
@@ -410,11 +410,11 @@ Entirely unimplemented; new in the 2026-08-16 spec revision.
 
 ## Audit follow-ups (2026-08-19 compliance audit)
 
-- `docs/reference/csjlol/` (6 files) violates AI.md PART 3, which reserves
-  `docs/` for the ReadTheDocs documentation set only. It is referenced from
-  `IDEA.md:87`, so it is flagged rather than deleted — decide with the user
-  whether it moves to a non-`docs/` location (e.g. `reference/`) and update
-  the IDEA.md reference in the same change.
+- RESOLVED: `docs/reference/csjlol/` (6 files) violated AI.md PART 3, which
+  reserves `docs/` for the ReadTheDocs documentation set only. Moved to
+  top-level `reference/csjlol/`; `IDEA.md`'s "Frontend design reference"
+  section and this file's PART 16 home-page item were updated to the new
+  path.
   Read: AI.md PART 3, PART 29
 - `docs/` still has none of the required ReadTheDocs pages (index,
   installation, configuration, api, cli, security, integrations,

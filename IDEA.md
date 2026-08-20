@@ -84,7 +84,7 @@ and footer (attribution/links) follow the same structure, adapted to this
 project's actual routes and reserved names.
 
 Reference files saved for PART 16 implementation:
-`docs/reference/csjlol/{index.html,styles.css,app.js,config.js,nav.js,navBar.js}`.
+`reference/csjlol/{index.html,styles.css,app.js,config.js,nav.js,navBar.js}`.
 
 **Adapt, do not copy verbatim** — the reference app used Vue 2 loaded from
 `unpkg.com` CDN and Tailwind-generated `styles.css`. This project is a

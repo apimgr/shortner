@@ -22,6 +22,7 @@ tests/
 
 # Documentation (not needed in container)
 docs/
+reference/
 *.md
 
 # Build files (not needed - build happens inside Docker)
