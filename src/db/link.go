@@ -203,6 +203,48 @@ func IncrementClickCount(ctx context.Context, sqlDB *sql.DB, id int64) error {
 	return nil
 }
 
+// ListLinks returns a page of links ordered newest-first, together with the
+// total row count, per AI.md PART 14 "Pagination" (default 250 items) and
+// IDEA.md "Endpoints": "List all created links (public, paginated)." limit
+// and offset are the caller's responsibility to validate/clamp.
+func ListLinks(ctx context.Context, sqlDB *sql.DB, limit, offset int) ([]Link, int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	var total int64
+	if err := sqlDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM links`).Scan(&total); err != nil {
+		return nil, 0, HandleQueryError(err)
+	}
+
+	rows, err := sqlDB.QueryContext(ctx,
+		`SELECT id, short_code, destination_url, created_at, expires_at, click_count
+		 FROM links ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`, limit, offset)
+	if err != nil {
+		return nil, 0, HandleQueryError(err)
+	}
+	defer rows.Close()
+
+	links := make([]Link, 0, limit)
+	for rows.Next() {
+		var l Link
+		var createdAt int64
+		var expiresAt sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.ShortCode, &l.DestinationURL, &createdAt, &expiresAt, &l.ClickCount); err != nil {
+			return nil, 0, HandleQueryError(err)
+		}
+		l.CreatedAt = time.Unix(createdAt, 0).UTC()
+		if expiresAt.Valid {
+			t := time.Unix(expiresAt.Int64, 0).UTC()
+			l.ExpiresAt = &t
+		}
+		links = append(links, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, HandleQueryError(err)
+	}
+	return links, total, nil
+}
+
 func checkRowsAffected(res sql.Result, err error) error {
 	if err != nil {
 		return HandleQueryError(err)

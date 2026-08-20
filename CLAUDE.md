@@ -79,11 +79,12 @@
 ## Current Project State
 - Last read AI.md: 2026-08-19 (full compliance audit against the revised
   spec — commits 6e8b85d7c615 and 575f0957e6bd)
-- Current task: post-audit fixes — PART 13 health contract now carries
-  `features.i2p.*` and the canonical plain-text field order; PART 14 JSON
-  responses use 2-space indentation and the `{ok,data}` success envelope
-  everywhere; PART 31 is now "Overlay Networks (Tor & I2P)" with overlays
-  always served over `http://`
+- Current task: added the public "List" feature — `GET /list` (HTML page)
+  and `GET /api/{api_version}/links` (JSON/text, paginated per PART 14's
+  `{data, pagination}` shape) list every created link, newest first; nav
+  now reads Home/List/About/Help/Contact. IDEA.md's "Business logic"
+  restructured into PART 0's six required subsections (was previously
+  missing this structure and had an extra top-level section).
 - Relevant PARTs: 0-6, 12-16 done; 7-11, 17-32 tracked in TODO.AI.md
   (PART 15 has deferred sub-items — DNS-01 provider matrix, credential
   encryption at rest, autocert-to-spec-layout bridging; PART 16 has

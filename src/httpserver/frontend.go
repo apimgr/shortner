@@ -2,18 +2,19 @@
 // link-creation form, reusing the same business logic as the JSON
 // POST /api/{api_version}/links in links.go rather than duplicating it),
 // the standard /server/{about,privacy,contact,help,terms} pages, the
-// cookie-consent banner endpoint, the CCPA opt-out page, and the HTML
-// variants of /server/healthz and /{slug}/stats (both of which fall back
-// to their existing JSON/text handlers for non-browser clients via
-// detectClientType).
+// cookie-consent banner endpoint, the CCPA opt-out page, the public
+// paginated /list page, and the HTML variants of /server/healthz and
+// /{slug}/stats (both of which fall back to their existing JSON/text
+// handlers for non-browser clients via detectClientType).
 //
 // Nav-item decision: IDEA.md "Frontend design reference" describes a nav
 // with Home/List/Domains/About, "adapted to this project's actual routes
-// and reserved names". This project has no per-user link-listing UI and no
-// per-user custom domains (out of IDEA.md's business-logic scope), so the
-// nav here is Home/About/Help/Contact instead — see partial/public/nav.tmpl
-// and src/security/slug.go's reservedSlugs doc comment, which still
-// reserves "list" and "domains" in case those routes are added later.
+// and reserved names". Since every link is public (no accounts, no
+// per-owner scoping), "List" is a site-wide listing of all created links —
+// see listHTMLHandler and partial/public/nav.tmpl. "Domains" stays out of
+// the nav: there is no per-tenant custom-domain feature, and none is
+// planned (out of IDEA.md's business-logic scope), though
+// src/security/slug.go's reservedSlugs still reserves the name.
 package httpserver
 
 import (
@@ -60,6 +61,7 @@ func (fd *frontendDeps) registerFrontendRoutes(r chi.Router, hd *healthDeps, ld 
 	r.Post("/server/theme", fd.themeHandler)
 
 	r.Get("/server/healthz", fd.healthzHTMLHandler(hd))
+	r.Get("/list", fd.listHTMLHandler(ld))
 	r.Get("/{slug}", ld.resolveHandler)
 	r.Get("/{slug}/stats", fd.statsHTMLHandler(ld))
 }
@@ -492,5 +494,49 @@ func (fd *frontendDeps) statsHTMLHandler(ld *linkDeps) http.HandlerFunc {
 			Stats: resp,
 		}
 		_ = renderPage(w, http.StatusOK, "stats", data)
+	}
+}
+
+// listPageData is the data bound to page/list.tmpl.
+type listPageData struct {
+	Base       PageData
+	Links      []LinkResponse
+	Pagination paginationResponse
+	PrevPage   int
+	NextPage   int
+	HasPrev    bool
+	HasNext    bool
+}
+
+// listHTMLHandler renders the public, paginated "all created links" page at
+// GET /list, per IDEA.md "Endpoints": "List all created links (public,
+// paginated)" — every client type gets the same page, since this is a
+// browse page, not a resource with its own JSON/text representations
+// distinct from the JSON API's GET /api/{api_version}/links (which
+// non-browser clients should use directly).
+func (fd *frontendDeps) listHTMLHandler(ld *linkDeps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if detectClientType(r) != clientHTML {
+			ld.listLinksHandler(w, r)
+			return
+		}
+
+		page, limit := parsePagination(r)
+		resp, err := ld.buildListLinksResponse(r.Context(), r, page, limit)
+		if err != nil {
+			apperr.SendError(w, apperr.Wrap(apperr.CodeServerError, err))
+			return
+		}
+
+		data := listPageData{
+			Base:       fd.newPageData(r, requestCSRFToken(r, fd.cfg), "All Links", fd.cfg.Server.SEO.Description),
+			Links:      resp.Data,
+			Pagination: resp.Pagination,
+			PrevPage:   page - 1,
+			NextPage:   page + 1,
+			HasPrev:    page > 1,
+			HasNext:    page < resp.Pagination.Pages,
+		}
+		_ = renderPage(w, http.StatusOK, "list", data)
 	}
 }

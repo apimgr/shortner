@@ -360,3 +360,35 @@ func TestStatsHTMLHandler_FallsBackToJSONForAPIClients(t *testing.T) {
 		t.Errorf("Content-Type = %q, want application/json", ct)
 	}
 }
+
+func TestListHTMLHandler_RendersHTMLForBrowsers(t *testing.T) {
+	fd, ld := testFrontendDeps(t)
+	for i := 0; i < 2; i++ {
+		if _, err := db.CreateLinkAutoCode(context.Background(), ld.sqlDB, "https://example.com", nil); err != nil {
+			t.Fatalf("CreateLinkAutoCode: %v", err)
+		}
+	}
+	req := htmlRequest(http.MethodGet, "/list", nil)
+	rec := httptest.NewRecorder()
+	fd.listHTMLHandler(ld)(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "All Links") {
+		t.Errorf("expected HTML list page, got: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "example.com") {
+		t.Errorf("expected list page to include created link, got: %s", rec.Body.String())
+	}
+}
+
+func TestListHTMLHandler_FallsBackToJSONForAPIClients(t *testing.T) {
+	fd, ld := testFrontendDeps(t)
+	req := htmlRequest(http.MethodGet, "/list", nil)
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	fd.listHTMLHandler(ld)(rec, req)
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+}

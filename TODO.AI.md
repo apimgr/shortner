@@ -315,6 +315,11 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
 - Expand `tests/run_tests.sh` coverage as real packages/handlers are added;
   maintain the 60% coverage gate.
   Read: AI.md PART 28
+- `tests/run_tests.sh` lines 11-16 run a raw `docker run ... go test`
+  instead of invoking the Makefile's `test` target (found by the go-lint
+  agent) — bring it in line with `make test` so there is one source of
+  truth for the test invocation.
+  Read: AI.md PART 25, 28
 - `tests/incus.sh` currently only proves container lifecycle — add real
   systemd/service-install checks once PART 23/24 lands.
   Read: AI.md PART 28

@@ -80,12 +80,58 @@ func toLinkResponse(l *db.Link, shortURL string) LinkResponse {
 	return resp
 }
 
+// defaultPageLimit and maxPageLimit bound list-endpoint pagination, per
+// AI.md PART 14 "Pagination (default: 250 items)".
+const (
+	defaultPageLimit = 250
+	maxPageLimit     = 250
+)
+
+// paginationResponse is the canonical pagination metadata shape, per AI.md
+// PART 14 "Pagination".
+type paginationResponse struct {
+	Page  int   `json:"page"`
+	Limit int   `json:"limit"`
+	Total int64 `json:"total"`
+	Pages int   `json:"pages"`
+}
+
+// listLinksResponse is the "List Response" shape for GET /links, per AI.md
+// PART 14 "Pagination": a bare { "data": [...], "pagination": {...} } body,
+// not the {ok,data} action envelope.
+type listLinksResponse struct {
+	Data       []LinkResponse     `json:"data"`
+	Pagination paginationResponse `json:"pagination"`
+}
+
+// parsePagination reads ?page= and ?limit= from r, clamping to sane bounds
+// per AI.md PART 14 "Pagination (default: 250 items)": page defaults to 1
+// (minimum 1), limit defaults to defaultPageLimit (minimum 1, maximum
+// maxPageLimit). Malformed values fall back to the defaults rather than
+// erroring, matching the tolerant-query-param convention used elsewhere in
+// this package.
+func parsePagination(r *http.Request) (page, limit int) {
+	page = 1
+	if v, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && v > 0 {
+		page = v
+	}
+	limit = defaultPageLimit
+	if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v > 0 {
+		limit = v
+	}
+	if limit > maxPageLimit {
+		limit = maxPageLimit
+	}
+	return page, limit
+}
+
 // registerLinkAPIRoutes mounts the link resource under apiGroup, already
 // scoped to "/api/{api_version}", per AI.md PART 14 "Route Naming
 // Convention" (plural noun, versioned).
 func (ld *linkDeps) registerLinkAPIRoutes(apiGroup chi.Router) {
 	apiGroup.Route("/links", func(sr chi.Router) {
 		sr.Post("/", ld.createLinkHandler)
+		sr.Get("/", ld.listLinksHandler)
 		sr.Get("/{slug}", ld.getLinkHandler)
 		sr.Patch("/{slug}", ld.updateLinkHandler)
 		sr.Delete("/{slug}", ld.deleteLinkHandler)
@@ -242,6 +288,66 @@ func (ld *linkDeps) getLinkHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	apperr.WriteJSON(w, apperr.APIResponse{OK: true, Data: resp})
+}
+
+// buildListLinksResponse loads a page of links and shapes them into
+// listLinksResponse, shared by the JSON API handler and the HTML list page
+// (frontend.go's listHTMLHandler), per IDEA.md "Endpoints": "List all
+// created links (public, paginated)."
+func (ld *linkDeps) buildListLinksResponse(ctx context.Context, r *http.Request, page, limit int) (listLinksResponse, error) {
+	offset := (page - 1) * limit
+	links, total, err := db.ListLinks(ctx, ld.sqlDB, limit, offset)
+	if err != nil {
+		return listLinksResponse{}, err
+	}
+
+	items := make([]LinkResponse, 0, len(links))
+	for i := range links {
+		shortURL := ld.resolver.BuildURL(r, "/"+links[i].ShortCode)
+		items = append(items, toLinkResponse(&links[i], shortURL))
+	}
+
+	pages := int((total + int64(limit) - 1) / int64(limit))
+	if pages < 1 {
+		pages = 1
+	}
+	return listLinksResponse{
+		Data: items,
+		Pagination: paginationResponse{
+			Page:  page,
+			Limit: limit,
+			Total: total,
+			Pages: pages,
+		},
+	}, nil
+}
+
+// listLinksHandler serves GET /api/{api_version}/links — a public,
+// paginated listing of every created link, per IDEA.md "Endpoints" and
+// "Roles & permissions" (Anonymous: "may ... view any link's click-stats
+// page ... all without authentication" — listing is the same public-data
+// tier as a single link lookup, just aggregated).
+func (ld *linkDeps) listLinksHandler(w http.ResponseWriter, r *http.Request) {
+	page, limit := parsePagination(r)
+	resp, err := ld.buildListLinksResponse(r.Context(), r, page, limit)
+	if err != nil {
+		apperr.SendError(w, apperr.Wrap(apperr.CodeServerError, err))
+		return
+	}
+
+	if wantsText(r) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		for _, item := range resp.Data {
+			fmt.Fprintf(w, "short_code: %s\nshort_url: %s\ndestination_url: %s\nclick_count: %d\n\n",
+				item.ShortCode, item.ShortURL, item.DestinationURL, item.ClickCount)
+		}
+		fmt.Fprintf(w, "page: %d\nlimit: %d\ntotal: %d\npages: %d\n",
+			resp.Pagination.Page, resp.Pagination.Limit, resp.Pagination.Total, resp.Pagination.Pages)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	apperr.WriteJSON(w, resp)
 }
 
 // updateLinkRequest is the PATCH /links/{slug} body. ExpiresAt semantics:

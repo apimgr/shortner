@@ -229,6 +229,91 @@ func TestGetLinkHandler_NotFound(t *testing.T) {
 	}
 }
 
+func TestListLinksHandler(t *testing.T) {
+	ld, _ := testLinkDeps(t)
+	var slugs []string
+	for i := 0; i < 3; i++ {
+		slug, _ := createTestLink(t, ld)
+		slugs = append(slugs, slug)
+	}
+
+	req := newChiRequest(http.MethodGet, "/api/v1/links", nil, "")
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	ld.listLinksHandler(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp listLinksResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Data) != 3 {
+		t.Fatalf("len(data) = %d, want 3", len(resp.Data))
+	}
+	if resp.Pagination.Total != 3 {
+		t.Errorf("pagination.total = %d, want 3", resp.Pagination.Total)
+	}
+	if resp.Pagination.Page != 1 || resp.Pagination.Pages != 1 {
+		t.Errorf("pagination = %+v, want page=1 pages=1", resp.Pagination)
+	}
+	// Newest-first: the most recently created link is first.
+	if resp.Data[0].ShortCode != slugs[2] {
+		t.Errorf("data[0].short_code = %q, want %q (newest first)", resp.Data[0].ShortCode, slugs[2])
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "\n  \"data\": [") {
+		t.Errorf("body is not indented with 2 spaces per PART 14: %s", body)
+	}
+}
+
+func TestListLinksHandler_Pagination(t *testing.T) {
+	ld, _ := testLinkDeps(t)
+	for i := 0; i < 3; i++ {
+		createTestLink(t, ld)
+	}
+
+	req := newChiRequest(http.MethodGet, "/api/v1/links?page=2&limit=2", nil, "")
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	ld.listLinksHandler(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp listLinksResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("len(data) = %d, want 1", len(resp.Data))
+	}
+	if resp.Pagination.Page != 2 || resp.Pagination.Limit != 2 || resp.Pagination.Pages != 2 {
+		t.Errorf("pagination = %+v, want page=2 limit=2 pages=2", resp.Pagination)
+	}
+}
+
+func TestListLinksHandler_TextResponse(t *testing.T) {
+	ld, _ := testLinkDeps(t)
+	createTestLink(t, ld)
+
+	req := newChiRequest(http.MethodGet, "/api/v1/links", nil, "")
+	req.Header.Set("User-Agent", "curl/8.0")
+	rec := httptest.NewRecorder()
+	ld.listLinksHandler(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("Content-Type = %q, want text/plain prefix", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "short_code: ") {
+		t.Errorf("body missing short_code field: %s", rec.Body.String())
+	}
+}
+
 func TestUpdateLinkHandler_WithOwnerToken(t *testing.T) {
 	ld, _ := testLinkDeps(t)
 	slug, ownerToken := createTestLink(t, ld)

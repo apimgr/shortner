@@ -79,8 +79,12 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
     no proactive destination-URL blocklist/scanning is implemented (see below).
   - Resource owner token brute-force/hijack → `tok_` + 32 random base62 chars keyspace,
     SHA-256 hashed at rest, constant-time compare (PART 11).
-  - Short-code enumeration/scraping → 62^6 random keyspace for auto-generated codes; no
-    list-all-links endpoint exists (PART 14/16).
+  - Short-code enumeration/scraping → 62^6 random keyspace for auto-generated codes makes
+    guessing infeasible; a public, paginated list-all-links endpoint/page does exist
+    (`/list`, `GET /api/{api_version}/links` — see "Security decisions & exceptions"),
+    which is a faster enumeration path than guessing but an accepted trade-off, not an
+    oversight, since every link is public data by design (no accounts to scope
+    visibility to).
   - Visitor deanonymization via click data → IP anonymized before any write, the public
     stats page exposes only Tier 2/3 fields (never a raw visitor IP), and known bot/
     crawler user agents are excluded from click counts.
@@ -97,6 +101,12 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
 - Single fixed domain, no per-tenant custom domains — there is no user/owner entity to
   scope a custom domain to, so custom domains are out of scope entirely, not merely
   deferred.
+- A public, paginated listing of every created link (`/list` page, mirrored by
+  `GET /api/{api_version}/links`) is intentional, not an oversight: since there are no
+  accounts, every link is already public data (its stats page is reachable by anyone who
+  has or guesses the short code), so aggregating that same public data into a list adds
+  discoverability but no new information disclosure. No rate limit beyond the standard
+  read-rate limits (PART 9) is applied to list requests specifically.
 
 **Features:**
 - **URL shortening**: generate a short code (auto) or a custom slug on create
@@ -127,6 +137,8 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
   `/{slug}/stats`)
 - Update destination URL, expiration (owner token or operator token required)
 - Delete link (owner token or operator token required)
+- List all created links, paginated (public, anonymous) — `/list` page and
+  `GET /api/{api_version}/links`
 
 **Data sources:**
 - Database for links and clicks — see PART 10

@@ -236,6 +236,58 @@ func TestIncrementClickCount(t *testing.T) {
 	}
 }
 
+func TestListLinks(t *testing.T) {
+	sqlDB := openTestDB(t)
+	ctx := context.Background()
+
+	var created []*Link
+	for i := 0; i < 5; i++ {
+		link, err := CreateLinkAutoCode(ctx, sqlDB, "https://example.com/"+strconv.Itoa(i), nil)
+		if err != nil {
+			t.Fatalf("CreateLinkAutoCode() error = %v", err)
+		}
+		created = append(created, link)
+	}
+
+	links, total, err := ListLinks(ctx, sqlDB, 2, 0)
+	if err != nil {
+		t.Fatalf("ListLinks(limit=2, offset=0) error = %v", err)
+	}
+	if total != 5 {
+		t.Errorf("total = %d, want 5", total)
+	}
+	if len(links) != 2 {
+		t.Fatalf("len(links) = %d, want 2", len(links))
+	}
+	// Newest-first: the most recently created link (highest ID) comes back
+	// first.
+	if links[0].ID != created[4].ID {
+		t.Errorf("links[0].ID = %d, want %d (newest first)", links[0].ID, created[4].ID)
+	}
+	if links[1].ID != created[3].ID {
+		t.Errorf("links[1].ID = %d, want %d", links[1].ID, created[3].ID)
+	}
+
+	page2, total2, err := ListLinks(ctx, sqlDB, 2, 2)
+	if err != nil {
+		t.Fatalf("ListLinks(limit=2, offset=2) error = %v", err)
+	}
+	if total2 != 5 {
+		t.Errorf("total (page 2) = %d, want 5", total2)
+	}
+	if len(page2) != 2 || page2[0].ID != created[2].ID {
+		t.Fatalf("page 2 = %+v, want IDs [%d, %d]", page2, created[2].ID, created[1].ID)
+	}
+
+	empty, _, err := ListLinks(ctx, sqlDB, 10, 100)
+	if err != nil {
+		t.Fatalf("ListLinks(offset beyond total) error = %v", err)
+	}
+	if len(empty) != 0 {
+		t.Errorf("len(empty) = %d, want 0", len(empty))
+	}
+}
+
 func TestRecordClickAndList(t *testing.T) {
 	sqlDB := openTestDB(t)
 	ctx := context.Background()
