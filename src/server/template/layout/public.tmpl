@@ -1,8 +1,9 @@
 {{define "layout"}}<!DOCTYPE html>
-<html lang="en" class="theme-{{.Base.Theme}}">
+<html lang="{{.Base.Lang}}" dir="{{.Base.Dir}}" class="theme-{{.Base.Theme}}">
 {{template "head" .}}
 <body>
-<a href="#main-content" class="skip-link">Skip to main content</a>
+<a href="#main-content" class="skip-link">{{t .Base.Lang "a11y.skip_to_content"}}</a>
+<a href="#navigation" class="skip-link">{{t .Base.Lang "a11y.skip_to_navigation"}}</a>
 {{template "header" .}}
 {{template "nav" .}}
 <main id="main-content" class="container" tabindex="-1">
@@ -12,6 +13,7 @@
 {{template "cookie-consent" .}}
 {{template "consent-preferences-dialog" .}}
 {{template "toast-container" .}}
+{{template "live-region" .}}
 {{template "scripts" .}}
 </body>
 </html>

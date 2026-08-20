@@ -54,6 +54,7 @@ type Server struct {
 	Update         Update         `yaml:"update"`
 	Security       Security       `yaml:"security"`
 	Notifications  Notifications  `yaml:"notifications"`
+	I18N           I18N           `yaml:"i18n"`
 }
 
 // Update holds `server.update`, per AI.md PART 22 "Update Configuration".
@@ -755,6 +756,7 @@ func Default(dbPath string) *Config {
 			},
 			Security:      DefaultSecurity(),
 			Notifications: DefaultNotifications(),
+			I18N:          DefaultI18N(),
 			Privacy: Privacy{
 				Consent: PrivacyConsent{
 					Message: "We use essential cookies to make this site work. " +

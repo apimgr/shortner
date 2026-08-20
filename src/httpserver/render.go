@@ -31,24 +31,27 @@ func pageTemplate(name string) (*template.Template, error) {
 	pageTmplMu.Lock()
 	defer pageTmplMu.Unlock()
 
-	if t, ok := pageTmplCache[name]; ok {
-		return t, nil
+	if tmpl, ok := pageTmplCache[name]; ok {
+		return tmpl, nil
 	}
 
-	t := template.New("base")
+	// templateFuncs supplies the AI.md PART 30 translation functions (t, tf,
+	// tp); they must be registered before any parse so templates that call
+	// them resolve at parse time.
+	tmpl := template.New("base").Funcs(templateFuncs)
 	for _, pattern := range baseTemplateFiles {
 		var err error
-		t, err = t.ParseFS(server.TemplateFS, pattern)
+		tmpl, err = tmpl.ParseFS(server.TemplateFS, pattern)
 		if err != nil {
 			return nil, err
 		}
 	}
-	t, err := t.ParseFS(server.TemplateFS, "template/page/"+name+".tmpl")
+	tmpl, err := tmpl.ParseFS(server.TemplateFS, "template/page/"+name+".tmpl")
 	if err != nil {
 		return nil, err
 	}
-	pageTmplCache[name] = t
-	return t, nil
+	pageTmplCache[name] = tmpl
+	return tmpl, nil
 }
 
 // renderPage executes the "layout" template for page name with data into
@@ -58,12 +61,12 @@ func pageTemplate(name string) (*template.Template, error) {
 // defaults to text/html; charset UTF-8, matching every server-rendered
 // frontend response.
 func renderPage(w http.ResponseWriter, status int, name string, data any) error {
-	t, err := pageTemplate(name)
+	tmpl, err := pageTemplate(name)
 	if err != nil {
 		return err
 	}
 	var buf bytes.Buffer
-	if err := t.ExecuteTemplate(&buf, "layout", data); err != nil {
+	if err := tmpl.ExecuteTemplate(&buf, "layout", data); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

@@ -6,6 +6,65 @@
 (function () {
   "use strict";
 
+  // Translations for the handful of strings this file creates at runtime.
+  // The page is already fully rendered in the active language by the
+  // server; this catalog only covers text that does not exist in the
+  // markup. It is fetched from /locales/{lang}.json (AI.md PART 30) and
+  // every lookup carries the English fallback baked in below, so the UI
+  // stays correct before the fetch resolves and if it never does.
+  var strings = {};
+
+  function t(key, fallback) {
+    var value = strings[key];
+    return typeof value === "string" && value !== "" ? value : fallback;
+  }
+
+  function flattenLocale(tree, prefix, out) {
+    Object.keys(tree).forEach(function (key) {
+      var value = tree[key];
+      var path = prefix ? prefix + "." + key : key;
+      if (value && typeof value === "object") {
+        flattenLocale(value, path, out);
+      } else if (typeof value === "string") {
+        out[path] = value;
+      }
+    });
+  }
+
+  function loadLocale() {
+    var lang = document.documentElement.getAttribute("lang");
+    if (!lang || !window.fetch) {
+      return;
+    }
+    window
+      .fetch("/locales/" + encodeURIComponent(lang) + ".json", { credentials: "same-origin" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (tree) {
+        if (tree) {
+          flattenLocale(tree, "", strings);
+        }
+      })
+      .catch(function () {
+        /* the English fallbacks already in the code stay in effect */
+      });
+  }
+
+  // Announces a message to assistive technology through the polite live
+  // region rendered by every page layout. Screen readers read the new
+  // text without moving focus; sighted users are unaffected.
+  function announce(message) {
+    var region = document.getElementById("live-region");
+    if (!region) {
+      return;
+    }
+    region.textContent = "";
+    window.setTimeout(function () {
+      region.textContent = message;
+    }, 50);
+  }
+
   function showToast(message, kind) {
     var container = document.getElementById("toast-container");
     if (!container) {
@@ -129,9 +188,13 @@
     if (el.hasAttribute("data-copy")) {
       var value = el.getAttribute("data-copy");
       copyToClipboard(value).then(function () {
-        showToast("Copied to clipboard", "success");
+        var copied = t("a11y.copied_to_clipboard", "Copied to clipboard");
+        showToast(copied, "success");
+        announce(copied);
       }, function () {
-        showToast("Could not copy — please copy manually", "error");
+        var failed = t("a11y.copy_failed", "Could not copy — please copy manually");
+        showToast(failed, "error");
+        announce(failed);
       });
     }
   });
@@ -141,11 +204,28 @@
   // no display:none, no reveal script), so there is nothing for JS to show
   // or hide here — its forms POST to /server/consent and work without JS.
   document.addEventListener("DOMContentLoaded", function () {
+    loadLocale();
+
     // After a successful link creation (server-rendered success card),
     // offer a one-click copy of the new short URL.
     var successCopy = document.querySelector(".success-card [data-copy]");
     if (successCopy) {
       successCopy.focus({ preventScroll: true });
+    }
+
+    // The language selector is a plain GET form and already works without
+    // JavaScript via its submit button. With JavaScript, changing the
+    // selection submits immediately and the button is hidden as redundant.
+    var langForm = document.querySelector('[data-action="lang-form"]');
+    if (langForm) {
+      var langSelect = langForm.querySelector("select[name=\"lang\"]");
+      var langButton = langForm.querySelector("button[type=\"submit\"]");
+      if (langSelect && langButton) {
+        langButton.hidden = true;
+        langSelect.addEventListener("change", function () {
+          langForm.submit();
+        });
+      }
     }
   });
 })();

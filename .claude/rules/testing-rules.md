@@ -59,5 +59,23 @@
   clean inside `python:alpine` (zero warnings, so every nav entry and
   internal link resolves)
 
+- PART 30 (I18N & A11Y) is implemented for the server binary and Web UI:
+  `src/common/i18n/` is the single shared catalog (`go:embed
+  locales/*.json`, 7 languages, `Translate`/`TranslateFormat`/
+  `TranslatePlural`/`LangFromRequest`/`Direction`/`RawLocale`/
+  `CLILanguage`). Interpolation is LITERAL `{token}` replacement — never
+  `fmt.Sprintf`, so a stray `%` in a translation can never corrupt
+  output, and an unsupplied token stays visible. Plurals use CLDR
+  categories via `golang.org/x/text/feature/plural`, with an explicit
+  `zero` form preferred at count 0 when the catalog defines one.
+  `cmd/i18n-validate` + `make i18n-validate` enforce key-set, `{token}`,
+  and plural-category parity across all 7 files. Web language priority:
+  `?lang=` (sets the `lang` cookie) > cookie > `Accept-Language` >
+  server default. CLI priority: `--lang` > config `lang` (unless
+  `auto`) > `LC_ALL` > `LANG` > `en`. Email templates keep PART 17's own
+  `{variable}` mechanism and are NOT in this catalog — see `TODO.AI.md`
+  for that and the other deferred sub-items (client binary, subcommand
+  help text, Go `error` strings, PWA/Swagger/GraphQL/toast strings)
+
 ---
 For complete details, see AI.md PART 28, 29, 30

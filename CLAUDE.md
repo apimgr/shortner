@@ -83,7 +83,22 @@
   `daily.yml`, `docker.yml`; Gitea/Forgejo, GitLab CI, and Jenkins
   sections not read — this repo's only git provider is GitHub, confirmed
   via `git remote get-url origin`)
-- Current task: implemented PART 27 (CI/CD Workflows), GitHub Actions only
+- Current task: implemented PART 30 (I18N & A11Y) — `src/common/i18n/`
+  (embedded 7-language catalog, literal `{token}` interpolation, CLDR
+  plurals, request/CLI language resolution), `cmd/i18n-validate` + the
+  `i18n-validate` Makefile target, `src/httpserver/i18n.go`
+  (`LanguageMiddleware`, `t`/`tf`/`tp` template funcs,
+  `/locales/{lang}.json`), `src/config/i18n.go` (`server.i18n.*`),
+  `src/lang.go` + `--lang` on the server binary, 284 translation call
+  sites across 22 templates, RTL/`dir` support and the a11y pass
+  (skip links, landmarks, live regions, `.sr-only`, focus-visible,
+  44px targets). Verified in Docker: `gofmt -l .` clean, `go vet ./...`,
+  `go build ./...`, `go test ./... -cover` all pass;
+  `src/common/i18n` 74.7%, `src` 61.6%; `i18n-validate` reports
+  7 locales valid, 497 keys each. Deferred (client binary, subcommand
+  help text, Go `error` strings, email templates, PWA/Swagger/GraphQL/
+  toast strings) are logged in TODO.AI.md.
+- Previous task: implemented PART 27 (CI/CD Workflows), GitHub Actions only
   per the provider-detection rule — `.github/workflows/ci.yml` (`lint`,
   `secret-scan` with the before/after-SHA range logic, `workflow-policy`
   SHA-pin grep, `test` with the 60%-coverage gate, `build`, `vuln-scan`,

@@ -173,13 +173,13 @@ type createLinkRequest struct {
 func (ld *linkDeps) createLinkHandler(w http.ResponseWriter, r *http.Request) {
 	var req createLinkRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		apperr.SendError(w, apperr.New(apperr.CodeBadRequest))
+		sendError(w, r, apperr.New(apperr.CodeBadRequest))
 		return
 	}
 
 	destination, ok := validateDestinationURL(req.URL)
 	if !ok {
-		apperr.SendError(w, apperr.New(apperr.CodeValidationFailed).WithDetails(map[string]any{
+		sendError(w, r, apperr.New(apperr.CodeValidationFailed).WithDetails(map[string]any{
 			"field": "url", "rule": "format",
 		}))
 		return
@@ -189,7 +189,7 @@ func (ld *linkDeps) createLinkHandler(w http.ResponseWriter, r *http.Request) {
 	if req.ExpiresAt != nil && strings.TrimSpace(*req.ExpiresAt) != "" {
 		t, err := time.Parse(time.RFC3339, *req.ExpiresAt)
 		if err != nil {
-			apperr.SendError(w, apperr.New(apperr.CodeValidationFailed).WithDetails(map[string]any{
+			sendError(w, r, apperr.New(apperr.CodeValidationFailed).WithDetails(map[string]any{
 				"field": "expires_at", "rule": "rfc3339",
 			}))
 			return
@@ -203,31 +203,31 @@ func (ld *linkDeps) createLinkHandler(w http.ResponseWriter, r *http.Request) {
 
 	if slug := strings.TrimSpace(req.Slug); slug != "" {
 		if !security.ValidateSlugFormat(slug) {
-			apperr.SendError(w, apperr.New(apperr.CodeValidationFailed).WithDetails(map[string]any{
+			sendError(w, r, apperr.New(apperr.CodeValidationFailed).WithDetails(map[string]any{
 				"field": "slug", "rule": "format",
 			}))
 			return
 		}
 		if security.IsReservedSlug(slug) {
-			apperr.SendError(w, apperr.New(apperr.CodeConflict).WithMessage("Slug is reserved"))
+			sendError(w, r, apperr.New(apperr.CodeConflict).WithMessageKey("errors.slug_reserved", "Slug is reserved"))
 			return
 		}
 		link, err = db.CreateLinkCustomSlug(ctx, ld.sqlDB, slug, destination, expiresAt)
 		if errors.Is(err, db.ErrSlugTaken) {
-			apperr.SendError(w, apperr.New(apperr.CodeConflict).WithMessage("Slug already in use"))
+			sendError(w, r, apperr.New(apperr.CodeConflict).WithMessageKey("errors.slug_in_use", "Slug already in use"))
 			return
 		}
 	} else {
 		link, err = db.CreateLinkAutoCode(ctx, ld.sqlDB, destination, expiresAt)
 	}
 	if err != nil {
-		apperr.SendError(w, apperr.Wrap(apperr.CodeServerError, err))
+		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
 		return
 	}
 
 	raw, _, err := db.CreateResourceToken(ctx, ld.sqlDB, "link", strconv.FormatInt(link.ID, 10), nil)
 	if err != nil {
-		apperr.SendError(w, apperr.Wrap(apperr.CodeServerError, err))
+		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
 		return
 	}
 
@@ -279,7 +279,7 @@ func (ld *linkDeps) getLinkHandler(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
 	link, err := lookupLink(r.Context(), ld.sqlDB, slug)
 	if err != nil {
-		apperr.SendError(w, mapLookupErr(err))
+		sendError(w, r, mapLookupErr(err))
 		return
 	}
 
@@ -338,7 +338,7 @@ func (ld *linkDeps) listLinksHandler(w http.ResponseWriter, r *http.Request) {
 	page, limit := parsePagination(r)
 	resp, err := ld.buildListLinksResponse(r.Context(), r, page, limit)
 	if err != nil {
-		apperr.SendError(w, apperr.Wrap(apperr.CodeServerError, err))
+		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
 		return
 	}
 
@@ -369,18 +369,18 @@ func (ld *linkDeps) updateLinkHandler(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
 	link, err := lookupLink(r.Context(), ld.sqlDB, slug)
 	if err != nil {
-		apperr.SendError(w, mapLookupErr(err))
+		sendError(w, r, mapLookupErr(err))
 		return
 	}
 
 	if !ld.authorized(r, link.ID) {
-		apperr.SendError(w, apperr.New(apperr.CodeForbidden))
+		sendError(w, r, apperr.New(apperr.CodeForbidden))
 		return
 	}
 
 	var req updateLinkRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		apperr.SendError(w, apperr.New(apperr.CodeBadRequest))
+		sendError(w, r, apperr.New(apperr.CodeBadRequest))
 		return
 	}
 
@@ -388,7 +388,7 @@ func (ld *linkDeps) updateLinkHandler(w http.ResponseWriter, r *http.Request) {
 	if req.URL != nil {
 		d, ok := validateDestinationURL(*req.URL)
 		if !ok {
-			apperr.SendError(w, apperr.New(apperr.CodeValidationFailed).WithDetails(map[string]any{
+			sendError(w, r, apperr.New(apperr.CodeValidationFailed).WithDetails(map[string]any{
 				"field": "url", "rule": "format",
 			}))
 			return
@@ -404,7 +404,7 @@ func (ld *linkDeps) updateLinkHandler(w http.ResponseWriter, r *http.Request) {
 		} else {
 			t, err := time.Parse(time.RFC3339, *req.ExpiresAt)
 			if err != nil {
-				apperr.SendError(w, apperr.New(apperr.CodeValidationFailed).WithDetails(map[string]any{
+				sendError(w, r, apperr.New(apperr.CodeValidationFailed).WithDetails(map[string]any{
 					"field": "expires_at", "rule": "rfc3339",
 				}))
 				return
@@ -414,13 +414,13 @@ func (ld *linkDeps) updateLinkHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := db.UpdateLinkDestination(r.Context(), ld.sqlDB, link.ID, destination, expiresAt, clearExpiry); err != nil {
-		apperr.SendError(w, apperr.Wrap(apperr.CodeServerError, err))
+		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
 		return
 	}
 
 	updated, err := db.GetLinkByID(r.Context(), ld.sqlDB, link.ID)
 	if err != nil {
-		apperr.SendError(w, apperr.Wrap(apperr.CodeServerError, err))
+		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
 		return
 	}
 
@@ -436,17 +436,17 @@ func (ld *linkDeps) deleteLinkHandler(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
 	link, err := lookupLink(r.Context(), ld.sqlDB, slug)
 	if err != nil {
-		apperr.SendError(w, mapLookupErr(err))
+		sendError(w, r, mapLookupErr(err))
 		return
 	}
 
 	if !ld.authorized(r, link.ID) {
-		apperr.SendError(w, apperr.New(apperr.CodeForbidden))
+		sendError(w, r, apperr.New(apperr.CodeForbidden))
 		return
 	}
 
 	if err := db.DeleteLink(r.Context(), ld.sqlDB, link.ID); err != nil {
-		apperr.SendError(w, apperr.Wrap(apperr.CodeServerError, err))
+		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
 		return
 	}
 
@@ -491,11 +491,11 @@ func (ld *linkDeps) resolveHandler(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
 	link, err := lookupLink(r.Context(), ld.sqlDB, slug)
 	if err != nil {
-		apperr.SendError(w, mapLookupErr(err))
+		sendError(w, r, mapLookupErr(err))
 		return
 	}
 	if link.IsExpired() {
-		apperr.SendError(w, apperr.New(apperr.CodeGone))
+		sendError(w, r, apperr.New(apperr.CodeGone))
 		return
 	}
 
@@ -560,13 +560,13 @@ func (ld *linkDeps) statsHandler(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
 	link, err := lookupLink(r.Context(), ld.sqlDB, slug)
 	if err != nil {
-		apperr.SendError(w, mapLookupErr(err))
+		sendError(w, r, mapLookupErr(err))
 		return
 	}
 
 	clicks, err := db.ClicksForLink(r.Context(), ld.sqlDB, link.ID, statsMaxRows)
 	if err != nil {
-		apperr.SendError(w, apperr.Wrap(apperr.CodeServerError, err))
+		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
 		return
 	}
 

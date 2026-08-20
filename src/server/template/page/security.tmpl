@@ -1,40 +1,35 @@
-{{define "content"}}<article class="security-page">
-<h1>Security</h1>
+{{define "content"}}{{$lang := .Base.Lang}}<article class="security-page">
+<h1>{{t $lang "security.title"}}</h1>
 
-<p>If you have found a security issue in {{.Base.SiteName}}, we want to hear
-about it. Report it privately using one of the channels below — please do not
-open a public issue or post details anywhere until we have had a chance to
-fix it.</p>
+<p>{{tf $lang "security.intro" "site" .Base.SiteName}}</p>
 
-<h2>How to report</h2>
+<h2>{{t $lang "security.how_to_report"}}</h2>
 <ol class="security-contacts">
-{{if .ReportURL}}<li><strong>Private vulnerability report (preferred):</strong>
+{{if .ReportURL}}<li><strong>{{t $lang "security.private_report"}}</strong>
 <a href="{{.ReportURL}}" rel="noopener">{{.ReportURL}}</a></li>{{end}}
-{{if .ContactFormURL}}<li><strong>Security report form:</strong>
-<a href="{{.ContactFormURL}}">report a vulnerability on this site</a></li>{{end}}
-{{if .ContactEmail}}<li><strong>Email:</strong>
+{{if .ContactFormURL}}<li><strong>{{t $lang "security.report_form"}}</strong>
+<a href="{{.ContactFormURL}}">{{t $lang "security.report_form_link"}}</a></li>{{end}}
+{{if .ContactEmail}}<li><strong>{{t $lang "security.email"}}</strong>
 <a href="mailto:{{.ContactEmail}}">{{.ContactEmail}}</a></li>{{end}}
 </ol>
 
-<h2>What to include</h2>
-<p>A clear summary, the exact URL or endpoint affected, the steps needed to
-reproduce it, and what an attacker could achieve. If you have a suggested
-fix, include it — it makes crediting you easier.</p>
+<h2>{{t $lang "security.what_to_include"}}</h2>
+<p>{{t $lang "security.what_to_include_body"}}</p>
 
 {{if .HasPGPKey}}
-<h2>Encryption</h2>
-<p>Sensitive reports can be encrypted to our public key:
-<a href="{{.PGPKeyURL}}">{{.PGPKeyURL}}</a>{{if .Keyservers}}, also published
-to {{range $i, $k := .Keyservers}}{{if $i}}, {{end}}<a href="{{$k}}" rel="noopener">{{$k}}</a>{{end}}{{end}}.</p>
+<h2>{{t $lang "security.encryption"}}</h2>
+<p>{{t $lang "security.encryption_body"}}
+<a href="{{.PGPKeyURL}}">{{.PGPKeyURL}}</a>{{if .Keyservers}}, {{t $lang "security.also_published"}}
+{{range $i, $k := .Keyservers}}{{if $i}}, {{end}}<a href="{{$k}}" rel="noopener">{{$k}}</a>{{end}}{{end}}.</p>
 {{end}}
 
-<h2>Policy</h2>
-<p>Read our <a href="{{.PolicyURL}}">coordinated disclosure policy</a> before
-testing, and see the researchers we have
-<a href="{{.ThanksURL}}">credited</a>.</p>
+<h2>{{t $lang "security.policy_heading"}}</h2>
+<p>{{t $lang "security.policy_before"}} <a href="{{.PolicyURL}}">{{t $lang "security.policy_link"}}</a>
+{{t $lang "security.policy_after"}} {{t $lang "security.thanks_before"}}
+<a href="{{.ThanksURL}}">{{t $lang "security.thanks_link"}}</a>.</p>
 
-<h2>Machine-readable</h2>
-<p>This page mirrors <a href="{{.SecurityTxtURL}}">{{.SecurityTxtURL}}</a>
-(RFC 9116). That file expires {{.Expires}}.</p>
+<h2>{{t $lang "security.machine_readable"}}</h2>
+<p>{{t $lang "security.mirrors"}} <a href="{{.SecurityTxtURL}}">{{.SecurityTxtURL}}</a>
+{{tf $lang "security.rfc_note" "expires" .Expires}}</p>
 </article>
 {{end}}

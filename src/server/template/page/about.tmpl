@@ -1,32 +1,28 @@
 {{define "content"}}<article class="about-page">
-<h1>About {{.Base.SiteName}}</h1>
-<p>A self-hosted URL shortening service with an API and web interface. Anyone
-can shorten a URL anonymously (rate-limited); each created link gets a
-resource owner token for later management. Every link has a full
-click-analytics page, with anonymized IPs, so link owners can see traffic
-without exposing visitor identity.</p>
+<h1>{{tf .Base.Lang "about.title_named" "site" .Base.SiteName}}</h1>
+<p>{{t .Base.Lang "about.intro"}}</p>
 
-<h2>Who it's for</h2>
+<h2>{{t .Base.Lang "about.who_title"}}</h2>
 <ul>
-<li>Individuals and small teams wanting a self-hosted URL shortener</li>
-<li>Developers integrating link shortening via API + Bearer token</li>
-<li>Anyone sharing links who wants basic click analytics without a full account system</li>
+<li>{{t .Base.Lang "about.who_individuals"}}</li>
+<li>{{t .Base.Lang "about.who_developers"}}</li>
+<li>{{t .Base.Lang "about.who_sharers"}}</li>
 </ul>
 
-<h2>Features</h2>
+<h2>{{t .Base.Lang "about.features"}}</h2>
 <ul>
-<li><strong>URL shortening</strong> — generate a short code automatically, or choose a custom slug</li>
-<li><strong>Redirect</strong> — resolving a short link 302-redirects to the destination URL</li>
-<li><strong>Analytics</strong> — per-link click statistics: total clicks, referrers, a time series, and approximate location, with the visitor's IP anonymized before storage</li>
-<li><strong>Management</strong> — update the destination, set or clear an expiration, or delete a link using the owner token issued when it was created</li>
-<li><strong>No accounts</strong> — no signup, no password, no session; each link is its own resource, authorized by its own token</li>
+<li><strong>{{t .Base.Lang "about.feature_shortening"}}</strong> &mdash; {{t .Base.Lang "about.feature_shortening_desc"}}</li>
+<li><strong>{{t .Base.Lang "about.feature_redirect"}}</strong> &mdash; {{t .Base.Lang "about.feature_redirect_desc"}}</li>
+<li><strong>{{t .Base.Lang "about.feature_analytics"}}</strong> &mdash; {{t .Base.Lang "about.feature_analytics_desc"}}</li>
+<li><strong>{{t .Base.Lang "about.feature_management"}}</strong> &mdash; {{t .Base.Lang "about.feature_management_desc"}}</li>
+<li><strong>{{t .Base.Lang "about.feature_no_accounts"}}</strong> &mdash; {{t .Base.Lang "about.feature_no_accounts_desc"}}</li>
 </ul>
 
 {{if .AboutContent}}<div class="about-extra">{{.AboutContent}}</div>{{end}}
 
-<h2>GeoIP attribution</h2>
-<p>Approximate click-location data is provided by
-<a href="https://db-ip.com/">IP Geolocation by DB-IP</a>. Country and ASN
-data licensed CC BY 4.0 by the Number Resource Organization (NRO).</p>
+<h2>{{t .Base.Lang "about.geoip_title"}}</h2>
+<p>{{t .Base.Lang "about.geoip_before"}}
+<a href="https://db-ip.com/">{{t .Base.Lang "about.geoip_link"}}</a>.
+{{t .Base.Lang "about.geoip_after"}}</p>
 </article>
 {{end}}

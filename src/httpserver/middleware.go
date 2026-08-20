@@ -65,6 +65,10 @@ type deps struct {
 	// abuse detection blocks an IP. Nil-safe: every notify.Notifier method
 	// is inert on a nil receiver.
 	notifier *notify.Notifier
+
+	// i18n is the operator's `server.i18n` block, used by
+	// languageMiddleware to resolve every request's language.
+	i18n config.I18N
 }
 
 // setupMiddleware wraps handler with the full PART 12 chain, per AI.md
@@ -97,6 +101,10 @@ func (d *deps) setupMiddleware(handler http.Handler) http.Handler {
 	// CORS stays outermost so its headers are present on every response,
 	// including ones short-circuited by an earlier stage (429, 403).
 	handler = d.corsMiddleware(handler)
+	// Language resolution wraps the whole chain so even a request rejected
+	// by an early stage (blocklist, rate limit, GeoIP) gets its error
+	// message in the language it asked for.
+	handler = d.languageMiddleware(handler)
 	return handler
 }
 
@@ -203,7 +211,7 @@ func (d *deps) csrfMiddleware(next http.Handler) http.Handler {
 		cookie, err := r.Cookie(cookieName)
 		if err != nil || cookie.Value == "" {
 			d.logCSRFFailure(r, "missing cookie")
-			apperr.SendError(w, apperr.New(apperr.CodeCSRFFailed))
+			sendError(w, r, apperr.New(apperr.CodeCSRFFailed))
 			return
 		}
 
@@ -213,7 +221,7 @@ func (d *deps) csrfMiddleware(next http.Handler) http.Handler {
 		}
 		if submitted == "" || subtle.ConstantTimeCompare([]byte(submitted), []byte(cookie.Value)) != 1 {
 			d.logCSRFFailure(r, "token mismatch")
-			apperr.SendError(w, apperr.New(apperr.CodeCSRFFailed))
+			sendError(w, r, apperr.New(apperr.CodeCSRFFailed))
 			return
 		}
 
@@ -359,7 +367,7 @@ func pathSecurityMiddleware(next http.Handler) http.Handler {
 		if strings.Contains(original, "..") ||
 			strings.Contains(rawPath, "..") ||
 			strings.Contains(strings.ToLower(rawPath), "%2e") {
-			apperr.SendError(w, apperr.New(apperr.CodeBadRequest))
+			sendError(w, r, apperr.New(apperr.CodeBadRequest))
 			return
 		}
 
@@ -395,7 +403,7 @@ func (d *deps) rateLimitMiddleware(next http.Handler) http.Handler {
 				d.metrics.RateLimitBlockedTotal.WithLabelValues(class.String()).Inc()
 			}
 			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
-			apperr.SendError(w, apperr.New(apperr.CodeRateLimited))
+			sendError(w, r, apperr.New(apperr.CodeRateLimited))
 			return
 		}
 		if d.metrics != nil {
@@ -434,7 +442,7 @@ func (d *deps) geoIPMiddleware(next http.Handler) http.Handler {
 
 		result := d.geo.Lookup(ip)
 		if geoip.IsBlocked(result.CountryCode, d.geoCfg.DenyCountries, d.geoCfg.AllowCountries) {
-			apperr.SendError(w, apperr.New(apperr.CodeForbidden))
+			sendError(w, r, apperr.New(apperr.CodeForbidden))
 			return
 		}
 		next.ServeHTTP(w, r)

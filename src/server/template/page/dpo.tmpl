@@ -1,17 +1,16 @@
-{{define "content"}}<article class="dpo-page">
-<h1>Data Protection Officer</h1>
+{{define "content"}}{{$lang := .Base.Lang}}<article class="dpo-page">
+<h1>{{t $lang "dpo.title"}}</h1>
 
-<p>You can contact our Data Protection Officer about how {{.Base.SiteName}}
-collects, uses, and stores personal data, or to exercise your rights under
-applicable data-protection law.</p>
+<p>{{tf $lang "dpo.intro" "site" .Base.SiteName}}</p>
 
 <dl class="dpo-details">
-{{if .Name}}<dt>Name</dt><dd>{{.Name}}</dd>{{end}}
-{{if .Email}}<dt>Email</dt><dd><a href="mailto:{{.Email}}">{{.Email}}</a></dd>{{end}}
-{{if .Address}}<dt>Postal address</dt><dd>{{.Address}}</dd>{{end}}
+{{if .Name}}<dt>{{t $lang "dpo.name"}}</dt><dd>{{.Name}}</dd>{{end}}
+{{if .Email}}<dt>{{t $lang "dpo.email"}}</dt><dd><a href="mailto:{{.Email}}">{{.Email}}</a></dd>{{end}}
+{{if .Address}}<dt>{{t $lang "dpo.postal_address"}}</dt><dd>{{.Address}}</dd>{{end}}
 </dl>
 
-<p>See our <a href="/server/privacy">Privacy Policy</a> for what we collect
-and why.</p>
+<p>{{t $lang "dpo.see_privacy_before"}}
+<a href="/server/privacy">{{t $lang "dpo.privacy_policy_link"}}</a>
+{{t $lang "dpo.see_privacy_after"}}</p>
 </article>
 {{end}}

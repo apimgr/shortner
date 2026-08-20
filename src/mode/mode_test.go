@@ -104,13 +104,13 @@ func TestGetAppModeString(t *testing.T) {
 func TestBanner(t *testing.T) {
 	resetModeState()
 	SetAppMode("production")
-	if got := Banner(); !strings.Contains(got, "🔒") || !strings.Contains(got, "production") {
+	if got := Banner(""); !strings.Contains(got, "🔒") || !strings.Contains(got, "production") {
 		t.Errorf("Banner() = %q, want lock icon + production", got)
 	}
 
 	resetModeState()
 	SetAppMode("development")
-	if got := Banner(); !strings.Contains(got, "🔧") || !strings.Contains(got, "development") {
+	if got := Banner(""); !strings.Contains(got, "🔧") || !strings.Contains(got, "development") {
 		t.Errorf("Banner() = %q, want wrench icon + development", got)
 	}
 }

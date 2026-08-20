@@ -1,12 +1,12 @@
 {{define "content"}}<article class="healthz-page">
-<h1>Server Health</h1>
+<h1>{{t .Base.Lang "health.title"}}</h1>
 
 <div class="info-list">
-<div class="info-row"><span class="info-label">Status</span><span class="info-value badge badge-{{if eq .Health.Status "healthy"}}success{{else}}warning{{end}}">{{.Health.Status}}</span></div>
-<div class="info-row"><span class="info-label">Version</span><span class="info-value">{{.Health.Version}}</span></div>
-<div class="info-row"><span class="info-label">Uptime</span><span class="info-value">{{.Health.Uptime}}</span></div>
-<div class="info-row"><span class="info-label">Mode</span><span class="info-value">{{.Health.Mode}}</span></div>
-<div class="info-row"><span class="info-label">Go version</span><span class="info-value">{{.Health.GoVersion}}</span></div>
+<div class="info-row"><span class="info-label">{{t .Base.Lang "health.status"}}</span><span class="info-value badge badge-{{if eq .Health.Status "healthy"}}success{{else}}warning{{end}}">{{if eq .Health.Status "healthy"}}{{t .Base.Lang "health.healthy"}}{{else if eq .Health.Status "degraded"}}{{t .Base.Lang "health.degraded"}}{{else}}{{t .Base.Lang "health.unhealthy"}}{{end}}</span></div>
+<div class="info-row"><span class="info-label">{{t .Base.Lang "health.version"}}</span><span class="info-value">{{.Health.Version}}</span></div>
+<div class="info-row"><span class="info-label">{{t .Base.Lang "health.uptime"}}</span><span class="info-value">{{.Health.Uptime}}</span></div>
+<div class="info-row"><span class="info-label">{{t .Base.Lang "health.mode"}}</span><span class="info-value">{{if eq .Health.Mode "production"}}{{t .Base.Lang "health.production"}}{{else}}{{t .Base.Lang "health.development"}}{{end}}</span></div>
+<div class="info-row"><span class="info-label">{{t .Base.Lang "health.go_version"}}</span><span class="info-value">{{.Health.GoVersion}}</span></div>
 </div>
 </article>
 {{end}}

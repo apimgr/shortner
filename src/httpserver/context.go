@@ -17,6 +17,7 @@ const (
 	ctxKeyAllowlisted
 	ctxKeyOperator
 	ctxKeyGPCOptOut
+	ctxKeyLang
 )
 
 // RequestIDFromContext returns the request ID attached by RequestIDMiddleware,

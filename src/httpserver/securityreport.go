@@ -97,7 +97,7 @@ func (fd *frontendDeps) securityMode(r *http.Request) bool {
 // delivery failure never fails the submission — the report is already
 // sealed in the database at that point.
 func (fd *frontendDeps) securityReportPost(w http.ResponseWriter, r *http.Request) {
-	base := fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Report a vulnerability", fd.cfg.Server.SEO.Description)
+	base := fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security_report.title"), fd.cfg.Server.SEO.Description)
 	data := securityContactPageData{
 		Base:         base,
 		SecurityMode: true,
@@ -108,7 +108,7 @@ func (fd *frontendDeps) securityReportPost(w http.ResponseWriter, r *http.Reques
 		Form:         fd.readSecurityForm(r),
 	}
 
-	if msg := validateSecurityForm(data.Form); msg != "" {
+	if msg := validateSecurityForm(r, data.Form); msg != "" {
 		data.Error = msg
 		_ = renderPage(w, http.StatusBadRequest, "contact_security", data)
 		return
@@ -116,7 +116,7 @@ func (fd *frontendDeps) securityReportPost(w http.ResponseWriter, r *http.Reques
 
 	trackingID, err := fd.storeSecurityReport(r.Context(), data.Form)
 	if err != nil {
-		data.Error = "We could not store your report. Please email the security contact directly."
+		data.Error = t(r, "security_report.store_failed")
 		_ = renderPage(w, http.StatusInternalServerError, "contact_security", data)
 		return
 	}
@@ -186,22 +186,22 @@ func (fd *frontendDeps) readSecurityForm(r *http.Request) securityReportForm {
 // validateSecurityForm returns a visitor-facing message for the first
 // failed requirement, or "" when the submission is complete. Only the
 // fields AI.md marks Required are enforced.
-func validateSecurityForm(f securityReportForm) string {
+func validateSecurityForm(r *http.Request, f securityReportForm) string {
 	switch {
 	case f.Name == "" || f.Email == "":
-		return "Name and email are required so we can acknowledge your report."
+		return t(r, "security_report.validate_name_email")
 	case f.Component == "":
-		return "Please pick the affected component."
+		return t(r, "security_report.validate_component")
 	case !containsString(securitySeverities, f.Severity):
-		return "Please pick a severity."
+		return t(r, "security_report.validate_severity")
 	case f.Summary == "" || f.Steps == "" || f.Impact == "":
-		return "Summary, steps to reproduce, and impact are all required."
+		return t(r, "security_report.validate_summary")
 	case !containsString(securityCreditPrefs, f.CreditPref):
-		return "Please choose how you would like to be credited."
+		return t(r, "security_report.validate_credit")
 	case !f.AgreedDisclosure:
-		return "Please agree to coordinated disclosure before submitting."
+		return t(r, "security_report.validate_disclosure")
 	case f.Captcha != contactCaptchaAnswer:
-		return "That doesn't look right — try the math question again."
+		return t(r, "errors.captcha_failed")
 	}
 	return ""
 }

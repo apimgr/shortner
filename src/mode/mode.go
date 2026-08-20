@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/apimgr/shortner/src/common/color"
+	"github.com/apimgr/shortner/src/common/i18n"
 	"github.com/apimgr/shortner/src/config"
 )
 
@@ -122,16 +123,20 @@ func FromEnv() {
 	}
 }
 
-// Banner returns the console startup line for the current state. The
-// leading emoji is omitted when NO_COLOR or TERM=dumb is set, per AI.md
-// PART 8 "NO_COLOR Support".
-func Banner() string {
+// Banner returns the console startup line for the current state, in the
+// given output language (AI.md PART 30 — an empty or unsupported
+// language falls back to English). The leading emoji is omitted when
+// NO_COLOR or TERM=dumb is set, per AI.md PART 8 "NO_COLOR Support".
+func Banner(lang string) string {
+	line := i18n.TranslateFormat(lang, "cli.running_in_mode", map[string]string{
+		"app_mode": GetAppModeString(),
+	})
 	if !color.EmojiEnabled() {
-		return "Running in mode: " + GetAppModeString()
+		return line
 	}
 	icon := "🔒"
 	if currentMode == Development || currentMode == Debug {
 		icon = "🔧"
 	}
-	return icon + " Running in mode: " + GetAppModeString()
+	return icon + " " + line
 }

@@ -613,8 +613,55 @@ The remaining items below are environment limits, not unbuilt work.
   the client binary exists (it does not — `src/client` is a stub).
   Reconcile README.md against `docs/` now that PART 29 is written.
   Read: AI.md PART 29, PART 32
-- I18N string extraction and accessibility pass.
+- PART 30 (I18N & A11Y) is DONE for the server binary and the Web UI:
+  `src/common/i18n/` (embedded `locales/*.json` for all 7 spec languages,
+  `Translate`/`TranslateFormat`/`TranslatePlural`/`IsSupported`/
+  `LangFromRequest`/`SetLanguageCookie`/`Direction`/`RawLocale`/
+  `Languages`/`CLILanguage`), `cmd/i18n-validate` + the `i18n-validate`
+  Makefile target, `src/httpserver/i18n.go` (`LanguageMiddleware`, the
+  `t`/`tf`/`tp` FuncMap funcs, the `/locales/{lang}.json` route),
+  `src/config/i18n.go` (`server.i18n.*`), `src/lang.go` (the CLI output
+  language). 284 `t`/`tf`/`tp` call sites across 22 templates; RTL via
+  `dir` on `<html>` plus logical-property CSS; skip links, ARIA
+  landmarks, live regions, `.sr-only`, focus-visible and 44px touch
+  targets in the CSS.
   Read: AI.md PART 30
+- PART 30 deferred sub-item: client-binary i18n. `src/client` is a stub
+  and `shortner-cli` does not exist yet, so the client's `--lang` flag,
+  its help text, and its own catalog are not built. Do this as part of
+  PART 32, reusing `src/common/i18n` unchanged (it imports no project
+  package, so the client can embed the same catalog).
+  Read: AI.md PART 30, PART 32
+- PART 30 deferred sub-item: subcommand help text is still hardcoded
+  English. `src/service.go`, `src/update.go`, `src/email_cli.go`,
+  `src/backup_cli.go`, and `src/scheduler_cli.go` print their own
+  `--help`/usage blocks with literal strings; only `src/help.go`,
+  `src/status.go`, `src/mode`, and `src/common/banner` were converted to
+  `cli.*` keys. Extract the subcommand help into the catalog the same
+  way (`helpSection`/`helpEntry` in `src/help.go` is the pattern).
+  Read: AI.md PART 30, PART 8
+- PART 30 deferred sub-item: Go `error` values are not translated. Errors
+  returned from `src/db`, `src/backup`, `src/updater`, etc. cross package
+  boundaries with no request/language context, so they stay English;
+  only the user-facing HTTP error strings in `src/httpserver` were moved
+  to `errors.*` keys. Translating the rest needs a language-carrying
+  error type, which PART 30 does not specify.
+  Read: AI.md PART 30
+- PART 30 deferred sub-item: email templates are deliberately NOT part of
+  the i18n catalog. PART 17 gives `src/server/template/email/` its own
+  `Subject:`/`---` wire format with `{variable}` substitution and a
+  custom-override directory, and that system is already shipped;
+  multi-language email would need a per-language override directory
+  (`{config_dir}/template/email/{lang}/`) that PART 17 does not define.
+  Read: AI.md PART 30, PART 17
+- PART 30 sub-items with no strings to translate yet, because the feature
+  itself is deferred: PWA install/offline strings (no PWA), Swagger and
+  GraphQL doc-page strings (neither exists), announcements-banner and
+  Web-UI toast strings (rendered nowhere yet), and multi-user
+  roles/moderation/registration strings (this project has no user
+  accounts). No keys were fabricated for any of them; add the keys when
+  the feature lands.
+  Read: AI.md PART 30, PART 16
 
 ## PART 31: Overlay networks (Tor & I2P)
 

@@ -350,14 +350,14 @@ func (d *deps) blocklistMiddleware(next http.Handler) http.Handler {
 			// The response deliberately does not say the IP is blocked or
 			// for how long — that is Tier 1 detail under the Public
 			// Endpoint Safety Principle (AI.md PART 11).
-			apperr.SendError(w, apperr.New(apperr.CodeForbidden))
+			sendError(w, r, apperr.New(apperr.CodeForbidden))
 			return
 		}
 
 		if d.abuse.Record(ip, now) {
 			d.blocks.BlockTemporarily(ip, "request flood", d.abuse.BlockDuration(), now)
 			d.notifyAbuseBlock(ip, now)
-			apperr.SendError(w, apperr.New(apperr.CodeForbidden))
+			sendError(w, r, apperr.New(apperr.CodeForbidden))
 			return
 		}
 

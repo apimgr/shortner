@@ -1,18 +1,15 @@
-{{define "content"}}<article class="security-thanks-page">
-<h1>Security Acknowledgments</h1>
+{{define "content"}}{{$lang := .Base.Lang}}<article class="security-thanks-page">
+<h1>{{t $lang "security.acknowledgments_title"}}</h1>
 
 {{if .Thanks}}
-<p>Thank you to the researchers below, who reported issues responsibly and
-agreed to be credited.</p>
+<p>{{t $lang "security.thanks_intro"}}</p>
 <ul class="security-thanks-list">
 {{range .Thanks}}<li><strong>{{.Name}}</strong>{{if .Year}} &mdash; {{.Year}}{{end}}{{if .Credit}}: {{.Credit}}{{end}}</li>
 {{end}}</ul>
 {{else}}
-<p>No acknowledgments have been published yet. Researchers who report an
-issue and ask to be credited will be listed here once the issue is
-disclosed.</p>
+<p>{{t $lang "security.no_acknowledgments"}}</p>
 {{end}}
 
-<p><a href="/server/security">Back to security</a></p>
+<p><a href="/server/security">{{t $lang "security.back_to_security"}}</a></p>
 </article>
 {{end}}

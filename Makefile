@@ -56,7 +56,7 @@ GO_DOCKER_RUN := docker run --rm \
 	-e GOFLAGS=-buildvcs=false
 GO_DOCKER := $(GO_DOCKER_RUN) casjaysdev/go:latest
 
-.PHONY: build local release docker test dev clean
+.PHONY: build local release docker test dev clean i18n-validate
 
 # =============================================================================
 # BUILD - Build all platforms + local binary (via Docker with cached modules)
@@ -179,9 +179,17 @@ docker:
 	@echo "Docker build complete: $(REGISTRY):$(VERSION)"
 
 # =============================================================================
+# I18N-VALIDATE - Build-time translation check required by AI.md PART 30
+# =============================================================================
+i18n-validate:
+	@mkdir -p $(GO_CACHE) $(GO_BUILD)
+	@echo "Validating translation files..."
+	@$(GO_DOCKER) go run ./cmd/i18n-validate src/common/i18n/locales/
+
+# =============================================================================
 # TEST - Run all tests with coverage enforcement (via Docker)
 # =============================================================================
-test:
+test: i18n-validate
 	@mkdir -p $(GO_CACHE) $(GO_BUILD)
 	@echo "Running tests with coverage..."
 	@$(GO_DOCKER) sh -c " \

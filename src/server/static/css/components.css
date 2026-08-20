@@ -124,7 +124,7 @@
 
 @media (min-width: 768px) {
   .toast-container {
-    left: auto;
+    inset-inline-start: auto;
     width: 20rem;
   }
 }
@@ -139,11 +139,11 @@
 }
 
 .toast-success {
-  border-left: 4px solid var(--color-success);
+  border-inline-start: 4px solid var(--color-success);
 }
 
 .toast-error {
-  border-left: 4px solid var(--color-error);
+  border-inline-start: 4px solid var(--color-error);
 }
 
 .badge {
@@ -200,7 +200,7 @@
 
 .table-wrapper th,
 .table-wrapper td {
-  text-align: left;
+  text-align: start;
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--color-border);
   white-space: nowrap;
@@ -269,7 +269,7 @@
 @media (min-width: 768px) {
   .copy-btn .copy-text {
     display: inline;
-    margin-left: 0.375rem;
+    margin-inline-start: 0.375rem;
   }
 }
 

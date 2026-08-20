@@ -7,6 +7,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/apimgr/shortner/src/common/color"
 	"github.com/apimgr/shortner/src/common/pidfile"
@@ -32,10 +33,15 @@ func runStatus(binaryName string, p paths.Paths) int {
 
 	code := 1
 	if running {
-		fmt.Printf("%s%s is running (PID %d)\n", okIcon, binaryName, pid)
+		fmt.Println(okIcon + cliTF("cli.running_pid", map[string]string{
+			"project_name": binaryName,
+			"pid":          strconv.Itoa(pid),
+		}))
 		code = 0
 	} else {
-		fmt.Printf("%s%s is not running\n", failIcon, binaryName)
+		fmt.Println(failIcon + cliTF("cli.not_running", map[string]string{
+			"project_name": binaryName,
+		}))
 	}
 
 	printPendingUpdate(p)
@@ -52,7 +58,10 @@ func printPendingUpdate(p paths.Paths) {
 	if state.AvailableVersion == "" || state.AvailableVersion == version.String() {
 		return
 	}
-	fmt.Printf("Update available: %s -> %s (channel %s, checked %s)\n",
-		version.String(), state.AvailableVersion, state.Branch,
-		state.CheckedAt.Format("2006-01-02T15:04:05Z"))
+	fmt.Println(cliTF("cli.update_available", map[string]string{
+		"current": version.String(),
+		"latest":  state.AvailableVersion,
+		"channel": state.Branch,
+		"checked": state.CheckedAt.Format("2006-01-02T15:04:05Z"),
+	}))
 }

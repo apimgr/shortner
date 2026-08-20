@@ -104,6 +104,7 @@ func New(opts Options) *Server {
 		blocks:      blocks,
 		abuse:       NewAbuseDetector(cfg.Server.Security.AbuseDetection, cfg.Server.RateLimit.Read.Requests),
 		notifier:    opts.Notifier,
+		i18n:        cfg.Server.I18N,
 	}
 
 	r := chi.NewRouter()
@@ -170,8 +171,14 @@ func New(opts Options) *Server {
 
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(mustSubFS(server.StaticFS, "static")))))
 
+	// AI.md PART 30: the WebUI's JavaScript reads the same embedded locale
+	// files the server renders from, so a dynamic string never disagrees
+	// with a server-rendered one.
+	r.Get("/locales/{lang}.json", localesHandler)
+	r.Head("/locales/{lang}.json", localesHandler)
+
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
-		apperr.SendError(w, apperr.New(apperr.CodeNotFound))
+		sendError(w, req, apperr.New(apperr.CodeNotFound))
 	})
 
 	handler := d.setupMiddleware(r)

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/apimgr/shortner/src/applog"
+	"github.com/apimgr/shortner/src/common/i18n"
 	"github.com/apimgr/shortner/src/common/sanitize"
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/notify"
@@ -45,6 +46,16 @@ type PageData struct {
 	CurrentPath    string
 	CSRFToken      string
 	CSRFCookieName string
+
+	// Lang, Dir, and AvailableLanguages drive AI.md PART 30: the active
+	// language of every {{t .Base.Lang ...}} call, the <html dir> attribute
+	// taken from that locale's meta.direction, and the language selector's
+	// option list. I18NEnabled hides the selector entirely when the
+	// operator disabled language negotiation.
+	Lang               string
+	Dir                string
+	AvailableLanguages []i18n.Language
+	I18NEnabled        bool
 
 	FooterCustomHTML template.HTML
 	// TorOnionAddress is always empty until PART 31 (Tor) is implemented —
@@ -106,6 +117,8 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 		cookieName = "csrf_token"
 	}
 
+	lang := langFromContext(r)
+
 	currentPath := r.URL.Path
 	if r.URL.RawQuery != "" {
 		currentPath += "?" + r.URL.RawQuery
@@ -127,19 +140,24 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 		CSRFToken:      csrfToken,
 		CSRFCookieName: cookieName,
 
+		Lang:               lang,
+		Dir:                i18n.Direction(lang),
+		AvailableLanguages: i18n.LanguagesFor(cfg.Server.I18N.AvailableLanguages),
+		I18NEnabled:        cfg.Server.I18N.Enabled,
+
 		FooterCustomHTML: template.HTML(footerHTML),
 		TorOnionAddress:  "",
 
 		HasConsentCookie:             hasConsentCookie(r),
-		ConsentMessage:               cfg.Server.Privacy.GetConsentMessage(),
+		ConsentMessage:               defaultString(cfg.Server.Privacy.GetConsentMessage(), i18n.Translate(lang, "cookie_consent.message")),
 		ConsentPolicyURL:             cfg.Server.Privacy.Consent.Policy.URL,
-		ConsentPolicyText:            defaultString(cfg.Server.Privacy.Consent.Policy.Text, "Privacy Policy"),
-		ConsentPreferencesText:       defaultString(cfg.Server.Privacy.Consent.PreferencesText, "Cookie preferences"),
-		ConsentDeclineLabel:          defaultString(cfg.Server.Privacy.Consent.Buttons.Decline, "Decline"),
-		ConsentAcceptLabel:           defaultString(cfg.Server.Privacy.Consent.Buttons.Accept, "Accept"),
-		CookieEssentialDescription:   cfg.Server.Privacy.Cookies.Essential.Description,
-		CookiePreferencesDescription: cfg.Server.Privacy.Cookies.Preferences.Description,
-		CookieAnalyticsDescription:   cfg.Server.Privacy.Cookies.Analytics.Description,
+		ConsentPolicyText:            defaultString(cfg.Server.Privacy.Consent.Policy.Text, i18n.Translate(lang, "privacy.title")),
+		ConsentPreferencesText:       defaultString(cfg.Server.Privacy.Consent.PreferencesText, i18n.Translate(lang, "cookie_consent.manage_preferences")),
+		ConsentDeclineLabel:          defaultString(cfg.Server.Privacy.Consent.Buttons.Decline, i18n.Translate(lang, "cookie_consent.decline")),
+		ConsentAcceptLabel:           defaultString(cfg.Server.Privacy.Consent.Buttons.Accept, i18n.Translate(lang, "cookie_consent.accept")),
+		CookieEssentialDescription:   defaultString(cfg.Server.Privacy.Cookies.Essential.Description, i18n.Translate(lang, "cookie_consent.essential_description")),
+		CookiePreferencesDescription: defaultString(cfg.Server.Privacy.Cookies.Preferences.Description, i18n.Translate(lang, "cookie_consent.preference_description")),
+		CookieAnalyticsDescription:   defaultString(cfg.Server.Privacy.Cookies.Analytics.Description, i18n.Translate(lang, "cookie_consent.analytics_description")),
 		CCPAEnabled:                  cfg.Server.Privacy.Data.Sold,
 	}
 }

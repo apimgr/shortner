@@ -52,7 +52,7 @@ type securityPageData struct {
 func (fd *frontendDeps) securityHandler(w http.ResponseWriter, r *http.Request) {
 	sec := fd.cfg.Web.Security
 	data := securityPageData{
-		Base:           fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Security", fd.cfg.Server.SEO.Description),
+		Base:           fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security.title"), fd.cfg.Server.SEO.Description),
 		ReportURL:      sec.ReportURL,
 		ContactEmail:   fd.securityContactEmail(r),
 		Expires:        fd.securityExpires(),
@@ -91,7 +91,7 @@ func (fd *frontendDeps) securityPolicyHandler(w http.ResponseWriter, r *http.Req
 		}
 	}
 	data := securityPolicyPageData{
-		Base:       fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Disclosure Policy", fd.cfg.Server.SEO.Description),
+		Base:       fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security.disclosure_policy_title"), fd.cfg.Server.SEO.Description),
 		Paragraphs: paragraphs,
 	}
 	_ = renderPage(w, http.StatusOK, "security_policy", data)
@@ -108,7 +108,7 @@ type securityThanksPageData struct {
 // be credited simply has no entry.
 func (fd *frontendDeps) securityThanksHandler(w http.ResponseWriter, r *http.Request) {
 	data := securityThanksPageData{
-		Base:   fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Security Acknowledgments", fd.cfg.Server.SEO.Description),
+		Base:   fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security.acknowledgments_title"), fd.cfg.Server.SEO.Description),
 		Thanks: fd.cfg.Web.Security.Thanks,
 	}
 	_ = renderPage(w, http.StatusOK, "security_thanks", data)
@@ -128,12 +128,12 @@ type dpoPageData struct {
 // empty page, so a disabled standard advertises nothing.
 func (fd *frontendDeps) dpoHandler(w http.ResponseWriter, r *http.Request) {
 	if !fd.cfg.Server.Compliance.RequiresDPOContact() {
-		apperr.SendError(w, apperr.New(apperr.CodeNotFound))
+		sendError(w, r, apperr.New(apperr.CodeNotFound))
 		return
 	}
 	dpo := fd.cfg.Server.Contact.DPO
 	data := dpoPageData{
-		Base:    fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Data Protection Officer", fd.cfg.Server.SEO.Description),
+		Base:    fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "dpo.title"), fd.cfg.Server.SEO.Description),
 		Name:    dpo.Name,
 		Email:   dpo.Email,
 		Address: dpo.Address,

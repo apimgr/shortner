@@ -41,14 +41,14 @@ func (d *deps) secFetchMiddleware(next http.Handler) http.Handler {
 		hasToken := ExtractToken(r) != ""
 
 		if site := r.Header.Get("Sec-Fetch-Site"); site == "cross-site" && !hasToken && !isCSRFExempt(r.URL.Path) {
-			apperr.SendError(w, apperr.New(apperr.CodeForbidden))
+			sendError(w, r, apperr.New(apperr.CodeForbidden))
 			return
 		}
 
 		// GET/HEAD navigation to an API URL is allowed and never reaches
 		// here — only state-changers can be a form-based navigation CSRF.
 		if r.Header.Get("Sec-Fetch-Mode") == "navigate" && strings.HasPrefix(r.URL.Path, "/api/") {
-			apperr.SendError(w, apperr.New(apperr.CodeForbidden))
+			sendError(w, r, apperr.New(apperr.CodeForbidden))
 			return
 		}
 

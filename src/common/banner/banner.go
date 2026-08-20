@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/apimgr/shortner/src/common/display"
+	"github.com/apimgr/shortner/src/common/i18n"
 	"github.com/apimgr/shortner/src/common/terminal"
 )
 
@@ -18,6 +19,15 @@ type BannerConfig struct {
 	AppMode string
 	Debug   bool
 	URLs    []string
+	// Lang is the resolved output language (AI.md PART 30). An empty or
+	// unsupported value falls back to English, so a zero BannerConfig
+	// still prints a correct banner.
+	Lang string
+}
+
+// label returns a translated banner label in the banner's language.
+func label(cfg BannerConfig, key string) string {
+	return i18n.Translate(cfg.Lang, key)
 }
 
 // PrintStartupBanner prints the startup banner, choosing a renderer based
@@ -59,9 +69,9 @@ func printStartupBannerFull(cfg BannerConfig, size terminal.TerminalSize) {
 	if useBoxDrawing() {
 		fmt.Println("┌" + strings.Repeat("─", width) + "┐")
 		printBoxLine(width, fmt.Sprintf("%s %s", cfg.AppName, cfg.Version))
-		printBoxLine(width, fmt.Sprintf("Mode: %s", modeLabel(cfg)))
+		printBoxLine(width, label(cfg, "cli.mode_label")+": "+modeLabel(cfg))
 		for _, u := range cfg.URLs {
-			printBoxLine(width, "URL: "+u)
+			printBoxLine(width, label(cfg, "cli.url_label")+": "+u)
 		}
 		fmt.Println("└" + strings.Repeat("─", width) + "┘")
 		return
@@ -69,9 +79,9 @@ func printStartupBannerFull(cfg BannerConfig, size terminal.TerminalSize) {
 
 	fmt.Println("+" + strings.Repeat("-", width) + "+")
 	printBoxLine(width, fmt.Sprintf("%s %s", cfg.AppName, cfg.Version))
-	printBoxLine(width, fmt.Sprintf("Mode: %s", modeLabel(cfg)))
+	printBoxLine(width, label(cfg, "cli.mode_label")+": "+modeLabel(cfg))
 	for _, u := range cfg.URLs {
-		printBoxLine(width, "URL: "+u)
+		printBoxLine(width, label(cfg, "cli.url_label")+": "+u)
 	}
 	fmt.Println("+" + strings.Repeat("-", width) + "+")
 }
@@ -96,7 +106,7 @@ func printStartupBannerCompact(cfg BannerConfig) {
 	fmt.Println(rule)
 	fmt.Printf("%s %s (%s)\n", cfg.AppName, cfg.Version, modeLabel(cfg))
 	for _, u := range cfg.URLs {
-		fmt.Println("URL: " + u)
+		fmt.Println(label(cfg, "cli.url_label") + ": " + u)
 	}
 	fmt.Println(rule)
 }
@@ -105,7 +115,7 @@ func printStartupBannerCompact(cfg BannerConfig) {
 // borders, one line per fact.
 func printStartupBannerMinimal(cfg BannerConfig) {
 	fmt.Printf("%s %s\n", cfg.AppName, cfg.Version)
-	fmt.Println("Mode: " + modeLabel(cfg))
+	fmt.Println(label(cfg, "cli.mode_label") + ": " + modeLabel(cfg))
 	for _, u := range cfg.URLs {
 		fmt.Println(u)
 	}

@@ -65,7 +65,7 @@ func (wd *wellKnownDeps) registerWellKnownRoutes(r chi.Router) {
 func (wd *wellKnownDeps) wellKnownHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		apperr.SendError(w, apperr.New(apperr.CodeMethodNotAllowed))
+		sendError(w, r, apperr.New(apperr.CodeMethodNotAllowed))
 		return
 	}
 
@@ -73,11 +73,11 @@ func (wd *wellKnownDeps) wellKnownHandler(w http.ResponseWriter, r *http.Request
 	// The bare directory must not list an index, and a nested path under
 	// a flat entry is not a different resource — both are 404.
 	if entry == "" || strings.Contains(entry, "/") {
-		apperr.SendError(w, apperr.New(apperr.CodeNotFound))
+		sendError(w, r, apperr.New(apperr.CodeNotFound))
 		return
 	}
 	if !wellKnownEnabled(wd.cfg, entry) {
-		apperr.SendError(w, apperr.New(apperr.CodeNotFound))
+		sendError(w, r, apperr.New(apperr.CodeNotFound))
 		return
 	}
 
@@ -152,7 +152,7 @@ func wellKnownContentType(entry string) string {
 func (wd *wellKnownDeps) serveFileBacked(w http.ResponseWriter, r *http.Request, entry string) {
 	body, err := os.ReadFile(filepath.Join(wd.dataDir, "web", ".well-known", entry))
 	if err != nil {
-		apperr.SendError(w, apperr.New(apperr.CodeNotFound))
+		sendError(w, r, apperr.New(apperr.CodeNotFound))
 		return
 	}
 	w.Header().Set("Content-Type", wellKnownContentType(entry))
@@ -170,7 +170,7 @@ func (wd *wellKnownDeps) serveFileBacked(w http.ResponseWriter, r *http.Request,
 func (wd *wellKnownDeps) pgpKeyHandler(w http.ResponseWriter, r *http.Request) {
 	body, err := os.ReadFile(wd.pgpPublicKeyPath())
 	if err != nil {
-		apperr.SendError(w, apperr.New(apperr.CodeNotFound))
+		sendError(w, r, apperr.New(apperr.CodeNotFound))
 		return
 	}
 	w.Header().Set("Content-Type", "application/pgp-keys")
@@ -213,7 +213,7 @@ func writeText(w http.ResponseWriter, r *http.Request, body string) {
 func (wd *wellKnownDeps) robotsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		apperr.SendError(w, apperr.New(apperr.CodeMethodNotAllowed))
+		sendError(w, r, apperr.New(apperr.CodeMethodNotAllowed))
 		return
 	}
 
@@ -294,11 +294,11 @@ func (wd *wellKnownDeps) securityContact(r *http.Request) string {
 func (wd *wellKnownDeps) llmsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		apperr.SendError(w, apperr.New(apperr.CodeMethodNotAllowed))
+		sendError(w, r, apperr.New(apperr.CodeMethodNotAllowed))
 		return
 	}
 	if !wd.cfg.Web.LLMs.Enabled {
-		apperr.SendError(w, apperr.New(apperr.CodeNotFound))
+		sendError(w, r, apperr.New(apperr.CodeNotFound))
 		return
 	}
 	writeText(w, r, wd.llmsTxt(r))

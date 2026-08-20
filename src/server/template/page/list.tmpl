@@ -1,13 +1,11 @@
-{{define "content"}}<article class="list-page">
-<h1>All Links</h1>
-<p>Every link created on {{.Base.SiteName}} is public — there are no
-accounts, so any short link's destination and click count are visible to
-anyone who knows or finds its code.</p>
+{{define "content"}}{{$lang := .Base.Lang}}<article class="list-page">
+<h1>{{t .Base.Lang "list.title"}}</h1>
+<p>{{tf .Base.Lang "list.intro" "site" .Base.SiteName}}</p>
 
 {{if .Links}}
 <div class="table-wrapper">
 <table>
-<thead><tr><th>Short link</th><th>Destination</th><th>Clicks</th><th>Created</th></tr></thead>
+<thead><tr><th>{{t .Base.Lang "list.column_slug"}}</th><th>{{t .Base.Lang "list.column_target"}}</th><th>{{t .Base.Lang "list.column_clicks"}}</th><th>{{t .Base.Lang "list.column_created"}}</th></tr></thead>
 <tbody>
 {{range .Links}}
 <tr>
@@ -20,12 +18,12 @@ anyone who knows or finds its code.</p>
 </tbody>
 </table>
 </div>
-{{else}}<p>No links have been created yet.</p>{{end}}
+{{else}}<p>{{t .Base.Lang "list.empty"}}</p>{{end}}
 
-<nav class="pagination" aria-label="Pagination">
-{{if .HasPrev}}<a class="btn btn-secondary" href="/list?page={{.PrevPage}}">&laquo; Previous</a>{{end}}
-<span>Page {{.Pagination.Page}} of {{.Pagination.Pages}}</span>
-{{if .HasNext}}<a class="btn btn-secondary" href="/list?page={{.NextPage}}">Next &raquo;</a>{{end}}
+<nav class="pagination" aria-label="{{t $lang "list.pagination"}}">
+{{if .HasPrev}}<a class="btn btn-secondary" href="/list?page={{.PrevPage}}">&laquo; {{t $lang "common.previous"}}</a>{{end}}
+<span>{{tf $lang "common.page_x_of_y" "current" .Pagination.Page "total" .Pagination.Pages}}</span>
+{{if .HasNext}}<a class="btn btn-secondary" href="/list?page={{.NextPage}}">{{t $lang "common.next"}} &raquo;</a>{{end}}
 </nav>
 </article>
 {{end}}

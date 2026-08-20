@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -81,6 +82,10 @@ type AppError struct {
 	Details    map[string]any
 	HTTPStatus int
 	RequestID  string
+	// MessageKey is the AI.md PART 30 translation key for Message. It is
+	// set only when a handler supplies a non-canonical message; an empty
+	// value means the canonical "errors.{code}" key applies.
+	MessageKey string
 	// Internal is never sent to the client — logged only.
 	Internal error
 }
@@ -121,6 +126,27 @@ func (e *AppError) WithMessage(msg string) *AppError {
 	clone := *e
 	clone.Message = msg
 	return &clone
+}
+
+// WithMessageKey returns a copy of e whose client-facing message is the
+// AI.md PART 30 translation key key, with fallback as the English text
+// used by any caller that has no request language (CLI paths, logs).
+func (e *AppError) WithMessageKey(key, fallback string) *AppError {
+	clone := *e
+	clone.MessageKey = key
+	clone.Message = fallback
+	return &clone
+}
+
+// TranslationKey returns the translation key for e's client-facing
+// message: the explicit MessageKey when one was set, otherwise the
+// canonical "errors.{lowercased_code}" key from AI.md PART 30
+// "API Response Translation".
+func (e *AppError) TranslationKey() string {
+	if e.MessageKey != "" {
+		return e.MessageKey
+	}
+	return "errors." + strings.ToLower(string(e.Code))
 }
 
 // WithDetails returns a copy of e with Details set.

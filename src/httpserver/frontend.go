@@ -92,7 +92,7 @@ func (fd *frontendDeps) homeHandler(w http.ResponseWriter, r *http.Request) {
 		fd.homePost(w, r)
 		return
 	}
-	data := homePageData{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Shorten a URL", fd.cfg.Server.SEO.Description)}
+	data := homePageData{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "home.title"), fd.cfg.Server.SEO.Description)}
 	_ = renderPage(w, http.StatusOK, "home", data)
 }
 
@@ -102,7 +102,7 @@ func (fd *frontendDeps) homeHandler(w http.ResponseWriter, r *http.Request) {
 // business logic.
 func (fd *frontendDeps) homePost(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		fd.homeError(w, r, "Could not read form submission.", "", "", http.StatusBadRequest)
+		fd.homeError(w, r, t(r, "errors.form_read_failed"), "", "", http.StatusBadRequest)
 		return
 	}
 
@@ -111,7 +111,7 @@ func (fd *frontendDeps) homePost(w http.ResponseWriter, r *http.Request) {
 
 	destination, ok := validateDestinationURL(destInput)
 	if !ok {
-		fd.homeError(w, r, "Enter a valid http(s) URL.", destInput, slugInput, http.StatusBadRequest)
+		fd.homeError(w, r, t(r, "errors.invalid_url"), destInput, slugInput, http.StatusBadRequest)
 		return
 	}
 
@@ -121,35 +121,35 @@ func (fd *frontendDeps) homePost(w http.ResponseWriter, r *http.Request) {
 
 	if slugInput != "" {
 		if !security.ValidateSlugFormat(slugInput) {
-			fd.homeError(w, r, "Custom slug must be 3-20 characters: letters, numbers, hyphens.", destInput, slugInput, http.StatusBadRequest)
+			fd.homeError(w, r, t(r, "errors.slug_format"), destInput, slugInput, http.StatusBadRequest)
 			return
 		}
 		if security.IsReservedSlug(slugInput) {
-			fd.homeError(w, r, "That slug is reserved — choose another.", destInput, slugInput, http.StatusConflict)
+			fd.homeError(w, r, t(r, "errors.slug_reserved"), destInput, slugInput, http.StatusConflict)
 			return
 		}
 		link, err = db.CreateLinkCustomSlug(ctx, fd.ld.sqlDB, slugInput, destination, nil)
 		if errors.Is(err, db.ErrSlugTaken) {
-			fd.homeError(w, r, "That slug is already in use — choose another.", destInput, slugInput, http.StatusConflict)
+			fd.homeError(w, r, t(r, "errors.slug_in_use"), destInput, slugInput, http.StatusConflict)
 			return
 		}
 	} else {
 		link, err = db.CreateLinkAutoCode(ctx, fd.ld.sqlDB, destination, nil)
 	}
 	if err != nil {
-		fd.homeError(w, r, "Something went wrong creating your link. Try again.", destInput, slugInput, http.StatusInternalServerError)
+		fd.homeError(w, r, t(r, "errors.link_create_failed"), destInput, slugInput, http.StatusInternalServerError)
 		return
 	}
 
 	raw, _, err := db.CreateResourceToken(ctx, fd.ld.sqlDB, "link", strconv.FormatInt(link.ID, 10), nil)
 	if err != nil {
-		fd.homeError(w, r, "Something went wrong creating your link. Try again.", destInput, slugInput, http.StatusInternalServerError)
+		fd.homeError(w, r, t(r, "errors.link_create_failed"), destInput, slugInput, http.StatusInternalServerError)
 		return
 	}
 
 	shortURL := fd.ld.resolver.BuildURL(r, "/"+link.ShortCode)
 	data := homePageData{
-		Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Shorten a URL", fd.cfg.Server.SEO.Description),
+		Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "home.title"), fd.cfg.Server.SEO.Description),
 		Link: &homeLinkResult{ShortURL: shortURL, OwnerToken: raw},
 	}
 	_ = renderPage(w, http.StatusCreated, "home", data)
@@ -157,7 +157,7 @@ func (fd *frontendDeps) homePost(w http.ResponseWriter, r *http.Request) {
 
 func (fd *frontendDeps) homeError(w http.ResponseWriter, r *http.Request, msg, dest, slug string, status int) {
 	data := homePageData{
-		Base:        fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Shorten a URL", fd.cfg.Server.SEO.Description),
+		Base:        fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "home.title"), fd.cfg.Server.SEO.Description),
 		Error:       msg,
 		Destination: dest,
 		CustomSlug:  slug,
@@ -176,7 +176,7 @@ type aboutPageData struct {
 
 func (fd *frontendDeps) aboutHandler(w http.ResponseWriter, r *http.Request) {
 	data := aboutPageData{
-		Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), "About", fd.cfg.Server.SEO.Description),
+		Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "about.title"), fd.cfg.Server.SEO.Description),
 		AboutContent: template.HTML(sanitize.SanitizeFooterHTML(fd.cfg.Pages.About.Content)),
 	}
 	_ = renderPage(w, http.StatusOK, "about", data)
@@ -190,7 +190,7 @@ type helpPageData struct {
 
 func (fd *frontendDeps) helpHandler(w http.ResponseWriter, r *http.Request) {
 	data := helpPageData{
-		Base:        fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Help", fd.cfg.Server.SEO.Description),
+		Base:        fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "help.title"), fd.cfg.Server.SEO.Description),
 		HelpContent: template.HTML(sanitize.SanitizeFooterHTML(fd.cfg.Pages.Help.Content)),
 	}
 	_ = renderPage(w, http.StatusOK, "help", data)
@@ -209,7 +209,7 @@ func (fd *frontendDeps) termsHandler(w http.ResponseWriter, r *http.Request) {
 		content = template.HTML(sanitize.SanitizeFooterHTML(custom))
 	}
 	data := termsPageData{
-		Base:    fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Terms of Service", fd.cfg.Server.SEO.Description),
+		Base:    fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "terms.title"), fd.cfg.Server.SEO.Description),
 		Content: content,
 	}
 	_ = renderPage(w, http.StatusOK, "terms", data)
@@ -247,7 +247,7 @@ func (fd *frontendDeps) privacyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := privacyPageData{
-		Base:    fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Privacy Policy", fd.cfg.Server.SEO.Description),
+		Base:    fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "privacy.title"), fd.cfg.Server.SEO.Description),
 		Content: content,
 
 		DataCollection: priv.Content.DataCollection,
@@ -312,7 +312,7 @@ func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		data := securityContactPageData{
-			Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Report a vulnerability", fd.cfg.Server.SEO.Description),
+			Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security_report.title"), fd.cfg.Server.SEO.Description),
 			SecurityMode: true,
 			SecurityID:   r.FormValue("security_id"),
 			Severities:   securitySeverities,
@@ -328,7 +328,7 @@ func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := contactPageData{
-		Base:       fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Contact", fd.cfg.Server.SEO.Description),
+		Base:       fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "contact.title"), fd.cfg.Server.SEO.Description),
 		Enabled:    fd.cfg.Pages.Contact.Enabled,
 		AbuseEmail: fd.cfg.Server.Contact.Abuse.Email,
 	}
@@ -340,7 +340,7 @@ func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
 // notifier; per that PART's SMTP Requirement the relay is best-effort, so
 // the visitor is shown success either way and nothing is ever queued.
 func (fd *frontendDeps) contactPost(w http.ResponseWriter, r *http.Request) {
-	base := fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Contact", fd.cfg.Server.SEO.Description)
+	base := fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "contact.title"), fd.cfg.Server.SEO.Description)
 	abuseEmail := fd.cfg.Server.Contact.Abuse.Email
 
 	if !fd.cfg.Pages.Contact.Enabled {
@@ -350,7 +350,7 @@ func (fd *frontendDeps) contactPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := r.ParseForm(); err != nil {
-		data := contactPageData{Base: base, Enabled: true, AbuseEmail: abuseEmail, Error: "Could not read form submission."}
+		data := contactPageData{Base: base, Enabled: true, AbuseEmail: abuseEmail, Error: t(r, "errors.form_read_failed")}
 		_ = renderPage(w, http.StatusBadRequest, "contact", data)
 		return
 	}
@@ -368,11 +368,11 @@ func (fd *frontendDeps) contactPost(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case name == "" || email == "" || subject == "" || message == "":
-		data.Error = "All fields are required."
+		data.Error = t(r, "errors.all_fields_required")
 		_ = renderPage(w, http.StatusBadRequest, "contact", data)
 		return
 	case captcha != contactCaptchaAnswer:
-		data.Error = "That doesn't look right — try the math question again."
+		data.Error = t(r, "errors.captcha_failed")
 		_ = renderPage(w, http.StatusBadRequest, "contact", data)
 		return
 	}
@@ -382,7 +382,7 @@ func (fd *frontendDeps) contactPost(w http.ResponseWriter, r *http.Request) {
 	data.Submitted = true
 	data.SuccessMessage = fd.cfg.Pages.Contact.SuccessMessage
 	if data.SuccessMessage == "" {
-		data.SuccessMessage = "Thank you for your message. We'll respond soon."
+		data.SuccessMessage = t(r, "contact.success")
 	}
 	_ = renderPage(w, http.StatusOK, "contact", data)
 }
@@ -488,12 +488,12 @@ func isSafeLocalRedirect(dest string) bool {
 
 func (fd *frontendDeps) ccpaHandler(w http.ResponseWriter, r *http.Request) {
 	if !fd.cfg.Server.Privacy.Data.Sold {
-		apperr.SendError(w, apperr.New(apperr.CodeNotFound))
+		sendError(w, r, apperr.New(apperr.CodeNotFound))
 		return
 	}
 	data := struct {
 		Base PageData
-	}{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Do Not Sell My Personal Information", fd.cfg.Server.SEO.Description)}
+	}{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "ccpa.do_not_sell"), fd.cfg.Server.SEO.Description)}
 	_ = renderPage(w, http.StatusOK, "ccpa", data)
 }
 
@@ -519,7 +519,7 @@ func (fd *frontendDeps) healthzHTMLHandler(hd *healthDeps) http.HandlerFunc {
 			status = http.StatusServiceUnavailable
 		}
 		data := healthzPageData{
-			Base:   fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Server Health", fd.cfg.Server.SEO.Description),
+			Base:   fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "health.title"), fd.cfg.Server.SEO.Description),
 			Health: resp,
 		}
 		_ = renderPage(w, status, "healthz", data)
@@ -548,17 +548,17 @@ func (fd *frontendDeps) statsHTMLHandler(ld *linkDeps) http.HandlerFunc {
 		slug := chi.URLParam(r, "slug")
 		link, err := lookupLink(r.Context(), ld.sqlDB, slug)
 		if err != nil {
-			apperr.SendError(w, mapLookupErr(err))
+			sendError(w, r, mapLookupErr(err))
 			return
 		}
 		clicks, err := db.ClicksForLink(r.Context(), ld.sqlDB, link.ID, statsMaxRows)
 		if err != nil {
-			apperr.SendError(w, apperr.Wrap(apperr.CodeServerError, err))
+			sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
 			return
 		}
 		resp := buildStatsResponse(link, clicks)
 		data := statsPageData{
-			Base:  fd.newPageData(r, requestCSRFToken(r, fd.cfg), "Stats: "+resp.ShortCode, fd.cfg.Server.SEO.Description),
+			Base:  fd.newPageData(r, requestCSRFToken(r, fd.cfg), tf(r, "stats.title_short", map[string]string{"code": resp.ShortCode}), fd.cfg.Server.SEO.Description),
 			Stats: resp,
 		}
 		_ = renderPage(w, http.StatusOK, "stats", data)
@@ -592,12 +592,12 @@ func (fd *frontendDeps) listHTMLHandler(ld *linkDeps) http.HandlerFunc {
 		page, limit := parsePagination(r)
 		resp, err := ld.buildListLinksResponse(r.Context(), r, page, limit)
 		if err != nil {
-			apperr.SendError(w, apperr.Wrap(apperr.CodeServerError, err))
+			sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
 			return
 		}
 
 		data := listPageData{
-			Base:       fd.newPageData(r, requestCSRFToken(r, fd.cfg), "All Links", fd.cfg.Server.SEO.Description),
+			Base:       fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "list.title"), fd.cfg.Server.SEO.Description),
 			Links:      resp.Data,
 			Pagination: resp.Pagination,
 			PrevPage:   page - 1,

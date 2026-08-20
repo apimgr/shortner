@@ -98,6 +98,14 @@ func run(args []string) int {
 		return 2
 	}
 
+	// AI.md PART 30 "CLI/Agent/Server Output Translation": resolve the
+	// output language before anything is printed. The config file is not
+	// readable yet at this point, so only --lang and the LANG/LC_ALL
+	// environment participate here; setCLILanguage runs again once the
+	// config file has been loaded so server.i18n.default_language can
+	// take effect for the long-running server.
+	setCLILanguage(*langFlag, "")
+
 	if *showHelp {
 		printHelp(binaryName)
 		return 0
@@ -122,10 +130,8 @@ func run(args []string) int {
 	}
 	// forceColor/EmojiEnabled feed CLI output (see status.go); colored
 	// HTML/terminal styling for the eventual HTTP admin surface is PART
-	// 16+ territory. --lang is parsed and round-trips here; the i18n
-	// lookup it selects is PART 30 (see TODO.AI.md).
+	// 16+ territory.
 	_ = color.Enabled(forceColor)
-	_ = langFlag
 
 	mode.FromEnv()
 	if *modeFlag != "" {
@@ -225,6 +231,10 @@ func run(args []string) int {
 	for _, warning := range config.Validate(cfg) {
 		fmt.Fprintln(os.Stderr, binaryName+": warning: "+warning)
 	}
+
+	// The config file's default language now participates in AI.md PART
+	// 30's priority chain; an explicit --lang still wins over it.
+	setCLILanguage(*langFlag, cfg.Server.I18N.DefaultLanguage)
 
 	generated, err := config.EnsureToken(cfg)
 	if err != nil {
@@ -447,7 +457,7 @@ func run(args []string) int {
 	// the shutdown hooks registered above run when a signal arrives.
 	signal.Start()
 
-	fmt.Println(mode.Banner())
+	fmt.Println(mode.Banner(cliLang))
 	host := cfg.Server.Listen
 	if host == "0.0.0.0" || host == "" {
 		host = "localhost"
@@ -458,6 +468,7 @@ func run(args []string) int {
 		AppMode: mode.GetCurrentAppMode().String(),
 		Debug:   mode.IsDebugEnabled(),
 		URLs:    []string{fmt.Sprintf("%s://%s:%s%s", scheme, host, cfg.Server.Port, cfg.Server.BaseURL)},
+		Lang:    cliLang,
 	})
 
 	// Start blocks until Shutdown is called by the signal hook above, then

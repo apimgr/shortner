@@ -1,47 +1,48 @@
-{{define "content"}}<article class="contact-page">
-<h1>Contact</h1>
+{{define "content"}}{{$lang := .Base.Lang}}<article class="contact-page">
+<h1>{{t $lang "contact.title"}}</h1>
 
 {{if not .Enabled}}
-<p>The contact form is currently disabled. {{if .AbuseEmail}}For urgent matters, email {{.AbuseEmail}}.{{end}}</p>
+<p>{{t $lang "contact.disabled"}} {{if .AbuseEmail}}{{tf $lang "contact.urgent_email" "email" .AbuseEmail}}{{end}}</p>
 {{else if .Submitted}}
 <p class="form-success" role="status">{{.SuccessMessage}}</p>
-<a href="/server/contact" class="btn btn-secondary">Send another message</a>
+<a href="/server/contact" class="btn btn-secondary">{{t $lang "contact.send_another"}}</a>
 {{else}}
 <form method="POST" action="/server/contact" class="contact-form" data-action="contact-form" novalidate>
 <input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
 {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
 <div class="form-group">
-<label for="name">Name</label>
-<input type="text" id="name" name="name" required class="input-field" value="{{.Name}}">
+<label for="name">{{t $lang "contact.name"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
+<input type="text" id="name" name="name" required aria-required="true" class="input-field" value="{{.Name}}">
 </div>
 <div class="form-group">
-<label for="email">Email</label>
-<input type="email" id="email" name="email" required class="input-field" value="{{.Email}}">
+<label for="email">{{t $lang "contact.email"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
+<input type="email" id="email" name="email" required aria-required="true" class="input-field" value="{{.Email}}" aria-describedby="email-help">
+<p id="email-help" class="field-help">{{t $lang "contact.email_hint"}}</p>
 </div>
 <div class="form-group">
-<label for="subject">Subject</label>
-<input type="text" id="subject" name="subject" required class="input-field" value="{{.Subject}}">
+<label for="subject">{{t $lang "contact.subject"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
+<input type="text" id="subject" name="subject" required aria-required="true" class="input-field" value="{{.Subject}}">
 </div>
 <div class="form-group">
-<label for="message">Message</label>
-<textarea id="message" name="message" required class="input-field" rows="6">{{.Message}}</textarea>
+<label for="message">{{t $lang "contact.message"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
+<textarea id="message" name="message" required aria-required="true" class="input-field" rows="6">{{.Message}}</textarea>
 </div>
 <div class="form-group">
-<label for="captcha">What is 3 + 4?</label>
-<input type="text" id="captcha" name="captcha" required class="input-field" autocomplete="off">
+<label for="captcha">{{t $lang "contact.captcha_label"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
+<input type="text" id="captcha" name="captcha" required aria-required="true" class="input-field" autocomplete="off">
 </div>
-<button type="submit" class="btn btn-primary">Send message</button>
+<button type="submit" class="btn btn-primary">{{t $lang "contact.send"}}</button>
 </form>
 {{end}}
 
 <section class="contact-info">
-<h2>Security Issues</h2>
-<p>To report a security vulnerability, consult our security policy at
+<h2>{{t $lang "contact.security_title"}}</h2>
+<p>{{t $lang "contact.security_body_before"}}
 <a href="/server/security">/server/security</a>.</p>
 
-<h2>Abuse Reports</h2>
-<p>To report abusive content or policy violations, use this contact form
-{{if .AbuseEmail}}or email {{.AbuseEmail}}{{end}}.</p>
+<h2>{{t $lang "contact.abuse_title"}}</h2>
+<p>{{t $lang "contact.abuse_body"}}
+{{if .AbuseEmail}}{{tf $lang "contact.abuse_or_email" "email" .AbuseEmail}}{{end}}.</p>
 </section>
 </article>
 {{end}}
