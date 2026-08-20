@@ -77,25 +77,26 @@
 - Full spec (HOW, ~48k lines): `AI.md` ← **SOURCE OF TRUTH**
 
 ## Current Project State
-- Last read AI.md: 2026-08-20 (PART 20 Metrics, full section, to
-  implement and verify the built-in Prometheus/Grafana/Loki metrics
-  endpoints)
-- Current task: implemented Metrics (AI.md PART 20) — `src/metrics/`
-  (Prometheus registry + HTTP/DB/scheduler/system/runtime metrics,
-  instrumented `sql` driver wrapper), `src/httpserver/metrics.go`
-  (`metricsAuth` mandatory per-service constant-time bearer-token check,
-  `RegisterMetricsRoutes`/`RegisterVersionedMetricsRoutes` mounting
-  `/server/metrics[/prometheus|grafana|loki]` +
-  `/api/{api_version}/server/metrics` + `/api/metrics` + root `/metrics`
-  aliases — same handler, never a redirect — Grafana dashboard JSON,
-  Loki JSON handler), `src/applog/logger.go` (bounded in-memory ring
-  buffer + `Recent()` backing the `loki` service). Wired into
-  `src/httpserver/server.go`, `middleware.go` (HTTP/rate-limit/auth
-  metrics), `src/scheduler/scheduler.go` (task metrics). Verified in
-  Docker: `go build`/`go vet`/`go test ./... -cover` all pass;
-  `src/metrics` 68.7%, `src/httpserver` 75.2%, `src/applog` 84.5%
-  coverage (gate is 60%).
-- Relevant PARTs: 0-6, 12-16, 18-20 done; 7-11, 17, 21-32 tracked in
+- Last read AI.md: 2026-08-20 (PART 21 Backup & Restore, full section, to
+  implement and verify archive create/verify/retention/restore)
+- Current task: implemented Backup & Restore (AI.md PART 21) — `src/backup/`
+  (`crypt.go` AES-256-GCM sealed under an Argon2id-derived key reusing
+  `src/security`'s existing parameters; `archive.go` tar+gzip with
+  manifest.json + path-traversal guard; `backup.go` create/verify/
+  delete-on-failure; `verify.go` the full 7-check suite including SQLite
+  integrity check; `retention.go` yearly>monthly>weekly>daily tiering with
+  disk-space/threshold checks; `restore.go` the authorization table (empty
+  DB/root+confirm/service user+token/denied) and atomic file placement;
+  `audit.go` all 8 PART 21 audit events). Wired into
+  `src/scheduler/backup.go` (`backup_daily` 8-step flow, `backup_hourly`),
+  `src/backup_cli.go` (interactive password prompt, no password flag ever),
+  `src/maintenance.go` (`backup`/`restore` dispatch), `src/main.go` (audit
+  logger + BackupDeps), `src/config/config.go`/`limits.go`
+  (`server.backup.*`, `server.compliance.enabled`, warn-don't-error
+  validation). Verified in Docker: `go build`/`go vet`/`go test ./...
+  -cover` all pass; `src/backup` 77.6%, `src/config` 86.0%,
+  `src/scheduler` 81.8%, `src` 61.5% coverage (gate is 60%); go-lint clean.
+- Relevant PARTs: 0-6, 12-16, 18-21 done; 7-11, 17, 22-32 tracked in
   TODO.AI.md (PART 15 has deferred sub-items — DNS-01 provider matrix,
   credential encryption at rest, autocert-to-spec-layout bridging; PART 16
   has deferred sub-items — PWA, sitemap.xml, favicon.ico,
@@ -105,5 +106,10 @@
   store; PART 20 has three deferred sub-items — business metrics
   (`LinksTotal`/`LinksCreated24h`/`LinksClicked24h`/`APITokensActive`)
   unpopulated, cache metrics inert since `src/cache` is unwired, Tor/I2P
-  metrics deferred to PART 31 — all logged in TODO.AI.md rather than
+  metrics deferred to PART 31; PART 21 has five deferred sub-items —
+  `--maintenance backup list`/`delete` subcommands, a backup-metadata
+  table in `server.db`, the encryption hint not surfaced at restore,
+  restore not stopping/restarting the running server or snapshotting
+  first, and a pre-existing unrelated `gofmt` violation in
+  `src/metrics/metrics.go` — all logged in TODO.AI.md rather than
   silently dropped)

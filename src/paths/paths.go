@@ -20,6 +20,11 @@ const (
 	projectName  = "shortner"
 )
 
+// ProjectName is the user-facing project name used in the filenames this
+// app creates outside its own directories — most notably the backup
+// archive names in AI.md PART 21 ("{project_name}_backup_YYYY-MM-DD...").
+const ProjectName = projectName
+
 // Paths holds every resolved runtime directory/file for the current OS and
 // privilege level.
 type Paths struct {

@@ -8,7 +8,7 @@ import (
 func TestRunMaintenanceHelp(t *testing.T) {
 	for _, cmd := range []string{"", "help", "--help", "-h"} {
 		t.Run("cmd="+cmd, func(t *testing.T) {
-			out, _, code := captureOutput(t, func() int { return runMaintenance("shortner", cmd) })
+			out, _, code := captureOutput(t, func() int { return runMaintenance("shortner", cmd, maintenanceOptions{}) })
 			if code != 0 {
 				t.Errorf("code = %d, want 0", code)
 			}
@@ -22,7 +22,7 @@ func TestRunMaintenanceHelp(t *testing.T) {
 func TestRunMaintenanceKnownActionsNotYetAvailable(t *testing.T) {
 	for cmd, part := range maintenanceReadDeps {
 		t.Run(cmd, func(t *testing.T) {
-			_, stderr, code := captureOutput(t, func() int { return runMaintenance("shortner", cmd) })
+			_, stderr, code := captureOutput(t, func() int { return runMaintenance("shortner", cmd, maintenanceOptions{}) })
 			if code != 1 {
 				t.Errorf("code = %d, want 1", code)
 			}
@@ -38,7 +38,7 @@ func TestRunMaintenanceKnownActionsNotYetAvailable(t *testing.T) {
 }
 
 func TestRunMaintenanceUnknownCommand(t *testing.T) {
-	_, stderr, code := captureOutput(t, func() int { return runMaintenance("shortner", "bogus") })
+	_, stderr, code := captureOutput(t, func() int { return runMaintenance("shortner", "bogus", maintenanceOptions{}) })
 	if code != 1 {
 		t.Errorf("code = %d, want 1", code)
 	}
@@ -51,7 +51,13 @@ func TestMaintenanceReadDepsCoversEveryHelpCommand(t *testing.T) {
 	// Regression guard: every command listed in maintenanceHelp's Commands
 	// section must have a corresponding entry in maintenanceReadDeps, or
 	// runMaintenance would wrongly report it as "unknown".
+	// backup and restore are implemented (AI.md PART 21) and therefore
+	// dispatch directly rather than through maintenanceReadDeps.
+	implemented := map[string]bool{"backup": true, "restore": true}
 	for _, cmd := range []string{"backup", "restore", "update", "mode", "setup", "pgp", "secret", "token", "data", "compliance"} {
+		if implemented[cmd] {
+			continue
+		}
 		if _, ok := maintenanceReadDeps[cmd]; !ok {
 			t.Errorf("maintenanceReadDeps missing entry for documented command %q", cmd)
 		}

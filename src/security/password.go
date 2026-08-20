@@ -43,6 +43,25 @@ func HashPassword(password string) (string, error) {
 	return encoded, nil
 }
 
+// DeriveKeyLen is the length, in bytes, of the key DeriveKey returns —
+// 32 bytes, exactly the AES-256 key size required by AI.md PART 21
+// "Backup Encryption" ("Password is run through Argon2id to derive
+// 256-bit key").
+const DeriveKeyLen = argon2KeyLen
+
+// SaltLen is the length, in bytes, of the salt DeriveKey expects.
+const SaltLen = argon2SaltLen
+
+// DeriveKey derives a 256-bit symmetric encryption key from password and
+// salt using the same Argon2id parameters HashPassword uses, per AI.md
+// PART 21 "Key Derivation: Argon2id (password -> encryption key)". Unlike
+// HashPassword this returns raw key bytes for AES-256-GCM rather than an
+// encoded verifier — the salt must be stored alongside the ciphertext so
+// the same key can be re-derived at restore time.
+func DeriveKey(password string, salt []byte) []byte {
+	return argon2.IDKey([]byte(password), salt, argon2Time, argon2MemoryK, argon2Threads, argon2KeyLen)
+}
+
 // VerifyPassword reports whether password matches the Argon2id-encoded
 // hash produced by HashPassword. Comparison is constant-time.
 func VerifyPassword(password, encoded string) (bool, error) {

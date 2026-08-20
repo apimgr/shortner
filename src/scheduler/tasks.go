@@ -29,8 +29,6 @@ var pendingBuiltins = []builtinDef{
 	{"blocklist_update", "Blocklist Update", "IP/domain blocklists (AI.md PART 9/11) are not implemented yet"},
 	{"cve_update", "CVE Database Update", "CVE/security database integration (AI.md PART 9) is not implemented yet"},
 	{"update_check", "Update Check", "self-update (AI.md PART 22) is not implemented yet"},
-	{"backup_daily", "Daily Backup", "backup/restore (AI.md PART 21) is not implemented yet"},
-	{"backup_hourly", "Hourly Backup", "backup/restore (AI.md PART 21) is not implemented yet"},
 	{"tor_health", "Tor Health Check", "Tor hidden service (AI.md PART 31.1) is not implemented yet"},
 	{"i2p_health", "I2P Health Check", "I2P eepsite (AI.md PART 31.2) is not implemented yet"},
 }
@@ -51,13 +49,17 @@ type Deps struct {
 	// — the task then honestly skips instead of downloading unused files.
 	GeoIP    *geoip.Manager
 	GeoIPCfg config.GeoIP
+	// Backup feeds backup_daily/backup_hourly (AI.md PART 21). A zero
+	// value leaves both tasks registered but inert.
+	Backup BackupDeps
 }
 
 // BuiltinTasks returns every AI.md PART 18 "Built-in Tasks (Required)"
 // TaskDef, with schedule/enabled taken from cfg (falling back to the
 // hardcoded spec default if an id is missing from cfg.Tasks). Real work is
-// implemented for token_cleanup, log_rotation, healthcheck_self, and
-// ssl_renewal; the remaining required tasks are registered via
+// implemented for token_cleanup, log_rotation, healthcheck_self,
+// ssl_renewal, geoip_update, backup_daily, and backup_hourly; the remaining
+// required tasks are registered via
 // pendingBuiltins so they stay visible and honestly skip until their
 // subsystem lands.
 func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
@@ -75,6 +77,8 @@ func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
 		{ID: "healthcheck_self", Name: "Self Health Check", Run: healthcheckSelfTask(deps.DB)},
 		{ID: "ssl_renewal", Name: "SSL Certificate Renewal", Run: sslRenewalTask(deps)},
 		{ID: "geoip_update", Name: "GeoIP Database Update", Run: geoipUpdateTask(deps)},
+		{ID: "backup_daily", Name: "Daily Backup", Run: backupDailyTask(deps)},
+		{ID: "backup_hourly", Name: "Hourly Backup", Run: backupHourlyTask(deps)},
 	}
 	for _, p := range pendingBuiltins {
 		tasks = append(tasks, TaskDef{ID: p.id, Name: p.name, Run: pendingTask(p.skipReason)})

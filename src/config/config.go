@@ -44,6 +44,59 @@ type Server struct {
 	Scheduler      Scheduler      `yaml:"scheduler"`
 	GeoIP          GeoIP          `yaml:"geoip"`
 	Metrics        Metrics        `yaml:"metrics"`
+	Backup         Backup         `yaml:"backup"`
+	Compliance     Compliance     `yaml:"compliance"`
+}
+
+// Backup holds `server.backup`, per AI.md PART 21 "Backup Encryption" and
+// "Backup Retention".
+//
+// EncryptionPassword is the one spec-sanctioned home for the backup
+// password ("Set during initial config: `backup.encryption_password` in
+// `server.yml`"). PART 21 also says the password is "NEVER stored" — the
+// two statements are reconciled the way the spec's own CLI section
+// describes: the app never generates, derives, or persists this value on
+// its own (the CLI always prompts interactively instead, and never accepts
+// a password flag), and it is never written to a backup, the database, a
+// log line, or any API response. It exists only so unattended scheduled
+// backups can be encrypted at all; leaving it empty is the more secure
+// choice for interactive-only operators.
+type Backup struct {
+	Encryption         BackupEncryption `yaml:"encryption"`
+	EncryptionPassword string           `yaml:"encryption_password"`
+	Retention          BackupRetention  `yaml:"retention"`
+	// DiskThreshold is the disk-usage percentage above which the
+	// backup_daily task refuses to create a backup, per AI.md PART 21
+	// "Backup Creation Flow" step 2 ("disk usage > disk_threshold (default
+	// 90%)").
+	DiskThreshold int `yaml:"disk_threshold"`
+}
+
+// BackupEncryption holds `server.backup.encryption`, per AI.md PART 21
+// "Encryption Configuration". Enabled is "true if password was set"; Hint
+// is the optional, non-secret reminder PART 21 permits ("Password hint can
+// be stored (optional)").
+type BackupEncryption struct {
+	Enabled bool   `yaml:"enabled"`
+	Hint    string `yaml:"hint"`
+}
+
+// BackupRetention holds `server.backup.retention`, per AI.md PART 21
+// "Backup Retention" -> "Configuration".
+type BackupRetention struct {
+	MaxBackups  int `yaml:"max_backups"`
+	KeepWeekly  int `yaml:"keep_weekly"`
+	KeepMonthly int `yaml:"keep_monthly"`
+	KeepYearly  int `yaml:"keep_yearly"`
+	// MaxTotalSize is a percent of the backup volume ("10%") or an absolute
+	// size ("50G"); any falsey value disables the cap.
+	MaxTotalSize string `yaml:"max_total_size"`
+}
+
+// Compliance holds `server.compliance`, per AI.md PART 21 "Compliance Mode
+// Enforcement". When Enabled, backups refuse to run unencrypted.
+type Compliance struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // Metrics holds `server.metrics`, per AI.md PART 20 "Metrics". Metrics are
@@ -558,6 +611,18 @@ func Default(dbPath string) *Config {
 				DurationBuckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 				SizeBuckets:     []float64{100, 1000, 10000, 100000, 1000000, 10000000},
 			},
+			Backup: Backup{
+				Encryption: BackupEncryption{Enabled: false},
+				Retention: BackupRetention{
+					MaxBackups:   1,
+					KeepWeekly:   0,
+					KeepMonthly:  0,
+					KeepYearly:   0,
+					MaxTotalSize: "10%",
+				},
+				DiskThreshold: 90,
+			},
+			Compliance: Compliance{Enabled: false},
 			Privacy: Privacy{
 				Consent: PrivacyConsent{
 					Message: "We use essential cookies to make this site work. " +

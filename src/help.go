@@ -48,6 +48,8 @@ Service Management:
 --service CMD                          - Service management (run --service help for details)
 --maintenance CMD                      - Maintenance operations (run --maintenance help for details)
 --update [CMD]                         - Check/perform updates (run --update help for details)
+--include-ssl                          - Include SSL certificates in --maintenance backup
+--include-data                         - Include the data directory in --maintenance backup
 
 Run '%[1]s <command> help' for detailed help on any command.
 `

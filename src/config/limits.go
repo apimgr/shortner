@@ -26,14 +26,21 @@ func ParseDuration(s string, def time.Duration) (time.Duration, error) {
 }
 
 // sizeUnits maps case-insensitive byte-size suffixes to their multiplier.
-// Longer suffixes are checked first so "MB" is not misread as "B".
+// Longer suffixes are checked first so "MB" is not misread as "B". The
+// single-letter forms exist because AI.md PART 21 writes the backup size
+// cap as "50G".
 var sizeUnits = []struct {
 	suffix string
 	mult   int64
 }{
+	{"TB", 1 << 40},
 	{"GB", 1 << 30},
 	{"MB", 1 << 20},
 	{"KB", 1 << 10},
+	{"T", 1 << 40},
+	{"G", 1 << 30},
+	{"M", 1 << 20},
+	{"K", 1 << 10},
 	{"B", 1},
 }
 
@@ -130,7 +137,115 @@ func Validate(cfg *Config) []string {
 		cfg.Server.Cache.Type = defaults.Server.Cache.Type
 	}
 
+	warnings = append(warnings, validateBackup(cfg, defaults)...)
+
 	return warnings
+}
+
+// backupRetentionField describes one `server.backup.retention` counter for
+// the shared validate-then-warn loop below.
+type backupRetentionField struct {
+	name  string
+	field *int
+	def   int
+	// min is the lowest accepted value (1 for max_backups, which AI.md
+	// PART 21 documents as "≥1"; 0 for the optional tiers).
+	min int
+	// warnAbove is the AI.md PART 21 "Warning Thresholds" recommendation;
+	// values above it are accepted but warned about.
+	warnAbove int
+	// unit renders the parenthetical in the "exceeds recommended" warning.
+	unit func(n int) string
+}
+
+// validateBackup applies AI.md PART 21 "Validation (warn, don't error -
+// server must start)" and "Warning Thresholds (accept but warn)" to
+// `server.backup`. Invalid values are replaced with their default in
+// place; out-of-recommendation values are kept as written.
+func validateBackup(cfg *Config, defaults *Config) []string {
+	var warnings []string
+	r := &cfg.Server.Backup.Retention
+	dr := defaults.Server.Backup.Retention
+
+	fields := []backupRetentionField{
+		{"max_backups", &r.MaxBackups, dr.MaxBackups, 1, 7, func(n int) string {
+			return fmt.Sprintf("%d days of daily backups", n)
+		}},
+		{"keep_weekly", &r.KeepWeekly, dr.KeepWeekly, 0, 8, func(n int) string {
+			return fmt.Sprintf("%d weeks of weekly backups", n)
+		}},
+		{"keep_monthly", &r.KeepMonthly, dr.KeepMonthly, 0, 12, func(n int) string {
+			if n%12 == 0 {
+				return fmt.Sprintf("%d years of monthly backups", n/12)
+			}
+			return fmt.Sprintf("%d months of monthly backups", n)
+		}},
+		{"keep_yearly", &r.KeepYearly, dr.KeepYearly, 0, 2, func(n int) string {
+			return fmt.Sprintf("%d years of yearly backups", n)
+		}},
+	}
+
+	for _, f := range fields {
+		if *f.field < f.min {
+			warnings = append(warnings, fmt.Sprintf("server.backup.retention.%s: %d invalid, using default %d", f.name, *f.field, f.def))
+			*f.field = f.def
+			continue
+		}
+		if *f.field > f.warnAbove {
+			warnings = append(warnings, fmt.Sprintf("server.backup.retention.%s: %d exceeds recommended %d (%s)", f.name, *f.field, f.warnAbove, f.unit(*f.field)))
+		}
+	}
+
+	if _, err := ParseRetentionSize(r.MaxTotalSize, 0); err != nil {
+		warnings = append(warnings, fmt.Sprintf("server.backup.retention.max_total_size: %q invalid, using default %q", r.MaxTotalSize, dr.MaxTotalSize))
+		r.MaxTotalSize = dr.MaxTotalSize
+	}
+
+	threshold := &cfg.Server.Backup.DiskThreshold
+	if *threshold < 1 || *threshold > 100 {
+		warnings = append(warnings, fmt.Sprintf("server.backup.disk_threshold: %d invalid, using default %d", *threshold, defaults.Server.Backup.DiskThreshold))
+		*threshold = defaults.Server.Backup.DiskThreshold
+	}
+
+	return warnings
+}
+
+// RetentionSize is a parsed `server.backup.retention.max_total_size`.
+// Exactly one of Percent/Bytes is meaningful; Disabled wins over both.
+type RetentionSize struct {
+	Disabled bool
+	// Percent is a whole percentage of the backup volume's total size
+	// (e.g. 10 for "10%").
+	Percent int
+	// Bytes is an absolute cap (e.g. "50G" -> 50 * 1000^3).
+	Bytes int64
+}
+
+// ParseRetentionSize parses AI.md PART 21's `max_total_size` value: a
+// percentage of the backup volume ("10%"), an absolute size ("50G"), or
+// any of the PART 5 falsy values (0, no, false, off, disable, disabled,
+// ...), which disable the cap. def is returned alongside the error when
+// the value is unparseable, so callers can warn-and-default per PART 21
+// "Validation (warn, don't error)".
+func ParseRetentionSize(s string, def int64) (RetentionSize, error) {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" || IsFalsy(trimmed) {
+		return RetentionSize{Disabled: true}, nil
+	}
+
+	if strings.HasSuffix(trimmed, "%") {
+		n, err := strconv.Atoi(strings.TrimSpace(strings.TrimSuffix(trimmed, "%")))
+		if err != nil || n <= 0 || n > 100 {
+			return RetentionSize{Bytes: def}, fmt.Errorf("config: invalid max_total_size %q", s)
+		}
+		return RetentionSize{Percent: n}, nil
+	}
+
+	n, err := ParseSize(trimmed, 0)
+	if err != nil || n <= 0 {
+		return RetentionSize{Bytes: def}, fmt.Errorf("config: invalid max_total_size %q", s)
+	}
+	return RetentionSize{Bytes: n}, nil
 }
 
 // validPort reports whether s parses to a TCP port in [1, 65535].

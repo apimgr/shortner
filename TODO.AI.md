@@ -330,11 +330,33 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
     wired into any request path yet.
   - Tor/I2P metrics deferred to PART 31.
   Read: AI.md PART 20
-- Backup & restore (Argon2id-protected archives). `--maintenance backup`,
-  `restore`, `data`, `compliance` flag parsing/dispatch/`--help` are
-  already implemented in `src/maintenance.go`; each action currently
-  prints "not yet available" and exits 1 — implement the real archive
-  create/extract logic here.
+- Backup & restore — DONE. `src/backup/` (`crypt.go` AES-256-GCM sealed
+  under an Argon2id-derived key reusing `src/security`'s existing
+  parameters; `archive.go` tar+gzip with manifest.json and a path-
+  traversal guard; `backup.go` create/verify/delete-on-failure; `verify.go`
+  the full 7-check suite including SQLite integrity check; `retention.go`
+  yearly>monthly>weekly>daily tiering with disk-space/threshold checks;
+  `restore.go` the authorization table (empty DB/root+confirm/service
+  user+token/denied) and atomic file placement; `audit.go` all 8 PART 21
+  audit events). Wired into `src/scheduler/backup.go` (`backup_daily`
+  8-step flow, `backup_hourly`), `src/backup_cli.go` (interactive
+  password prompt — no password flag ever, per spec), `src/maintenance.go`
+  (`backup`/`restore` dispatch), `src/main.go` (audit logger + BackupDeps),
+  `src/config/config.go`/`limits.go` (`server.backup.*`,
+  `server.compliance.enabled`, warn-don't-error validation with the
+  spec's exact message/threshold shapes).
+  Deferred sub-items (each an open gap, not silently dropped):
+  - `--maintenance backup list` / `delete` subcommands — PART 21 shows
+    them but the flag parser only passes a single positional arg.
+  - Backup metadata table in `server.db` (PART 21 "What Is in server.db"
+    lists "Backup metadata"); history currently lives only in the audit
+    log and the filenames on disk.
+  - `backup.encryption.hint` is parsed and persisted but never surfaced
+    at the restore prompt.
+  - Restore does not yet stop/restart the running server or take a
+    pre-restore safety snapshot.
+  - `src/metrics/metrics.go` fails `gofmt -l` (pre-existing, from the
+    PART 20 commit, unrelated to this work) — needs a `gofmt -w` pass.
   Read: AI.md PART 21
 - `--maintenance mode`, `setup` actions (persist app mode, reset config to
   defaults) — flag surface done in `src/maintenance.go`, actions still

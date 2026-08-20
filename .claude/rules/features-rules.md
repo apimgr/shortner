@@ -44,7 +44,19 @@
   buffer backing the `loki` service. Deferred sub-items — business
   metrics unpopulated, cache metrics inert (`src/cache` unwired), Tor/I2P
   metrics deferred to PART 31 — see `TODO.AI.md`.
-- PART 17, 21-22 are NOT implemented yet — tracked in `TODO.AI.md`
+- PART 21 (Backup & Restore) is implemented: `src/backup/` (AES-256-GCM
+  encryption keyed via `src/security`'s existing Argon2id parameters,
+  tar+gzip archive with manifest.json, 7-check verification suite incl.
+  SQLite integrity check, yearly>monthly>weekly>daily retention with
+  disk-space checks, restore authorization table, all 8 PART 21 audit
+  events), `src/scheduler/backup.go` (`backup_daily`/`backup_hourly`
+  tasks), `src/backup_cli.go` (`--maintenance backup`/`restore`,
+  interactive password prompt only — never a CLI flag). Deferred
+  sub-items — `backup list`/`delete` subcommands, backup-metadata table
+  in `server.db`, encryption hint not surfaced at restore, restore not
+  stopping/restarting the server or snapshotting first — see
+  `TODO.AI.md`.
+- PART 17, 22 are NOT implemented yet — tracked in `TODO.AI.md`
 
 ---
 For complete details, see AI.md PART 17, 18, 19, 20, 21, 22

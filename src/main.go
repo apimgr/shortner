@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/apimgr/shortner/src/applog"
+	"github.com/apimgr/shortner/src/backup"
 	"github.com/apimgr/shortner/src/certmgr"
 	"github.com/apimgr/shortner/src/common/banner"
 	"github.com/apimgr/shortner/src/common/color"
@@ -75,6 +76,10 @@ func run(args []string) int {
 	serviceFlag := fs.String("service", "", "Service management: start, restart, stop, reload, --install, --uninstall, --disable, --help")
 	maintenanceFlag := fs.String("maintenance", "", "Maintenance operations: backup, restore, update, mode, setup, pgp, secret, token, data, compliance, --help")
 	updateFlag := fs.String("update", "", "Check/perform updates: check, yes, branch, --help")
+	// AI.md PART 21 "Backup Contents": SSL certificates and the data
+	// directory are opt-in additions to every backup.
+	includeSSL := fs.Bool("include-ssl", false, "Include SSL certificates in --maintenance backup")
+	includeData := fs.Bool("include-data", false, "Include the data directory in --maintenance backup")
 	schedulerFlag := fs.String("scheduler", "", "Scheduler management: list, show <id>, run <id>, enable <id>, disable <id>, history <id>, --help")
 	fs.BoolVar(showHelp, "h", false, "Show help")
 	fs.BoolVar(showVersion, "v", false, "Show version")
@@ -155,7 +160,12 @@ func run(args []string) int {
 		return runService(binaryName, *serviceFlag)
 	}
 	if flagWasSet(fs, "maintenance") {
-		return runMaintenance(binaryName, *maintenanceFlag)
+		return runMaintenance(binaryName, *maintenanceFlag, maintenanceOptions{
+			paths:       p,
+			arg:         firstArg(fs.Args()),
+			includeSSL:  *includeSSL,
+			includeData: *includeData,
+		})
 	}
 	if flagWasSet(fs, "update") {
 		return runUpdate(binaryName, *updateFlag, firstArg(fs.Args()))
@@ -274,6 +284,15 @@ func run(args []string) int {
 	}
 	defer schedulerLog.Close()
 
+	// Audit log (AI.md PART 11 "Audit Log Format"), consumed by the PART 21
+	// backup events.
+	auditLog, err := applog.NewAuditLogger(filepath.Join(p.Logs, "audit.log"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
+	defer auditLog.Close()
+
 	// GeoIP (AI.md PART 19): opens whatever MMDB files already exist in
 	// cfg.Server.GeoIP.Dir (none on a genuinely first run) and, if enabled,
 	// kicks off a background download so first run still works with zero
@@ -292,7 +311,7 @@ func run(args []string) int {
 	}
 
 	fqdnHost := fqdn.GetFQDN(internalName)
-	sched, err := newBuiltinScheduler(cfg, sqlDB, schedulerLog, accessLog, p.Config, fqdnHost, geoManager)
+	sched, err := newBuiltinScheduler(cfg, sqlDB, schedulerLog, accessLog, p, fqdnHost, geoManager, auditLog)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
@@ -401,7 +420,7 @@ func buildTLSConfig(cfg *config.Config, configDir string) (*tls.Config, error) {
 // newBuiltinScheduler builds a scheduler.Scheduler with every AI.md
 // PART 18 "Built-in Tasks (Required)" registered, using cfg's per-task
 // schedule/enabled overrides. It does not start the scheduler.
-func newBuiltinScheduler(cfg *config.Config, sqlDB *sql.DB, schedulerLog, accessLog *applog.Logger, configDir, host string, geoManager *geoip.Manager) (*scheduler.Scheduler, error) {
+func newBuiltinScheduler(cfg *config.Config, sqlDB *sql.DB, schedulerLog, accessLog *applog.Logger, p paths.Paths, host string, geoManager *geoip.Manager, auditLog backup.Auditor) (*scheduler.Scheduler, error) {
 	sched, err := scheduler.New(sqlDB, schedulerLog, cfg.Server.Scheduler.Timezone, cfg.Server.Scheduler.CatchUpWindow)
 	if err != nil {
 		return nil, err
@@ -411,11 +430,25 @@ func newBuiltinScheduler(cfg *config.Config, sqlDB *sql.DB, schedulerLog, access
 		DB:         sqlDB,
 		Logs:       []*applog.Logger{schedulerLog, accessLog},
 		TLSEnabled: cfg.Server.TLS.Enabled,
-		ConfigDir:  configDir,
+		ConfigDir:  p.Config,
 		FQDN:       host,
 		DevTLD:     fqdn.IsDevTLD(host, internalName),
 		GeoIP:      geoManager,
 		GeoIPCfg:   cfg.Server.GeoIP,
+		// AI.md PART 21: the backup directory is the one resolved at
+		// startup and cached here — never re-resolved per run.
+		Backup: scheduler.BackupDeps{
+			Dir:        p.Backup,
+			Prefix:     paths.ProjectName,
+			ConfigFile: p.ConfigFile,
+			DBPath:     filepath.Join(p.DB, "server.db"),
+			ConfigDir:  p.Config,
+			DataDir:    p.Data,
+			AppVersion: version.String(),
+			Cfg:        cfg.Server.Backup,
+			Compliance: cfg.Server.Compliance.Enabled,
+			Audit:      auditLog,
+		},
 	}
 	ctx := context.Background()
 	for _, t := range scheduler.BuiltinTasks(cfg.Server.Scheduler, deps) {
