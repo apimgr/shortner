@@ -18,6 +18,7 @@ import (
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/geoip"
+	"github.com/apimgr/shortner/src/metrics"
 	"github.com/apimgr/shortner/src/server"
 )
 
@@ -46,6 +47,11 @@ type Options struct {
 	// 19). May be nil (e.g. server.geoip.enabled: false), in which case both
 	// consumers fail open per AI.md PART 19's risk-signal rule.
 	GeoIP *geoip.Manager
+	// Metrics is nil when server.metrics.enabled is false (AI.md PART 20).
+	// When set, RegisterMetricsRoutes mounts /server/metrics and its
+	// aliases and the middleware chain records HTTP/rate-limit/auth
+	// metrics.
+	Metrics *metrics.Metrics
 }
 
 // New builds a Server ready for Start. Listen address is
@@ -67,6 +73,7 @@ func New(opts Options) *Server {
 		csrf:        cfg.Server.CSRF,
 		geo:         opts.GeoIP,
 		geoCfg:      cfg.Server.GeoIP,
+		metrics:     opts.Metrics,
 	}
 
 	r := chi.NewRouter()
@@ -99,9 +106,11 @@ func New(opts Options) *Server {
 		api.Get("/healthz", hd.healthHandler())
 		api.Route("/{api_version}", func(v chi.Router) {
 			v.Get("/server/healthz", hd.healthHandler())
+			RegisterVersionedMetricsRoutes(v, cfg.Server.Metrics, opts.Metrics, opts.AccessLog)
 			ld.registerLinkAPIRoutes(v)
 		})
 	})
+	RegisterMetricsRoutes(r, cfg.Server.Metrics, opts.Metrics, opts.AccessLog)
 
 	fd := &frontendDeps{cfg: cfg, version: opts.Version, buildDate: opts.BuildDate, ld: ld}
 	fd.registerFrontendRoutes(r, hd, ld)

@@ -23,6 +23,7 @@ import (
 	"github.com/apimgr/shortner/src/fqdn"
 	"github.com/apimgr/shortner/src/geoip"
 	"github.com/apimgr/shortner/src/httpserver"
+	"github.com/apimgr/shortner/src/metrics"
 	"github.com/apimgr/shortner/src/mode"
 	"github.com/apimgr/shortner/src/paths"
 	"github.com/apimgr/shortner/src/scheduler"
@@ -239,12 +240,25 @@ func run(args []string) int {
 		cfg.Server.GeoIP.Dir = filepath.Join(p.Data, "security", "geoip")
 	}
 
-	sqlDB, err := db.Open(cfg.Server.Database.URL, db.DefaultPool())
+	// Metrics (AI.md PART 20): built before db.Open so the database-driver
+	// instrumentation wraps every query from the very first connection.
+	var appMetrics *metrics.Metrics
+	if cfg.Server.Metrics.Enabled {
+		appMetrics = metrics.New(cfg.Server.Metrics)
+		appMetrics.InitAppInfo(version.Version, version.CommitID, version.BuildDate)
+		appMetrics.StartUptimeUpdater(context.Background())
+	}
+
+	sqlDB, err := db.Open(cfg.Server.Database.URL, db.DefaultPool(), appMetrics)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
 	defer sqlDB.Close()
+
+	if appMetrics != nil {
+		appMetrics.StartCollector(context.Background(), p.Data, sqlDB, cfg.Server.Metrics.IncludeSystem, cfg.Server.Metrics.IncludeRuntime)
+	}
 
 	accessLog, err := applog.Open(filepath.Join(p.Logs, "access.log"), applog.LevelInfo)
 	if err != nil {
@@ -283,6 +297,7 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
+	sched.SetMetrics(appMetrics)
 
 	// --scheduler is a PHASE 2-4-style subcommand (AI.md PART 18 "CLI
 	// Commands") that reuses server.db directly and never starts the HTTP
@@ -316,6 +331,7 @@ func run(args []string) int {
 		StartTime: time.Now(),
 		TLSConfig: tlsConfig,
 		GeoIP:     geoManager,
+		Metrics:   appMetrics,
 	})
 	// Shutdown hooks run in registration order, so they are registered in
 	// the order AI.md PART 8 "Graceful Shutdown Sequence" prescribes: stop

@@ -20,6 +20,19 @@ const (
 	rlHealth
 )
 
+// String names the class for metrics labels (AI.md PART 20
+// "Rate Limit Metrics" -> limit label).
+func (c rlClass) String() string {
+	switch c {
+	case rlWrite:
+		return "write"
+	case rlHealth:
+		return "health"
+	default:
+		return "read"
+	}
+}
+
 // window tracks one sliding-window counter: the count of requests seen
 // since windowStart, reset once the configured window elapses.
 type window struct {

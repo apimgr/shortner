@@ -43,6 +43,56 @@ type Server struct {
 	Privacy        Privacy        `yaml:"privacy"`
 	Scheduler      Scheduler      `yaml:"scheduler"`
 	GeoIP          GeoIP          `yaml:"geoip"`
+	Metrics        Metrics        `yaml:"metrics"`
+}
+
+// Metrics holds `server.metrics`, per AI.md PART 20 "Metrics". Metrics are
+// internal-only: never advertised on healthz, gated behind mandatory
+// per-service bearer tokens unless Auth.AllowUnauthenticated is set for a
+// firewalled deployment.
+type Metrics struct {
+	Enabled bool        `yaml:"enabled"`
+	Root    MetricsRoot `yaml:"root"`
+	Auth    MetricsAuth `yaml:"auth"`
+	// IncludeSystem toggles the gopsutil-backed system_* metrics (CPU,
+	// memory, disk).
+	IncludeSystem bool `yaml:"include_system"`
+	// IncludeRuntime toggles the go_* Go-runtime metrics.
+	IncludeRuntime  bool        `yaml:"include_runtime"`
+	Loki            MetricsLoki `yaml:"loki"`
+	DurationBuckets []float64   `yaml:"duration_buckets"`
+	SizeBuckets     []float64   `yaml:"size_buckets"`
+}
+
+// MetricsRoot holds `server.metrics.root`, the `/metrics[/{service}]`
+// unversioned root-alias gate (default true — Prometheus scrapers expect
+// `/metrics`).
+type MetricsRoot struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+// MetricsAuth holds `server.metrics.auth`, per AI.md PART 20
+// "Authentication". Each service (prometheus/grafana/loki) requires its own
+// bearer token; an empty token disables that service (403).
+// AllowUnauthenticated is a firewalled-only escape hatch that skips ALL
+// service token checks.
+type MetricsAuth struct {
+	AllowUnauthenticated bool              `yaml:"allow_unauthenticated"`
+	Tokens               MetricsAuthTokens `yaml:"tokens"`
+}
+
+// MetricsAuthTokens holds `server.metrics.auth.tokens`.
+type MetricsAuthTokens struct {
+	Prometheus string `yaml:"prometheus"`
+	Grafana    string `yaml:"grafana"`
+	Loki       string `yaml:"loki"`
+}
+
+// MetricsLoki holds `server.metrics.loki`, bounding the recent-log-entries
+// window served by the `loki` metrics service.
+type MetricsLoki struct {
+	MaxEntries int    `yaml:"max_entries"`
+	MaxAge     string `yaml:"max_age"`
 }
 
 // GeoIP holds `server.geoip`, per AI.md PART 19 "GeoIP". Zero-config on
@@ -487,6 +537,26 @@ func Default(dbPath string) *Config {
 					"tor_health":       {Schedule: "@every 10m", Enabled: true},
 					"i2p_health":       {Schedule: "@every 10m", Enabled: false},
 				},
+			},
+			Metrics: Metrics{
+				Enabled: true,
+				Root:    MetricsRoot{Enabled: true},
+				Auth: MetricsAuth{
+					AllowUnauthenticated: false,
+					Tokens: MetricsAuthTokens{
+						Prometheus: "",
+						Grafana:    "",
+						Loki:       "",
+					},
+				},
+				IncludeSystem:  true,
+				IncludeRuntime: true,
+				Loki: MetricsLoki{
+					MaxEntries: 1000,
+					MaxAge:     "1h",
+				},
+				DurationBuckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+				SizeBuckets:     []float64{100, 1000, 10000, 100000, 1000000, 10000000},
 			},
 			Privacy: Privacy{
 				Consent: PrivacyConsent{

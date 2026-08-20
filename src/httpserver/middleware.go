@@ -30,6 +30,7 @@ import (
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/geoip"
+	"github.com/apimgr/shortner/src/metrics"
 	"github.com/apimgr/shortner/src/security"
 )
 
@@ -45,6 +46,9 @@ type deps struct {
 	csrf        config.CSRF
 	geo         *geoip.Manager
 	geoCfg      config.GeoIP
+	// metrics is nil when server.metrics.enabled is false — every metrics
+	// call site below checks for nil first.
+	metrics *metrics.Metrics
 }
 
 // setupMiddleware wraps handler with the full PART 12 chain, per AI.md
@@ -399,9 +403,16 @@ func (d *deps) rateLimitMiddleware(next http.Handler) http.Handler {
 		class := classify(r.Method, r.URL.Path)
 		allowed, retryAfter := d.rateLimiter.Allow(ip, class)
 		if !allowed {
+			if d.metrics != nil {
+				d.metrics.RateLimitRequestsTotal.WithLabelValues(class.String(), "limited").Inc()
+				d.metrics.RateLimitBlockedTotal.WithLabelValues(class.String()).Inc()
+			}
 			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 			apperr.SendError(w, apperr.New(apperr.CodeRateLimited))
 			return
+		}
+		if d.metrics != nil {
+			d.metrics.RateLimitRequestsTotal.WithLabelValues(class.String(), "allowed").Inc()
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -452,6 +463,17 @@ func (d *deps) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := ExtractToken(r)
 		isOperator := token != "" && security.CompareServerToken(token, d.operatorTok)
+		if d.metrics != nil && token != "" {
+			// AI.md PART 20 "Required: Authentication Metrics". Only the
+			// operator (server) token is verifiable at this outer layer —
+			// per-resource link tokens are checked further down the route
+			// tree and are out of scope for this project-wide gauge.
+			status := "failed"
+			if isOperator {
+				status = "success"
+			}
+			d.metrics.AuthAttemptsTotal.WithLabelValues("api_token", status).Inc()
+		}
 		ctx := context.WithValue(r.Context(), ctxKeyOperator, isOperator)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -525,19 +547,40 @@ func (s *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return h.Hijack()
 }
 
-// loggingMiddleware writes one access-log line per request and updates
-// the request-statistics collector (execution position 10 — outermost, so
-// it wraps every prior stage's effect on the response).
+// loggingMiddleware writes one access-log line per request, updates the
+// request-statistics collector, and (AI.md PART 20 "Required: HTTP
+// Metrics") records http_requests_total/http_request_duration_seconds/
+// http_request_size_bytes/http_response_size_bytes/http_active_requests —
+// all at execution position 10, outermost, so both the access log and the
+// metrics see every prior stage's effect on the response (status set by
+// GeoIP/RateLimit/auth short-circuits included).
 func (d *deps) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		end := d.stats.BeginRequest()
 		defer end()
 
+		if d.metrics != nil {
+			d.metrics.HTTPActiveRequests.Inc()
+			defer d.metrics.HTTPActiveRequests.Dec()
+			if r.ContentLength > 0 {
+				d.metrics.HTTPRequestSizeBytes.WithLabelValues(r.Method, metrics.NormalizePath(r.URL.Path)).Observe(float64(r.ContentLength))
+			}
+		}
+
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
 
 		d.stats.RecordRequest()
+
+		if d.metrics != nil {
+			path := metrics.NormalizePath(r.URL.Path)
+			status := strconv.Itoa(rec.status)
+			d.metrics.HTTPRequestsTotal.WithLabelValues(r.Method, path, status).Inc()
+			d.metrics.HTTPRequestDuration.WithLabelValues(r.Method, path).Observe(time.Since(start).Seconds())
+			d.metrics.HTTPResponseSizeBytes.WithLabelValues(r.Method, path).Observe(float64(rec.size))
+		}
+
 		if d.access != nil {
 			entry := applog.AccessLogEntry{
 				IP:        d.resolver.ResolveClientIP(r),

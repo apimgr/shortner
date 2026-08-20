@@ -35,7 +35,16 @@
   country/region enrichment, `geoip_update` scheduler task, CC BY 4.0
   attribution (`page/about.tmpl`, `LICENSE.md`). One deferred sub-item
   (allowlist bypass, waiting on PART 11) — see `TODO.AI.md`.
-- PART 17, 20-22 are NOT implemented yet — tracked in `TODO.AI.md`
+- PART 20 (Metrics) is implemented: `src/metrics/` (Prometheus registry +
+  HTTP/DB/scheduler/system/runtime metrics, instrumented `sql` driver),
+  `src/httpserver/metrics.go` (`metricsAuth` per-service bearer-token
+  auth, `RegisterMetricsRoutes`/`RegisterVersionedMetricsRoutes` mounting
+  `/server/metrics[/prometheus|grafana|loki]` + versioned/unversioned/root
+  aliases — same handler, never a redirect), `src/applog` in-memory ring
+  buffer backing the `loki` service. Deferred sub-items — business
+  metrics unpopulated, cache metrics inert (`src/cache` unwired), Tor/I2P
+  metrics deferred to PART 31 — see `TODO.AI.md`.
+- PART 17, 21-22 are NOT implemented yet — tracked in `TODO.AI.md`
 
 ---
 For complete details, see AI.md PART 17, 18, 19, 20, 21, 22

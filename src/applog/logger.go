@@ -3,8 +3,24 @@ package applog
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
+	"time"
 )
+
+// ringCap bounds the in-memory recent-lines buffer used to serve the
+// AI.md PART 20 `loki` metrics service without re-reading the log file.
+// Sized generously above the spec's default loki.max_entries (1000) so
+// a smaller configured max_entries never runs out of buffered history.
+const ringCap = 5000
+
+// RingEntry is one buffered log line, used by Recent to serve the `loki`
+// metrics service (AI.md PART 20 "Service Semantics" -> loki).
+type RingEntry struct {
+	Time  time.Time
+	Level Level
+	Line  string
+}
 
 // logFilePerm matches AI.md PART 11 "Audit Log Integrity" -> "File
 // Permissions": "audit.log: 0640 (rw-r-----)". Applied to all log files
@@ -47,6 +63,7 @@ type Logger struct {
 	file  *os.File
 	path  string
 	level Level
+	ring  []RingEntry
 }
 
 // Open opens (creating if necessary) the log file at path in append mode
@@ -74,7 +91,39 @@ func (l *Logger) WriteLine(level Level, line string) error {
 	if err != nil {
 		return fmt.Errorf("applog: write %s: %w", l.path, err)
 	}
+	l.ring = append(l.ring, RingEntry{Time: time.Now(), Level: level, Line: strings.TrimRight(line, "\n")})
+	if len(l.ring) > ringCap {
+		l.ring = l.ring[len(l.ring)-ringCap:]
+	}
 	return nil
+}
+
+// Recent returns the most recent buffered log entries newer than maxAge
+// (or all buffered entries if maxAge <= 0), capped at maxEntries (or
+// unbounded if maxEntries <= 0), oldest first. Used to serve the AI.md
+// PART 20 `loki` metrics service. The returned slice is a copy safe to
+// use without holding any lock.
+func (l *Logger) Recent(maxEntries int, maxAge time.Duration) []RingEntry {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	cutoff := time.Time{}
+	if maxAge > 0 {
+		cutoff = time.Now().Add(-maxAge)
+	}
+	var filtered []RingEntry
+	for _, e := range l.ring {
+		if !cutoff.IsZero() && e.Time.Before(cutoff) {
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+	if maxEntries > 0 && len(filtered) > maxEntries {
+		filtered = filtered[len(filtered)-maxEntries:]
+	}
+	out := make([]RingEntry, len(filtered))
+	copy(out, filtered)
+	return out
 }
 
 // Close closes the underlying file.

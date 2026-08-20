@@ -19,6 +19,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/apimgr/shortner/src/metrics"
 )
 
 // Pool holds connection-pool tuning, per AI.md PART 10 "Connection
@@ -55,15 +57,31 @@ func escapeDSNPath(path string) string {
 
 // Open opens a SQLite database at path, configures the connection pool,
 // verifies connectivity, and applies the idempotent schema. Per AI.md
-// PART 10 "Implementation" / "Schema Updates".
-func Open(path string, pool Pool) (*sql.DB, error) {
+// PART 10 "Implementation" / "Schema Updates". m may be nil (e.g. metrics
+// disabled), in which case the plain "sqlite" driver is used with no
+// instrumentation.
+func Open(path string, pool Pool, m *metrics.Metrics) (*sql.DB, error) {
 	// The path is percent-encoded before interpolation: a raw "?" or "#"
 	// in the configured database path would otherwise terminate the file
 	// component and let the remainder be parsed as extra DSN parameters,
 	// silently overriding the pragmas set below.
 	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)",
 		escapeDSNPath(path))
-	sqlDB, err := sql.Open("sqlite", dsn)
+
+	driverName := "sqlite"
+	if m != nil {
+		// database/sql/driver doesn't expose the "sqlite" driver.Driver
+		// value directly (modernc.org/sqlite's Driver type is unexported);
+		// a throwaway in-memory *sql.DB's own Driver() method gets it, per
+		// AI.md PART 20 "Database Metrics" non-invasive instrumentation.
+		tmp, tmpErr := sql.Open("sqlite", "file::memory:")
+		if tmpErr == nil {
+			driverName = m.RegisterInstrumentedDriver("sqlite", tmp.Driver())
+			tmp.Close()
+		}
+	}
+
+	sqlDB, err := sql.Open(driverName, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("db: open %s: %w", path, err)
 	}

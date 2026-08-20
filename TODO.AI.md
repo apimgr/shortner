@@ -311,7 +311,24 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
   `IsAllowlisted(ctx)` is a permanent pass-through stub; revisit once
   PART 11's allowlist lands.
   Read: AI.md PART 19, IDEA.md Business logic
-- Metrics endpoint.
+- Metrics endpoint — DONE. `src/metrics/` (Prometheus registry, HTTP/DB/
+  scheduler/system/runtime metrics, instrumented sql driver wrapper),
+  `src/httpserver/metrics.go` (`metricsAuth` per-service bearer-token
+  check, `RegisterMetricsRoutes`/`RegisterVersionedMetricsRoutes` mounting
+  `/server/metrics[/prometheus|grafana|loki]` + `/api/{api_version}/...`
+  + `/api/metrics` + root `/metrics` aliases, Grafana dashboard JSON,
+  Loki JSON handler), `src/applog/logger.go` (bounded in-memory ring
+  buffer + `Recent()` to back the `loki` service). Wired into
+  `src/httpserver/server.go`, `src/httpserver/middleware.go` (HTTP/rate-
+  limit/auth metrics), `src/scheduler/scheduler.go` (task metrics).
+  Deferred sub-items (each an open gap, not silently dropped):
+  - Business metrics (`LinksTotal`, `LinksCreated24h`, `LinksClicked24h`,
+    `APITokensActive`) are declared but never populated — needs either a
+    periodic query against `src/db` or hooks in the link-create/click/
+    token code paths.
+  - Cache metrics (`Cache*`) are declared but inert — `src/cache` is not
+    wired into any request path yet.
+  - Tor/I2P metrics deferred to PART 31.
   Read: AI.md PART 20
 - Backup & restore (Argon2id-protected archives). `--maintenance backup`,
   `restore`, `data`, `compliance` flag parsing/dispatch/`--help` are

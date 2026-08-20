@@ -21,6 +21,7 @@ import (
 
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/db"
+	"github.com/apimgr/shortner/src/metrics"
 )
 
 // TaskFunc is the work a scheduled task performs. A nil return means
@@ -49,6 +50,16 @@ type Scheduler struct {
 	mu    sync.Mutex
 	tasks map[string]*TaskDef
 	jobs  map[string]gocron.Job
+
+	metrics *metrics.Metrics
+}
+
+// SetMetrics attaches m so future task runs are recorded to the
+// scheduler_* metrics (AI.md PART 20 "Scheduler Metrics"). m may be nil
+// (metrics disabled), in which case runTask skips recording. Not part of
+// New's signature so existing tests/call sites are unaffected.
+func (s *Scheduler) SetMetrics(m *metrics.Metrics) {
+	s.metrics = m
 }
 
 // New creates a Scheduler backed by sqlDB for persistent state and logger
@@ -159,6 +170,9 @@ func (s *Scheduler) runTask(id string) {
 		enabled = row.Enabled
 	}
 
+	if s.metrics != nil {
+		s.metrics.SchedulerTasksRunning.WithLabelValues(id).Inc()
+	}
 	started := time.Now()
 	status := "skipped"
 	errMsg := ""
@@ -171,6 +185,18 @@ func (s *Scheduler) runTask(id string) {
 		}
 	}
 	finished := time.Now()
+	if s.metrics != nil {
+		s.metrics.SchedulerTasksRunning.WithLabelValues(id).Dec()
+		if status != "skipped" {
+			metricsStatus := status
+			if metricsStatus == "failed" {
+				metricsStatus = "error"
+			}
+			s.metrics.SchedulerTasksTotal.WithLabelValues(id, metricsStatus).Inc()
+			s.metrics.SchedulerTaskDuration.WithLabelValues(id).Observe(finished.Sub(started).Seconds())
+		}
+		s.metrics.SchedulerLastRunTimestamp.WithLabelValues(id).Set(float64(finished.Unix()))
+	}
 
 	var next *time.Time
 	if job != nil {

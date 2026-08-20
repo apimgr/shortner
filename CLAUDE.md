@@ -77,26 +77,33 @@
 - Full spec (HOW, ~48k lines): `AI.md` ← **SOURCE OF TRUTH**
 
 ## Current Project State
-- Last read AI.md: 2026-08-20 (PART 19 GeoIP, full section, to implement
-  and verify country-blocking + click-analytics location enrichment)
-- Current task: implemented GeoIP (AI.md PART 19) — new `src/geoip`
-  package (`oschwald/maxminddb-golang`-backed `Manager`: ASN/Country/City
-  IPv4+IPv6 readers from `sapics/ip-location-db` via jsDelivr, fail-open
-  Lookup/IsBlocked, atomic Download), `server.geoip.*` config schema,
-  `geoIPMiddleware` country-blocking in `src/httpserver/middleware.go`,
-  click-time country/region enrichment in `src/httpserver/links.go` +
-  `src/db/click.go` (`RecordClick` now takes country/region), scheduler's
-  `geoip_update` task now does real work (`src/scheduler/tasks.go`),
-  `src/main.go` startup wiring (dir default, background first-run
-  download, shutdown hook), CC BY 4.0 attribution in `page/about.tmpl` and
-  `LICENSE.md`. Verified in Docker: `go build`/`go vet`/`go test ./...
-  -cover` all pass, `src/geoip` at 68.7% coverage (gate is 60%).
-- Relevant PARTs: 0-6, 12-16, 18-19 done; 7-11, 17, 20-32 tracked in
+- Last read AI.md: 2026-08-20 (PART 20 Metrics, full section, to
+  implement and verify the built-in Prometheus/Grafana/Loki metrics
+  endpoints)
+- Current task: implemented Metrics (AI.md PART 20) — `src/metrics/`
+  (Prometheus registry + HTTP/DB/scheduler/system/runtime metrics,
+  instrumented `sql` driver wrapper), `src/httpserver/metrics.go`
+  (`metricsAuth` mandatory per-service constant-time bearer-token check,
+  `RegisterMetricsRoutes`/`RegisterVersionedMetricsRoutes` mounting
+  `/server/metrics[/prometheus|grafana|loki]` +
+  `/api/{api_version}/server/metrics` + `/api/metrics` + root `/metrics`
+  aliases — same handler, never a redirect — Grafana dashboard JSON,
+  Loki JSON handler), `src/applog/logger.go` (bounded in-memory ring
+  buffer + `Recent()` backing the `loki` service). Wired into
+  `src/httpserver/server.go`, `middleware.go` (HTTP/rate-limit/auth
+  metrics), `src/scheduler/scheduler.go` (task metrics). Verified in
+  Docker: `go build`/`go vet`/`go test ./... -cover` all pass;
+  `src/metrics` 68.7%, `src/httpserver` 75.2%, `src/applog` 84.5%
+  coverage (gate is 60%).
+- Relevant PARTs: 0-6, 12-16, 18-20 done; 7-11, 17, 21-32 tracked in
   TODO.AI.md (PART 15 has deferred sub-items — DNS-01 provider matrix,
   credential encryption at rest, autocert-to-spec-layout bridging; PART 16
   has deferred sub-items — PWA, sitemap.xml, favicon.ico,
   announcements-banner rendering, contact-form email delivery,
-  Swagger/GraphQL doc pages — GeoIP-on-stats-page is now done via PART 19;
-  PART 19 itself has one deferred sub-item — allowlist bypass of country
-  blocking, waiting on PART 11's allowlist backing store — all logged in
-  TODO.AI.md rather than silently dropped)
+  Swagger/GraphQL doc pages; PART 19 has one deferred sub-item — allowlist
+  bypass of country blocking, waiting on PART 11's allowlist backing
+  store; PART 20 has three deferred sub-items — business metrics
+  (`LinksTotal`/`LinksCreated24h`/`LinksClicked24h`/`APITokensActive`)
+  unpopulated, cache metrics inert since `src/cache` is unwired, Tor/I2P
+  metrics deferred to PART 31 — all logged in TODO.AI.md rather than
+  silently dropped)

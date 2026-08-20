@@ -10,7 +10,7 @@ import (
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	sqlDB, err := Open(":memory:", DefaultPool())
+	sqlDB, err := Open(":memory:", DefaultPool(), nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}

@@ -112,6 +112,71 @@ func TestLoggerWriteLineFiltersByLevel(t *testing.T) {
 	}
 }
 
+func TestLoggerRecentReturnsBufferedLines(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.log")
+
+	logger, err := Open(path, LevelDebug)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer logger.Close()
+
+	if err := logger.WriteLine(LevelInfo, "first line\n"); err != nil {
+		t.Fatalf("WriteLine() error = %v", err)
+	}
+	if err := logger.WriteLine(LevelInfo, "second line\n"); err != nil {
+		t.Fatalf("WriteLine() error = %v", err)
+	}
+
+	entries := logger.Recent(0, 0)
+	if len(entries) != 2 {
+		t.Fatalf("Recent() returned %d entries, want 2", len(entries))
+	}
+	if entries[0].Line != "first line" || entries[1].Line != "second line" {
+		t.Errorf("Recent() entries = %+v, want ordered first/second line (trailing newline trimmed)", entries)
+	}
+}
+
+func TestLoggerRecentRespectsMaxEntries(t *testing.T) {
+	dir := t.TempDir()
+	logger, err := Open(filepath.Join(dir, "server.log"), LevelDebug)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer logger.Close()
+
+	for i := 0; i < 5; i++ {
+		if err := logger.WriteLine(LevelInfo, "line\n"); err != nil {
+			t.Fatalf("WriteLine() error = %v", err)
+		}
+	}
+
+	entries := logger.Recent(2, 0)
+	if len(entries) != 2 {
+		t.Errorf("Recent(2, 0) returned %d entries, want 2", len(entries))
+	}
+}
+
+func TestLoggerRecentRespectsMaxAge(t *testing.T) {
+	dir := t.TempDir()
+	logger, err := Open(filepath.Join(dir, "server.log"), LevelDebug)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer logger.Close()
+
+	if err := logger.WriteLine(LevelInfo, "old enough to be excluded\n"); err != nil {
+		t.Fatalf("WriteLine() error = %v", err)
+	}
+	time.Sleep(5 * time.Millisecond)
+
+	entries := logger.Recent(0, time.Millisecond)
+	if len(entries) != 0 {
+		t.Errorf("Recent(0, 1ms) after 5ms sleep = %d entries, want 0", len(entries))
+	}
+}
+
 func TestLoggerFilePermissions(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.log")
