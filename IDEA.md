@@ -74,14 +74,20 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
 
 The prior implementation of this project was a Node.js app
 (`github.com/casjaydns/csj.lol`). The new Go frontend's home page (`/`) body
-must match that app's layout: centered logo, single-column create-link card
-(URL input, optional custom-slug input, submit), success state showing the
-resulting short URL with a "create another" action. Dracula color scheme
-(`--dracula-bg`, `--dracula-current`, `--dracula-purple`, `--dracula-cyan`,
-`--dracula-green`, `--dracula-comment`, `--dracula-fg`) via CSS custom
-properties, not hardcoded hex — see UI/UX rules. Nav (Home/List/Domains/About)
-and footer (attribution/links) follow the same structure, adapted to this
-project's actual routes and reserved names.
+must match that app's LAYOUT ONLY: centered logo, single-column create-link
+card (URL input, optional custom-slug input, submit), success state showing
+the resulting short URL with a "create another" action. Nav (Home/List/
+Domains/About) and footer (attribution/links) follow the same structure,
+adapted to this project's actual routes and reserved names.
+
+Theming does NOT come from the reference app — use AI.md PART 16's own CSS
+Variable Reference and `theme-dark`/`theme-light`/`theme-auto` system
+(`--color-bg`, `--color-text`, `--color-primary`, etc. in `common.css`,
+toggled via the `theme` cookie), not reference-app-specific custom
+properties or hardcoded hex. AI.md's default dark palette already derives
+from the same Dracula colors the reference app used, so visually the
+result should be close — but the CSS variables and theme-toggle mechanism
+must be AI.md's own, not copied from the reference app.
 
 Reference files saved for PART 16 implementation:
 `reference/csjlol/{index.html,styles.css,app.js,config.js,nav.js,navBar.js}`.

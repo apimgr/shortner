@@ -250,12 +250,14 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
 - `/server/docs/swagger`, `/server/docs/graphql` — confirmed still out of
   scope per the AI.md `/server` routes table (PART 16); no Swagger/GraphQL
   doc UI exists.
-- Home page (`/`) body layout should still be diffed against the prior
+- Home page (`/`) body LAYOUT should still be diffed against the prior
   Node.js app (`github.com/casjaydns/csj.lol`) reference assets in
   `reference/csjlol/` for final visual parity — the current
-  `page/home.tmpl` was written to the Dracula/light CSS variables and the
+  `page/home.tmpl` was written to AI.md PART 16's own `theme-dark`/
+  `theme-light` CSS variables (not the reference app's markup/CSS) and the
   IDEA.md "Frontend design reference" description, but a pixel-level
-  comparison against the reference has not been done.
+  layout comparison against the reference has not been done. Theming is
+  intentionally AI.md's own system, not the reference app's — see IDEA.md.
 ## PART 17-22: Features
 
 - Email & notifications.
