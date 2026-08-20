@@ -21,8 +21,14 @@ func wantsText(req *http.Request) bool {
 	if strings.HasSuffix(req.URL.Path, ".txt") {
 		return true
 	}
+	// An explicit Accept always beats User-Agent sniffing, per AI.md PART
+	// 14: `Accept: application/json` must return JSON even to curl, and
+	// PART 28's content-negotiation matrix tests exactly that.
 	accept := req.Header.Get("Accept")
-	if strings.Contains(accept, "text/plain") && !strings.Contains(accept, "application/json") {
+	if strings.Contains(accept, "application/json") {
+		return false
+	}
+	if strings.Contains(accept, "text/plain") {
 		return true
 	}
 	return isHTTPTool(req)

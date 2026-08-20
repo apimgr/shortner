@@ -523,16 +523,67 @@ The remaining items below are environment limits, not unbuilt work.
 
 ## PART 28-30: Testing, docs, i18n
 
-- Expand `tests/run_tests.sh` coverage as real packages/handlers are added;
-  maintain the 60% coverage gate.
+- DONE: PART 28's `tests/` deliverables are implemented.
+  `tests/run_tests.sh` is the two-phase entry point — phase 1 runs the Go
+  suite through `make test` (this resolves the old "raw `docker run ... go
+  test` instead of the Makefile target" item), phase 2 auto-detects the
+  runtime (Incus when `incus info` succeeds, else Docker) and dispatches.
+  `tests/docker.sh` builds in `casjaysdev/go:latest`, boots a disposable
+  `alpine:latest` container bind-mounted to
+  `${TMPDIR:-/tmp}/apimgr/shortner-XXXXXX/volumes`, installs
+  bash/curl/file/jq, pushes the binaries plus `suite.sh`/`assert.sh`, and
+  runs the suite. `tests/incus.sh` does the same against
+  `images:debian/trixie` and then exercises the real PART 23/24 service
+  lifecycle (`--service --install`, `systemctl is-enabled`/`is-active`,
+  the dedicated system user, reload/restart/stop/start, and
+  `--service --uninstall` with its confirmation prompt) — this resolves
+  the old "incus.sh only proves container lifecycle" item.
+  `tests/suite.sh` is the shared in-container suite: prerequisites, static
+  ELF/`ldd` binary-info checks, `--version`/`--help`, the binary-rename
+  test, first-run `server.yml` auto-creation and `server.token` pickup,
+  health endpoints, the content-negotiation matrix, well-known/`.txt`
+  endpoints, every frontend page, full link CRUD (auto code, custom slug,
+  duplicate 409, reserved 409, malformed URL/expires_at), redirect/410/404
+  resolution, stats including bot exclusion and IP anonymization, owner-
+  vs operator-token authorization, the client-binary checks, and the write
+  rate-limit 429. `tests/assert.sh` and `tests/common.sh` hold the shared
+  helpers; `tests/test_content_negotiation.sh` re-runs the negotiation
+  matrix against any running instance. `tests/e2e.sh` plus `tests/e2e/`
+  (chromedp, `e2e` build tag, untagged `doc.go` so `go test ./...` still
+  builds) implement all three browser tiers against a
+  `chromedp/headless-shell` container on a private Docker network.
+  Verified: `bash -n` clean on all 8 shell files; `go mod tidy`,
+  `gofmt -l tests/e2e` (clean), `go vet -tags e2e ./tests/e2e/...` and
+  `go test ./src/httpserver/... -cover` (73.3%) all pass in
+  `casjaysdev/go:latest`.
   Read: AI.md PART 28
-- `tests/run_tests.sh` lines 11-16 run a raw `docker run ... go test`
-  instead of invoking the Makefile's `test` target (found by the go-lint
-  agent) — bring it in line with `make test` so there is one source of
-  truth for the test invocation.
-  Read: AI.md PART 25, 28
-- `tests/incus.sh` currently only proves container lifecycle — add real
-  systemd/service-install checks once PART 23/24 lands.
+- NOT YET EXERCISED: no full `tests/docker.sh`, `tests/incus.sh`, or
+  `tests/e2e.sh` run has been executed end to end — the scripts are
+  syntax-checked and their helpers dry-run, but the first real pass will
+  almost certainly surface assertion-level drift (exact JSON field names,
+  status codes for validation errors, the `--service` verbs' exit codes).
+  Run all three and fix what they report.
+  Read: AI.md PART 28
+- `/server/healthz.txt` (and every other `.txt` path suffix) returns 404:
+  `wantsText` honors the suffix, but the chi router has no `.txt` route
+  variants and `urlNormalizeMiddleware` does not strip the extension
+  before matching. `tests/suite.sh` and
+  `tests/test_content_negotiation.sh` report this as a SKIP rather than
+  faking a pass. Add extension-stripping to the router.
+  Read: AI.md PART 13, 14
+- `make build` and `make local` fail whenever `src/client/` exists without
+  a `package main` — both targets build `./src/client` unconditionally on
+  directory existence. `tests/common.sh` works around it with
+  `has_client_main()`; the Makefile should use the same guard.
+  Read: AI.md PART 25
+- The client binary `shortner-cli` still does not exist (`src/client` has
+  only `doc.go`), so every CLI check in `tests/suite.sh` reports SKIP.
+  Read: AI.md PART 8, 32
+- AI.md PART 28 line 37584 references a "Testing Operator-Token Routes"
+  section that does not exist anywhere in the spec — the nearest real
+  section is "Testing Open API Routes". Spec defect, recorded here
+  because AI.md is read-only; operator-token coverage was written against
+  the Open API Routes section plus IDEA.md's permission rules instead.
   Read: AI.md PART 28
 - `docs/index.md`, `installation.md`, `configuration.md`, `api.md`,
   `cli.md`, `security.md`, `integrations.md`, `development.md`,
