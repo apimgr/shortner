@@ -77,23 +77,26 @@
 - Full spec (HOW, ~48k lines): `AI.md` ← **SOURCE OF TRUTH**
 
 ## Current Project State
-- Last read AI.md: 2026-08-20 (PART 18 Scheduler, full section, to
-  implement and verify the built-in scheduler)
-- Current task: implemented the built-in scheduler (AI.md PART 18) —
-  `src/scheduler/` (gocron/v2-backed engine, DB-persisted task state,
-  startup catch-up, graceful shutdown), `src/db/scheduler.go`
-  (`scheduler_tasks`/`scheduler_history` queries), `src/scheduler_cli.go`
-  (`--scheduler list/show/run/enable/disable/history` dispatch), wired
-  into `src/main.go` start/stop lifecycle. All 12 required built-in tasks
-  registered; 4 have real implementations (token_cleanup, log_rotation,
-  healthcheck_self, ssl_renewal), 8 honestly skip pending their subsystem
-  (geoip_update, blocklist_update, cve_update, update_check, backup_daily,
-  backup_hourly, tor_health, i2p_health — each tracked under its own PART
-  in TODO.AI.md).
-- Relevant PARTs: 0-6, 12-16, 18 done; 7-11, 17, 19-32 tracked in
+- Last read AI.md: 2026-08-20 (PART 19 GeoIP, full section, to implement
+  and verify country-blocking + click-analytics location enrichment)
+- Current task: implemented GeoIP (AI.md PART 19) — new `src/geoip`
+  package (`oschwald/maxminddb-golang`-backed `Manager`: ASN/Country/City
+  IPv4+IPv6 readers from `sapics/ip-location-db` via jsDelivr, fail-open
+  Lookup/IsBlocked, atomic Download), `server.geoip.*` config schema,
+  `geoIPMiddleware` country-blocking in `src/httpserver/middleware.go`,
+  click-time country/region enrichment in `src/httpserver/links.go` +
+  `src/db/click.go` (`RecordClick` now takes country/region), scheduler's
+  `geoip_update` task now does real work (`src/scheduler/tasks.go`),
+  `src/main.go` startup wiring (dir default, background first-run
+  download, shutdown hook), CC BY 4.0 attribution in `page/about.tmpl` and
+  `LICENSE.md`. Verified in Docker: `go build`/`go vet`/`go test ./...
+  -cover` all pass, `src/geoip` at 68.7% coverage (gate is 60%).
+- Relevant PARTs: 0-6, 12-16, 18-19 done; 7-11, 17, 20-32 tracked in
   TODO.AI.md (PART 15 has deferred sub-items — DNS-01 provider matrix,
   credential encryption at rest, autocert-to-spec-layout bridging; PART 16
   has deferred sub-items — PWA, sitemap.xml, favicon.ico,
-  announcements-banner rendering, GeoIP on stats page, contact-form email
-  delivery, Swagger/GraphQL doc pages — all logged in TODO.AI.md rather
-  than silently dropped)
+  announcements-banner rendering, contact-form email delivery,
+  Swagger/GraphQL doc pages — GeoIP-on-stats-page is now done via PART 19;
+  PART 19 itself has one deferred sub-item — allowlist bypass of country
+  blocking, waiting on PART 11's allowlist backing store — all logged in
+  TODO.AI.md rather than silently dropped)

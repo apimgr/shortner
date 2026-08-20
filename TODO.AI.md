@@ -151,8 +151,8 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
   entire `/api` route group in `src/httpserver/server.go`, closing a gap
   where the pre-existing health routes were not CORS-enabled.
 - GeoIP-based location fields on `StatsResponse.Recent` (`Country`/`Region`)
-  are wired but always empty until PART 19 GeoIP lands.
-  Read: AI.md PART 19
+  are now populated at click time by the PART 19 `src/geoip` lookup — see
+  the PART 19 entry below.
 
 ## PART 15: SSL/TLS & Let's Encrypt — DONE (HTTP-01/TLS-ALPN-01 only)
 
@@ -238,10 +238,9 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
   `Announcements []config.Announcement` (or similar) field to `PageData`,
   populate it in `newPageData`, and add a banner partial to
   `layout/public.tmpl`.
-- GeoIP location data on `/{slug}/stats` — `page/stats.tmpl` already
-  renders "unknown" gracefully when `ClickInfo.Country`/`.Region` are
-  empty; the actual GeoIP lookup that would populate those fields is
-  PART 19 work, not done here.
+- DONE: GeoIP location data on `/{slug}/stats` — `page/stats.tmpl` renders
+  "unknown" gracefully when empty, and now gets real values: PART 19's
+  `src/geoip` lookup populates `ClickInfo.Country`/`.Region` at click time.
 - Contact-form email delivery — `contactPost` in `frontend.go` accepts and
   validates the form (including a static math-captcha check) and shows a
   success message, but nothing is sent or persisted; real delivery depends
@@ -269,21 +268,48 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
   `src/scheduler_cli.go`, wired into `src/main.go` startup/shutdown).
   All 12 AI.md PART 18 "Built-in Tasks (Required)" are registered with
   their default schedules (config-overridable per task via
-  `server.scheduler.tasks`); 4 have real implementations
-  (`token_cleanup`, `log_rotation`, `healthcheck_self`, `ssl_renewal`);
-  the remaining 8 (`geoip_update`, `blocklist_update`, `cve_update`,
+  `server.scheduler.tasks`); 5 have real implementations
+  (`token_cleanup`, `log_rotation`, `healthcheck_self`, `ssl_renewal`,
+  `geoip_update`); the remaining 7 (`blocklist_update`, `cve_update`,
   `update_check`, `backup_daily`, `backup_hourly`, `tor_health`,
   `i2p_health`) are honest no-op "skipped" stand-ins until their
-  underlying subsystem lands (PART 19, PART 9/11, PART 9, PART 22,
-  PART 21 x2, PART 31.1, PART 31.2 respectively) — each is wired up to
-  real work as its subsystem's own TODO item below is implemented, not
-  here. `--scheduler list/show/run/enable/disable/history` CLI dispatch
+  underlying subsystem lands (PART 9/11, PART 9, PART 22, PART 21 x2,
+  PART 31.1, PART 31.2 respectively) — each is wired up to real work as
+  its subsystem's own TODO item below is implemented, not here.
+  `--scheduler list/show/run/enable/disable/history` CLI dispatch
   implemented in `src/scheduler_cli.go`; startup catch-up window and
   graceful shutdown (drain running tasks, no forced timeout kill yet —
   AI.md's 30s force-release is not implemented, tracked separately)
   implemented in `src/scheduler/scheduler.go`.
   Read: AI.md PART 18
-- GeoIP integration for click-analytics IP anonymization.
+- DONE: GeoIP integration (`src/geoip/geoip.go`) — `Manager` wraps up to 4
+  `oschwald/maxminddb-golang` readers (ASN, Country, City IPv4/IPv6) from
+  `sapics/ip-location-db` via the jsDelivr CDN (never MaxMind GeoLite2,
+  per spec). `Open`/`Lookup`/`Reload`/`Close`/`Download`/`IsBlocked` all
+  fail open per the NON-NEGOTIABLE "risk signal only" rule: nil/disabled
+  Manager, missing/corrupt DB, and private/loopback IPs (`net.IP.IsPrivate
+  ()`/`IsLoopback()`) all skip lookup rather than error or block.
+  `Download` writes to a temp file, validates via `maxminddb.Open`, then
+  atomically renames into place, so a bad download never corrupts a
+  working database. Config: `server.geoip.{enabled,dir,deny_countries,
+  allow_countries,databases.{asn,country,city}}` in `src/config/config.go`
+  (`Default()`: enabled, all 3 DBs on, both country lists empty). Wired
+  into: `httpserver/middleware.go` (`geoIPMiddleware` — country-blocking,
+  execution position 8, allowlist/no-country/nil-Manager pass through),
+  `httpserver/links.go` (`resolveHandler` looks up the raw IP before
+  `db.RecordClick` anonymizes it, populating `Country`/`Region`),
+  `scheduler/tasks.go` (`geoip_update` task re-downloads + `Reload()`s),
+  `main.go` (dir defaults to `{data_dir}/security/geoip`; `Open` is
+  synchronous/fast, first-run `Download` runs in a background goroutine
+  with a 5-minute timeout so startup is never blocked on the network;
+  `geoManager.Close()` registered as a shutdown hook). CC BY 4.0
+  attribution (DB-IP HTML link + NRO text notice) added to
+  `page/about.tmpl` (reachable from every screen via nav) and
+  `LICENSE.md`'s Third-Party Licenses section.
+  Deferred: `server.security.allowlist` bypassing country-blocking is not
+  wired — PART 11's allowlist backing store doesn't exist yet, so
+  `IsAllowlisted(ctx)` is a permanent pass-through stub; revisit once
+  PART 11's allowlist lands.
   Read: AI.md PART 19, IDEA.md Business logic
 - Metrics endpoint.
   Read: AI.md PART 20

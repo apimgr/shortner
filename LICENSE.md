@@ -26,3 +26,14 @@ SOFTWARE.
 
 This software includes third-party libraries. Attribution is populated once
 dependencies are added to `go.mod` (see TODO.AI.md).
+
+### GeoIP Data
+
+Country, ASN, and city data is provided by
+[sapics/ip-location-db](https://github.com/sapics/ip-location-db), licensed
+CC BY 4.0.
+
+<a href="https://db-ip.com/">IP Geolocation by DB-IP</a>
+
+Country and ASN data licensed CC BY 4.0 by the Number Resource Organization
+(NRO).

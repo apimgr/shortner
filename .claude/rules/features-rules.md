@@ -25,10 +25,17 @@
 ## QUICK REFERENCE
 - PART 18 (Scheduler) is implemented: `src/scheduler/`, `src/db/scheduler.go`,
   `src/scheduler_cli.go`, wired into `src/main.go`. All 12 required built-in
-  tasks are registered; 4 do real work (token_cleanup, log_rotation,
-  healthcheck_self, ssl_renewal), 8 honestly skip pending their own
-  subsystem (PART 19, 21, 22, 31.1, 31.2) — see `TODO.AI.md`.
-- PART 17, 19-22 are NOT implemented yet — tracked in `TODO.AI.md`
+  tasks are registered; 5 do real work (token_cleanup, log_rotation,
+  healthcheck_self, ssl_renewal, geoip_update), 7 honestly skip pending
+  their own subsystem (PART 9/11, 9, 22, 21 x2, 31.1, 31.2) — see
+  `TODO.AI.md`.
+- PART 19 (GeoIP) is implemented: `src/geoip/` (Manager/Lookup/IsBlocked/
+  Download, `oschwald/maxminddb-golang` against `sapics/ip-location-db`),
+  `server.geoip.*` config, country-blocking middleware, click-analytics
+  country/region enrichment, `geoip_update` scheduler task, CC BY 4.0
+  attribution (`page/about.tmpl`, `LICENSE.md`). One deferred sub-item
+  (allowlist bypass, waiting on PART 11) — see `TODO.AI.md`.
+- PART 17, 20-22 are NOT implemented yet — tracked in `TODO.AI.md`
 
 ---
 For complete details, see AI.md PART 17, 18, 19, 20, 21, 22
