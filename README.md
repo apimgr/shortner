@@ -19,12 +19,15 @@ https://shortner.example.com
 - Anonymous link creation — no account required
 - Owner tokens for managing links after creation
 - Custom slugs and link expiration (expired links return `410 Gone`)
-- Click analytics with GeoIP lookup and IP anonymization
+- Click analytics with IP anonymization
 - Bot-exclusion for click analytics
 - Server-side rendered web UI — works fully without JavaScript
 - REST API mirrors every web UI feature
 - Single static binary, no runtime dependencies
-- Tor hidden service support (auto-enabled if Tor is found)
+
+Planned (not yet shipped): GeoIP enrichment for click analytics, Tor hidden
+service support (auto-enabled when Tor is found), and an optional I2P
+eepsite (off by default).
 
 ## Production
 
@@ -118,10 +121,35 @@ flags (see `shortner --help`):
 | `--mode` | `production` (default) or `development` |
 | `--debug` | verbose debug output |
 
+### Environment variables
+
+Every variable below is read by the server binary. CLI flags always win
+over environment variables, which win over the built-in defaults.
+
+| Variable | Description |
+|----------|-------------|
+| `CONFIG_DIR` | config directory (holds `server.yml`) |
+| `DATA_DIR` | data directory |
+| `LOG_DIR` | log directory |
+| `DATABASE_DIR` | database directory (defaults inside the data directory) |
+| `BACKUP_DIR` | backup directory |
+| `LISTEN` | bind address (same as `--address`) |
+| `PORT` | bind port (same as `--port`) |
+| `DOMAIN` | public FQDN used for URL and certificate resolution |
+| `HOSTNAME` | fallback hostname when `DOMAIN` is unset |
+| `MODE` | `production` (default), `development`, or `debug` (defaults debug output on) |
+| `DEBUG` | truthy value enables debug output (wins over `MODE=debug`) |
+| `CONTAINER` | truthy value forces container path layout (`/config`, `/data`) |
+| `TZ` | timezone used for user-facing timestamps |
+| `NO_COLOR` | any non-empty value disables ANSI color output |
+| `TERM` | `dumb` disables ANSI output and animated spinners |
+
 ## API
 
-The REST API is the source of truth; the web UI consumes it. Full
-documentation lives in [docs/api.md](docs/api.md).
+The REST API is the source of truth; the web UI consumes it. Successful
+JSON responses use the `{"ok": true, "data": {…}}` envelope, errors use
+`{"ok": false, "error": …, "message": …}`, and the health endpoints return
+their health object directly.
 
 | Endpoint | Description |
 |----------|-------------|
