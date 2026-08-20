@@ -321,10 +321,140 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
 - I18N string extraction and accessibility pass.
   Read: AI.md PART 30
 
-## PART 31: Tor hidden service
+## PART 31: Overlay networks (Tor & I2P)
 
-- Auto-enable Tor hidden service when Tor is present on the host.
-  Read: AI.md PART 31
+AI.md PART 31 was retitled and split by the 2026-08-16 spec revision
+(commit 575f0957e6bd): 31.1 Tor (REQUIRED, auto-enabled when the `tor`
+binary is found, no toggle) and 31.2 I2P eepsite (OPTIONAL, opt-in,
+default off).
+
+### PART 31.1: Tor hidden service
+
+- Auto-enable Tor hidden service when Tor is present on the host;
+  dedicated Tor process via `github.com/cretz/bine`, dedicated loopback
+  backend port, v3 hidden service, SafeLogging.
+  Read: AI.md PART 31.1
+- Tor request detection at priority 0 in `GetURLVars`/`BuildURL`
+  (`src/httpserver/urlvars.go` explicitly defers this today).
+  Read: AI.md PART 12 "Tor Hidden Service Configuration"
+- Tor HTTP semantics: never issue an HTTPS redirect, HSTS header, or CSP
+  `upgrade-insecure-requests` on a Tor request; clearnet HTTPS-only
+  (port 443) must NOT propagate to the onion; `Secure` cookies still set.
+  Read: AI.md PART 12 "Tor HTTP Semantics (No HTTPS Upgrade)"
+- Tor request logging identity: never log/display `127.0.0.1` for a Tor
+  request — use `tor:{circuit_id}` from the `HiddenServiceExportCircuitID
+  haproxy` PROXY header, or the literal `tor` when export is off. Rate
+  limiting must key on circuit/session, never the collapsed loopback IP
+  (`src/httpserver/ratelimit.go` keys on client IP today).
+  Read: AI.md PART 12 "Tor Request Logging & Identity"
+- Tor timestamp normalization: render user-facing timestamps in UTC for
+  Tor requests (server local timezone leaks operator location).
+  Read: AI.md PART 12 "Tor Timestamp Normalization (UTC)"
+- `Onion-Location` header on clearnet HTML document responses only (2xx
+  top-level navigations); never on onion responses, API/JSON, static
+  assets, or redirects.
+  Read: AI.md PART 12 "Onion-Location Advertisement"
+- Footer/help "Tor Access" section + `checks.tor` + `features.tor.*`
+  populated from the real Tor manager (health currently reports the
+  honest zero value).
+  Read: AI.md PART 13, 16
+
+### PART 31.2: I2P eepsite (OPTIONAL — opt-in, default off)
+
+Entirely unimplemented; new in the 2026-08-16 spec revision.
+
+- Config surface: `features.i2p.enabled` (default false) / `I2P_ENABLED`
+  env / `--i2p` flag. Disabled means no provider, no port, no generated
+  config — nothing at all.
+  Read: AI.md PART 31.2 "Configuration"
+- Provider resolution: i2pd binary (Model A, dedicated process,
+  `{config_dir}/i2p/tunnels.conf` regenerated each startup) preferred;
+  external SAM bridge at `127.0.0.1:7656` (Model B) as fallback; neither
+  available → log WARN and continue (non-fatal).
+  Read: AI.md PART 31.2 "Provider Model"
+- Destination key persisted at `{data_dir}/i2p/site/`; `.b32.i2p` address
+  derived from it.
+- Startup sequence step 17b and step 20 "I2P: {.b32.i2p}" banner/log line.
+  Read: AI.md PART 8 startup PHASE 5
+- I2P exception in the trusted-proxy gate: a request whose `Host` matches
+  `i2p.b32_address` resolves from `i2p.*` config, always `http://`, no
+  proxy-header inspection, no IP check.
+  Read: AI.md PART 12 "I2P exception"
+- Health: `features.i2p.{enabled,running,status,hostname,provider}` — the
+  struct and text/JSON rendering now exist in
+  `src/httpserver/health.go` and report the disabled zero value with
+  `provider: none`; wire them to a real I2P manager when built. Add
+  `checks.i2p` (omitted while disabled).
+  Read: AI.md PART 13
+- Frontend: footer I2P block (`{{ if and .I2PEnabled .I2PRunning
+  .I2PAddress }}`), `/server/help#i2p-access` section, `{i2p_address}`
+  custom-HTML template variable.
+  Read: AI.md PART 16
+- Scheduler task `i2p_health` every 10 minutes (only when opt-in enabled).
+  Read: AI.md PART 18
+- Overlay protocol rule (applies to both Tor and I2P): overlays are
+  ALWAYS `http://`; no certificate is ever issued or self-signed for an
+  overlay address. The older "overlays inherit HTTPS-only from clearnet
+  port 443" rule was REMOVED from the spec — do not reintroduce it.
+  Read: AI.md PART 12, PART 16 "Overlay Network Protocol Rules"
+
+## Spec-revision follow-ups (2026-08-14 / 2026-08-16 AI.md updates)
+
+- Daily release identity changed: the daily release tag is the rolling
+  `daily` tag (deleted and recreated nightly) and the daily VERSION is the
+  short commit id (`git rev-parse --short HEAD`) — never a timestamp and
+  never `release.txt`. Affects PART 22 `--update branch daily` and the
+  PART 27 release workflow, both unimplemented; check `Makefile`/
+  `src/update.go` when they are built.
+  Read: AI.md PART 13 "Version Format", PART 22, PART 27
+
+## Audit follow-ups (2026-08-19 compliance audit)
+
+- `docs/reference/csjlol/` (6 files) violates AI.md PART 3, which reserves
+  `docs/` for the ReadTheDocs documentation set only. It is referenced from
+  `IDEA.md:87`, so it is flagged rather than deleted — decide with the user
+  whether it moves to a non-`docs/` location (e.g. `reference/`) and update
+  the IDEA.md reference in the same change.
+  Read: AI.md PART 3, PART 29
+- `docs/` still has none of the required ReadTheDocs pages (index,
+  installation, configuration, api, cli, security, integrations,
+  development) — PART 29 remains unimplemented; README no longer links a
+  non-existent `docs/api.md`.
+  Read: AI.md PART 29
+- `CACHE_URL` (and the commented `DATABASE_DRIVER`/`DATABASE_URL`) are set
+  in the compose files as PART 26 requires, but no Go code reads any of
+  them — the cache/database URL config surface is unimplemented, so the
+  documented override silently does nothing. Implement the env-to-config
+  wiring in `src/config` when PART 10's storage layer lands.
+  Read: AI.md PART 5, PART 10, PART 26
+
+- `src/main.go:306` calls `certmgr.NewTLSConfig(configDir, host, "")` and
+  discards the returned `*autocert.Manager`, so the HTTP-01 challenge
+  handler is never mounted and ACME issuance can never complete. Wire the
+  manager's `HTTPHandler` into the plain-HTTP listener.
+  Read: AI.md PART 15
+- `apperr.SendError` never logs `err.Internal`, so 5xx root causes are
+  discarded. PART 9 "Error Logging" requires every error logged with
+  context (5xx at Error, 4xx at Warn); `apperr` needs a logger dependency
+  to do it.
+  Read: AI.md PART 9 "Error Logging"
+- `src/httpserver/server.go:90` — `corsAPIMiddleware` forces
+  `Access-Control-Allow-Origin: *` even when the configured CORS
+  middleware set `Access-Control-Allow-Credentials: true`; browsers reject
+  that pair, so credentialed CORS silently breaks. Needs a policy decision
+  on which wins.
+  Read: AI.md PART 12, PART 14
+- `statsHandler` is unauthenticated and exposes anonymized IPs and
+  referrers — needs an explicit Tier 2/Tier 3 classification decision
+  before it can be called compliant.
+  Read: AI.md PART 11 "Public Endpoint Safety Principle"
+- `src/certmgr/certmgr.go` `SaveAppManagedCertificate` writes
+  `fullchain.pem`/`privkey.pem` non-atomically (truncate in place);
+  `config.Save` now uses the temp-file + rename pattern — do the same here.
+  Read: AI.md PART 15
+- `src/applog/logger.go` `Rotate()` reopens the same path without renaming,
+  so it never actually rotates. Blocked on the PART 18 scheduler.
+  Read: AI.md PART 11 "Log Rotation", PART 18
 
 ## PART 32: Client
 
