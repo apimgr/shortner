@@ -20,8 +20,13 @@
 | Action pinning | full commit SHA, never a tag | global CLAUDE.md, PART 27 |
 
 ## QUICK REFERENCE
-- No workflow files exist yet — PART 27 is explicitly out of PART 0-6
-  scope; tracked in `TODO.AI.md`
+- PART 27 is implemented, GitHub Actions only (this repo's sole provider,
+  confirmed via `git remote get-url origin`): `.github/workflows/ci.yml`,
+  `release.yml`, `beta.yml`, `daily.yml`, `docker.yml` — verbatim from
+  AI.md PART 27's GitHub Actions section, with all third-party Action SHAs
+  independently verified against GitHub's tag refs before pinning. All 5
+  pass `act --list -W {file}`; the workflow-policy SHA-pin grep passes
+  locally. Gitea/Forgejo/GitLab/Jenkins sections do not apply.
 
 ---
 For complete details, see AI.md PART 27

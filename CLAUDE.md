@@ -77,12 +77,38 @@
 - Full spec (HOW, ~48k lines): `AI.md` ← **SOURCE OF TRUTH**
 
 ## Current Project State
-- Last read AI.md: 2026-08-20 (PART 23 Privilege Escalation & Service and
-  PART 24 Service Support — escalation detection by OS, UID/GID selection
-  logic and the reserved-ID map, platform-specific account commands,
-  service install/uninstall/disable logic, the service help output, and
-  every service-file template with its exact install path)
-- Current task: implemented PART 23 + PART 24 (Privilege Escalation &
+- Last read AI.md: 2026-08-20 (PART 27 CI/CD Workflows — the CI/CD vs
+  local-development distinction, the Build Info Variables block, and the
+  full GitHub Actions section: `ci.yml`, `release.yml`, `beta.yml`,
+  `daily.yml`, `docker.yml`; Gitea/Forgejo, GitLab CI, and Jenkins
+  sections not read — this repo's only git provider is GitHub, confirmed
+  via `git remote get-url origin`)
+- Current task: implemented PART 27 (CI/CD Workflows), GitHub Actions only
+  per the provider-detection rule — `.github/workflows/ci.yml` (`lint`,
+  `secret-scan` with the before/after-SHA range logic, `workflow-policy`
+  SHA-pin grep, `test` with the 60%-coverage gate, `build`, `vuln-scan`,
+  `image-scan` gated on `docker/Dockerfile` existing; security jobs also
+  run on the Monday 06:00 UTC cron, build/test/lint skip on schedule),
+  `release.yml` (tag push `v*`/semver, tag-ref concurrency, 8-platform
+  build matrix, conditional CLI build gated on `src/client/**`, SBOM via
+  `cyclonedx-gomod`, sha256/sha512 checksums, `attest-build-provenance`,
+  `softprops/action-gh-release`), `beta.yml` (push to `beta`, prerelease
+  tagged with the computed version), `daily.yml` (3am UTC cron + push to
+  main/master, rolling `daily` tag deleted and recreated each run — this
+  resolves the TODO.AI.md "Daily release identity" follow-up, since
+  `src/updater` already expected exactly this rolling-tag/sha256.txt
+  shape), `docker.yml` (`build-standard` skipped on schedule,
+  `build-devel` built on schedule/dispatch/non-tag push, `ghcr.io`,
+  QEMU+buildx for linux/amd64+arm64, OCI labels/annotations). Every
+  third-party Action SHA (11 total across the 5 files) was independently
+  verified against GitHub's tag refs via `gh api` before pinning —
+  annotated tags dereferenced to their underlying commit — and all 11
+  matched AI.md's example SHAs exactly, so no example was blindly
+  transcribed without verification. `act --list -W {file}` passes for all
+  5 files; the `workflow-policy` SHA-pin grep also passes when run
+  locally. Not yet exercised: an actual triggered run (no push has
+  happened against these files yet) — see TODO.AI.md.
+- Previous task: implemented PART 23 + PART 24 (Privilege Escalation &
   Service Support) — new `src/service/` package: `escalate.go` /
   `escalate_windows.go` (per-OS escalation chains — Linux
   root→sudo→su→pkexec→doas, macOS root→sudo→osascript, BSD
@@ -189,7 +215,7 @@
   validation). Verified in Docker: `go build`/`go vet`/`go test ./...
   -cover` all pass; `src/backup` 77.6%, `src/config` 86.0%,
   `src/scheduler` 81.8%, `src` 61.5% coverage (gate is 60%); go-lint clean.
-- Relevant PARTs: 0-6, 9-24 done; 7-8, 25-32 tracked in
+- Relevant PARTs: 0-6, 9-24, 27 done; 7-8, 25-26, 28-32 tracked in
   TODO.AI.md (PART 11 has two deferred sub-items — GPG keypair
   management CLI and the `/server/security/report/{tracking_id}` status
   page; PART 15 has deferred sub-items — DNS-01 provider matrix,
@@ -211,6 +237,9 @@
   and the Windows reboot-cleanup notice; PART 23/24 are fully built but
   three things cannot be exercised in this environment — a live
   init-system install/uninstall cycle, real system account creation, and
-  Windows SCM registration; and a pre-existing unrelated
-  `gofmt` violation in `src/metrics/metrics.go` — all logged in
-  TODO.AI.md rather than silently dropped)
+  Windows SCM registration; PART 27 is fully built for GitHub Actions
+  (Gitea/Forgejo/GitLab/Jenkins do not apply, this repo's only provider is
+  GitHub) but has not yet seen an actual triggered run; a pre-existing
+  unrelated `gofmt` violation in `src/metrics/metrics.go`; and the
+  previously-logged `gocron` external-cron-dependency review item under
+  PART 18 — all logged in TODO.AI.md rather than silently dropped)

@@ -498,9 +498,22 @@ The remaining items below are environment limits, not unbuilt work.
 
 ## PART 27: CI/CD workflows
 
-- `.github/workflows/` and `.gitea/workflows/` — security-only workflows
-  first, then `ci.yml`/`release.yml` last. Pin all third-party Actions to
-  full commit SHAs. Verify each staged workflow with `act --list -W {file}`.
+- DONE: PART 27 is implemented for this repo's sole provider (GitHub —
+  confirmed via `git remote get-url origin`; Gitea/Forgejo/GitLab/Jenkins
+  sections do not apply). `.github/workflows/ci.yml` (lint, secret-scan,
+  workflow-policy, test with 60% coverage gate, build, vuln-scan,
+  image-scan — security jobs also on the weekly cron, build/test skip on
+  schedule), `release.yml` (tag push, 8-platform matrix, SBOM, checksums,
+  provenance attestation, GitHub Release), `beta.yml` (push to `beta`),
+  `daily.yml` (3am UTC cron + push to main/master, rolling `daily` tag
+  deleted and recreated each run), `docker.yml` (`build-standard` +
+  `build-devel` jobs, ghcr.io, QEMU/buildx multi-arch). Every third-party
+  Action SHA independently verified against GitHub's tag refs (annotated
+  tags dereferenced to their commit) before pinning — all 11 matched
+  AI.md's example SHAs exactly. `act --list -W {file}` passes for all 5
+  files; the `workflow-policy` SHA-pin grep also passes locally. Not yet
+  observed: an actual push-triggered run (no push has happened since these
+  files were added).
   Read: AI.md PART 27
 
 ## PART 28-30: Testing, docs, i18n
@@ -603,15 +616,14 @@ Entirely unimplemented; new in the 2026-08-16 spec revision.
 
 ## Spec-revision follow-ups (2026-08-14 / 2026-08-16 AI.md updates)
 
-- Daily release identity changed: the daily release tag is the rolling
+- RESOLVED: Daily release identity — the daily release tag is the rolling
   `daily` tag (deleted and recreated nightly) and the daily VERSION is the
   short commit id (`git rev-parse --short HEAD`) — never a timestamp and
-  never `release.txt`. `--update branch daily` now handles the rolling tag
+  never `release.txt`. `--update branch daily` handles the rolling tag
   (`src/updater/updater.go` keys it by `published_at` against the embedded
-  build epoch); the remaining half is the PART 27 release workflow, which
-  must publish that rolling tag and a `sha256.txt` asset naming each
-  `shortner-{os}-{arch}` binary — `src/updater` verifies against exactly
-  that file and fails closed without it.
+  build epoch); `.github/workflows/daily.yml` now publishes that rolling
+  tag with a `sha256.txt` asset naming each `shortner-{os}-{arch}` binary,
+  matching exactly what `src/updater` verifies against.
   Read: AI.md PART 13 "Version Format", PART 22, PART 27
 
 ## Audit follow-ups (2026-08-19 compliance audit)
