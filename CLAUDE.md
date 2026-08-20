@@ -36,7 +36,7 @@
 19. Use a non-conforming IDEA.md without migration
 20. Serve an overlay address over HTTPS → `.onion`/`.b32.i2p` are always
     `http://`; no cert, no HSTS, no redirect, no upgrade-insecure-requests
-21. Enable I2P by default → PART 31.2 is opt-in (`features.i2p.enabled`)
+21. Enable I2P by default → PART 31.2 is opt-in (`server.i2p.enabled`)
 
 ## ALWAYS Do - NON-NEGOTIABLE
 1. Read AI.md before implementing ANY feature
@@ -77,13 +77,49 @@
 - Full spec (HOW, ~48k lines): `AI.md` ← **SOURCE OF TRUTH**
 
 ## Current Project State
-- Last read AI.md: 2026-08-20 (PART 27 CI/CD Workflows — the CI/CD vs
-  local-development distinction, the Build Info Variables block, and the
-  full GitHub Actions section: `ci.yml`, `release.yml`, `beta.yml`,
-  `daily.yml`, `docker.yml`; Gitea/Forgejo, GitLab CI, and Jenkins
-  sections not read — this repo's only git provider is GitHub, confirmed
-  via `git remote get-url origin`)
-- Current task: implemented PART 30 (I18N & A11Y) — `src/common/i18n/`
+- Last read AI.md: 2026-08-20 (PART 31 Overlay Networks — 31.1 Tor
+  overview/configuration/CLI/logging rules, 31.2 I2P provider model and
+  `--status` output; plus PART 8's `--help` layout, PART 12's overlay HTTP
+  semantics, PART 16's footer-variable table, and PART 20's banner
+  examples)
+- Current task: implemented PART 31 (Overlay Networks — Tor & I2P) in
+  full. New packages `src/tor/` (bine-driven dedicated Tor process, v3
+  hidden service, SafeLogging, dedicated loopback backend port, HAProxy
+  PROXY-protocol circuit-ID ingest, vanity search/apply, key import,
+  health monitor), `src/i2p/` (Model A i2pd subprocess with a regenerated
+  `tunnels.conf`, Model B external SAMv3 bridge over a raw `net.Conn`,
+  persisted destination, `.b32.i2p` derivation, provider resolution
+  i2pd → SAM → warn-and-continue), and `src/common/netutil/`. CLI:
+  `src/tor_cli.go` (`tor status|validate|restart|regenerate|vanity
+  start|vanity apply|import-keys <path>`), `src/i2p_cli.go`, both listed
+  in `--help` (`cli.cmd_tor`/`cli.cmd_i2p` added to all 7 locales).
+  HTTP layer: `src/httpserver/overlay.go` + `urlvars.go` (priority-0
+  overlay detection ahead of proxy headers, `tor:{circuit_id}` identity
+  so `127.0.0.1` is never logged as a Tor client, I2P trusted-proxy-gate
+  exception, `BuildURL` always `http://`), `headers.go`/`middleware.go`
+  (never HSTS, never `upgrade-insecure-requests`, never an HTTPS
+  redirect on an overlay; `Secure` cookies still set; `Onion-Location`
+  on clearnet HTML 2xx top-level navigations only), `pagedata.go` (UTC
+  timestamps for Tor requests, footer/help addresses, and the PART 16
+  footer-variable expansion incl. `{onion_address}`/`{i2p_address}`),
+  `health.go` (`features.tor.*`/`features.i2p.*` + `checks.tor`/
+  `checks.i2p`). Config `src/config/overlay.go` (`server.tor.*`,
+  `server.i2p.*`, opt-in I2P default false) + validation warnings.
+  Scheduler `src/scheduler/overlay.go` (`tor_health` every 10m always,
+  `i2p_health` every 10m only when opt-in). Wiring `src/overlay.go` +
+  `src/main.go` (managers built before the HTTP server, started in the
+  background so Tor bootstrap never delays the clearnet listener,
+  `Tor: {onion_address}` printed once, overlay rows in the startup
+  banner, stop hooks), `src/status.go` (`--status` Tor/I2P blocks).
+  Frontend: footer I2P block, `/server/help#i2p-access`, CSS, and 9 new
+  i18n keys per locale. Verified in Docker: `gofmt -l .` clean,
+  `go build ./...`, `go vet ./...`, `go test ./... -cover` all pass;
+  `src/tor` 63.9%, `src/i2p` 73.5%, `src/common/netutil` 87.0%,
+  `src/httpserver` 72.6%. Deferred is environment-only: no `tor`,
+  `i2pd`, or SAM bridge exists in this container, so bootstrap,
+  descriptor publication, a live circuit-ID PROXY header, and a real
+  eepsite tunnel are unexercised — logged in TODO.AI.md.
+- Previous task: implemented PART 30 (I18N & A11Y) — `src/common/i18n/`
   (embedded 7-language catalog, literal `{token}` interpolation, CLDR
   plurals, request/CLI language resolution), `cmd/i18n-validate` + the
   `i18n-validate` Makefile target, `src/httpserver/i18n.go`
@@ -230,7 +266,7 @@
   validation). Verified in Docker: `go build`/`go vet`/`go test ./...
   -cover` all pass; `src/backup` 77.6%, `src/config` 86.0%,
   `src/scheduler` 81.8%, `src` 61.5% coverage (gate is 60%); go-lint clean.
-- Relevant PARTs: 0-6, 9-24, 27 done; 7-8, 25-26, 28-32 tracked in
+- Relevant PARTs: 0-6, 9-24, 27, 31 done; 7-8, 25-26, 28-30, 32 tracked in
   TODO.AI.md (PART 11 has two deferred sub-items — GPG keypair
   management CLI and the `/server/security/report/{tracking_id}` status
   page; PART 15 has deferred sub-items — DNS-01 provider matrix,

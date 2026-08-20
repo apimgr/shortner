@@ -219,6 +219,13 @@
     "open_tor": "打开 Tor Browser 并等待其完成连接",
     "paste_onion": "复制上方的 onion 地址，粘贴到 Tor Browser 的地址栏中",
     "tor_privacy": "使用 Tor 可隐藏您的 IP 地址，并通过 Tor 网络加密您的连接，从而提供额外的隐私保护。",
+    "i2p_access": "I2P 访问",
+    "i2p_intro": "本应用同时提供 I2P eepsite，以增强隐私保护。",
+    "i2p_address": "I2P 地址",
+    "download_i2p": "安装 I2P 路由器（I2P 或 i2pd）",
+    "open_i2p": "启动路由器并等待其接入网络",
+    "paste_i2p": "复制上方的 I2P 地址，粘贴到已配置 I2P HTTP 代理的浏览器地址栏中",
+    "i2p_privacy": "使用 I2P 会通过 I2P 网络转发您的连接，本服务器永远无法获知您的 IP 地址，从而提供额外的隐私保护。",
     "faq": "常见问题",
     "troubleshooting": "故障排查",
     "getting_started_intro": "只需一个请求即可缩短网址 — 无需 API 密钥：",
@@ -430,6 +437,8 @@
   "footer": {
     "tor_support": "Tor 支持",
     "copy_onion_address": "复制 onion 地址",
+    "i2p_support": "I2P 支持",
+    "copy_i2p_address": "复制 I2P 地址",
     "cookie_preferences": "Cookie 偏好设置",
     "copyright": "© {year} {org}"
   },
@@ -538,6 +547,8 @@
     "flag_maintenance": "维护操作（运行 --maintenance help 查看详情）",
     "flag_update": "检查/执行更新（运行 --update help 查看详情）",
     "cmd_email": "邮件模板与测试发送（运行 'email --help' 查看详情）",
+    "cmd_tor": "Tor 隐藏服务管理（详情请运行 'tor --help'）",
+    "cmd_i2p": "I2P eepsite 管理（详情请运行 'i2p --help'）",
     "flag_include_ssl": "在 --maintenance backup 中包含 SSL 证书",
     "flag_include_data": "在 --maintenance backup 中包含数据目录"
   },

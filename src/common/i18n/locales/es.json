@@ -219,6 +219,13 @@
     "open_tor": "Abra el Navegador Tor y espere a que se conecte",
     "paste_onion": "Copie la dirección onion de arriba y péguela en la barra de direcciones del Navegador Tor",
     "tor_privacy": "El uso de Tor aporta privacidad adicional al ocultar su dirección IP y cifrar su conexión a través de la red Tor.",
+    "i2p_access": "Acceso por I2P",
+    "i2p_intro": "Esta aplicación también está disponible como eepsite de I2P para una mayor privacidad.",
+    "i2p_address": "Dirección I2P",
+    "download_i2p": "Instale un router I2P (I2P o i2pd)",
+    "open_i2p": "Inicie el router y espere a que se integre en la red",
+    "paste_i2p": "Copie la dirección I2P de arriba y péguela en un navegador configurado para usar el proxy HTTP de I2P",
+    "i2p_privacy": "El uso de I2P aporta privacidad adicional al enrutar su conexión a través de la red I2P, que nunca revela su dirección IP a este servidor.",
     "faq": "Preguntas frecuentes",
     "troubleshooting": "Resolución de problemas",
     "getting_started_intro": "Acorte una URL con una sola petición, sin necesidad de clave de API:",
@@ -430,6 +437,8 @@
   "footer": {
     "tor_support": "Compatibilidad con Tor",
     "copy_onion_address": "Copiar la dirección onion",
+    "i2p_support": "Compatibilidad con I2P",
+    "copy_i2p_address": "Copiar la dirección I2P",
     "cookie_preferences": "Preferencias de cookies",
     "copyright": "© {year} {org}"
   },
@@ -538,6 +547,8 @@
     "flag_maintenance": "Operaciones de mantenimiento (ejecute --maintenance help para más detalles)",
     "flag_update": "Buscar o realizar actualizaciones (ejecute --update help para más detalles)",
     "cmd_email": "Plantillas de correo y envío de prueba (ejecute 'email --help' para más detalles)",
+    "cmd_tor": "Gestión del servicio oculto de Tor (ejecute 'tor --help' para más detalles)",
+    "cmd_i2p": "Gestión del eepsite de I2P (ejecute 'i2p --help' para más detalles)",
     "flag_include_ssl": "Incluir los certificados SSL en --maintenance backup",
     "flag_include_data": "Incluir el directorio de datos en --maintenance backup"
   },

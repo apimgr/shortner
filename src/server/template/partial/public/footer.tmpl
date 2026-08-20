@@ -10,6 +10,13 @@
 <button type="button" class="copy-btn" data-copy="{{.Base.TorOnionAddress}}" aria-label="{{t .Base.Lang "footer.copy_onion_address"}}"><span aria-hidden="true">&#128203;</span></button>
 </p>
 {{end}}
+{{if .Base.I2PAddress}}
+<p class="footer-i2p">
+<a href="/server/help#i2p-access" aria-label="{{t .Base.Lang "footer.i2p_support"}}">&#127760;</a>
+<code class="i2p-address long-string monospace-data">{{.Base.I2PAddress}}</code>
+<button type="button" class="copy-btn" data-copy="{{.Base.I2PAddress}}" aria-label="{{t .Base.Lang "footer.copy_i2p_address"}}"><span aria-hidden="true">&#128203;</span></button>
+</p>
+{{end}}
 <p class="footer-links">
 <a href="/server/about">{{t .Base.Lang "nav.about"}}</a>
 <span aria-hidden="true">&middot;</span>

@@ -1,13 +1,14 @@
 // URL & FQDN detection and the trusted-proxies trust gate, per AI.md
-// PART 12 "Trusted Proxies" and PART 8 "URL Detection". The Tor priority-0
-// resolution branch and the periodic (5-minute) DNS refresh for hostname
-// entries in `trusted_proxies.additional` are deferred — see TODO.AI.md.
+// PART 12 "Trusted Proxies" and PART 8 "URL Detection". The periodic
+// (5-minute) DNS refresh for hostname entries in
+// `trusted_proxies.additional` is deferred — see TODO.AI.md.
 package httpserver
 
 import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 // alwaysTrustedCIDRs are the private/loopback/link-local ranges trusted
@@ -32,6 +33,12 @@ var alwaysTrustedCIDRs = []string{
 type ProxyResolver struct {
 	nets []*net.IPNet
 	ips  map[string]bool
+	// overlayMu guards overlayHosts, which holds the live `.onion` and
+	// `.b32.i2p` addresses (AI.md PART 31). They are only known once the
+	// provider has published them, and change on every regeneration, so
+	// they are set after construction rather than read from server.yml.
+	overlayMu    sync.RWMutex
+	overlayHosts map[OverlayNetwork]string
 }
 
 // NewProxyResolver builds a resolver trusting the always-trusted private
@@ -102,6 +109,14 @@ var forwardedForHeaders = []string{
 // "Client IP Detection" and PART 12 "Middleware ordering — preserve the
 // original TCP peer".
 func (r *ProxyResolver) ResolveClientIP(req *http.Request) string {
+	// AI.md PART 31 "Tor Request Logging & Identity": the peer of an overlay
+	// request is the local daemon on loopback, so it is never a client
+	// identifier. Substituting here covers every consumer at once — access
+	// logs, audit trails, rate-limit keys, blocklists — so 127.0.0.1 can
+	// never be recorded as a Tor client IP.
+	if identity := r.OverlayClientIdentity(req); identity != "" {
+		return identity
+	}
 	if !r.IsTrustedPeer(req.RemoteAddr) {
 		return stripPort(req.RemoteAddr)
 	}
@@ -131,10 +146,31 @@ func stripPort(addr string) string {
 }
 
 // GetURLVars resolves {proto}, {fqdn}, {port} for req, per AI.md PART 8
-// "URL Detection". Proxy headers are only honored from a trusted peer; Tor
-// priority-0 resolution and the domain-learning/live-reload layer are
-// deferred (see TODO.AI.md).
+// "URL Detection". Proxy headers are only honored from a trusted peer; the
+// domain-learning/live-reload layer is deferred (see TODO.AI.md).
+//
+// AI.md PART 12 "Tor Request Detection" makes overlay detection priority 0:
+// it is evaluated before any reverse-proxy header, is always trusted with no
+// trusted_proxies check, forces `http` (an overlay address can never be
+// https), and strips the port so an absolute URL is always
+// `http://{onion_address}{path}`.
 func (r *ProxyResolver) GetURLVars(req *http.Request) (proto, fqdn, port string) {
+	if network := r.OverlayOf(req); network != OverlayNone {
+		host := req.Host
+		if OverlayHostNetwork(host) != network {
+			// The connection arrived on the overlay backend listener but the
+			// client sent some other Host. The overlay address is the only
+			// name this request may be answered under, so fall back to the
+			// running service's own address rather than echoing the clearnet
+			// host back over the onion.
+			if overlayHost := r.overlayHost(network); overlayHost != "" {
+				host = overlayHost
+			}
+		}
+		overlayFQDN, _ := splitHostPort(host)
+		return "http", overlayFQDN, ""
+	}
+
 	trusted := r.IsTrustedPeer(req.RemoteAddr)
 
 	proto = "http"

@@ -57,16 +57,15 @@ type BuildInfo struct {
 }
 
 // FeaturesInfo lists PUBLIC non-negotiable features, per AI.md PART 13.
-// Tor (PART 31.1), I2P (PART 31.2) and GeoIP (PART 19) are not implemented
-// yet — reported honestly as disabled.
 type FeaturesInfo struct {
 	Tor   TorInfo `json:"tor"`
 	I2P   I2PInfo `json:"i2p"`
 	GeoIP bool    `json:"geoip"`
 }
 
-// TorInfo describes the Tor hidden service, per AI.md PART 13. Always the
-// zero value until PART 31.1 lands — see TODO.AI.md.
+// TorInfo describes the Tor hidden service, per AI.md PART 13 and
+// PART 31.1. Every field is Tier 2 public-safe: the onion address is
+// published to the world by design, so exposing it here leaks nothing.
 type TorInfo struct {
 	Enabled  bool   `json:"enabled"`
 	Running  bool   `json:"running"`
@@ -74,9 +73,9 @@ type TorInfo struct {
 	Hostname string `json:"hostname"`
 }
 
-// I2PInfo describes the opt-in I2P eepsite, per AI.md PART 13. I2P is
-// opt-in and off by default, so every field stays zero-valued with
-// provider "none" until PART 31.2 lands — see TODO.AI.md.
+// I2PInfo describes the opt-in I2P eepsite, per AI.md PART 13 and
+// PART 31.2. I2P is off by default, in which case every field stays
+// zero-valued and provider reads "none".
 type I2PInfo struct {
 	Enabled  bool   `json:"enabled"`
 	Running  bool   `json:"running"`
@@ -87,7 +86,7 @@ type I2PInfo struct {
 
 // ChecksInfo reports component health as "ok"/"error" only, per AI.md
 // PART 13 "Security: Public Info Only". checks.tor and checks.i2p are
-// omitted entirely until the overlay networks of PART 31 are built.
+// omitted entirely unless that overlay network is enabled (AI.md PART 31).
 type ChecksInfo struct {
 	Database  string `json:"database"`
 	Cache     string `json:"cache"`
@@ -113,6 +112,30 @@ var projectInfo = ProjectInfo{
 	Description: "A self-hosted URL shortening service with an API and web interface.",
 }
 
+// TorReporter is the slice of *tor.Manager the health endpoint needs. It is
+// an interface so httpserver never imports the overlay packages and so the
+// endpoint can be tested without a live Tor daemon.
+type TorReporter interface {
+	Enabled() bool
+	Running() bool
+	Healthy() bool
+	OnionAddress() string
+	// Err returns the most recent start/restart failure's message, or "".
+	Err() string
+}
+
+// I2PReporter is the slice of *i2p.Manager the health endpoint needs.
+// ProviderName is the resolved provider ("i2pd", "sam", or "none").
+type I2PReporter interface {
+	Enabled() bool
+	Running() bool
+	Healthy() bool
+	EepsiteAddress() string
+	ProviderName() string
+	// Err returns the most recent start/restart failure's message, or "".
+	Err() string
+}
+
 // healthDeps bundles what the health handler needs to build a
 // HealthResponse.
 type healthDeps struct {
@@ -123,15 +146,100 @@ type healthDeps struct {
 	version   string
 	commit    string
 	buildDate string
+	// geoip is true when a GeoIP database is loaded (AI.md PART 19).
+	geoip bool
+	// tor and i2p are nil when that overlay network is not configured at
+	// all, which reads as disabled everywhere in the response.
+	tor TorReporter
+	i2p I2PReporter
 }
 
-// buildHealthResponse assembles the canonical health response. checks.tor
-// is omitted entirely (Tor, PART 31, is not built); checks.scheduler
-// reports "ok" because nothing can fail there yet — it becomes a real
-// check once the PART 18 scheduler exists (see TODO.AI.md).
+// torInfo renders features.tor from the live manager. AI.md PART 13's
+// `features.tor.status` vocabulary is exactly "healthy" or
+// "error:{short message}"; a disabled/absent manager omits checks.tor
+// entirely rather than reporting an error.
+func (h *healthDeps) torInfo() (TorInfo, string) {
+	if h.tor == nil || !h.tor.Enabled() {
+		return TorInfo{Status: "disabled"}, ""
+	}
+	info := TorInfo{Enabled: true, Running: h.tor.Running(), Hostname: h.tor.OnionAddress()}
+	if info.Running && h.tor.Healthy() && info.Hostname != "" {
+		info.Status = "healthy"
+		return info, "ok"
+	}
+	info.Status = "error:" + torErrorMessage(h.tor)
+	return info, "error"
+}
+
+// torErrorMessage picks the short message for features.tor.status's
+// "error:{short message}" form: the manager's own last-start error when
+// there is one, or a generic reason describing which health condition
+// failed otherwise (never a bare "error" with nothing after the colon).
+func torErrorMessage(tor TorReporter) string {
+	if msg := tor.Err(); msg != "" {
+		return msg
+	}
+	if !tor.Running() {
+		return "not running"
+	}
+	if !tor.Healthy() {
+		return "control connection unresponsive"
+	}
+	return "no onion address published"
+}
+
+// i2pInfo renders features.i2p from the live manager. I2P is opt-in, so a
+// nil or disabled manager reports provider "none" with every other field
+// zero-valued, and checks.i2p is omitted. AI.md PART 13's
+// `features.i2p.status` vocabulary is "disabled", "healthy", or
+// "error:{short message}".
+func (h *healthDeps) i2pInfo() (I2PInfo, string) {
+	if h.i2p == nil || !h.i2p.Enabled() {
+		return I2PInfo{Status: "disabled", Provider: "none"}, ""
+	}
+	info := I2PInfo{
+		Enabled:  true,
+		Running:  h.i2p.Running(),
+		Hostname: h.i2p.EepsiteAddress(),
+		Provider: h.i2p.ProviderName(),
+	}
+	if info.Running && h.i2p.Healthy() && info.Hostname != "" {
+		info.Status = "healthy"
+		return info, "ok"
+	}
+	info.Status = "error:" + i2pErrorMessage(h.i2p)
+	return info, "error"
+}
+
+// i2pErrorMessage picks the short message for features.i2p.status's
+// "error:{short message}" form, mirroring torErrorMessage.
+func i2pErrorMessage(i2p I2PReporter) string {
+	if msg := i2p.Err(); msg != "" {
+		return msg
+	}
+	if !i2p.Running() {
+		return "not running"
+	}
+	if !i2p.Healthy() {
+		return "provider unresponsive"
+	}
+	return "no eepsite address published"
+}
+
+// buildHealthResponse assembles the canonical health response.
+// checks.tor/checks.i2p are present only while that overlay network is
+// enabled (AI.md PART 31); checks.scheduler reports "ok" because nothing
+// can fail there yet — it becomes a real check once the PART 18 scheduler
+// exposes task failures (see TODO.AI.md).
+//
+// An unhealthy overlay never makes the whole service unhealthy: the
+// clearnet site is fully functional without it, and the manager restarts
+// the provider on its own within 30 seconds.
 func (h *healthDeps) buildHealthResponse(ctx context.Context) HealthResponse {
 	dbStatus := checkDatabase(ctx, h.sqlDB)
 	diskStatus := checkDisk(h.dataDir)
+	torInfo, torCheck := h.torInfo()
+	i2pInfo, i2pCheck := h.i2pInfo()
 
 	status := "healthy"
 	if dbStatus != "ok" || diskStatus != "ok" {
@@ -153,15 +261,17 @@ func (h *healthDeps) buildHealthResponse(ctx context.Context) HealthResponse {
 		Mode:      mode.GetCurrentAppMode().String(),
 		Timestamp: time.Now().UTC(),
 		Features: FeaturesInfo{
-			Tor:   TorInfo{},
-			I2P:   I2PInfo{Provider: "none"},
-			GeoIP: false,
+			Tor:   torInfo,
+			I2P:   i2pInfo,
+			GeoIP: h.geoip,
 		},
 		Checks: ChecksInfo{
 			Database:  dbStatus,
 			Cache:     "ok",
 			Disk:      diskStatus,
 			Scheduler: "ok",
+			Tor:       torCheck,
+			I2P:       i2pCheck,
 		},
 		Stats: StatsInfo{
 			RequestsTotal: total,

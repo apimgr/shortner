@@ -219,6 +219,13 @@
     "open_tor": "Open Tor Browser and wait for it to connect",
     "paste_onion": "Copy the onion address above and paste it into the Tor Browser address bar",
     "tor_privacy": "Using Tor provides additional privacy by hiding your IP address and encrypting your connection through the Tor network.",
+    "i2p_access": "I2P Access",
+    "i2p_intro": "This application is also available as an I2P eepsite for enhanced privacy.",
+    "i2p_address": "I2P Address",
+    "download_i2p": "Install an I2P router (I2P or i2pd)",
+    "open_i2p": "Start the router and wait for it to integrate with the network",
+    "paste_i2p": "Copy the I2P address above and paste it into a browser configured to use the I2P HTTP proxy",
+    "i2p_privacy": "Using I2P provides additional privacy by routing your connection through the I2P network, which never reveals your IP address to this server.",
     "faq": "FAQ",
     "troubleshooting": "Troubleshooting",
     "getting_started_intro": "Shorten a URL with a single request — no API key required:",
@@ -430,6 +437,8 @@
   "footer": {
     "tor_support": "Tor Support",
     "copy_onion_address": "Copy onion address",
+    "i2p_support": "I2P Support",
+    "copy_i2p_address": "Copy I2P address",
     "cookie_preferences": "Cookie Preferences",
     "copyright": "© {year} {org}"
   },
@@ -538,6 +547,8 @@
     "flag_maintenance": "Maintenance operations (run --maintenance help for details)",
     "flag_update": "Check/perform updates (run --update help for details)",
     "cmd_email": "Email templates and test send (run 'email --help' for details)",
+    "cmd_tor": "Tor hidden service management (run 'tor --help' for details)",
+    "cmd_i2p": "I2P eepsite management (run 'i2p --help' for details)",
     "flag_include_ssl": "Include SSL certificates in --maintenance backup",
     "flag_include_data": "Include the data directory in --maintenance backup"
   },

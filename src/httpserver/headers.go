@@ -123,7 +123,7 @@ func (hd *headerDeps) apply(w http.ResponseWriter, r *http.Request) {
 	// HSTS is only meaningful — and only legal per AI.md PART 31's overlay
 	// rule — on a clearnet TLS request. An overlay (.onion/.b32.i2p) host
 	// is always plain http:// and must never receive HSTS.
-	if cfg.Web.HSTS.Enabled && cfg.Web.HSTS.MaxAgeSeconds > 0 && requestIsTLS(r) && !isOverlayHost(r.Host) {
+	if cfg.Web.HSTS.Enabled && cfg.Web.HSTS.MaxAgeSeconds > 0 && requestIsTLS(r) && !hd.resolver.IsOverlay(r) {
 		h.Set("Strict-Transport-Security", buildHSTS(cfg.Web.HSTS))
 	}
 
@@ -160,12 +160,7 @@ func requestIsTLS(r *http.Request) bool {
 // responses are always plain http:// with no HSTS, no redirect, and no
 // upgrade-insecure-requests, per AI.md PART 31.
 func isOverlayHost(host string) bool {
-	name := host
-	if i := strings.LastIndex(name, ":"); i != -1 && !strings.Contains(name, "]") {
-		name = name[:i]
-	}
-	name = strings.ToLower(strings.Trim(name, "[]"))
-	return strings.HasSuffix(name, ".onion") || strings.HasSuffix(name, ".b32.i2p") || strings.HasSuffix(name, ".i2p")
+	return OverlayHostNetwork(host) != OverlayNone
 }
 
 // cspDirective pairs a directive name with the default value AI.md
@@ -223,7 +218,7 @@ func (hd *headerDeps) buildCSP(r *http.Request) (string, string) {
 	// upgrade-insecure-requests eliminates mixed content on TLS sites, but
 	// must never be sent to an overlay client, whose origin is http:// by
 	// protocol design (AI.md PART 31).
-	if !isOverlayHost(r.Host) {
+	if !hd.resolver.IsOverlay(r) {
 		parts = append(parts, "upgrade-insecure-requests")
 	}
 

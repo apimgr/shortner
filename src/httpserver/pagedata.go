@@ -8,6 +8,8 @@ package httpserver
 import (
 	"html/template"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/apimgr/shortner/src/applog"
@@ -58,9 +60,19 @@ type PageData struct {
 	I18NEnabled        bool
 
 	FooterCustomHTML template.HTML
-	// TorOnionAddress is always empty until PART 31 (Tor) is implemented —
-	// the template slot exists so wiring it later needs no template edit.
+	// TorOnionAddress and I2PAddress carry the live overlay addresses
+	// (AI.md PART 31) so the footer can advertise them. Both are empty
+	// whenever that network is not published, which is how a host with no
+	// Tor binary — or with I2P left opt-out — renders no overlay block at
+	// all. They are the addresses themselves, never a full URL: the
+	// templates prepend `http://`, which is the only scheme an overlay
+	// address may ever be served over.
 	TorOnionAddress string
+	I2PAddress      string
+	// IsTorRequest marks a request that arrived over the hidden service.
+	// Templates use it to keep clearnet-identifying details off onion
+	// responses (AI.md PART 31 "Tor Privacy Rules").
+	IsTorRequest bool
 
 	// HasConsentCookie gates the cookie-consent banner server-side, per
 	// AI.md PART 16 "Cookie Consent Banner" -> "Server-side behavior": the
@@ -110,7 +122,20 @@ type frontendDeps struct {
 // requestTheme in theme.go and AI.md PART 16 "Theme Detection Flow".
 func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, description string) PageData {
 	cfg := fd.cfg
-	footerHTML, _ := sanitize.ValidateFooterHTML(cfg.Web.Footer.CustomHTML)
+	overlay := fd.resolver.IsOverlay(r)
+	onionAddress := fd.resolver.overlayHost(OverlayTor)
+	i2pAddress := fd.resolver.overlayHost(OverlayI2P)
+	// Variables are expanded BEFORE sanitizing so the sanitizer validates
+	// the markup that actually renders, never a pre-substitution shape.
+	footerHTML, _ := sanitize.ValidateFooterHTML(expandFooterVariables(cfg.Web.Footer.CustomHTML, footerVariables{
+		currentYear:    strconv.Itoa(overlayTime(time.Now(), overlay).Year()),
+		projectName:    projectInfo.Name,
+		projectOrg:     "apimgr",
+		projectVersion: fd.version,
+		buildDateTime:  footerBuildDateTime(fd.buildDate, overlay),
+		onionAddress:   onionAddress,
+		i2pAddress:     i2pAddress,
+	}))
 
 	cookieName := cfg.Server.CSRF.CookieName
 	if cookieName == "" {
@@ -132,9 +157,9 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 		ProjectOrg:     "apimgr",
 		ProjectVersion: fd.version,
 		BuildDate:      fd.buildDate,
-		BuildDateTime:  footerBuildDateTime(fd.buildDate),
+		BuildDateTime:  footerBuildDateTime(fd.buildDate, overlay),
 		RepoURL:        footerRepoURL,
-		CurrentYear:    time.Now().Year(),
+		CurrentYear:    overlayTime(time.Now(), overlay).Year(),
 		Theme:          requestTheme(r, cfg),
 		CurrentPath:    currentPath,
 		CSRFToken:      csrfToken,
@@ -146,7 +171,9 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 		I18NEnabled:        cfg.Server.I18N.Enabled,
 
 		FooterCustomHTML: template.HTML(footerHTML),
-		TorOnionAddress:  "",
+		TorOnionAddress:  onionAddress,
+		I2PAddress:       i2pAddress,
+		IsTorRequest:     fd.resolver.OverlayOf(r) == OverlayTor,
 
 		HasConsentCookie:             hasConsentCookie(r),
 		ConsentMessage:               defaultString(cfg.Server.Privacy.GetConsentMessage(), i18n.Translate(lang, "cookie_consent.message")),
@@ -164,14 +191,62 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 
 // footerBuildDateTime renders the embedded build timestamp (RFC 3339 UTC,
 // derived from the BuildEpoch ldflag in src/common/version) in the
-// user-facing footer format, in the server's local zone. Unparseable or
-// unset values ("N/A" on a `go run`/`go test` build) pass through as-is.
-func footerBuildDateTime(buildDate string) string {
+// user-facing footer format. Unparseable or unset values ("N/A" on a
+// `go run`/`go test` build) pass through as-is.
+//
+// overlay forces UTC: AI.md PART 31 "Tor Timestamp Normalization" treats
+// the server's local zone as a deanonymization vector, since it narrows the
+// operator's location for anyone reading an onion page.
+func footerBuildDateTime(buildDate string, overlay bool) string {
 	t, err := time.Parse(time.RFC3339, buildDate)
 	if err != nil {
 		return buildDate
 	}
-	return t.Local().Format(footerTimeLayout)
+	return overlayTime(t, overlay).Format(footerTimeLayout)
+}
+
+// footerVariables holds the values for AI.md PART 16 "Available Footer
+// Variables", the placeholder set an operator may use in
+// `web.footer.custom_html`.
+type footerVariables struct {
+	currentYear    string
+	projectName    string
+	projectOrg     string
+	projectVersion string
+	buildDateTime  string
+	// onionAddress and i2pAddress are empty unless the matching overlay is
+	// enabled, running, AND has published an address (AI.md PART 31) — an
+	// unpublished overlay expands to nothing rather than to a stale value.
+	onionAddress string
+	i2pAddress   string
+}
+
+// expandFooterVariables substitutes every AI.md PART 16 footer variable in
+// html. Replacement is literal, never fmt-based, so a stray `%` in operator
+// HTML can never corrupt the output; an unrecognized `{token}` is left
+// untouched so the operator can see their own typo.
+func expandFooterVariables(html string, v footerVariables) string {
+	if html == "" {
+		return ""
+	}
+	return strings.NewReplacer(
+		"{current_year}", v.currentYear,
+		"{project_name}", v.projectName,
+		"{project_org}", v.projectOrg,
+		"{project_version}", v.projectVersion,
+		"{build_datetime}", v.buildDateTime,
+		"{onion_address}", v.onionAddress,
+		"{i2p_address}", v.i2pAddress,
+	).Replace(html)
+}
+
+// overlayTime renders t in UTC for an overlay request and in the server's
+// local zone otherwise.
+func overlayTime(t time.Time, overlay bool) time.Time {
+	if overlay {
+		return t.UTC()
+	}
+	return t.Local()
 }
 
 // hasConsentCookie reports whether r already carries a cookie_consent

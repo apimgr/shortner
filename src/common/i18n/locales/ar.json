@@ -219,6 +219,13 @@
     "open_tor": "افتح متصفح Tor وانتظر حتى يتصل",
     "paste_onion": "انسخ عنوان onion أعلاه والصقه في شريط العناوين بمتصفح Tor",
     "tor_privacy": "يوفّر استخدام Tor خصوصية إضافية بإخفاء عنوان IP الخاص بك وتشفير اتصالك عبر شبكة Tor.",
+    "i2p_access": "الوصول عبر I2P",
+    "i2p_intro": "هذا التطبيق متاح أيضًا كموقع eepsite على شبكة I2P لمزيد من الخصوصية.",
+    "i2p_address": "عنوان I2P",
+    "download_i2p": "ثبّت موجّه I2P (I2P أو i2pd)",
+    "open_i2p": "شغّل الموجّه وانتظر حتى يندمج مع الشبكة",
+    "paste_i2p": "انسخ عنوان I2P أعلاه والصقه في متصفح مهيأ لاستخدام وكيل I2P HTTP",
+    "i2p_privacy": "يوفّر استخدام I2P خصوصية إضافية بتمرير اتصالك عبر شبكة I2P، التي لا تكشف عنوان IP الخاص بك لهذا الخادم أبدًا.",
     "faq": "الأسئلة الشائعة",
     "troubleshooting": "استكشاف الأخطاء وإصلاحها",
     "getting_started_intro": "اختصر رابطًا بطلب واحد — دون الحاجة إلى مفتاح API:",
@@ -430,6 +437,8 @@
   "footer": {
     "tor_support": "دعم Tor",
     "copy_onion_address": "نسخ عنوان onion",
+    "i2p_support": "دعم I2P",
+    "copy_i2p_address": "نسخ عنوان I2P",
     "cookie_preferences": "تفضيلات ملفات تعريف الارتباط",
     "copyright": "© {year} {org}"
   },
@@ -559,6 +568,8 @@
     "flag_maintenance": "عمليات الصيانة (شغّل --maintenance help للتفاصيل)",
     "flag_update": "التحقق من التحديثات أو تنفيذها (شغّل --update help للتفاصيل)",
     "cmd_email": "قوالب البريد الإلكتروني وإرسال اختبار (شغّل 'email --help' للتفاصيل)",
+    "cmd_tor": "إدارة خدمة Tor المخفية (نفّذ 'tor --help' للتفاصيل)",
+    "cmd_i2p": "إدارة موقع I2P eepsite (نفّذ 'i2p --help' للتفاصيل)",
     "flag_include_ssl": "تضمين شهادات SSL في --maintenance backup",
     "flag_include_data": "تضمين دليل البيانات في --maintenance backup"
   },

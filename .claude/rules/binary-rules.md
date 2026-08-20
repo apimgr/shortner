@@ -38,7 +38,10 @@
   meaning `yes`), the positional `email` subcommand (PART 17 —
   `test`/`list`/`preview`/`validate`/`reset`), and `--service` (PART
   23/24 — `start`/`stop`/`restart`/`reload`/`--install`/`--disable`/
-  `--uninstall`/`--help`); most `--maintenance` actions, `--daemon`,
+  `--uninstall`/`--help`), and the positional `tor` / `i2p` subcommands
+  (PART 31 — `tor status|validate|restart|regenerate|vanity start|vanity
+  apply|import-keys <path>`, `i2p status|validate|regenerate`);
+  most `--maintenance` actions, `--daemon`,
   and the client binary itself are NOT yet implemented (see `TODO.AI.md`)
 
 ---

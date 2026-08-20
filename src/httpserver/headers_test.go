@@ -126,6 +126,7 @@ func TestSecurityHeadersApplySetsExpectedMatrix(t *testing.T) {
 func TestSecurityHeadersApplyOmitsHSTSOnOverlayHost(t *testing.T) {
 	cfg := config.Default(":memory:")
 	resolver := NewProxyResolver(nil)
+	resolver.SetOverlayHost(OverlayTor, "abc123def456.onion")
 	hd := newHeaderDeps(cfg, resolver)
 
 	req := httptest.NewRequest("GET", "/", nil)
@@ -172,6 +173,7 @@ func TestBuildCSPReportOnlyInDevMode(t *testing.T) {
 func TestBuildCSPOmitsUpgradeInsecureOnOverlay(t *testing.T) {
 	cfg := config.Default(":memory:")
 	resolver := NewProxyResolver(nil)
+	resolver.SetOverlayHost(OverlayTor, "abc123def456.onion")
 	hd := newHeaderDeps(cfg, resolver)
 
 	req := httptest.NewRequest("GET", "/", nil)

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -29,6 +30,13 @@ type Server struct {
 	stats      *Stats
 	blocks     *BlockStore
 	allowlist  *AllowlistLookup
+	resolver   *ProxyResolver
+	// overlayServers tracks the AI.md PART 31 overlay backend listeners
+	// (Tor, I2P) started by ServeOverlay so Shutdown can stop them with the
+	// clearnet listener rather than leaving onion traffic being served by a
+	// server that is otherwise going away.
+	overlayMu      sync.Mutex
+	overlayServers []*http.Server
 }
 
 // Options configures New.
@@ -73,6 +81,12 @@ type Options struct {
 	// (no working SMTP) means nothing is ever sent — PART 17's "No SMTP =
 	// no emails" rule, with no queue and no "would have sent" log line.
 	Notifier *notify.Notifier
+	// Tor and I2P report the AI.md PART 31 overlay networks to the health
+	// endpoint. Both may be nil — no tor binary on the host, or I2P left
+	// opt-out — in which case that network reads as disabled and its
+	// checks.* entry is omitted entirely.
+	Tor TorReporter
+	I2P I2PReporter
 }
 
 // New builds a Server ready for Start. Listen address is
@@ -120,6 +134,9 @@ func New(opts Options) *Server {
 		version:   opts.Version,
 		commit:    opts.CommitID,
 		buildDate: opts.BuildDate,
+		geoip:     opts.GeoIP != nil,
+		tor:       opts.Tor,
+		i2p:       opts.I2P,
 	}
 
 	// /server/healthz itself is registered below by
@@ -198,6 +215,7 @@ func New(opts Options) *Server {
 		stats:     stats,
 		blocks:    blocks,
 		allowlist: allowlist,
+		resolver:  resolver,
 		httpServer: &http.Server{
 			Addr:         addr,
 			Handler:      limitedHandler,
@@ -233,6 +251,7 @@ func (s *Server) Start() error {
 func (s *Server) Shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	s.shutdownOverlays(ctx)
 	return s.httpServer.Shutdown(ctx)
 }
 

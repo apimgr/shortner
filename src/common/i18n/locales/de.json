@@ -219,6 +219,13 @@
     "open_tor": "Öffnen Sie den Tor Browser und warten Sie, bis die Verbindung hergestellt ist",
     "paste_onion": "Kopieren Sie die obige Onion-Adresse und fügen Sie sie in die Adressleiste des Tor Browsers ein",
     "tor_privacy": "Die Nutzung von Tor bietet zusätzliche Privatsphäre, indem Ihre IP-Adresse verborgen und Ihre Verbindung über das Tor-Netzwerk verschlüsselt wird.",
+    "i2p_access": "Zugriff über I2P",
+    "i2p_intro": "Diese Anwendung ist für mehr Privatsphäre auch als I2P-Eepsite erreichbar.",
+    "i2p_address": "I2P-Adresse",
+    "download_i2p": "Installieren Sie einen I2P-Router (I2P oder i2pd)",
+    "open_i2p": "Starten Sie den Router und warten Sie, bis er sich in das Netzwerk eingebunden hat",
+    "paste_i2p": "Kopieren Sie die obige I2P-Adresse und fügen Sie sie in einen Browser ein, der den I2P-HTTP-Proxy verwendet",
+    "i2p_privacy": "Die Nutzung von I2P bietet zusätzliche Privatsphäre, indem Ihre Verbindung über das I2P-Netzwerk geleitet wird, das diesem Server niemals Ihre IP-Adresse offenlegt.",
     "faq": "Häufige Fragen",
     "troubleshooting": "Fehlerbehebung",
     "getting_started_intro": "Kürzen Sie eine URL mit einer einzigen Anfrage – ohne API-Schlüssel:",
@@ -430,6 +437,8 @@
   "footer": {
     "tor_support": "Tor-Unterstützung",
     "copy_onion_address": "Onion-Adresse kopieren",
+    "i2p_support": "I2P-Unterstützung",
+    "copy_i2p_address": "I2P-Adresse kopieren",
     "cookie_preferences": "Cookie-Einstellungen",
     "copyright": "© {year} {org}"
   },
@@ -538,6 +547,8 @@
     "flag_maintenance": "Wartungsvorgänge (führen Sie --maintenance help für Details aus)",
     "flag_update": "Aktualisierungen prüfen/durchführen (führen Sie --update help für Details aus)",
     "cmd_email": "E-Mail-Vorlagen und Testversand (führen Sie 'email --help' für Details aus)",
+    "cmd_tor": "Verwaltung des versteckten Tor-Dienstes (Details: 'tor --help')",
+    "cmd_i2p": "Verwaltung der I2P-Eepsite (Details: 'i2p --help')",
     "flag_include_ssl": "SSL-Zertifikate in --maintenance backup einschließen",
     "flag_include_data": "Datenverzeichnis in --maintenance backup einschließen"
   },

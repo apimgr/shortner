@@ -29,8 +29,6 @@ type builtinDef struct {
 var pendingBuiltins = []builtinDef{
 	{"blocklist_update", "Blocklist Update", "IP/domain blocklists (AI.md PART 9/11) are not implemented yet"},
 	{"cve_update", "CVE Database Update", "CVE/security database integration (AI.md PART 9) is not implemented yet"},
-	{"tor_health", "Tor Health Check", "Tor hidden service (AI.md PART 31.1) is not implemented yet"},
-	{"i2p_health", "I2P Health Check", "I2P eepsite (AI.md PART 31.2) is not implemented yet"},
 }
 
 // Deps are the runtime dependencies real (non-pending) built-in tasks need.
@@ -61,16 +59,20 @@ type Deps struct {
 	// method is inert on a nil receiver, which is exactly PART 17's
 	// "no SMTP = no email, ever" behaviour.
 	Notifier *notify.Notifier
+	// Tor and I2P feed tor_health and i2p_health (AI.md PART 18, PART 31).
+	// Nil means that overlay network is not configured at all, in which
+	// case the task registers and honestly skips.
+	Tor OverlayHealth
+	I2P OverlayHealth
 }
 
 // BuiltinTasks returns every AI.md PART 18 "Built-in Tasks (Required)"
 // TaskDef, with schedule/enabled taken from cfg (falling back to the
 // hardcoded spec default if an id is missing from cfg.Tasks). Real work is
 // implemented for token_cleanup, log_rotation, healthcheck_self,
-// ssl_renewal, geoip_update, backup_daily, backup_hourly, and
-// update_check; the remaining
-// required tasks are registered via
-// pendingBuiltins so they stay visible and honestly skip until their
+// ssl_renewal, geoip_update, backup_daily, backup_hourly, update_check,
+// tor_health, and i2p_health; the remaining required tasks are registered
+// via pendingBuiltins so they stay visible and honestly skip until their
 // subsystem lands.
 func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
 	defaults := config.Default("").Server.Scheduler.Tasks
@@ -90,6 +92,8 @@ func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
 		{ID: "backup_daily", Name: "Daily Backup", Run: backupDailyTask(deps)},
 		{ID: "backup_hourly", Name: "Hourly Backup", Run: backupHourlyTask(deps)},
 		{ID: "update_check", Name: "Update Check", Run: updateCheckTask(deps)},
+		{ID: "tor_health", Name: "Tor Health Check", Run: torHealthTask(deps)},
+		{ID: "i2p_health", Name: "I2P Health Check", Run: i2pHealthTask(deps)},
 	}
 	for _, p := range pendingBuiltins {
 		tasks = append(tasks, TaskDef{ID: p.id, Name: p.name, Run: pendingTask(p.skipReason)})

@@ -70,6 +70,28 @@ curl -X DELETE {{.Base.SiteName}}/api/v1/links/my-link \
 </section>
 {{end}}
 
+{{if .Base.I2PAddress}}
+<section id="i2p-access" class="i2p-access">
+<h3>{{t $lang "help.i2p_access"}}</h3>
+<p>{{t $lang "help.i2p_intro"}}</p>
+<h4>{{t $lang "help.i2p_address"}}</h4>
+<div class="code-block">
+<code class="code-content">{{.Base.I2PAddress}}</code>
+<button type="button" class="copy-btn" data-copy="{{.Base.I2PAddress}}" aria-label="{{t $lang "footer.copy_i2p_address"}}">
+<span class="copy-icon" aria-hidden="true">&#128203;</span>
+<span class="copy-text">{{t $lang "common.copy"}}</span>
+</button>
+</div>
+<h4>{{t $lang "help.how_to_connect"}}</h4>
+<ol>
+<li><a href="https://geti2p.net/en/download" target="_blank" rel="noopener">{{t $lang "help.download_i2p"}}</a><span class="sr-only"> ({{t $lang "a11y.external_link"}})</span></li>
+<li>{{t $lang "help.open_i2p"}}</li>
+<li>{{t $lang "help.paste_i2p"}}</li>
+</ol>
+<p class="note">{{t $lang "help.i2p_privacy"}}</p>
+</section>
+{{end}}
+
 <section id="faq">
 <h2>{{t $lang "help.faq"}}</h2>
 <h3>{{t $lang "help.faq_account_q"}}</h3>

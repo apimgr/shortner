@@ -79,6 +79,8 @@ var helpSections = []helpSection{
 			{"--maintenance CMD", "cli.flag_maintenance"},
 			{"--update [CMD]", "cli.flag_update"},
 			{"email [CMD]", "cli.cmd_email"},
+			{"tor [CMD]", "cli.cmd_tor"},
+			{"i2p [CMD]", "cli.cmd_i2p"},
 			{"--include-ssl", "cli.flag_include_ssl"},
 			{"--include-data", "cli.flag_include_data"},
 		},

@@ -148,7 +148,8 @@ article pre {
 
 .footer-links,
 .footer-branding,
-.footer-onion {
+.footer-onion,
+.footer-i2p {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -156,7 +157,8 @@ article pre {
   gap: 0.5rem;
 }
 
-.onion-address {
+.onion-address,
+.i2p-address {
   max-width: 100%;
 }
 

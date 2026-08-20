@@ -45,7 +45,12 @@
   (`src/httpserver/securityreport.go`, `page/contact_security.tmpl`).
   The contact form now relays to the operator's contact address through
   the PART 17 notifier (`relayContactMessage`), best-effort and never
-  queued. Deferred sub-items (PWA, sitemap.xml, favicon.ico,
+  queued. PART 31 adds the footer Tor/I2P address rows, the
+  `/server/help#tor-access` and `#i2p-access` sections, and the AI.md
+  PART 16 footer-variable expansion (`{current_year}`, `{project_name}`,
+  `{project_org}`, `{project_version}`, `{build_datetime}`,
+  `{onion_address}`, `{i2p_address}`) applied BEFORE sanitizing
+  `web.footer.custom_html`. Deferred sub-items (PWA, sitemap.xml, favicon.ico,
   announcements-banner rendering, Web-UI toast rendering, Swagger/GraphQL
   docs) are tracked in `TODO.AI.md`.
 

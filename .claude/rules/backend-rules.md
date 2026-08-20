@@ -14,7 +14,7 @@
   clearnet HTTPS-only (port 443) config propagate to an overlay
 - Log or display `127.0.0.1` as the client IP of a Tor request — use
   `tor:{circuit_id}`, or the literal `tor` when circuit-ID export is off
-- Enable I2P by default — PART 31.2 is opt-in (`features.i2p.enabled`,
+- Enable I2P by default — PART 31.2 is opt-in (`server.i2p.enabled`,
   default false): no provider, no port, no generated config unless enabled
 
 ## CRITICAL - ALWAYS DO
@@ -43,7 +43,7 @@
 | Token hash (API tokens) | SHA-256 | PART 11 |
 | Public endpoint rule | 3-tier safe/unsafe classification | PART 11 |
 | Tor | REQUIRED, auto-enabled when `tor` binary found | PART 31.1 |
-| I2P | OPTIONAL, opt-in via `features.i2p.enabled` (default off) | PART 31.2 |
+| I2P | OPTIONAL, opt-in via `server.i2p.enabled` (default off) | PART 31.2 |
 | Overlay protocol | always `http://`, no cert, no HSTS, no upgrade | PART 12, 31 |
 
 ## TERMINOLOGY
@@ -71,6 +71,31 @@
   researcher acknowledgment) are sent via the PART 17 notifier and are
   always "the CC path, never the primary channel" — a send failure never
   affects the submission or the tracking id
+- PART 31 is implemented for both overlays:
+  - `src/tor/` — dedicated Tor process via `github.com/cretz/bine`, v3
+    hidden service, SafeLogging, dedicated loopback backend port,
+    HAProxy PROXY-protocol circuit-ID ingest
+    (`github.com/pires/go-proxyproto`), vanity search/apply, key import,
+    health monitor; CLI in `src/tor_cli.go`
+  - `src/i2p/` — OPT-IN (`server.i2p.enabled`, default false): Model A
+    i2pd subprocess with a regenerated `{config_dir}/i2p/tunnels.conf`,
+    Model B external SAMv3 bridge over a raw `net.Conn`, destination
+    persisted at `{data_dir}/i2p/site/`, `.b32.i2p` derivation, provider
+    resolution i2pd → SAM → warn-and-continue; CLI in `src/i2p_cli.go`
+  - `src/httpserver/overlay.go` + `urlvars.go` — priority-0 overlay
+    detection AHEAD of proxy headers, `tor:{circuit_id}` client identity
+    (so `127.0.0.1` is never logged for a Tor request, and rate limits and
+    blocklists key on the circuit), the I2P trusted-proxy-gate exception,
+    `BuildURL` always `http://`, and `Onion-Location` on clearnet HTML
+    2xx top-level navigations only
+  - `src/config/overlay.go` (`server.tor.*`, `server.i2p.*` + validation),
+    `src/scheduler/overlay.go` (`tor_health`, `i2p_health`),
+    `src/overlay.go` + `src/main.go` (start/stop wiring, background
+    bootstrap so Tor never delays the clearnet listener)
+  - Deferred under PART 31 is environment-only: this container has no
+    `tor`, no `i2pd`, and no SAM bridge, so live bootstrap, descriptor
+    publication, a real circuit-ID PROXY header, and a real eepsite
+    tunnel are unexercised — see `TODO.AI.md`
 - Deferred under PART 11: GPG keypair management CLI, the maintainer
   email carrying inline AES armor instead of a PGP MIME attachment, and
   `/server/security/report/{tracking_id}` — see `TODO.AI.md`

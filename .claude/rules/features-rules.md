@@ -92,6 +92,11 @@
   bridging lands, the PART 11 maintainer email uses inline AES armor
   instead of a PGP MIME attachment, and Web-UI toasts are configured but
   not rendered — see `TODO.AI.md`.
+- PART 18's overlay health tasks are live: `tor_health` is registered
+  unconditionally (Tor is auto-enabled whenever the `tor` binary exists)
+  and `i2p_health` only when `server.i2p.enabled` is true. Both are in
+  `src/scheduler/overlay.go` and probe the real PART 31 managers,
+  restarting a provider that stopped answering.
 
 ---
 For complete details, see AI.md PART 17, 18, 19, 20, 21, 22

@@ -55,6 +55,8 @@ type Server struct {
 	Security       Security       `yaml:"security"`
 	Notifications  Notifications  `yaml:"notifications"`
 	I18N           I18N           `yaml:"i18n"`
+	Tor            Tor            `yaml:"tor"`
+	I2P            I2P            `yaml:"i2p"`
 }
 
 // Update holds `server.update`, per AI.md PART 22 "Update Configuration".
@@ -712,7 +714,7 @@ func Default(dbPath string) *Config {
 					"backup_hourly":    {Schedule: "@hourly", Enabled: false},
 					"healthcheck_self": {Schedule: "@every 5m", Enabled: true},
 					"tor_health":       {Schedule: "@every 10m", Enabled: true},
-					"i2p_health":       {Schedule: "@every 10m", Enabled: false},
+					"i2p_health":       {Schedule: "@every 10m", Enabled: true},
 				},
 			},
 			Metrics: Metrics{
@@ -757,6 +759,8 @@ func Default(dbPath string) *Config {
 			Security:      DefaultSecurity(),
 			Notifications: DefaultNotifications(),
 			I18N:          DefaultI18N(),
+			Tor:           DefaultTor(),
+			I2P:           DefaultI2P(),
 			Privacy: Privacy{
 				Consent: PrivacyConsent{
 					Message: "We use essential cookies to make this site work. " +

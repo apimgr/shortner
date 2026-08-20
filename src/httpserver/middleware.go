@@ -94,6 +94,11 @@ func (d *deps) setupMiddleware(handler http.Handler) http.Handler {
 	// the GPC opt-out flag is on the context before any handler decides
 	// whether to set a non-essential cookie.
 	handler = d.privacy.privacySignalMiddleware(handler)
+	// Onion-Location sits directly inside SecurityHeaders because it is a
+	// security header in everything but name, and because it must wrap the
+	// response writer to see the status and Content-Type the handler chose
+	// (AI.md PART 31 "Onion-Location Advertisement").
+	handler = d.headers.onionLocationMiddleware(handler)
 	handler = d.headers.securityHeadersMiddleware(handler) // 4
 	handler = pathSecurityMiddleware(handler)              // 3
 	handler = requestIDMiddleware(handler)                 // 2
@@ -171,7 +176,7 @@ func (d *deps) csrfMiddleware(next http.Handler) http.Handler {
 
 		switch r.Method {
 		case http.MethodGet, http.MethodHead, http.MethodOptions:
-			ensureCSRFCookie(w, r, d.csrf)
+			ensureCSRFCookie(w, r, d.csrf, d.resolver)
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -241,7 +246,7 @@ func (d *deps) logCSRFFailure(r *http.Request, reason string) {
 // request if one isn't already set, so a subsequent form POST/JS request on
 // the same origin has a token to submit. SameSite=Strict and NOT HttpOnly
 // (JS needs to read it to set the request header) per AI.md PART 16.
-func ensureCSRFCookie(w http.ResponseWriter, r *http.Request, csrf config.CSRF) {
+func ensureCSRFCookie(w http.ResponseWriter, r *http.Request, csrf config.CSRF, resolver *ProxyResolver) {
 	cookieName := csrf.CookieName
 	if cookieName == "" {
 		cookieName = "csrf_token"
@@ -260,7 +265,11 @@ func ensureCSRFCookie(w http.ResponseWriter, r *http.Request, csrf config.CSRF) 
 	}
 	token := hex.EncodeToString(buf)
 
-	secure := csrf.Secure == "true" || (csrf.Secure == "auto" && r.TLS != nil)
+	// AI.md PART 31 "Tor HTTP Semantics" keeps the Secure flag on for
+	// overlay requests: a `.onion` is a W3C potentially-trustworthy origin,
+	// so `secure: auto` treats it as a secure context even though the
+	// request itself is plain http://.
+	secure := csrf.Secure == "true" || (csrf.Secure == "auto" && (r.TLS != nil || resolver.IsOverlay(r)))
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
 		Value:    token,

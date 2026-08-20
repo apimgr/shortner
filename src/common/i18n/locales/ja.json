@@ -219,6 +219,13 @@
     "open_tor": "Tor Browser を開き、接続が完了するまで待ちます",
     "paste_onion": "上記の onion アドレスをコピーし、Tor Browser のアドレスバーに貼り付けます",
     "tor_privacy": "Tor を利用すると、IP アドレスが隠され、通信が Tor ネットワークを通じて暗号化されるため、プライバシーがさらに強化されます。",
+    "i2p_access": "I2P でのアクセス",
+    "i2p_intro": "このアプリケーションは、プライバシーを強化するために I2P の eepsite としても利用できます。",
+    "i2p_address": "I2P アドレス",
+    "download_i2p": "I2P ルーター（I2P または i2pd）をインストールします",
+    "open_i2p": "ルーターを起動し、ネットワークに接続されるまで待ちます",
+    "paste_i2p": "上記の I2P アドレスをコピーし、I2P の HTTP プロキシを使用するよう設定したブラウザーのアドレスバーに貼り付けます",
+    "i2p_privacy": "I2P を利用すると、通信が I2P ネットワークを経由するため、このサーバーに IP アドレスが伝わることはなく、プライバシーがさらに強化されます。",
     "faq": "よくある質問",
     "troubleshooting": "トラブルシューティング",
     "getting_started_intro": "API キーなしで、リクエスト 1 回で URL を短縮できます：",
@@ -430,6 +437,8 @@
   "footer": {
     "tor_support": "Tor 対応",
     "copy_onion_address": "onion アドレスをコピー",
+    "i2p_support": "I2P 対応",
+    "copy_i2p_address": "I2P アドレスをコピー",
     "cookie_preferences": "クッキーの設定",
     "copyright": "© {year} {org}"
   },
@@ -538,6 +547,8 @@
     "flag_maintenance": "メンテナンス操作（詳細は --maintenance help を実行してください）",
     "flag_update": "更新の確認または実行（詳細は --update help を実行してください）",
     "cmd_email": "メールテンプレートとテスト送信（詳細は 'email --help' を実行してください）",
+    "cmd_tor": "Tor 秘匿サービスの管理（詳細は 'tor --help' を実行）",
+    "cmd_i2p": "I2P eepsite の管理（詳細は 'i2p --help' を実行）",
     "flag_include_ssl": "--maintenance backup に SSL 証明書を含めます",
     "flag_include_data": "--maintenance backup にデータディレクトリを含めます"
   },

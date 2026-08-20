@@ -665,80 +665,57 @@ The remaining items below are environment limits, not unbuilt work.
 
 ## PART 31: Overlay networks (Tor & I2P)
 
-AI.md PART 31 was retitled and split by the 2026-08-16 spec revision
-(commit 575f0957e6bd): 31.1 Tor (REQUIRED, auto-enabled when the `tor`
-binary is found, no toggle) and 31.2 I2P eepsite (OPTIONAL, opt-in,
-default off).
+PART 31 is implemented for both networks. What remains here cannot be
+exercised in this build container (no `tor`, no `i2pd`, no SAM bridge) or
+is honestly deferred with a reason.
 
-### PART 31.1: Tor hidden service
+### PART 31.1: Tor hidden service — implemented
 
-- Auto-enable Tor hidden service when Tor is present on the host;
-  dedicated Tor process via `github.com/cretz/bine`, dedicated loopback
-  backend port, v3 hidden service, SafeLogging.
+Built: `src/tor/` (bine-driven dedicated Tor process, v3 hidden service,
+SafeLogging, dedicated loopback backend port, HAProxy PROXY-protocol
+circuit-ID ingest, vanity search/apply, key import, health monitor),
+`src/tor_cli.go` (`tor status|validate|restart|regenerate|vanity
+start|vanity apply|import-keys <path>`), `src/config/overlay.go`
+(`server.tor.*` + validation warnings), `src/httpserver/overlay.go` +
+`urlvars.go` (priority-0 overlay detection, `tor:{circuit_id}` identity,
+`BuildURL` always `http://`), `headers.go`/`middleware.go` (no HSTS, no
+`upgrade-insecure-requests`, `Onion-Location` on clearnet HTML 2xx
+top-level navigations only, `Secure` cookies still set),
+`pagedata.go` (UTC timestamps for Tor requests, footer/help address),
+`health.go` (`features.tor.*` + `checks.tor`), `src/scheduler/overlay.go`
+(`tor_health` every 10m), `src/overlay.go` + `src/main.go` (start/stop
+wiring, `Tor: {onion_address}` printed once).
+
+- DEFERRED (environment): no `tor` binary exists in this container, so
+  bootstrap, descriptor publication, a live circuit-ID PROXY header, and
+  `tor restart`/`regenerate` against a running daemon have never been
+  exercised end to end. Every failure path is unit-tested; the success
+  paths that need a live daemon are not (`src/tor` is at 63.9%).
+  Verify on a host that has Tor installed.
   Read: AI.md PART 31.1
-- Tor request detection at priority 0 in `GetURLVars`/`BuildURL`
-  (`src/httpserver/urlvars.go` explicitly defers this today).
-  Read: AI.md PART 12 "Tor Hidden Service Configuration"
-- Tor HTTP semantics: never issue an HTTPS redirect, HSTS header, or CSP
-  `upgrade-insecure-requests` on a Tor request; clearnet HTTPS-only
-  (port 443) must NOT propagate to the onion; `Secure` cookies still set.
-  Read: AI.md PART 12 "Tor HTTP Semantics (No HTTPS Upgrade)"
-- Tor request logging identity: never log/display `127.0.0.1` for a Tor
-  request — use `tor:{circuit_id}` from the `HiddenServiceExportCircuitID
-  haproxy` PROXY header, or the literal `tor` when export is off. Rate
-  limiting must key on circuit/session, never the collapsed loopback IP
-  (`src/httpserver/ratelimit.go` keys on client IP today).
-  Read: AI.md PART 12 "Tor Request Logging & Identity"
-- Tor timestamp normalization: render user-facing timestamps in UTC for
-  Tor requests (server local timezone leaks operator location).
-  Read: AI.md PART 12 "Tor Timestamp Normalization (UTC)"
-- `Onion-Location` header on clearnet HTML document responses only (2xx
-  top-level navigations); never on onion responses, API/JSON, static
-  assets, or redirects.
-  Read: AI.md PART 12 "Onion-Location Advertisement"
-- Footer/help "Tor Access" section + `checks.tor` + `features.tor.*`
-  populated from the real Tor manager (health currently reports the
-  honest zero value).
-  Read: AI.md PART 13, 16
 
-### PART 31.2: I2P eepsite (OPTIONAL — opt-in, default off)
+### PART 31.2: I2P eepsite — implemented (opt-in, default off)
 
-Entirely unimplemented; new in the 2026-08-16 spec revision.
+Built: `src/i2p/` (Model A i2pd subprocess with a regenerated
+`{config_dir}/i2p/tunnels.conf`, Model B external SAMv3 bridge over a raw
+`net.Conn`, destination persisted under `{data_dir}/i2p/site/`,
+`.b32.i2p` derivation, provider resolution i2pd → SAM → warn-and-continue,
+health monitor), `src/i2p_cli.go`, `server.i2p.*` config + validation,
+the trusted-proxy-gate exception for a `Host` matching the b32 address,
+`features.i2p.{enabled,running,status,hostname,provider}` + `checks.i2p`
+(omitted while disabled), the footer/help I2P blocks, `i2p_health` every
+10m (registered only when opt-in enabled), and the `I2P: http://{addr}`
+banner row.
 
-- Config surface: `features.i2p.enabled` (default false) / `I2P_ENABLED`
-  env / `--i2p` flag. Disabled means no provider, no port, no generated
-  config — nothing at all.
-  Read: AI.md PART 31.2 "Configuration"
-- Provider resolution: i2pd binary (Model A, dedicated process,
-  `{config_dir}/i2p/tunnels.conf` regenerated each startup) preferred;
-  external SAM bridge at `127.0.0.1:7656` (Model B) as fallback; neither
-  available → log WARN and continue (non-fatal).
-  Read: AI.md PART 31.2 "Provider Model"
-- Destination key persisted at `{data_dir}/i2p/site/`; `.b32.i2p` address
-  derived from it.
-- Startup sequence step 17b and step 20 "I2P: {.b32.i2p}" banner/log line.
-  Read: AI.md PART 8 startup PHASE 5
-- I2P exception in the trusted-proxy gate: a request whose `Host` matches
-  `i2p.b32_address` resolves from `i2p.*` config, always `http://`, no
-  proxy-header inspection, no IP check.
-  Read: AI.md PART 12 "I2P exception"
-- Health: `features.i2p.{enabled,running,status,hostname,provider}` — the
-  struct and text/JSON rendering now exist in
-  `src/httpserver/health.go` and report the disabled zero value with
-  `provider: none`; wire them to a real I2P manager when built. Add
-  `checks.i2p` (omitted while disabled).
-  Read: AI.md PART 13
-- Frontend: footer I2P block (`{{ if and .I2PEnabled .I2PRunning
-  .I2PAddress }}`), `/server/help#i2p-access` section, `{i2p_address}`
-  custom-HTML template variable.
-  Read: AI.md PART 16
-- Scheduler task `i2p_health` every 10 minutes (only when opt-in enabled).
-  Read: AI.md PART 18
-- Overlay protocol rule (applies to both Tor and I2P): overlays are
-  ALWAYS `http://`; no certificate is ever issued or self-signed for an
-  overlay address. The older "overlays inherit HTTPS-only from clearnet
-  port 443" rule was REMOVED from the spec — do not reintroduce it.
-  Read: AI.md PART 12, PART 16 "Overlay Network Protocol Rules"
+- DEFERRED (environment): no `i2pd` binary and no SAM bridge exist here,
+  so `startI2PD`/`waitForI2PDAddress` and a real tunnel are unexercised.
+  The SAM path is tested against a fake in-process SAMv3 server
+  (`src/i2p` is at 73.5%).
+  Read: AI.md PART 31.2
+- DEFERRED: overlay metrics (`tor_*`/`i2p_*` gauges under PART 20) are
+  still unpopulated — PART 20 logged them as waiting on PART 31, and the
+  managers now expose the state the collectors need.
+  Read: AI.md PART 20, PART 31
 
 ## Spec-revision follow-ups (2026-08-14 / 2026-08-16 AI.md updates)
 

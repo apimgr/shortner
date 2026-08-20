@@ -24,12 +24,14 @@ import (
 	"github.com/apimgr/shortner/src/fqdn"
 	"github.com/apimgr/shortner/src/geoip"
 	"github.com/apimgr/shortner/src/httpserver"
+	"github.com/apimgr/shortner/src/i2p"
 	"github.com/apimgr/shortner/src/metrics"
 	"github.com/apimgr/shortner/src/mode"
 	"github.com/apimgr/shortner/src/notify"
 	"github.com/apimgr/shortner/src/paths"
 	"github.com/apimgr/shortner/src/scheduler"
 	"github.com/apimgr/shortner/src/signal"
+	"github.com/apimgr/shortner/src/tor"
 	"github.com/apimgr/shortner/src/updater"
 )
 
@@ -182,6 +184,15 @@ func run(args []string) int {
 	// the leftover args rather than from a flag.
 	if a := fs.Args(); len(a) > 0 && a[0] == "email" {
 		return runEmail(binaryName, p, firstArg(a[1:]), firstArg(a[2:]))
+	}
+	// `tor [COMMAND]` and `i2p [COMMAND]` are positional subcommands for the
+	// same reason (AI.md PART 31.1 / 31.2 spell them as
+	// `{project_name} tor status`).
+	if a := fs.Args(); len(a) > 0 && a[0] == "tor" {
+		return runTor(binaryName, p, a[1:])
+	}
+	if a := fs.Args(); len(a) > 0 && a[0] == "i2p" {
+		return runI2P(binaryName, p, a[1:])
 	}
 	if flagWasSet(fs, "update") {
 		return runUpdate(binaryName, p, *updateFlag, firstArg(fs.Args()))
@@ -362,7 +373,21 @@ func run(args []string) int {
 	notifier := newNotifier(cfg, p, fqdnHost)
 	startupNotifications(binaryName, notifier, cfg, p, fqdnHost, accessLog)
 
-	sched, err := newBuiltinScheduler(cfg, sqlDB, schedulerLog, accessLog, p, fqdnHost, geoManager, auditLog, notifier)
+	// Overlay networks (AI.md PART 31): built before the scheduler and the
+	// HTTP server because the tor_health/i2p_health tasks and
+	// /server/healthz both report on them. Nothing is started here — see
+	// startOverlays below, after the HTTP server exists.
+	overlays := &overlayRef{}
+	torManager, i2pManager := newOverlayManagers(context.Background(), cfg, p, overlays, func(format string, args ...any) {
+		// AI.md PART 31.1 "Logging Rules": the bootstrap success line
+		// (`Tor: {onion_address}`) is printed once, on the console, and
+		// mirrored into the access log for later inspection.
+		line := fmt.Sprintf(format, args...)
+		fmt.Println(line)
+		_ = accessLog.WriteLine(applog.LevelInfo, line)
+	})
+
+	sched, err := newBuiltinScheduler(cfg, sqlDB, schedulerLog, accessLog, p, fqdnHost, geoManager, auditLog, notifier, torManager, i2pManager)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
@@ -408,7 +433,15 @@ func run(args []string) int {
 		AuditLog:      auditLog,
 		InstallSecret: installSecret,
 		Notifier:      notifier,
+		Tor:           torManager,
+		I2P:           i2pManager,
 	})
+	overlays.set(srv)
+	// Started in the background: bringing Tor to the point where it has a
+	// published descriptor can take minutes (server.tor.bootstrap_timeout
+	// defaults to 180s), and AI.md PART 31.1 makes the hidden service an
+	// addition to the clearnet listener, never a precondition for it.
+	go startOverlays(binaryName, torManager, i2pManager)
 	// Shutdown hooks run in registration order, so they are registered in
 	// the order AI.md PART 8 "Graceful Shutdown Sequence" prescribes: stop
 	// accepting connections and drain in-flight requests (steps 2-4), close
@@ -442,6 +475,10 @@ func run(args []string) int {
 
 	pidPath := p.PIDFile
 	signal.Register(func() { srv.Shutdown() })
+	// AI.md PART 31: the overlay providers are stopped right after the
+	// listeners are drained, so no onion or eepsite address stays published
+	// for a service that is going away.
+	signal.Register(func() { stopOverlays(overlays, torManager, i2pManager) })
 	signal.Register(func() { _ = sched.Stop() })
 	// AI.md PART 17 `shutdown` event: sent after the listener is closed and
 	// the scheduler is stopped, while the logs and SMTP connection are
@@ -467,7 +504,7 @@ func run(args []string) int {
 		Version: version.Version,
 		AppMode: mode.GetCurrentAppMode().String(),
 		Debug:   mode.IsDebugEnabled(),
-		URLs:    []string{fmt.Sprintf("%s://%s:%s%s", scheme, host, cfg.Server.Port, cfg.Server.BaseURL)},
+		URLs:    startupURLs(cfg, p, scheme, host),
 		Lang:    cliLang,
 	})
 
@@ -501,7 +538,7 @@ func buildTLSConfig(cfg *config.Config, configDir string) (*tls.Config, error) {
 // newBuiltinScheduler builds a scheduler.Scheduler with every AI.md
 // PART 18 "Built-in Tasks (Required)" registered, using cfg's per-task
 // schedule/enabled overrides. It does not start the scheduler.
-func newBuiltinScheduler(cfg *config.Config, sqlDB *sql.DB, schedulerLog, accessLog *applog.Logger, p paths.Paths, host string, geoManager *geoip.Manager, auditLog backup.Auditor, notifier *notify.Notifier) (*scheduler.Scheduler, error) {
+func newBuiltinScheduler(cfg *config.Config, sqlDB *sql.DB, schedulerLog, accessLog *applog.Logger, p paths.Paths, host string, geoManager *geoip.Manager, auditLog backup.Auditor, notifier *notify.Notifier, torManager *tor.Manager, i2pManager *i2p.Manager) (*scheduler.Scheduler, error) {
 	sched, err := scheduler.New(sqlDB, schedulerLog, cfg.Server.Scheduler.Timezone, cfg.Server.Scheduler.CatchUpWindow)
 	if err != nil {
 		return nil, err
@@ -543,6 +580,11 @@ func newBuiltinScheduler(cfg *config.Config, sqlDB *sql.DB, schedulerLog, access
 		// AI.md PART 17: the tasks that own a failure/success email event
 		// raise it through this notifier.
 		Notifier: notifier,
+		// AI.md PART 18/31: tor_health and i2p_health probe the live
+		// managers every 10 minutes and restart a provider that stopped
+		// answering. i2p_health is disabled by default because I2P is.
+		Tor: torManager,
+		I2P: i2pManager,
 	}
 	ctx := context.Background()
 	for _, t := range scheduler.BuiltinTasks(cfg.Server.Scheduler, deps) {

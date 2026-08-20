@@ -152,6 +152,8 @@ func Validate(cfg *Config) []string {
 	warnings = append(warnings, validateNotifications(cfg, defaults)...)
 	warnings = append(warnings, validateWebHeaders(cfg, defaults)...)
 	warnings = append(warnings, validateI18N(cfg.Server.I18N)...)
+	warnings = append(warnings, validateTor(cfg.Server.Tor)...)
+	warnings = append(warnings, validateI2P(cfg.Server.I2P)...)
 
 	return warnings
 }
