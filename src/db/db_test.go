@@ -191,7 +191,7 @@ func TestDeleteLinkWithClicksAndToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateLinkAutoCode() error = %v", err)
 	}
-	if _, err := RecordClick(ctx, sqlDB, link.ID, "203.0.113.42", "agent/1.0", ""); err != nil {
+	if _, err := RecordClick(ctx, sqlDB, link.ID, "203.0.113.42", "agent/1.0", "", "", ""); err != nil {
 		t.Fatalf("RecordClick() error = %v", err)
 	}
 	raw, _, err := CreateResourceToken(ctx, sqlDB, "link", strconv.FormatInt(link.ID, 10), nil)
@@ -297,7 +297,7 @@ func TestRecordClickAndList(t *testing.T) {
 		t.Fatalf("CreateLinkAutoCode() error = %v", err)
 	}
 
-	click, err := RecordClick(ctx, sqlDB, link.ID, "203.0.113.42", "test-agent/1.0", "https://referrer.example.com")
+	click, err := RecordClick(ctx, sqlDB, link.ID, "203.0.113.42", "test-agent/1.0", "https://referrer.example.com", "US", "California")
 	if err != nil {
 		t.Fatalf("RecordClick() error = %v", err)
 	}
@@ -306,6 +306,12 @@ func TestRecordClickAndList(t *testing.T) {
 	}
 	if click.UserAgent != "test-agent/1.0" {
 		t.Errorf("Click.UserAgent = %q, want test-agent/1.0", click.UserAgent)
+	}
+	if click.Country != "US" {
+		t.Errorf("Click.Country = %q, want US", click.Country)
+	}
+	if click.Region != "California" {
+		t.Errorf("Click.Region = %q, want California", click.Region)
 	}
 
 	updated, err := GetLinkByID(ctx, sqlDB, link.ID)

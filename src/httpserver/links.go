@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -33,6 +34,7 @@ import (
 	"github.com/apimgr/shortner/src/apperr"
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/db"
+	"github.com/apimgr/shortner/src/geoip"
 	"github.com/apimgr/shortner/src/security"
 )
 
@@ -44,6 +46,11 @@ type linkDeps struct {
 	// as a click that could not be persisted (AI.md PART 9 "Error
 	// Logging": all errors are logged with context). Nil in tests.
 	log *applog.Logger
+	// geo looks up country/region for click analytics (AI.md PART 19). May
+	// be nil (GeoIP disabled) — a nil Manager and a missing database both
+	// fail open to an empty Result, never blocking or altering the
+	// redirect.
+	geo *geoip.Manager
 }
 
 // LinkResponse is the canonical public shape of a link, per the "Single
@@ -510,7 +517,19 @@ func (ld *linkDeps) resolveHandler(w http.ResponseWriter, r *http.Request) {
 	ua := r.Header.Get("User-Agent")
 	if !isBotUserAgent(ua) {
 		ip := ld.resolver.ResolveClientIP(r)
-		if _, err := db.RecordClick(r.Context(), ld.sqlDB, link.ID, ip, ua, r.Header.Get("Referer")); err != nil && ld.log != nil {
+		// Country/region are looked up on the raw IP before RecordClick
+		// anonymizes and discards it, per AI.md PART 19: GeoIP lookups run
+		// on the real client address, but only the anonymized IP is ever
+		// persisted. A nil Manager or an unresolvable/private address
+		// yields an empty Result — never blocks or delays the redirect.
+		var country, region string
+		if ld.geo != nil {
+			if parsed := net.ParseIP(ip); parsed != nil {
+				result := ld.geo.Lookup(parsed)
+				country, region = result.CountryCode, result.Region
+			}
+		}
+		if _, err := db.RecordClick(r.Context(), ld.sqlDB, link.ID, ip, ua, r.Header.Get("Referer"), country, region); err != nil && ld.log != nil {
 			_ = ld.log.WriteLine(applog.LevelError, fmt.Sprintf("click not recorded for %s: %v", link.ShortCode, err))
 		}
 	}
@@ -520,8 +539,9 @@ func (ld *linkDeps) resolveHandler(w http.ResponseWriter, r *http.Request) {
 
 // StatsResponse is the click-analytics payload for a link, per IDEA.md
 // "Business logic": "total clicks, referrers, time series, approximate
-// location (GeoIP)". GeoIP fields are always empty until AI.md PART 19
-// lands (see TODO.AI.md).
+// location (GeoIP)". Country/Region come from the GeoIP lookup RecordClick
+// stored at click time (AI.md PART 19) — empty when GeoIP was disabled or
+// the lookup found nothing for that click.
 type StatsResponse struct {
 	ShortCode   string         `json:"short_code"`
 	TotalClicks int64          `json:"total_clicks"`

@@ -8,6 +8,7 @@ import (
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/db"
+	"github.com/apimgr/shortner/src/geoip"
 )
 
 func TestBuiltinTasksRegistersAllTwelve(t *testing.T) {
@@ -90,5 +91,31 @@ func TestSSLRenewalTaskNoCertificateOnDisk(t *testing.T) {
 	deps := Deps{TLSEnabled: true, FQDN: "example.com", ConfigDir: t.TempDir()}
 	if err := sslRenewalTask(deps)(context.Background()); err != nil {
 		t.Errorf("sslRenewalTask() with no certificate error = %v, want nil (first run before ACME issuance)", err)
+	}
+}
+
+func TestGeoipUpdateTaskNilManagerOrDisabled(t *testing.T) {
+	// A nil Manager (e.g. GeoIP disabled at startup) must not panic or error.
+	if err := geoipUpdateTask(Deps{})(context.Background()); err != nil {
+		t.Errorf("geoipUpdateTask() with nil GeoIP error = %v, want nil", err)
+	}
+	deps := Deps{GeoIP: geoip.Open(t.TempDir(), false, config.GeoIPDatabases{}), GeoIPCfg: config.GeoIP{Enabled: false}}
+	if err := geoipUpdateTask(deps)(context.Background()); err != nil {
+		t.Errorf("geoipUpdateTask() with disabled GeoIPCfg error = %v, want nil", err)
+	}
+}
+
+func TestGeoipUpdateTaskDownloadFailure(t *testing.T) {
+	// An already-canceled context guarantees the download fails regardless
+	// of whether this sandbox has outbound internet access, exercising the
+	// error-propagation path deterministically.
+	deps := Deps{
+		GeoIP:    geoip.Open(t.TempDir(), true, config.GeoIPDatabases{Country: true}),
+		GeoIPCfg: config.GeoIP{Enabled: true, Dir: t.TempDir(), Databases: config.GeoIPDatabases{Country: true}},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := geoipUpdateTask(deps)(ctx); err == nil {
+		t.Error("geoipUpdateTask() error = nil, want an error (context already canceled)")
 	}
 }

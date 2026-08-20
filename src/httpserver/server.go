@@ -17,6 +17,7 @@ import (
 	"github.com/apimgr/shortner/src/apperr"
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/geoip"
 	"github.com/apimgr/shortner/src/server"
 )
 
@@ -40,6 +41,11 @@ type Options struct {
 	// "Built-in Let's Encrypt Support") instead of plain HTTP. Built via
 	// src/certmgr.NewTLSConfig using the FQDN resolved from src/fqdn.
 	TLSConfig *tls.Config
+	// GeoIP is the shared lookup manager for country blocking (PART 12
+	// geoIPMiddleware) and click-analytics country/region enrichment (PART
+	// 19). May be nil (e.g. server.geoip.enabled: false), in which case both
+	// consumers fail open per AI.md PART 19's risk-signal rule.
+	GeoIP *geoip.Manager
 }
 
 // New builds a Server ready for Start. Listen address is
@@ -59,6 +65,8 @@ func New(opts Options) *Server {
 		operatorTok: cfg.Server.Token,
 		cors:        cfg.Server.CORS,
 		csrf:        cfg.Server.CSRF,
+		geo:         opts.GeoIP,
+		geoCfg:      cfg.Server.GeoIP,
 	}
 
 	r := chi.NewRouter()
@@ -84,7 +92,7 @@ func New(opts Options) *Server {
 		r.Get("/healthz", hd.healthHandler())
 	}
 
-	ld := &linkDeps{sqlDB: opts.DB, resolver: resolver, log: opts.AccessLog}
+	ld := &linkDeps{sqlDB: opts.DB, resolver: resolver, log: opts.AccessLog, geo: opts.GeoIP}
 
 	r.Route("/api", func(api chi.Router) {
 		api.Use(corsAPIMiddleware)

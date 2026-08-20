@@ -7,6 +7,7 @@ require (
 	github.com/go-co-op/gocron/v2 v2.22.0
 	github.com/google/uuid v1.6.0
 	github.com/microcosm-cc/bluemonday v1.0.27
+	github.com/oschwald/maxminddb-golang v1.13.1
 	golang.org/x/crypto v0.54.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.45.0

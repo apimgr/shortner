@@ -29,6 +29,7 @@ import (
 	"github.com/apimgr/shortner/src/apperr"
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/geoip"
 	"github.com/apimgr/shortner/src/security"
 )
 
@@ -42,6 +43,8 @@ type deps struct {
 	operatorTok string
 	cors        config.CORS
 	csrf        config.CSRF
+	geo         *geoip.Manager
+	geoCfg      config.GeoIP
 }
 
 // setupMiddleware wraps handler with the full PART 12 chain, per AI.md
@@ -407,8 +410,35 @@ func (d *deps) rateLimitMiddleware(next http.Handler) http.Handler {
 // geoIPMiddleware would block requests by country (execution position 8).
 // Real, wired pass-through — the GeoIP database doesn't exist yet (see
 // TODO.AI.md, AI.md PART 19).
+// geoIPMiddleware evaluates country-blocking rules (execution position 8),
+// per AI.md PART 19 "Configuration" — "Country blocking behavior". Per the
+// NON-NEGOTIABLE risk-signal rule (AI.md PART 19 "GeoIP Is a Risk Signal —
+// Never the Sole Access Gate"): allowlisted requests, requests with no
+// resolvable country (fail-open), and a nil/disabled Manager all pass
+// through untouched. This stage never substitutes for rate limiting or
+// auth, which still run in their own slots regardless of the outcome here.
 func (d *deps) geoIPMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if d.geo == nil || IsAllowlisted(r.Context()) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if len(d.geoCfg.DenyCountries) == 0 && len(d.geoCfg.AllowCountries) == 0 {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		ip := net.ParseIP(d.resolver.ResolveClientIP(r))
+		if ip == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		result := d.geo.Lookup(ip)
+		if geoip.IsBlocked(result.CountryCode, d.geoCfg.DenyCountries, d.geoCfg.AllowCountries) {
+			apperr.SendError(w, apperr.New(apperr.CodeForbidden))
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }

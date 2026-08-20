@@ -21,6 +21,7 @@ import (
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/fqdn"
+	"github.com/apimgr/shortner/src/geoip"
 	"github.com/apimgr/shortner/src/httpserver"
 	"github.com/apimgr/shortner/src/mode"
 	"github.com/apimgr/shortner/src/paths"
@@ -230,6 +231,14 @@ func run(args []string) int {
 		cfg.Server.BaseURL = *baseURL
 	}
 
+	// GeoIP directory defaults to "{data_dir}/security/geoip" per AI.md
+	// PART 19 "Configuration" — config.Default can't derive this itself
+	// (it only receives a DB file path), so it's resolved here the same
+	// way DataDir is.
+	if cfg.Server.GeoIP.Dir == "" {
+		cfg.Server.GeoIP.Dir = filepath.Join(p.Data, "security", "geoip")
+	}
+
 	sqlDB, err := db.Open(cfg.Server.Database.URL, db.DefaultPool())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
@@ -251,8 +260,25 @@ func run(args []string) int {
 	}
 	defer schedulerLog.Close()
 
+	// GeoIP (AI.md PART 19): opens whatever MMDB files already exist in
+	// cfg.Server.GeoIP.Dir (none on a genuinely first run) and, if enabled,
+	// kicks off a background download so first run still works with zero
+	// config instead of blocking startup on a network fetch.
+	geoManager := geoip.Open(cfg.Server.GeoIP.Dir, cfg.Server.GeoIP.Enabled, cfg.Server.GeoIP.Databases)
+	if cfg.Server.GeoIP.Enabled {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			if err := geoip.Download(ctx, cfg.Server.GeoIP.Dir, cfg.Server.GeoIP.Databases); err != nil {
+				_ = accessLog.WriteLine(applog.LevelError, "geoip: initial download failed: "+err.Error())
+				return
+			}
+			geoManager.Reload()
+		}()
+	}
+
 	fqdnHost := fqdn.GetFQDN(internalName)
-	sched, err := newBuiltinScheduler(cfg, sqlDB, schedulerLog, accessLog, p.Config, fqdnHost)
+	sched, err := newBuiltinScheduler(cfg, sqlDB, schedulerLog, accessLog, p.Config, fqdnHost, geoManager)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
@@ -289,6 +315,7 @@ func run(args []string) int {
 		BuildDate: version.BuildDate,
 		StartTime: time.Now(),
 		TLSConfig: tlsConfig,
+		GeoIP:     geoManager,
 	})
 	// Shutdown hooks run in registration order, so they are registered in
 	// the order AI.md PART 8 "Graceful Shutdown Sequence" prescribes: stop
@@ -305,6 +332,7 @@ func run(args []string) int {
 	pidPath := p.PIDFile
 	signal.Register(func() { srv.Shutdown() })
 	signal.Register(func() { _ = sched.Stop() })
+	signal.Register(func() { _ = geoManager.Close() })
 	signal.Register(func() { sqlDB.Close() })
 	signal.Register(func() { accessLog.Close() })
 	signal.Register(func() { schedulerLog.Close() })
@@ -357,7 +385,7 @@ func buildTLSConfig(cfg *config.Config, configDir string) (*tls.Config, error) {
 // newBuiltinScheduler builds a scheduler.Scheduler with every AI.md
 // PART 18 "Built-in Tasks (Required)" registered, using cfg's per-task
 // schedule/enabled overrides. It does not start the scheduler.
-func newBuiltinScheduler(cfg *config.Config, sqlDB *sql.DB, schedulerLog, accessLog *applog.Logger, configDir, host string) (*scheduler.Scheduler, error) {
+func newBuiltinScheduler(cfg *config.Config, sqlDB *sql.DB, schedulerLog, accessLog *applog.Logger, configDir, host string, geoManager *geoip.Manager) (*scheduler.Scheduler, error) {
 	sched, err := scheduler.New(sqlDB, schedulerLog, cfg.Server.Scheduler.Timezone, cfg.Server.Scheduler.CatchUpWindow)
 	if err != nil {
 		return nil, err
@@ -370,6 +398,8 @@ func newBuiltinScheduler(cfg *config.Config, sqlDB *sql.DB, schedulerLog, access
 		ConfigDir:  configDir,
 		FQDN:       host,
 		DevTLD:     fqdn.IsDevTLD(host, internalName),
+		GeoIP:      geoManager,
+		GeoIPCfg:   cfg.Server.GeoIP,
 	}
 	ctx := context.Background()
 	for _, t := range scheduler.BuiltinTasks(cfg.Server.Scheduler, deps) {

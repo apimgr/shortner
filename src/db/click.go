@@ -11,9 +11,9 @@ import (
 
 // Click is a single recorded visit to a link, per IDEA.md "Data models":
 // "Click: id, link_id, timestamp, ip (anonymized ...), user_agent,
-// referrer, country/region (GeoIP ...)." GeoIP-derived Country/Region
-// population is AI.md PART 19 (not built yet — fields are always empty
-// until that lands; tracked in TODO.AI.md).
+// referrer, country/region (GeoIP ...)." Country/Region are populated by
+// the caller from a GeoIP lookup on the raw IP (AI.md PART 19); they are
+// empty when GeoIP is disabled or the lookup found nothing.
 type Click struct {
 	ID        int64
 	LinkID    int64
@@ -32,8 +32,11 @@ type Click struct {
 // "Business rules": "Click tracking excludes known bot/crawler user
 // agents" — bot filtering is the caller's responsibility (it requires a
 // UA-classification list this project has not yet defined; tracked in
-// TODO.AI.md) since it decides whether to call RecordClick at all.
-func RecordClick(ctx context.Context, sqlDB *sql.DB, linkID int64, rawIP, userAgent, referrer string) (*Click, error) {
+// TODO.AI.md) since it decides whether to call RecordClick at all. country
+// and region come from a GeoIP lookup the caller already performed on the
+// raw (pre-anonymization) IP, per AI.md PART 19 — pass "" for both when
+// GeoIP is disabled or the lookup found nothing.
+func RecordClick(ctx context.Context, sqlDB *sql.DB, linkID int64, rawIP, userAgent, referrer, country, region string) (*Click, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -42,8 +45,8 @@ func RecordClick(ctx context.Context, sqlDB *sql.DB, linkID int64, rawIP, userAg
 	var click *Click
 	err := WithTransaction(ctx, sqlDB, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
-			`INSERT INTO clicks (link_id, ip, user_agent, referrer) VALUES (?, ?, ?, ?)`,
-			linkID, nullableString(anonIP), nullableString(userAgent), nullableString(referrer))
+			`INSERT INTO clicks (link_id, ip, user_agent, referrer, country, region) VALUES (?, ?, ?, ?, ?, ?)`,
+			linkID, nullableString(anonIP), nullableString(userAgent), nullableString(referrer), nullableString(country), nullableString(region))
 		if err != nil {
 			return HandleQueryError(err)
 		}

@@ -10,6 +10,7 @@ import (
 	"github.com/apimgr/shortner/src/certmgr"
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/db"
+	"github.com/apimgr/shortner/src/geoip"
 )
 
 // builtinDef is the static (id, name) pair and honest-skip explanation for
@@ -25,7 +26,6 @@ type builtinDef struct {
 // `--scheduler list` per AI.md PART 18, while `skipReason` makes every run
 // an honest, logged skip instead of a fabricated success or a crash.
 var pendingBuiltins = []builtinDef{
-	{"geoip_update", "GeoIP Database Update", "GeoIP integration (AI.md PART 19) is not implemented yet"},
 	{"blocklist_update", "Blocklist Update", "IP/domain blocklists (AI.md PART 9/11) are not implemented yet"},
 	{"cve_update", "CVE Database Update", "CVE/security database integration (AI.md PART 9) is not implemented yet"},
 	{"update_check", "Update Check", "self-update (AI.md PART 22) is not implemented yet"},
@@ -47,6 +47,10 @@ type Deps struct {
 	ConfigDir  string
 	FQDN       string
 	DevTLD     bool
+	// GeoIP feeds geoip_update (AI.md PART 19). Nil when GeoIP is disabled
+	// — the task then honestly skips instead of downloading unused files.
+	GeoIP    *geoip.Manager
+	GeoIPCfg config.GeoIP
 }
 
 // BuiltinTasks returns every AI.md PART 18 "Built-in Tasks (Required)"
@@ -70,6 +74,7 @@ func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
 		{ID: "log_rotation", Name: "Log Rotation", Run: logRotationTask(deps.Logs)},
 		{ID: "healthcheck_self", Name: "Self Health Check", Run: healthcheckSelfTask(deps.DB)},
 		{ID: "ssl_renewal", Name: "SSL Certificate Renewal", Run: sslRenewalTask(deps)},
+		{ID: "geoip_update", Name: "GeoIP Database Update", Run: geoipUpdateTask(deps)},
 	}
 	for _, p := range pendingBuiltins {
 		tasks = append(tasks, TaskDef{ID: p.id, Name: p.name, Run: pendingTask(p.skipReason)})
@@ -160,6 +165,24 @@ func sslRenewalTask(deps Deps) TaskFunc {
 		if certmgr.NeedsRenewal(cert.NotAfter) {
 			return fmt.Errorf("ssl_renewal: certificate for %s expires %s (within renewal window)", deps.FQDN, cert.NotAfter.Format(time.RFC3339))
 		}
+		return nil
+	}
+}
+
+// geoipUpdateTask re-downloads the enabled MMDB files and reloads the
+// shared Manager, per AI.md PART 18 "geoip_update" / PART 19 "GeoIP
+// databases are ... kept updated via the built-in scheduler". A nil
+// Manager (GeoIP disabled) is not a failure — the task simply has nothing
+// to do.
+func geoipUpdateTask(deps Deps) TaskFunc {
+	return func(ctx context.Context) error {
+		if deps.GeoIP == nil || !deps.GeoIPCfg.Enabled {
+			return nil
+		}
+		if err := geoip.Download(ctx, deps.GeoIPCfg.Dir, deps.GeoIPCfg.Databases); err != nil {
+			return fmt.Errorf("geoip_update: %w", err)
+		}
+		deps.GeoIP.Reload()
 		return nil
 	}
 }

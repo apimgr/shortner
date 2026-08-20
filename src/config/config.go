@@ -42,6 +42,28 @@ type Server struct {
 	Contact        Contact        `yaml:"contact"`
 	Privacy        Privacy        `yaml:"privacy"`
 	Scheduler      Scheduler      `yaml:"scheduler"`
+	GeoIP          GeoIP          `yaml:"geoip"`
+}
+
+// GeoIP holds `server.geoip`, per AI.md PART 19 "GeoIP". Zero-config on
+// first run: enabled with no country restrictions, all three databases on.
+// Dir defaults to "" here (config.Default only receives a DB file path, not
+// a data directory) and is resolved by main.go to
+// "{data_dir}/security/geoip", mirroring how DataDir is resolved elsewhere.
+type GeoIP struct {
+	Enabled        bool           `yaml:"enabled"`
+	Dir            string         `yaml:"dir"`
+	DenyCountries  []string       `yaml:"deny_countries"`
+	AllowCountries []string       `yaml:"allow_countries"`
+	Databases      GeoIPDatabases `yaml:"databases"`
+}
+
+// GeoIPDatabases toggles which of the three MMDB categories are
+// downloaded/loaded, per AI.md PART 19's `server.geoip.databases` block.
+type GeoIPDatabases struct {
+	ASN     bool `yaml:"asn"`
+	Country bool `yaml:"country"`
+	City    bool `yaml:"city"`
 }
 
 // Scheduler holds `server.scheduler`, per AI.md PART 18 "Task
@@ -437,6 +459,17 @@ func Default(dbPath string) *Config {
 				Secure:      "auto",
 			},
 			Contact: Contact{},
+			GeoIP: GeoIP{
+				Enabled:        true,
+				Dir:            "",
+				DenyCountries:  []string{},
+				AllowCountries: []string{},
+				Databases: GeoIPDatabases{
+					ASN:     true,
+					Country: true,
+					City:    true,
+				},
+			},
 			Scheduler: Scheduler{
 				Timezone:      "America/New_York",
 				CatchUpWindow: "1h",
