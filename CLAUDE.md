@@ -14,7 +14,7 @@
 - **server** = `shortner` (main binary, runs as service)
 - **client** = `shortner-cli` (REQUIRED companion, CLI/TUI/GUI)
 
-## NEVER Do (Top 19) - VIOLATIONS ARE BUGS
+## NEVER Do (Top 21) - VIOLATIONS ARE BUGS
 1. Use bcrypt for config/backup passwords → Use Argon2id
 2. Put Dockerfile in root → `docker/Dockerfile`
 3. Use CGO → CGO_ENABLED=0 always
@@ -34,6 +34,9 @@
 17. Edit `## Project variables` in IDEA.md without confirming with the user
 18. Read an image larger than 1000×1000 directly into context
 19. Use a non-conforming IDEA.md without migration
+20. Serve an overlay address over HTTPS → `.onion`/`.b32.i2p` are always
+    `http://`; no cert, no HSTS, no redirect, no upgrade-insecure-requests
+21. Enable I2P by default → PART 31.2 is opt-in (`features.i2p.enabled`)
 
 ## ALWAYS Do - NON-NEGOTIABLE
 1. Read AI.md before implementing ANY feature
@@ -60,7 +63,8 @@
 - Project structure: `.claude/rules/project-rules.md` (PART 2, 3, 4)
 - Config/modes: `.claude/rules/config-rules.md` (PART 5, 6, 12)
 - Binaries: `.claude/rules/binary-rules.md` (PART 7, 8, 32)
-- Backend: `.claude/rules/backend-rules.md` (PART 9, 10, 11, 31)
+- Backend: `.claude/rules/backend-rules.md` (PART 9, 10, 11, 31 — 31.1 Tor,
+  31.2 I2P)
 - API: `.claude/rules/api-rules.md` (PART 13, 14, 15)
 - Frontend/WebUI: `.claude/rules/frontend-rules.md` (PART 16)
 - Features: `.claude/rules/features-rules.md` (PART 17-22)
@@ -70,14 +74,16 @@
 - CI/CD: `.claude/rules/cicd-rules.md` (PART 27)
 - Testing/docs/i18n: `.claude/rules/testing-rules.md` (PART 28, 29, 30)
 - Project intent (WHAT): `IDEA.md`
-- Full spec (HOW, ~46k lines): `AI.md` ← **SOURCE OF TRUTH**
+- Full spec (HOW, ~48k lines): `AI.md` ← **SOURCE OF TRUTH**
 
 ## Current Project State
-- Last read AI.md: 2026-08-13 (PART 16)
-- Current task: PART 16 (Web frontend) implemented and tested — templates,
-  CSS, single `app.js`, `/server/*` pages, cookie consent, CCPA, home page
-  create-link form (reuses PART 14 link-creation logic), HTML variants of
-  `/server/healthz` and `/{slug}/stats`
+- Last read AI.md: 2026-08-19 (full compliance audit against the revised
+  spec — commits 6e8b85d7c615 and 575f0957e6bd)
+- Current task: post-audit fixes — PART 13 health contract now carries
+  `features.i2p.*` and the canonical plain-text field order; PART 14 JSON
+  responses use 2-space indentation and the `{ok,data}` success envelope
+  everywhere; PART 31 is now "Overlay Networks (Tor & I2P)" with overlays
+  always served over `http://`
 - Relevant PARTs: 0-6, 12-16 done; 7-11, 17-32 tracked in TODO.AI.md
   (PART 15 has deferred sub-items — DNS-01 provider matrix, credential
   encryption at rest, autocert-to-spec-layout bridging; PART 16 has
