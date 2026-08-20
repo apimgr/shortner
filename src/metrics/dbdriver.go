@@ -106,6 +106,10 @@ func (c *instrumentedConn) CheckNamedValue(nv *driver.NamedValue) error {
 func (c *instrumentedConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
 	b, ok := c.Conn.(driver.ConnBeginTx)
 	if !ok {
+		// Fallback for a driver.Conn that does not implement ConnBeginTx.
+		// Begin is the only method the plain driver.Conn interface offers
+		// in that case, so the deprecation warning does not apply here.
+		//lint:ignore SA1019 required fallback for drivers without ConnBeginTx
 		return c.Conn.Begin()
 	}
 	return b.BeginTx(ctx, opts)

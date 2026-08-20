@@ -27,7 +27,9 @@ func TestGenerateTokenUnique(t *testing.T) {
 }
 
 func TestHashTokenDeterministic(t *testing.T) {
-	if HashToken("abc") != HashToken("abc") {
+	first := HashToken("abc")
+	second := HashToken("abc")
+	if first != second {
 		t.Errorf("HashToken not deterministic")
 	}
 	if HashToken("abc") == HashToken("abd") {

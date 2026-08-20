@@ -29,17 +29,17 @@ type Metrics struct {
 	AppUptimeSeconds  prometheus.Gauge
 	AppStartTimestamp prometheus.Gauge
 
-	HTTPRequestsTotal        *prometheus.CounterVec
-	HTTPRequestDuration      *prometheus.HistogramVec
-	HTTPRequestSizeBytes     *prometheus.HistogramVec
-	HTTPResponseSizeBytes    *prometheus.HistogramVec
-	HTTPActiveRequests       prometheus.Gauge
+	HTTPRequestsTotal     *prometheus.CounterVec
+	HTTPRequestDuration   *prometheus.HistogramVec
+	HTTPRequestSizeBytes  *prometheus.HistogramVec
+	HTTPResponseSizeBytes *prometheus.HistogramVec
+	HTTPActiveRequests    prometheus.Gauge
 
-	DBQueriesTotal       *prometheus.CounterVec
-	DBQueryDuration      *prometheus.HistogramVec
-	DBConnectionsOpen    prometheus.Gauge
-	DBConnectionsInUse   prometheus.Gauge
-	DBErrorsTotal        *prometheus.CounterVec
+	DBQueriesTotal     *prometheus.CounterVec
+	DBQueryDuration    *prometheus.HistogramVec
+	DBConnectionsOpen  prometheus.Gauge
+	DBConnectionsInUse prometheus.Gauge
+	DBErrorsTotal      *prometheus.CounterVec
 
 	CacheHitsTotal      *prometheus.CounterVec
 	CacheMissesTotal    *prometheus.CounterVec
@@ -60,10 +60,10 @@ type Metrics struct {
 	SystemDiskUsedBytes      *prometheus.GaugeVec
 	SystemDiskTotalBytes     *prometheus.GaugeVec
 
-	GoGoroutines        prometheus.Gauge
-	GoMemAllocBytes      prometheus.Gauge
-	GoMemSysBytes        prometheus.Gauge
-	GoGCRunsTotal        prometheus.Counter
+	GoGoroutines          prometheus.Gauge
+	GoMemAllocBytes       prometheus.Gauge
+	GoMemSysBytes         prometheus.Gauge
+	GoGCRunsTotal         prometheus.Counter
 	GoGCPauseTotalSeconds prometheus.Counter
 
 	AuthAttemptsTotal  *prometheus.CounterVec
@@ -75,13 +75,12 @@ type Metrics struct {
 	// Business metrics (AI.md PART 20 "Optional: Extended Metrics" ->
 	// "Business metrics", adapted to this project's link-shortener domain
 	// instead of the spec's illustrative generic "items").
-	LinksTotal        prometheus.Gauge
-	LinksCreated24h    prometheus.Gauge
-	LinksClicked24h    prometheus.Gauge
-	APITokensActive    prometheus.Gauge
+	LinksTotal      prometheus.Gauge
+	LinksCreated24h prometheus.Gauge
+	LinksClicked24h prometheus.Gauge
+	APITokensActive prometheus.Gauge
 
 	startTime time.Time
-	gcLast    uint32
 }
 
 // New builds and registers every PART 20 metric on a fresh registry. Called
@@ -103,7 +102,7 @@ func New(cfg config.Metrics) *Metrics {
 	schedDurationBuckets := []float64{0.1, 0.5, 1, 5, 10, 30, 60, 300, 600}
 
 	m := &Metrics{
-		Registry: reg,
+		Registry:  reg,
 		startTime: time.Now(),
 
 		AppInfo:           f.NewGaugeVec(prometheus.GaugeOpts{Name: namePrefix + "app_info", Help: "Application information"}, []string{"version", "commit", "build_date", "go_version"}),
