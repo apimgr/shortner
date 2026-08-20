@@ -13,6 +13,7 @@ func TestFilterDaemonFlag(t *testing.T) {
 		{"only daemon flag", []string{"--daemon"}, []string{}},
 		{"empty args", []string{}, []string{}},
 		{"multiple daemon flags all removed", []string{"--daemon", "--debug", "--daemon"}, []string{"--debug"}},
+		{"single-dash spelling removed to prevent fork loop", []string{"-daemon", "--port", "8080"}, []string{"--port", "8080"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

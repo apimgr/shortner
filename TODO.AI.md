@@ -456,6 +456,21 @@ Entirely unimplemented; new in the 2026-08-16 spec revision.
   so it never actually rotates. Blocked on the PART 18 scheduler.
   Read: AI.md PART 11 "Log Rotation", PART 18
 
+## Documented spec deviations
+
+- `src/daemon.go` `filterDaemonFlag` filters `-daemon` in addition to the
+  `--daemon`/`-d` shown in AI.md PART 8's literal example. `main.go`
+  registers the daemon flag as `fs.Bool("daemon", ...)` with no `-d`
+  alias; Go's `flag` package accepts `-daemon` and `--daemon` as
+  equivalent spellings of that one flag, so AI.md's example, filtering
+  only the double-dash form, leaves an infinite re-exec/fork loop
+  reachable via `-daemon` (flagged by automated security review,
+  2026-08-19, HIGH). Kept as a deliberate, tested deviation from the
+  literal spec code rather than a silent guess — AI.md is read-only and
+  cannot be amended, but its example is incomplete for this flag
+  registration.
+  Read: AI.md PART 8 "Daemonization"
+
 ## PART 32: Client
 
 - `shortner-cli` client binary (currently only a `doc.go` placeholder in

@@ -4,12 +4,20 @@
 package main
 
 // filterDaemonFlag removes the daemon flag from args before re-exec, to
-// prevent an infinite fork loop. Matches AI.md PART 8 "Daemonization"
-// exactly: filters "--daemon" and its short form "-d".
+// prevent an infinite fork loop. AI.md PART 8 "Daemonization" shows this
+// filtering only "--daemon" and "-d", but main.go registers the flag as
+// fs.Bool("daemon", ...) with no "-d" alias — Go's flag package accepts
+// both "-daemon" and "--daemon" as equivalent spellings of that same
+// flag (single vs. double dash is not significant to flag), so a caller
+// using "-daemon" would survive the AI.md-literal filter unstripped and
+// the re-exec'd child would daemonize again, looping. "-daemon" is
+// filtered here as a deliberate, documented deviation from AI.md's
+// example to close that fork loop; "-d" is kept for forward-compat in
+// case a short alias is registered later.
 func filterDaemonFlag(args []string) []string {
 	filtered := make([]string, 0, len(args))
 	for _, arg := range args {
-		if arg != "--daemon" && arg != "-d" {
+		if arg != "--daemon" && arg != "-daemon" && arg != "-d" {
 			filtered = append(filtered, arg)
 		}
 	}
