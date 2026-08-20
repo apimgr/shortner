@@ -29,6 +29,7 @@ import (
 	"github.com/apimgr/shortner/src/paths"
 	"github.com/apimgr/shortner/src/scheduler"
 	"github.com/apimgr/shortner/src/signal"
+	"github.com/apimgr/shortner/src/updater"
 )
 
 // internalName is the frozen on-disk project identifier (IDEA.md
@@ -87,8 +88,9 @@ func run(args []string) int {
 	// --update's entire subcommand is optional per AI.md PART 8
 	// ("--update [check|yes|branch ...|--help]"), but flag.FlagSet
 	// requires a value for every non-boolean flag; a bare trailing
-	// "--update" has nothing left to consume. Default it to "check" so
-	// the flag package's normal parsing handles the rest.
+	// "--update" has nothing left to consume. Default it to "yes", the
+	// documented default subcommand (AI.md PART 22 "Commands"), so the
+	// flag package's normal parsing handles the rest.
 	args = injectDefaultUpdateValue(args)
 
 	if err := fs.Parse(args); err != nil {
@@ -151,7 +153,7 @@ func run(args []string) int {
 	p.DB = paths.GetDatabaseDir(p.Data)
 
 	if *statusFlag {
-		return runStatus(binaryName, p.PIDFile)
+		return runStatus(binaryName, p)
 	}
 
 	// PHASE 2-4 subcommands (AI.md PART 8 "Server Startup Sequence"):
@@ -163,12 +165,13 @@ func run(args []string) int {
 		return runMaintenance(binaryName, *maintenanceFlag, maintenanceOptions{
 			paths:       p,
 			arg:         firstArg(fs.Args()),
+			args:        fs.Args(),
 			includeSSL:  *includeSSL,
 			includeData: *includeData,
 		})
 	}
 	if flagWasSet(fs, "update") {
-		return runUpdate(binaryName, *updateFlag, firstArg(fs.Args()))
+		return runUpdate(binaryName, p, *updateFlag, firstArg(fs.Args()))
 	}
 
 	// --daemon (manual start only; --service start would auto-detect the
@@ -449,6 +452,16 @@ func newBuiltinScheduler(cfg *config.Config, sqlDB *sql.DB, schedulerLog, access
 			Compliance: cfg.Server.Compliance.Enabled,
 			Audit:      auditLog,
 		},
+		// AI.md PART 22: the update_check task compares the embedded
+		// build info against the configured channel and records what it
+		// found in the data directory's update state file.
+		Update: scheduler.UpdateDeps{
+			Cfg:            cfg.Server.Update,
+			CurrentVersion: version.String(),
+			BuildEpoch:     version.Epoch(),
+			StatePath:      updater.StatePath(p.Data),
+			Log:            schedulerLog,
+		},
 	}
 	ctx := context.Background()
 	for _, t := range scheduler.BuiltinTasks(cfg.Server.Scheduler, deps) {
@@ -480,14 +493,14 @@ func firstArg(positional []string) string {
 	return positional[0]
 }
 
-// injectDefaultUpdateValue appends "check" after a bare trailing
-// "--update" so flag.FlagSet always has a value to consume. See the
-// comment at its call site in run().
+// injectDefaultUpdateValue appends "yes" after a bare trailing "--update"
+// so flag.FlagSet always has a value to consume. See the comment at its
+// call site in run().
 func injectDefaultUpdateValue(args []string) []string {
 	if len(args) > 0 && args[len(args)-1] == "--update" {
 		out := make([]string, len(args), len(args)+1)
 		copy(out, args)
-		return append(out, "check")
+		return append(out, "yes")
 	}
 	return args
 }

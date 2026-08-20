@@ -33,9 +33,10 @@
 
 ## QUICK REFERENCE
 - `src/main.go` currently wires `--help`, `--version`, `--mode`, `--debug`,
-  `--config`, `--address`, `--port`, `--baseurl` — `--service`,
-  `--maintenance`, `--status`, `--update`, `--daemon`, and the client
-  binary itself are NOT yet implemented (see `TODO.AI.md`)
+  `--config`, `--address`, `--port`, `--baseurl`, `--status`, and
+  `--update` (PART 22 — `check`/`yes`/`branch`, with a bare `--update`
+  meaning `yes`); `--service`, most `--maintenance` actions, `--daemon`,
+  and the client binary itself are NOT yet implemented (see `TODO.AI.md`)
 
 ---
 For complete details, see AI.md PART 7, 8, 32

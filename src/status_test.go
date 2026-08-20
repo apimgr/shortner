@@ -8,13 +8,23 @@ import (
 	"testing"
 
 	"github.com/apimgr/shortner/src/common/pidfile"
+	"github.com/apimgr/shortner/src/common/version"
+	"github.com/apimgr/shortner/src/paths"
+	"github.com/apimgr/shortner/src/updater"
 )
+
+// statusPaths builds a Paths whose PID file and data dir live in a temp
+// dir, so --status reads only test-owned state.
+func statusPaths(t *testing.T, pidPath string) paths.Paths {
+	t.Helper()
+	return paths.Paths{Data: t.TempDir(), PIDFile: pidPath}
+}
 
 func TestRunStatusNotRunning(t *testing.T) {
 	dir := t.TempDir()
-	pidPath := filepath.Join(dir, "does-not-exist.pid")
+	p := statusPaths(t, filepath.Join(dir, "does-not-exist.pid"))
 
-	out, _, code := captureOutput(t, func() int { return runStatus("shortner", pidPath) })
+	out, _, code := captureOutput(t, func() int { return runStatus("shortner", p) })
 	if code != 1 {
 		t.Errorf("code = %d, want 1", code)
 	}
@@ -39,7 +49,7 @@ func TestRunStatusRunning(t *testing.T) {
 	// the "not running" (stale-file) branch deterministically rather than
 	// the "running" branch, which needs the real compiled binary name —
 	// documented as a coverage gap in the final report.
-	out, _, code := captureOutput(t, func() int { return runStatus("shortner", pidPath) })
+	out, _, code := captureOutput(t, func() int { return runStatus("shortner", statusPaths(t, pidPath)) })
 	if code != 1 {
 		t.Errorf("code = %d, want 1 (PID belongs to test binary, not shortner)", code)
 	}
@@ -58,11 +68,48 @@ func TestRunStatusPropagatesCheckError(t *testing.T) {
 	}
 	pidPath := filepath.Join(blocker, "shortner.pid")
 
-	_, stderr, code := captureOutput(t, func() int { return runStatus("shortner", pidPath) })
+	_, stderr, code := captureOutput(t, func() int { return runStatus("shortner", statusPaths(t, pidPath)) })
 	if code != 1 {
 		t.Errorf("code = %d, want 1", code)
 	}
 	if stderr == "" {
 		t.Error("stderr = empty, want propagated CheckPIDFile error")
+	}
+}
+
+func TestPrintPendingUpdate(t *testing.T) {
+	p := statusPaths(t, filepath.Join(t.TempDir(), "shortner.pid"))
+
+	// Nothing cached: --status stays silent about updates.
+	out, _, _ := captureOutput(t, func() int { printPendingUpdate(p); return 0 })
+	if out != "" {
+		t.Errorf("output = %q, want silence when no update is pending", out)
+	}
+
+	// A cached version equal to the running one is not pending either.
+	if err := updater.SaveState(updater.StatePath(p.Data), updater.State{
+		Branch:           "stable",
+		AvailableVersion: version.String(),
+	}); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	out, _, _ = captureOutput(t, func() int { printPendingUpdate(p); return 0 })
+	if out != "" {
+		t.Errorf("output = %q, want silence when the cached version is installed", out)
+	}
+
+	// A genuinely newer cached version is surfaced to the operator.
+	if err := updater.SaveState(updater.StatePath(p.Data), updater.State{
+		Branch:           "beta",
+		AvailableVersion: "v99.0.0",
+	}); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	out, _, _ = captureOutput(t, func() int { printPendingUpdate(p); return 0 })
+	if !strings.Contains(out, "Update available: ") || !strings.Contains(out, "v99.0.0") {
+		t.Errorf("output = %q, want the pending-update notice", out)
+	}
+	if !strings.Contains(out, "channel beta") {
+		t.Errorf("output = %q, want the channel name", out)
 	}
 }

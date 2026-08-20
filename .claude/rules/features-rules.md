@@ -56,7 +56,19 @@
   in `server.db`, encryption hint not surfaced at restore, restore not
   stopping/restarting the server or snapshotting first — see
   `TODO.AI.md`.
-- PART 17, 22 are NOT implemented yet — tracked in `TODO.AI.md`
+- PART 22 (Update Command) is implemented: `src/updater/` (GitHub Releases
+  lookup, cumulative stable/beta/daily channels, `defer_days` eligibility,
+  mandatory SHA-256 verification against the release's `sha256.txt`,
+  build-tagged binary replacement — Unix `os.Rename` over the running
+  binary, Windows rename-to-`.old` + `MOVEFILE_DELAY_UNTIL_REBOOT` — and
+  per-platform service restart), `src/update.go`
+  (`--update [check|yes|branch {stable|beta|daily}]`, bare `--update` =
+  `yes`, `--maintenance update` alias), `src/scheduler/update.go`
+  (`update_check` task: notify-only unless `server.update.auto_install`,
+  fires once per version). Deferred sub-items — the `update_available`
+  email event (needs PART 17), download progress output, and the Windows
+  reboot-cleanup notice — see `TODO.AI.md`.
+- PART 17 is NOT implemented yet — tracked in `TODO.AI.md`
 
 ---
 For complete details, see AI.md PART 17, 18, 19, 20, 21, 22

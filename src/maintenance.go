@@ -1,8 +1,9 @@
 // --maintenance command handling. See AI.md PART 8 "Server Binary
 // Commands". `backup` and `restore` are implemented (AI.md PART 21, see
-// backup_cli.go); the remaining actions depend on self-update (PART 22) and
-// the token/config/compliance groundwork in PART 11/12 — all tracked in
-// TODO.AI.md — and report themselves as honestly not yet available.
+// backup_cli.go) and `update` aliases --update (AI.md PART 22, see
+// update.go); the remaining actions depend on the token/config/compliance
+// groundwork in PART 11/12 — tracked in TODO.AI.md — and report themselves
+// as honestly not yet available.
 package main
 
 import (
@@ -38,7 +39,6 @@ Commands:
 var maintenanceReadDeps = map[string]string{
 	"data":       "PART 21",
 	"compliance": "PART 21",
-	"update":     "PART 22",
 	"mode":       "PART 11, 12",
 	"setup":      "PART 11, 12",
 	"pgp":        "PART 11, 21",
@@ -53,9 +53,21 @@ type maintenanceOptions struct {
 	paths paths.Paths
 	// arg is the optional positional argument: the backup filename for
 	// `backup`, the archive to restore for `restore`.
-	arg         string
+	arg string
+	// args is every positional argument, needed by the `update` alias,
+	// whose own subcommand takes an argument of its own
+	// (`--maintenance update branch beta`).
+	args        []string
 	includeSSL  bool
 	includeData bool
+}
+
+// argAt returns args[i], or "" when there is no such positional argument.
+func argAt(args []string, i int) string {
+	if i >= len(args) {
+		return ""
+	}
+	return args[i]
 }
 
 // runMaintenance dispatches --maintenance COMMAND [ARG] and returns the
@@ -69,6 +81,11 @@ func runMaintenance(binaryName, command string, opts maintenanceOptions) int {
 		return runBackupCreate(binaryName, opts.paths, opts.arg, opts.includeSSL, opts.includeData)
 	case "restore":
 		return runBackupRestore(binaryName, opts.paths, opts.arg)
+	case "update":
+		// AI.md PART 22: `--maintenance update [cmd]` is an alias for
+		// `--update [cmd]`, with the same subcommands and the same
+		// default (`yes`) when none is given.
+		return runUpdate(binaryName, opts.paths, argAt(opts.args, 0), argAt(opts.args, 1))
 	}
 
 	part, ok := maintenanceReadDeps[command]

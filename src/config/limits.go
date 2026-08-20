@@ -138,6 +138,33 @@ func Validate(cfg *Config) []string {
 	}
 
 	warnings = append(warnings, validateBackup(cfg, defaults)...)
+	warnings = append(warnings, validateUpdate(cfg, defaults)...)
+
+	return warnings
+}
+
+// validateUpdate applies AI.md PART 22 "Update Configuration" to
+// `server.update`: the branch must name one of the three release channels
+// and defer_days must fall in the documented 0-365 window. Both follow the
+// PART 12 Config Validation Rule — warn and replace, never fail startup.
+func validateUpdate(cfg *Config, defaults *Config) []string {
+	var warnings []string
+	u := &cfg.Server.Update
+	du := defaults.Server.Update
+
+	switch u.Branch {
+	case "stable", "beta", "daily":
+	case "":
+		u.Branch = du.Branch
+	default:
+		warnings = append(warnings, fmt.Sprintf("invalid server.update.branch %q, using default %q", u.Branch, du.Branch))
+		u.Branch = du.Branch
+	}
+
+	if u.DeferDays < 0 || u.DeferDays > 365 {
+		warnings = append(warnings, fmt.Sprintf("invalid server.update.defer_days %d (valid range 0-365), using default %d", u.DeferDays, du.DeferDays))
+		u.DeferDays = du.DeferDays
+	}
 
 	return warnings
 }

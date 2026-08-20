@@ -77,9 +77,20 @@
 - Full spec (HOW, ~48k lines): `AI.md` ← **SOURCE OF TRUTH**
 
 ## Current Project State
-- Last read AI.md: 2026-08-20 (PART 21 Backup & Restore, full section, to
-  implement and verify archive create/verify/retention/restore)
-- Current task: implemented Backup & Restore (AI.md PART 21) — `src/backup/`
+- Last read AI.md: 2026-08-20 (PART 22 Update Command, full section, to
+  implement the `--update` flag, channels, defer window, and the
+  `update_check` task)
+- Current task: implemented Update Command (AI.md PART 22) — `src/updater/`
+  (`updater.go` GitHub Releases lookup + cumulative channel selection +
+  `defer_days` eligibility + SHA-256 verification; `state.go` cached
+  `update.json`; build-tagged `update_unix.go`/`update_windows.go` binary
+  replacement and `service_{linux,darwin,bsd,windows,other}.go` restart),
+  `src/update.go` (`check`/`yes`/`branch`), `src/scheduler/update.go`
+  (`update_check` task, notify-once-per-version, `auto_install` off by
+  default), `server.update.*` config + `validateUpdate` warnings.
+  Verified in Docker: `go build`/`go vet`/`go test ./... -cover` pass;
+  all 8 target platforms cross-compile.
+- Previous task: implemented Backup & Restore (AI.md PART 21) — `src/backup/`
   (`crypt.go` AES-256-GCM sealed under an Argon2id-derived key reusing
   `src/security`'s existing parameters; `archive.go` tar+gzip with
   manifest.json + path-traversal guard; `backup.go` create/verify/
@@ -96,7 +107,7 @@
   validation). Verified in Docker: `go build`/`go vet`/`go test ./...
   -cover` all pass; `src/backup` 77.6%, `src/config` 86.0%,
   `src/scheduler` 81.8%, `src` 61.5% coverage (gate is 60%); go-lint clean.
-- Relevant PARTs: 0-6, 12-16, 18-21 done; 7-11, 17, 22-32 tracked in
+- Relevant PARTs: 0-6, 12-16, 18-22 done; 7-11, 17, 23-32 tracked in
   TODO.AI.md (PART 15 has deferred sub-items — DNS-01 provider matrix,
   credential encryption at rest, autocert-to-spec-layout bridging; PART 16
   has deferred sub-items — PWA, sitemap.xml, favicon.ico,
@@ -110,6 +121,8 @@
   `--maintenance backup list`/`delete` subcommands, a backup-metadata
   table in `server.db`, the encryption hint not surfaced at restore,
   restore not stopping/restarting the running server or snapshotting
-  first, and a pre-existing unrelated `gofmt` violation in
-  `src/metrics/metrics.go` — all logged in TODO.AI.md rather than
-  silently dropped)
+  first; PART 22 has three deferred sub-items — the `update_available`
+  email event (waiting on PART 17), download progress output, and the
+  Windows reboot-cleanup notice; and a pre-existing unrelated `gofmt`
+  violation in `src/metrics/metrics.go` — all logged in TODO.AI.md rather
+  than silently dropped)

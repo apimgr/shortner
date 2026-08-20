@@ -85,7 +85,8 @@ func TestInjectDefaultUpdateValue(t *testing.T) {
 		in   []string
 		want []string
 	}{
-		{"bare trailing --update gets check appended", []string{"--update"}, []string{"--update", "check"}},
+		// AI.md PART 22 "Commands": a bare --update is --update yes.
+		{"bare trailing --update gets yes appended", []string{"--update"}, []string{"--update", "yes"}},
 		{"--update with value untouched", []string{"--update", "yes"}, []string{"--update", "yes"}},
 		{"--update not last untouched", []string{"--update", "--debug"}, []string{"--update", "--debug"}},
 		{"no --update untouched", []string{"--debug"}, []string{"--debug"}},
@@ -178,24 +179,15 @@ func TestRunDispatchesMaintenance(t *testing.T) {
 	}
 }
 
-func TestRunDispatchesUpdateBareTrailing(t *testing.T) {
-	// A bare trailing --update relies on injectDefaultUpdateValue to avoid
-	// a flag-parsing error, then dispatches to the "check" branch.
-	_, stderr, code := captureOutput(t, func() int { return run([]string{"--update"}) })
-	if code != 1 {
-		t.Errorf("run(--update) code = %d, want 1 (not yet available)", code)
-	}
-	if !strings.Contains(stderr, "--update check is not yet available") {
-		t.Errorf("stderr = %q, want update-check not-yet-available message", stderr)
-	}
-}
-
+// A bare trailing `--update` is covered by TestInjectDefaultUpdateValue
+// rather than by dispatching it here: `--update` means `--update yes`
+// (AI.md PART 22), which would download and replace this binary.
 func TestRunDispatchesUpdateHelp(t *testing.T) {
 	out, _, code := captureOutput(t, func() int { return run([]string{"--update", "--help"}) })
 	if code != 0 {
 		t.Errorf("run(--update --help) code = %d, want 0", code)
 	}
-	if !strings.Contains(out, "Check for and perform self-updates") {
+	if !strings.Contains(out, "Update management") {
 		t.Errorf("stdout = %q, want update help text", out)
 	}
 }

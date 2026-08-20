@@ -46,6 +46,25 @@ type Server struct {
 	Metrics        Metrics        `yaml:"metrics"`
 	Backup         Backup         `yaml:"backup"`
 	Compliance     Compliance     `yaml:"compliance"`
+	Update         Update         `yaml:"update"`
+}
+
+// Update holds `server.update`, per AI.md PART 22 "Update Configuration".
+//
+// Branch is also what `--update branch {name}` writes: the config file is
+// the single source of truth for the channel, and there is no separate
+// CLI-side state.
+type Update struct {
+	// Branch is the release channel: stable | beta | daily.
+	Branch string `yaml:"branch"`
+	// AutoInstall lets the update_check task run the full `--update yes`
+	// flow. Default off — installing is always an explicit operator
+	// decision, so the task otherwise only notifies.
+	AutoInstall bool `yaml:"auto_install"`
+	// DeferDays (0-365) is the age a release must reach before the
+	// update_check task considers it. It gates the scheduled task only;
+	// a manual --update check/yes always sees the true latest release.
+	DeferDays int `yaml:"defer_days"`
 }
 
 // Backup holds `server.backup`, per AI.md PART 21 "Backup Encryption" and
@@ -623,6 +642,13 @@ func Default(dbPath string) *Config {
 				DiskThreshold: 90,
 			},
 			Compliance: Compliance{Enabled: false},
+			// AI.md PART 22 "Update Configuration": stable channel,
+			// notify-only, no defer window.
+			Update: Update{
+				Branch:      "stable",
+				AutoInstall: false,
+				DeferDays:   0,
+			},
 			Privacy: Privacy{
 				Consent: PrivacyConsent{
 					Message: "We use essential cookies to make this site work. " +

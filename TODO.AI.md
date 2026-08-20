@@ -270,12 +270,13 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
   their default schedules (config-overridable per task via
   `server.scheduler.tasks`); 5 have real implementations
   (`token_cleanup`, `log_rotation`, `healthcheck_self`, `ssl_renewal`,
-  `geoip_update`); the remaining 7 (`blocklist_update`, `cve_update`,
-  `update_check`, `backup_daily`, `backup_hourly`, `tor_health`,
-  `i2p_health`) are honest no-op "skipped" stand-ins until their
-  underlying subsystem lands (PART 9/11, PART 9, PART 22, PART 21 x2,
-  PART 31.1, PART 31.2 respectively) — each is wired up to real work as
-  its subsystem's own TODO item below is implemented, not here.
+  `geoip_update`, plus `update_check` from PART 22 and
+  `backup_daily`/`backup_hourly` from PART 21); the remaining 4
+  (`blocklist_update`, `cve_update`, `tor_health`, `i2p_health`) are
+  honest no-op "skipped" stand-ins until their underlying subsystem lands
+  (PART 9/11, PART 9, PART 31.1, PART 31.2 respectively) — each is wired
+  up to real work as its subsystem's own TODO item below is implemented,
+  not here.
   `--scheduler list/show/run/enable/disable/history` CLI dispatch
   implemented in `src/scheduler_cli.go`; startup catch-up window and
   graceful shutdown (drain running tasks, no forced timeout kill yet —
@@ -366,11 +367,28 @@ logger, ULID-based JSON-Lines audit logger). All have table-driven tests;
   stored-secret management, operator token management) — flag surface
   done in `src/maintenance.go`, actions still "not yet available".
   Read: AI.md PART 11, 21
-- `--update` self-update command. Flag parsing/dispatch/`--help` for
-  `check`/`yes`/`branch {stable|beta|daily}` are already implemented in
-  `src/update.go`; each action currently prints "not yet available" and
-  exits 1 — implement the real update-check/download/channel-switch logic
-  here.
+- DONE: `--update` self-update command (`src/updater/`, `src/update.go`,
+  `src/scheduler/update.go`, `--maintenance update` alias in
+  `src/maintenance.go`, `server.update.*` in `src/config/`). Implements
+  `check`/`yes`/`branch {stable|beta|daily}`, the cumulative channel
+  semantics, the `defer_days` window (scheduled task only), SHA-256
+  verified downloads, Unix rename-in-place + Windows
+  `MOVEFILE_DELAY_UNTIL_REBOOT` replacement, service-aware restart, and
+  the `update_check` task with once-per-version notification.
+  Read: AI.md PART 22
+- `update_available` email event (AI.md PART 22 "Surfacing rules"). The
+  WARN log line, `--update check`, and `--status` surfaces exist; email
+  delivery needs PART 17's notification system, which is not built yet.
+  Read: AI.md PART 17, PART 22
+- `--update` progress reporting during the download. AI.md PART 22's flow
+  is implemented end to end, but the download streams silently — a large
+  binary on a slow link shows nothing between "Downloading" and
+  "Verified". Add byte-count/percentage output once PART 16's shared
+  progress display exists.
+  Read: AI.md PART 22
+- Windows deferred-delete cleanup notice. The replaced `{binary}.old` is
+  scheduled for removal at reboot via `MoveFileEx`; nothing tells the
+  operator a reboot is what clears it.
   Read: AI.md PART 22
 
 ## PART 23-24: Privilege escalation & service
@@ -493,9 +511,12 @@ Entirely unimplemented; new in the 2026-08-16 spec revision.
 - Daily release identity changed: the daily release tag is the rolling
   `daily` tag (deleted and recreated nightly) and the daily VERSION is the
   short commit id (`git rev-parse --short HEAD`) — never a timestamp and
-  never `release.txt`. Affects PART 22 `--update branch daily` and the
-  PART 27 release workflow, both unimplemented; check `Makefile`/
-  `src/update.go` when they are built.
+  never `release.txt`. `--update branch daily` now handles the rolling tag
+  (`src/updater/updater.go` keys it by `published_at` against the embedded
+  build epoch); the remaining half is the PART 27 release workflow, which
+  must publish that rolling tag and a `sha256.txt` asset naming each
+  `shortner-{os}-{arch}` binary — `src/updater` verifies against exactly
+  that file and fails closed without it.
   Read: AI.md PART 13 "Version Format", PART 22, PART 27
 
 ## Audit follow-ups (2026-08-19 compliance audit)
