@@ -63,7 +63,10 @@
   gap: 0.25rem;
 }
 
-.nav-links.is-open {
+/* CSS-only mobile menu, per AI.md PART 16 "CSS-Only Mobile Menu (NO
+   JavaScript)" — the checkbox/label pair in nav.tmpl toggles this with
+   zero script dependency, so navigation still works with JS disabled. */
+.nav-checkbox:checked ~ .nav-links {
   display: flex;
 }
 

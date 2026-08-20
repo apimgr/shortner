@@ -86,15 +86,6 @@
     setThemeCookie(next);
   }
 
-  function toggleNav(button) {
-    var target = document.getElementById(button.getAttribute("aria-controls"));
-    if (!target) {
-      return;
-    }
-    var isOpen = target.classList.toggle("is-open");
-    button.setAttribute("aria-expanded", isOpen ? "true" : "false");
-  }
-
   function openDialog(id) {
     var dialog = document.getElementById(id);
     if (dialog && typeof dialog.showModal === "function") {
@@ -119,9 +110,8 @@
       case "toggle-theme":
         toggleTheme();
         break;
-      case "toggle-nav":
-        toggleNav(el);
-        break;
+      // Nav toggle is a CSS-only checkbox/label pair (nav.tmpl) — no JS
+      // wiring needed, so navigation still works with JS disabled.
       // The footer trigger is a real link to /server/privacy#cookies so the
       // preferences stay reachable without JS; with JS the dialog opens
       // instead of navigating.
