@@ -1565,7 +1565,7 @@ Purpose:
 9. Guess or assume values that a command can produce → Run the command (`date`, `basename "$PWD"`, `git config user.email`, `git rev-parse --short HEAD`, `uname -m`, etc.) — when no command applies, read spec or ask user
 10. Skip platforms → Build all 8 (linux/darwin/windows/freebsd × amd64/arm64)
 11. Client-side rendering (React/Vue) → Server-side Go templates
-12. Require JavaScript for core features → Progressive enhancement only
+12. Add JavaScript for anything HTML5+CSS already does (forms, validation, show/hide, dialogs, tabs) → JS is a LAST RESORT; every `<script>` must name a capability impossible without it; default answer to "add JS?" is NO (PART 16)
 13. Let long strings break mobile → Use word-break CSS
 14. Skip validation → Server validates EVERYTHING
 15. Implement without reading spec → Read relevant PART first
@@ -18003,6 +18003,31 @@ OS/Arch: {GOOS}/{GOARCH}
 
 **Frontend MUST work without JavaScript for core functionality (progressive enhancement).**
 
+#### JavaScript Is a LAST RESORT (Necessity Gate)
+
+⚠️ **Progressive enhancement is a build-*order* rule; this is a necessity *gate*. Both apply.** ⚠️
+
+No-JS-first guarantees the baseline works. This gate stops JavaScript being added on top of it for things the platform already does. **The default answer to "should I add JS here?" is NO.**
+
+- **JS is prohibited for anything HTML5 + CSS already does.** Reach for a script only when a specific interaction is genuinely impossible without one.
+- **Every `<script>` MUST name the capability that is impossible in HTML5 + CSS.** If you cannot name one, delete the script.
+- **Layer in order: HTML5 → CSS → (only then) a thin JS layer** that enhances a path already fully working without it.
+
+**NEVER reach for JS when an HTML/CSS-native mechanism exists:**
+
+| Desired behavior | HTML/CSS-native mechanism (use this) | JS only if… |
+|------------------|--------------------------------------|-------------|
+| Form submit | native `<form method>` POST/GET + server redirect | never — forms submit without JS |
+| Field validation | HTML5 `required`, `pattern`, `type=`, `min`/`max`, `minlength`; server re-render authoritative | mirroring `validationMessage` into an inline span (enhancement only) |
+| Show/hide, accordion | `<details>`/`<summary>`, `:target`, checkbox+`:checked` | never for basic disclosure |
+| Modal / dialog | `<dialog>` element or `:target` | focus-trap polish only |
+| Tabs, carousels | radio inputs + `:checked` + CSS | never for the core switch |
+| Styling, theming, layout, animation | CSS custom properties, media queries, transitions/keyframes | never |
+| Navigation, pagination | `<a href>`, native form GET | prefetch hint only |
+| Formatting (dates, numbers) | server-rendered | never |
+
+**Legitimate JS** names a concrete capability with no HTML/CSS equivalent: live search-as-you-type (`fetch`), client-side charts on canvas, drag-and-drop reordering, WebSocket streams, clipboard copy. Even then, the feature it decorates MUST work without it.
+
 ### Server-Side Processing Philosophy
 
 **The server does the work. The client displays the result.**
@@ -22365,6 +22390,14 @@ if ('serviceWorker' in navigator) {
 
 ### Service Worker Lifecycle
 
+> **Service worker safety — every response MUST resolve to a real `Response` (NON-NEGOTIABLE).**
+> When a service worker calls `event.respondWith()` it owns that response completely. If the promise it passes **resolves to `undefined`** (a cache miss on the last fallback) or **rejects** (an uncaught network failure), the browser shows **`net::ERR_FAILED`** — a dead tab — instead of a page. A transient network blip on a page navigation MUST degrade to a real offline/error page, never a broken site. The handler below, and any service worker a project ships, MUST obey:
+>
+> - **Navigations are network-first** — fetch the network first so a new build's HTML is seen immediately (and the `Clear-Site-Data` build-purge has nothing stale to fight); only on failure fall back to the cached page, then to a **synthesized** `Response`.
+> - **Every `respondWith()` branch ends in a guaranteed `Response`** — a terminal `.catch()` returning a real `Response` (a synthesized 503 offline page for navigations, a 504 for subresources). Never end a chain on `cached || caches.match('/offline…')`: that link can itself miss and resolve `undefined`.
+> - **Only intercept same-origin GET.** Let API calls, cross-origin requests, and non-GET methods fall through untouched — never call `respondWith()` for them.
+> - **The service worker is an enhancement, never a dependency** — the site stays fully usable if it never installs (the No-JS-first rule above).
+
 **The service worker has three main lifecycle events:**
 
 | Event | When | Purpose |
@@ -22375,7 +22408,7 @@ if ('serviceWorker' in navigator) {
 
 ```javascript
 // /sw.js - Service Worker
-const CACHE_VERSION = 'v1.0.0';
+const CACHE_VERSION = '{project_version}';
 const CACHE_NAME = `{app_name}-cache-${CACHE_VERSION}`;
 
 // Assets to pre-cache on install
@@ -22412,37 +22445,25 @@ self.addEventListener('activate', event => {
   );
 });
 
-// FETCH - Serve from cache or network
+// FETCH - every response path MUST resolve to a real Response.
+// A promise that resolves to undefined - or rejects - makes the browser
+// render net::ERR_FAILED instead of a page. Every branch below therefore
+// ends in a guaranteed Response.
 self.addEventListener('fetch', event => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Skip non-GET requests
-  if (request.method !== 'GET') return;
+  // Only same-origin GET is handled here; everything else falls through to
+  // the browser untouched (never call respondWith for it)
+  if (request.method !== 'GET' || url.origin !== self.location.origin) return;
 
-  // Skip API calls (network-only)
-  if (url.pathname.startsWith('/api/')) {
-    // Let browser handle normally
-    return;
-  }
+  // API calls are network-only - never intercept
+  if (url.pathname.startsWith('/api/')) return;
 
-  // Static assets: cache-first
-  if (url.pathname.startsWith('/static/')) {
-    event.respondWith(
-      caches.match(request)
-        .then(cached => cached || fetch(request)
-          .then(response => {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
-            return response;
-          })
-        )
-    );
-    return;
-  }
-
-  // HTML pages: network-first, cache fallback
-  if (request.headers.get('accept')?.includes('text/html')) {
+  // Navigations (page loads): network-first, then cache, then a GUARANTEED
+  // synthesized offline page - a transient network failure renders a real
+  // error page, never net::ERR_FAILED
+  if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
         .then(response => {
@@ -22450,18 +22471,54 @@ self.addEventListener('fetch', event => {
           caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
           return response;
         })
-        .catch(() => caches.match(request)
-          .then(cached => cached || caches.match('/offline.html'))
+        .catch(async () =>
+          (await caches.match(request))
+            || (await caches.match('/offline.html'))
+            || offlineFallbackResponse()
         )
     );
     return;
   }
 
-  // Default: network-first
+  // Static assets: cache-first, then network, then a GUARANTEED 504 -
+  // a failed subresource must never reject respondWith
+  if (url.pathname.startsWith('/static/')) {
+    event.respondWith(
+      caches.match(request)
+        .then(cached => cached || fetch(request).then(response => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
+          return response;
+        }))
+        .catch(() => new Response('', { status: 504, statusText: 'Gateway Timeout' }))
+    );
+    return;
+  }
+
+  // Everything else: network-first, then cache, then a GUARANTEED 504
   event.respondWith(
-    fetch(request).catch(() => caches.match(request))
+    fetch(request)
+      .catch(async () =>
+        (await caches.match(request))
+          || new Response('', { status: 504, statusText: 'Gateway Timeout' })
+      )
   );
 });
+
+// GUARANTEED last-resort page - synthesized in the worker so it needs no
+// cache hit and can never itself miss
+function offlineFallbackResponse() {
+  return new Response(
+    '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+      + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+      + '<title>Offline</title></head><body><main>'
+      + '<h1>You are offline</h1><p>This page could not be loaded and no '
+      + 'cached copy is available. Check your connection and try again.</p>'
+      + '</main></body></html>',
+    { status: 503, statusText: 'Service Unavailable',
+      headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+  );
+}
 ```
 
 ### Cache Versioning & Updates
@@ -23221,6 +23278,7 @@ async function requestPersistentStorage() {
 | manifest.json valid | ◻️ | All required fields |
 | Service worker registered | ◻️ | Controls all pages |
 | Offline page exists | ◻️ | `/offline.html` |
+| SW never yields `undefined`/rejects | ◻️ | Every `respondWith` branch ends in a guaranteed `Response`; transient failure shows the offline page, not `net::ERR_FAILED` |
 | Icons all sizes | ◻️ | 72 to 512px |
 | Maskable icon included | ◻️ | For Android |
 | Apple meta tags | ◻️ | For iOS |
@@ -23731,6 +23789,7 @@ src/server/template/
 - Show appropriate error message (not stack traces in production)
 - Provide helpful action (go home, go back, contact support)
 - NO generic browser error pages - always render themed template
+- **Every request MUST terminate in a rendered response — the error path itself must never fail the request.** A panic/`recover` middleware and a template-render failure MUST both fall back to a minimal, hardcoded error response (correct status code, short body, honoring content negotiation — HTML for browsers, JSON for API clients) instead of a blank body, a dropped connection, or a leaked stack trace. The failure handler must never be the thing that breaks the site — the backend mirror of the service-worker guaranteed-`Response` rule.
 
 **Error page structure:**
 ```html
@@ -46621,6 +46680,7 @@ make docker
 - [ ] Color contrast meets AA standards (both themes)
 - [ ] Server-side rendering (Go templates) - NO client-side rendering (React/Vue)
 - [ ] Core functionality works WITHOUT JavaScript (progressive enhancement)
+- [ ] No gratuitous JS - grep the diff for `<script>`; each must cite a capability impossible in HTML5+CSS (forms/validation/disclosure/dialogs/tabs use native mechanisms - PART 16)
 - [ ] Long strings have `word-break: break-all` CSS (IPv6, .onion, tokens, hashes)
 - [ ] Touch targets minimum 44x44px on mobile
 
