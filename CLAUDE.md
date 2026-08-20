@@ -77,10 +77,45 @@
 - Full spec (HOW, ~48k lines): `AI.md` ← **SOURCE OF TRUTH**
 
 ## Current Project State
-- Last read AI.md: 2026-08-20 (PART 17 Email & Notifications — template
-  storage/format/variables, SMTP auto-detection, environment variable
-  priority, the SMTP requirement, template preview/validation, test send)
-- Current task: implemented PART 17 (Email & Notifications) — `src/notify/`
+- Last read AI.md: 2026-08-20 (PART 23 Privilege Escalation & Service and
+  PART 24 Service Support — escalation detection by OS, UID/GID selection
+  logic and the reserved-ID map, platform-specific account commands,
+  service install/uninstall/disable logic, the service help output, and
+  every service-file template with its exact install path)
+- Current task: implemented PART 23 + PART 24 (Privilege Escalation &
+  Service Support) — new `src/service/` package: `escalate.go` /
+  `escalate_windows.go` (per-OS escalation chains — Linux
+  root→sudo→su→pkexec→doas, macOS root→sudo→osascript, BSD
+  root→doas→sudo→su, Windows Administrator→UAC→runas — plus
+  `IsElevated`, `CanEscalate`, `ExecElevated`), `sysuser.go` (the
+  dedicated `{internal_name}` user/group with matching UID==GID chosen
+  899→200, 399→200 on macOS, skipping the verbatim reserved-ID map;
+  no-login shell, no password, home = config dir; Linux
+  `groupadd`/`useradd --system`, macOS `dscl` with IsHidden 1, FreeBSD
+  `pw`; a `.service-account` marker so uninstall only deletes an account
+  this binary created), `detect.go` (init-system detection — SysVinit
+  only when both `openrc-run` and `systemctl` are absent), `template.go`
+  (systemd, OpenRC, SysVinit, runit `run` + `log/run`, rc.d, launchd),
+  the per-manager verb files (`systemd.go`, `openrc.go`, `sysvinit.go`,
+  `runit.go`, `rcd.go`, `launchd.go`, `windows.go` — Virtual Service
+  Account via an empty `ServiceStartName`), and
+  `reload_unix.go`/`reload_windows.go` (SIGHUP fallback so reload never
+  silently becomes a restart). `src/service.go` wires
+  `--service start|stop|restart|reload|--install|--disable|--uninstall|
+  --help` into `src/main.go`; `--install` installs the service file,
+  enables, and starts (user/group/directory creation stays in normal
+  startup), and `--uninstall` always prompts "This will delete ALL data,
+  configs, and the system user. Continue? [y/N]" before anything
+  destructive. Verified in Docker: `go build`/`go vet`/`go test ./...
+  -cover` all pass; `src/service` 64.6%, `src` 60.7%; all 8 target
+  platforms cross-compile. Deferred (environment limits, not unbuilt
+  work): no live init system exists in the build container, so
+  end-to-end install/uninstall is asserted at the command-line and
+  install-path level plus one real systemd `--user` cycle over a
+  temporary HOME; account creation is command-line asserted only (a test
+  must not create a real system user); Windows SCM registration
+  cross-compiles but never runs — all logged in TODO.AI.md.
+- Previous task: implemented PART 17 (Email & Notifications) — `src/notify/`
   (`template.go` the `Subject:`/`---`/body wire format and `{variable}`
   substitution, `events.go` all 12 events plus their variable tables and
   config switches, `store.go` custom `{config_dir}/template/email/` over
@@ -109,7 +144,7 @@
   (no in-process observer until PART 15's autocert bridging), the PART 11
   maintainer email using inline AES armor instead of a PGP MIME
   attachment, and Web-UI toast rendering — all logged in TODO.AI.md.
-- Previous task: implemented PART 11's HTTP layer — `src/httpserver/`
+- Earlier task: implemented PART 11's HTTP layer — `src/httpserver/`
   (`headers.go` header matrix/CSP/Permissions-Policy/COOP-COEP-CORP/HSTS/
   Clear-Site-Data/Server-Timing, `privacy_signals.go` DNT+GPC,
   `secfetch.go`, `reports.go` Reporting API always-204,
@@ -154,7 +189,7 @@
   validation). Verified in Docker: `go build`/`go vet`/`go test ./...
   -cover` all pass; `src/backup` 77.6%, `src/config` 86.0%,
   `src/scheduler` 81.8%, `src` 61.5% coverage (gate is 60%); go-lint clean.
-- Relevant PARTs: 0-6, 9-22 done; 7-8, 23-32 tracked in
+- Relevant PARTs: 0-6, 9-24 done; 7-8, 25-32 tracked in
   TODO.AI.md (PART 11 has two deferred sub-items — GPG keypair
   management CLI and the `/server/security/report/{tracking_id}` status
   page; PART 15 has deferred sub-items — DNS-01 provider matrix,
@@ -173,6 +208,9 @@
   table in `server.db`, the encryption hint not surfaced at restore,
   restore not stopping/restarting the running server or snapshotting
   first; PART 22 has two deferred sub-items — download progress output
-  and the Windows reboot-cleanup notice; and a pre-existing unrelated
+  and the Windows reboot-cleanup notice; PART 23/24 are fully built but
+  three things cannot be exercised in this environment — a live
+  init-system install/uninstall cycle, real system account creation, and
+  Windows SCM registration; and a pre-existing unrelated
   `gofmt` violation in `src/metrics/metrics.go` — all logged in
   TODO.AI.md rather than silently dropped)

@@ -160,7 +160,7 @@ func run(args []string) int {
 	// PHASE 2-4 subcommands (AI.md PART 8 "Server Startup Sequence"):
 	// executed after every PHASE 1 flag, and never start the server.
 	if flagWasSet(fs, "service") {
-		return runService(binaryName, *serviceFlag)
+		return runService(binaryName, p, *serviceFlag)
 	}
 	if flagWasSet(fs, "maintenance") {
 		return runMaintenance(binaryName, *maintenanceFlag, maintenanceOptions{

@@ -25,6 +25,15 @@ const (
 // archive names in AI.md PART 21 ("{project_name}_backup_YYYY-MM-DD...").
 const ProjectName = projectName
 
+// InternalName and InternalOrg are the frozen on-disk identifiers,
+// exported so callers that must name the same identity outside a path —
+// the systemd unit, the launchd label, the service account (AI.md PART 23
+// / PART 24) — reuse these values instead of re-declaring them.
+const (
+	InternalName = internalName
+	InternalOrg  = internalOrg
+)
+
 // Paths holds every resolved runtime directory/file for the current OS and
 // privilege level.
 type Paths struct {

@@ -285,6 +285,17 @@ Still open under PART 9-11:
   `theme-light` CSS variables throughout, per IDEA.md).
 ## PART 17-22: Features
 
+- Scheduler review item: `src/scheduler/scheduler.go` wraps
+  `github.com/go-co-op/gocron/v2`, an in-process Go library compiled
+  into the binary (not an external cron daemon or systemd timer) — this
+  satisfies the letter of "no external cron", but a go-lint pass flagged
+  it as a forbidden third-party cron dependency. Re-verify against AI.md
+  PART 18 whether an in-process library is acceptable or whether PART 18
+  requires a hand-rolled scheduler with zero cron-shaped dependencies,
+  and act accordingly. Found during the PART 23-24 lint pass; logged
+  here rather than fixed inline since it is unrelated to PART 23-24 and
+  PART 18 is already committed.
+  Read: AI.md PART 18
 - DONE: Email & notifications (`src/notify/`, `src/notifications.go`,
   `src/email_cli.go`). `src/notify/template.go` parses AI.md PART 17's
   `Subject: ...` / `---` / body wire format and does `{variable}`
@@ -458,13 +469,32 @@ Still open under PART 9-11:
 
 ## PART 23-24: Privilege escalation & service
 
-- `--service` start/stop/restart/reload/`--install`/`--uninstall`/
-  `--disable` actions (systemd, launchd, SysV, rc.d, Windows service).
-  Flag parsing/dispatch/`--help`/service-manager auto-detection
-  (`detectServiceManager()` in `src/service.go`) are already implemented;
-  each action currently prints "not yet available" and exits 1 —
-  implement the real unit-file/plist/service-registration logic here.
+PART 23 and PART 24 are implemented (`src/service/` + `src/service.go`).
+The remaining items below are environment limits, not unbuilt work.
+
+- Live init-system verification is not possible in this environment. The
+  build/test container has no systemd, OpenRC, runit, SysVinit, rc.d,
+  launchd, or Windows SCM, so an end-to-end `--service --install` →
+  enable → start → `--service --uninstall` cycle cannot be exercised
+  against a real init system. What is covered instead: the exact command
+  line each manager runs for every verb, the exact install path each
+  manager writes, the rendered content of all seven service templates,
+  init-system detection for every OS/binary combination, UID/GID
+  selection, the escalation chains, and one genuine end-to-end install
+  cycle over the systemd `--user` path (rooted at a temporary `HOME`,
+  which is the only manager that writes outside a system directory).
+  Verify the real install paths on a live host, or via `tests/incus.sh`
+  once that script grows systemd checks.
   Read: AI.md PART 23, 24
+- Account creation is asserted at the command-line level only.
+  `CreateServiceAccount` is tested with `run` stubbed, because a test
+  must not create a real system user/group. `dscl` (macOS) and
+  `pw` (FreeBSD) paths are therefore unexecuted on this Linux host.
+  Read: AI.md PART 23
+- Windows service registration (`mgr.CreateService` with an empty
+  `ServiceStartName` for the Virtual Service Account) cross-compiles but
+  is never run — there is no Windows host here.
+  Read: AI.md PART 24
 
 ## PART 27: CI/CD workflows
 

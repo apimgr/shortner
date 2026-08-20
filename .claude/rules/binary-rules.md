@@ -35,9 +35,10 @@
 - `src/main.go` currently wires `--help`, `--version`, `--mode`, `--debug`,
   `--config`, `--address`, `--port`, `--baseurl`, `--status`, and
   `--update` (PART 22 — `check`/`yes`/`branch`, with a bare `--update`
-  meaning `yes`), plus the positional `email` subcommand (PART 17 —
-  `test`/`list`/`preview`/`validate`/`reset`); `--service`, most
-  `--maintenance` actions, `--daemon`,
+  meaning `yes`), the positional `email` subcommand (PART 17 —
+  `test`/`list`/`preview`/`validate`/`reset`), and `--service` (PART
+  23/24 — `start`/`stop`/`restart`/`reload`/`--install`/`--disable`/
+  `--uninstall`/`--help`); most `--maintenance` actions, `--daemon`,
   and the client binary itself are NOT yet implemented (see `TODO.AI.md`)
 
 ---

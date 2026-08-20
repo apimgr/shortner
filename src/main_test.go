@@ -164,7 +164,7 @@ func TestRunDispatchesService(t *testing.T) {
 	if code != 0 {
 		t.Errorf("run(--service help) code = %d, want 0", code)
 	}
-	if !strings.Contains(out, "Manage the") {
+	if !strings.Contains(out, "Service management commands:") {
 		t.Errorf("stdout = %q, want service help text", out)
 	}
 }
