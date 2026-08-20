@@ -44,7 +44,20 @@
 - All runtime/test data goes to `${TMPDIR:-/tmp}/apimgr/shortner-XXXXXX/`
   — never the project directory
 - No full beta/e2e run has been executed yet; see `TODO.AI.md`
-- `docs/` still exists but is empty — doc stubs tracked in `TODO.AI.md`
+- PART 29 is implemented: root `mkdocs.yml` (Material theme, slate/deep-purple
+  dark default, search + minify plugins, the PART 29 nav) and
+  `.readthedocs.yaml` (v2, ubuntu-24.04, python 3.12), plus
+  `docs/requirements.txt`, `docs/stylesheets/dark.css` + `light.css`
+  (verbatim from the spec), and all eight pages — `index.md`,
+  `installation.md`, `configuration.md`, `api.md`, `cli.md`, `security.md`,
+  `integrations.md`, `development.md`. Every page documents what the code
+  actually does: deferred items (no `shortner-cli`, no Swagger/OpenAPI/
+  GraphQL, no Tor/I2P, no DNS-01, no PGP CLI, inert cache, unpopulated
+  business metrics) are stated as not implemented rather than described as
+  working. RTD site URL is `https://apimgr-shortner.readthedocs.io` per
+  PART 29's organization-account format. `mkdocs build --strict` verified
+  clean inside `python:alpine` (zero warnings, so every nav entry and
+  internal link resolves)
 
 ---
 For complete details, see AI.md PART 28, 29, 30

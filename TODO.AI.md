@@ -585,11 +585,34 @@ The remaining items below are environment limits, not unbuilt work.
   because AI.md is read-only; operator-token coverage was written against
   the Open API Routes section plus IDEA.md's permission rules instead.
   Read: AI.md PART 28
-- `docs/index.md`, `installation.md`, `configuration.md`, `api.md`,
-  `cli.md`, `security.md`, `integrations.md`, `development.md`,
-  `requirements.txt`, `stylesheets/dark.css`, `stylesheets/light.css` —
-  directories exist, files do not yet.
+- DONE: PART 29 (ReadTheDocs documentation) is implemented. `mkdocs.yml`
+  and `.readthedocs.yaml` in the project root; `docs/requirements.txt`,
+  `docs/stylesheets/dark.css`, `docs/stylesheets/light.css` verbatim from
+  the spec templates; and all eight required pages — `index.md`,
+  `installation.md`, `configuration.md`, `api.md`, `cli.md`,
+  `security.md`, `integrations.md`, `development.md`. Every page is
+  written from the actual source (routes enumerated from
+  `src/httpserver/`, the config tree and defaults from `src/config/`, the
+  path matrix from `src/paths/`, CLI verbs from `src/main.go` +
+  `src/service.go` + `src/update.go` + `src/email_cli.go` +
+  `src/backup_cli.go` + `src/scheduler_cli.go`) rather than from the
+  spec's placeholder skeletons, and every TODO.AI.md-deferred item is
+  described as deferred rather than shipped — no `shortner-cli`, no
+  Swagger/GraphQL, no Tor/I2P, no DNS-01, no PWA/sitemap, no hot reload,
+  no cache in the request path, unpopulated business metrics, no
+  `ssl_renewed` trigger, no backup `list`/`delete`. `mkdocs build
+  --strict` verified clean inside `python:alpine` (built in 2.25s, zero
+  warnings, all nav links resolve). `site_url` uses the org-project RTD
+  format `https://apimgr-shortner.readthedocs.io` per PART 29's own rule
+  for organization accounts; no pre-existing RTD project name was found
+  anywhere in the repo.
   Read: AI.md PART 29
+- README.md is stale against the shipped code: it lists GeoIP under
+  "Planned (not yet shipped)" although PART 19 is implemented, and it
+  documents `shortner-cli` with `--server`/`--token`/`--output` as though
+  the client binary exists (it does not — `src/client` is a stub).
+  Reconcile README.md against `docs/` now that PART 29 is written.
+  Read: AI.md PART 29, PART 32
 - I18N string extraction and accessibility pass.
   Read: AI.md PART 30
 
@@ -690,10 +713,11 @@ Entirely unimplemented; new in the 2026-08-16 spec revision.
   section and this file's PART 16 home-page item were updated to the new
   path.
   Read: AI.md PART 3, PART 29
-- `docs/` still has none of the required ReadTheDocs pages (index,
-  installation, configuration, api, cli, security, integrations,
-  development) — PART 29 remains unimplemented; README no longer links a
-  non-existent `docs/api.md`.
+- RESOLVED: `docs/` had none of the required ReadTheDocs pages. PART 29 is
+  now implemented — `mkdocs.yml`, `.readthedocs.yaml`,
+  `docs/requirements.txt`, `docs/stylesheets/{dark,light}.css`, and all
+  eight pages (index, installation, configuration, api, cli, security,
+  integrations, development). `mkdocs build --strict` passes clean.
   Read: AI.md PART 29
 - `CACHE_URL` (and the commented `DATABASE_DRIVER`/`DATABASE_URL`) are set
   in the compose files as PART 26 requires, but no Go code reads any of
