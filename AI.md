@@ -15253,6 +15253,8 @@ server:
 | Retention | Display | Show current retention policy |
 | Stats | Cards | Event counts by category/severity |
 
+**Export follows the "Import/Export UI Convention" section** — a plain link/GET response with `Content-Disposition: attachment`, never a JS Blob/download-attribute trick.
+
 **Log Viewer Columns:**
 | Column | Description |
 |--------|-------------|
@@ -21736,6 +21738,61 @@ html.theme-light {
 
 ---
 
+## Reuse Before Creating
+
+**Before writing new code for anything — a function, a variable/constant, a UI component, or a style — check whether an equivalent already exists in the project and reuse or extend it. Only create something new when nothing existing covers the need.** This is a general project-wide rule; it governs every artifact type, not just CSS/UI, and it is not restricted to any one feature.
+
+### Functions
+
+Before writing a new function, search for an existing one with the same or similar behavior — in the same package, in `helpers.go`/`helpers.rs`, in existing handlers/validators/middleware — and call or extend it instead of re-implementing the logic. Two near-identical functions that differ only in a hardcoded value are a sign the existing function should take that value as a parameter instead of being copy-pasted.
+
+### Variables & Constants
+
+Before adding a new constant, config key, or enum value, check existing constants, the config schema, and enum definitions for one that already means the same thing. Two names for the same underlying value is a bug waiting to happen, not two separate settings.
+
+### Components
+
+Before building a new template, partial, or UI component, check for an existing one — buttons, modals, cards, form groups, banners, badges — and reuse or extend it instead of building a near-duplicate with a different name.
+
+### Styling (CSS)
+
+**Every UI element in this spec — every button, link, form, input, label, table, card, banner, badge, toast, modal, tooltip, status message, and any other visible element, in every feature described anywhere in this document — MUST be styled. None of it is left at raw/unstyled browser default.**
+
+Before writing CSS for any element, check whether an existing class (`.btn`, `.btn-primary`, `.btn-secondary`, `.btn-danger`, `.form-group`, alert/message classes, etc.) or an existing `--color-*`/`--font-*` custom property from the CSS Variable Reference above already covers it, and reuse it. Only write new CSS when nothing existing fits — and when new CSS is genuinely needed, it still draws its colors from the existing `--color-*` custom properties rather than hardcoding new values.
+
+```html
+<!-- CORRECT — new feature, reuses the existing button classes; no new class invented -->
+<a href="/audit/export" class="btn btn-secondary">Export</a>
+```
+
+```css
+/* CORRECT — a genuinely new component still draws its colors from the
+   existing --color-* custom properties in the CSS Variable Reference,
+   instead of inventing new hex values */
+.domain-status-badge {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+}
+```
+
+```css
+/* WRONG — duplicates .btn-secondary with a new one-off class and
+   hardcoded colors instead of reusing the existing class/variables */
+.my-export-btn {
+  background: #44475a;
+  color: #f8f8f2;
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: 1px solid #6272a4;
+}
+```
+
+This rule governs the entire spec — it is not restricted to buttons, not restricted to import/export controls, and not restricted to whatever the reader might assume is the "main" UI. Every section describing a function, variable, component, or UI element inherits this rule automatically; sections do not need to restate it.
+
 ## Technology Stack
 
 | Rule | Description | Details |
@@ -22316,6 +22373,24 @@ textarea:user-invalid {
   border-color: var(--color-success);
 }
 ```
+
+## Import/Export UI Convention
+
+**Applies project-wide to every feature that lets a user export or import data** — audit log exports, GDPR/CCPA data exports, PGP key exports, settings/config export, domain lists, created/shortened links, and any future export/import feature. This is a generic rule, not a spec for one named feature.
+
+**Export — never a forced/silent direct download:**
+- Export is a plain `<a href="...">` link or a plain `<button>`/`<form method="get">` — **no JavaScript required**, consistent with the "Text Browsers" no-JS convention (see Terminology).
+- The server responds with the correct `Content-Type` and `Content-Disposition: attachment; filename="..."`. This hands the download to the browser's own native save flow — a "Save As" dialog if the browser is configured to ask where to save, the default downloads folder otherwise. That choice belongs to the browser/user, not the app; the app's job is only to return a real HTTP file response the browser can act on.
+- **Never** implement export via JavaScript `Blob` + `URL.createObjectURL()` + a synthetic clicked `<a download>`, and never make the File System Access API (`showSaveFilePicker()`) the *only* path — both require JavaScript and are unavailable (or fail silently) in Text Browsers and with JS disabled. A plain link/GET response is the platform-agnostic mechanism: it behaves the same in Chrome, Firefox, Safari, lynx, w3m, and any other HTTP client.
+
+**Import — native file picker, not a JS-only upload widget:**
+- Import uses a plain `<input type="file">` inside a plain `<form method="post" enctype="multipart/form-data">` — the browser's native file picker, no JavaScript required to select or submit a file.
+- The server parses the uploaded file from the multipart body; server-side validation is always authoritative regardless of any client-side JS mirroring.
+- Never hide the native `<input type="file">` behind a custom-styled JS trigger/fake button, or the feature stops working with JavaScript disabled.
+
+**Styling:** every element in the flow — trigger link/button, `<form>`, `<label>`, `<input type="file">`, filename/status/progress text, success/error messaging — follows the "Reuse Before Creating" section, Styling (CSS) subsection, (above): fully styled, reusing existing classes and `--color-*` custom properties, no exceptions and no new one-off CSS when an existing class fits. "No-JS" governs markup/mechanism only (a real `<a>`/`<form>`, no JS-only click handler) — not appearance; CSS applies regardless of JavaScript.
+
+**Applies to (non-exhaustive — this is a rule, not a feature list):** audit log export, GDPR/CCPA data export, PGP key export, settings/config export, domain lists, created/shortened links, and any future export- or import-capable feature.
 
 ## Accessibility
 
@@ -22901,7 +22976,7 @@ document.cookie = "lang=fr; path=/; max-age=31536000; SameSite=Lax";
 Preferences aren't tied to identity — any two guests who set the same `theme`/`lang` produce the same code/URL, because the code/URL *is* the preference values, not a lookup key. This lets a preference be carried to a new browser/device without an account and without the server ever storing anything.
 
 - Only `theme` and `lang` are exportable. `cookie_consent` and `ccpa_opt_out` are NEVER included — consent is a per-browser legal acknowledgment that must be re-affirmed on each device, not a portable preference. `{project_name}_build` is NEVER included — it is a device-local cache-purge stamp.
-- Guest preferences live at `/server/preferences`, API-mirrored at `/api/{api_version}/server/preferences` — the export/import actions are sub-routes of it, never the standalone `/prefs/*` path. API projects have no admin panel or WebUI at all — administration is done entirely via `server.yml`/CLI (see "Account Types": only `Server` and `Operator` exist) — so there is no `/server/admin` route and no `{admin_path}`/`{admin_username}` segment to collide with.
+- Guest preferences live at `/server/preferences`, API-mirrored at `/api/{api_version}/server/preferences` — the export/import actions are sub-routes of it, never the standalone `/prefs/*` path, nor bare `/preferences` without the `/server` prefix. API projects have no admin panel or WebUI at all — administration is done entirely via `server.yml`/CLI (see "Account Types": only `Server` and `Operator` exist) — so there is no `/server/admin` route and no `{admin_path}`/`{admin_username}` segment to collide with, and the `{admin_path}` reserved-word-list rule (SERVER.md/HYBRID.md) does not apply here. If an old/non-canonical route (e.g. a bare `/preferences` or `/prefs/*`) exists in already-written code, delete it outright and update all callers to `/server/preferences` — never keep it as a redirect or alias "for backward compatibility" (see "Canonical Terms Only").
 - **Export** (`GET /server/preferences/export`, API-mirrored at `GET /api/{api_version}/server/preferences/export`, or a "Copy preferences" UI action): reads the current `theme`/`lang` cookies and returns two forms of the same state:
   - **Full URL** — `https://{host}/server/preferences/import?theme=dark&lang=fr`: a plain query string, human-readable, and stable across schema changes (a link made before a new preference key existed just omits it on import).
   - **Short code** — `base64url(theme=dark&lang=fr)`: the query string alone, for manual retyping on a device without copy/paste; the import form strips a leading `https://.../server/preferences/import?` if pasted with it.
