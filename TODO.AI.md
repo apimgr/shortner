@@ -244,15 +244,29 @@ Still open under PART 9-11:
 - Full PWA support (manifest.json, service worker, offline.html) — not
   implemented this pass; only the create-link page itself was required.
   Read: AI.md PART 16 "PWA"
-- `sitemap.xml` — not implemented.
+- `sitemap.xml` — implemented (`src/httpserver/sitemap.go`,
+  `GET/HEAD /sitemap.xml`): static public-page entries (home, `/list`,
+  `/server/about|help|privacy|terms|contact|security|security/policy|
+  security/thanks`, plus `/server/ccpa` and `/server/dpo` gated on the
+  same config conditions as their own handlers), gated on
+  `server.seo.sitemap.enabled` (default true) and truncated at
+  `server.seo.sitemap.max_urls` (default 50000). Individual short-link
+  slugs are intentionally excluded — user content, not a published
+  resource page. `robots.txt` already pointed at `/sitemap.xml`
+  (PART 16 "Static Files"); it now resolves.
 - Remote branding/SEO image fetching + site-verification meta tags — not
   implemented; `head.tmpl` has no dynamic OG/Twitter image logic beyond
   static config fields already present.
-- `/favicon.ico` — `head.tmpl`/`home.tmpl` reference it but no icon asset
-  or route exists (`find -iname favicon*` finds nothing). Harmless (browsers
-  handle a missing favicon gracefully; the home-page logo `<img>` uses
-  `alt=""`), but should be added — either a real asset or an explicit
-  `/favicon.ico` route — before PART 16 is called fully complete.
+- `/favicon.ico` — implemented: embedded default icon set generated from
+  the Dracula theme palette (`src/server/static/favicon.ico` multi-res
+  ICO plus `icons/favicon-{16,32,48}.png`, `icons/apple-touch-icon.png`,
+  `icons/icon-{192,512}.png`), served by `faviconHandler` in
+  `src/httpserver/sitemap.go`, `head.tmpl` updated with the icon
+  `<link>` tags. `server.branding.favicon` (local path or remote URL
+  override) is accepted by config but not yet wired to this handler —
+  the embedded default always serves regardless; remote-fetch/scaling
+  remains a separate deferred item (see the "Remote branding/SEO image
+  fetching" bullet above).
 - `Web.Announcements` (site-banner) — the config struct
   (`config.WebAnnouncements`/`config.Announcement`) exists and
   `.site-banner`/`.site-banner-info`/`.site-banner-warning` CSS classes are

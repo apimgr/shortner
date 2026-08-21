@@ -541,6 +541,12 @@ primaryIP := "192.168.1.50"
 - Provide sensible defaults that work on minimal systems (1 CPU, 512MB RAM)
 - Allow config overrides for users who want manual control
 
+**Concurrency & connection scale requirement:**
+- MUST sustain at least 500,000 concurrently OPEN connections held by the process at once, with no degradation — no dropped connections, no unbounded latency growth, no crashes, no OOM. This is an "idle-capable" target: keep-alive, long-poll, and websocket connections sitting mostly idle between requests. It is NOT a claim that 500,000 requests execute in parallel — work actively being processed at any instant is CPU-bound and must stay behind a capped worker pool sized to available cores, never scaled 1:1 with the connection count
+- Achieve this with non-blocking I/O (goroutines over Go's epoll-backed netpoller), bounded worker pools, backpressure/load shedding once saturated, and keep-alive/idle timeouts that reclaim dead connections
+- Scale horizontally behind a load balancer once a single instance's OS file-descriptor limit or hardware ceiling is reached — the code itself must not be the bottleneck
+- This is why the security and resource-safety rules elsewhere in this spec are non-negotiable: bounded queues, closed file handles/sockets, capped goroutines, panic/recover boundaries, and leak-free code are what keeps a fault that's harmless at 100 connections from becoming an outage at 500,000
+
 **Example scaling:**
 ```go
 // Worker pool scales to available CPUs
@@ -22889,6 +22895,18 @@ document.cookie = "lang=fr; path=/; max-age=31536000; SameSite=Lax";
 - Never persist preferences server-side — the server reads the cookie per request; there is no preferences table
 - Never store PII in cookies or localStorage
 - Always fall back to a safe default when a cookie is missing or invalid
+
+**Cross-device preference sync (export/import — stateless, no preferences table required):**
+
+Preferences aren't tied to identity — any two guests who set the same `theme`/`lang` produce the same code/URL, because the code/URL *is* the preference values, not a lookup key. This lets a preference be carried to a new browser/device without an account and without the server ever storing anything.
+
+- Only `theme` and `lang` are exportable. `cookie_consent` and `ccpa_opt_out` are NEVER included — consent is a per-browser legal acknowledgment that must be re-affirmed on each device, not a portable preference. `{project_name}_build` is NEVER included — it is a device-local cache-purge stamp.
+- Guest preferences live at `/server/preferences`, API-mirrored at `/api/{api_version}/server/preferences` — the export/import actions are sub-routes of it, never the standalone `/prefs/*` path. API projects have no admin panel or WebUI at all — administration is done entirely via `server.yml`/CLI (see "Account Types": only `Server` and `Operator` exist) — so there is no `/server/admin` route and no `{admin_path}`/`{admin_username}` segment to collide with.
+- **Export** (`GET /server/preferences/export`, API-mirrored at `GET /api/{api_version}/server/preferences/export`, or a "Copy preferences" UI action): reads the current `theme`/`lang` cookies and returns two forms of the same state:
+  - **Full URL** — `https://{host}/server/preferences/import?theme=dark&lang=fr`: a plain query string, human-readable, and stable across schema changes (a link made before a new preference key existed just omits it on import).
+  - **Short code** — `base64url(theme=dark&lang=fr)`: the query string alone, for manual retyping on a device without copy/paste; the import form strips a leading `https://.../server/preferences/import?` if pasted with it.
+- **Import** (`GET /server/preferences/import?theme=dark&lang=fr`, API-mirrored at `GET /api/{api_version}/server/preferences/import`, or a paste-a-code field feeding the same route): validates each parameter against its normal enum/BCP-47 allowlist — reject or drop anything unknown or malformed, an imported value is still untrusted input — sets the matching cookies, then `303 See Other` to `/` (or the referring page) so the code never lingers in the visible URL or browser history.
+- No account, no DB row, no user-preferences table — decode → validate → set cookie → redirect happens in the one request; nothing is written or looked up server-side.
 
 ### Offline Behavior
 
@@ -47155,11 +47173,12 @@ make docker
 
 ### Resource Usage
 
-- [ ] Memory usage reasonable
+- [ ] Memory usage stable under sustained load (no unbounded growth over a 24h soak test / profiling run)
 - [ ] No memory leaks
 - [ ] Goroutine count stable
 - [ ] Connection pool sized correctly
 - [ ] File handles closed properly
+- [ ] Sustains 500,000+ concurrently open (idle-capable) connections without degradation — not 500,000 requests executing in parallel, which stays bounded by available CPU cores via a capped worker pool
 
 ### Caching
 
