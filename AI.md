@@ -1231,7 +1231,7 @@ Quick reference: Accept `yes/no`, `true/false`, `1/0`, `on/off`, `enable/disable
 | `.claude/settings.local.json` | ✓ | Personal local overrides — gitignored |
 | `.claude/*.lock` | ✓ | Claude Code lock files — gitignored |
 | `.claude/backups/`, `.claude/cache/`, `.claude/history.jsonl` | ✓ | Runtime state — gitignored |
-| `.claude/CLAUDE.md`, `.claude/agents/`, `.claude/hooks/`, `.claude/commands/`, `.claude/plans/`, `.claude/rules/` | — | Team config — **committed** |
+| `.claude/CLAUDE.md`, `.claude/agents/`, `.claude/hooks/`, `.claude/commands/`, `.claude/plans/`, `.claude/rules/`, `.claude/memory/` | — | Team config — **committed** |
 | `.cursor/rules/`, `.cursor/mcp.json` | — | Cursor team config — **committed** |
 | `.cursor/settings.json` | ✓ | Cursor personal settings — gitignored |
 | `.windsurf/rules/` | — | Windsurf team config — **committed** |
@@ -1426,6 +1426,20 @@ Apply to: IPv6, Tor .onion, API tokens, hashes, UUIDs, Base64
 ---
 For complete details, see AI.md PART 16
 ```
+
+**Claude Code Project Memory (.claude/memory/):**
+
+Distinct from `.claude/rules/` (spec-derived cheatsheets, regenerated whenever AI.md changes) and the Project Memory File below (`CLAUDE.md`/`.claude/CLAUDE.md`, the always-loaded loader pointer): `.claude/memory/` holds durable, project-specific knowledge that accumulates DURING development and is never part of the generic AI.md spec — decisions made, gotchas discovered, domain-specific conventions unique to this one codebase. It exists so a fact worth keeping permanently doesn't only live in conversation, where it is lost to compaction.
+
+Format mirrors the `claudemgr/config` global `~/.claude/memory/` convention: each file is markdown with YAML frontmatter (`name`, `description`, `type: project`), one topic per file, indexed by `.claude/memory/MEMORY.md`. Read on demand — for any file over ~400 lines, `grep -n "^## "` it first and read only the relevant section rather than the whole file.
+
+**Read-only vs. read/write:** `~/.claude/**` (global) is read-only from inside a project session — it is deployed from the `claudemgr/config` repo's own `home/**` via `install.sh`, so edits go through that repo's source-then-deploy pipeline, never in place. `{project_dir}/.claude/**` (including `.claude/memory/`) is read/write directly, in this repo, in the same session doing the work — edit it in place and commit it with the rest of the change, exactly like any other project file. That is what keeps it current: there is no separate deploy step for project-local memory.
+
+**Security:** identical rules to global memory files — never store secrets, tokens, or passwords in these files; the credential masking rule (`key=xxxxx`) applies exactly as it does everywhere else in the repo.
+
+**Committed to the repo** (not gitignored) — team-shared like `.claude/rules/`, `.claude/agents/`, and `.claude/settings.json`. Only `.claude/settings.local.json` and other explicitly personal/runtime paths (see AI-Specific Files and Directories table above) stay gitignored.
+
+**When to add an entry:** after any nontrivial decision, workaround, or discovered fact that would otherwise need re-explaining in a future session — why a particular library/pattern was chosen over the obvious one, a footgun in this codebase's tooling, an external constraint not visible from the code itself. Do not duplicate content that already lives in `AI.md` (spec) or `.claude/rules/` (spec cheatsheets) — this directory is for knowledge that exists only because of this project's own history, not generic conventions.
 
 **Cursor Rules (.cursor/rules/):**
 
@@ -2584,11 +2598,13 @@ Before I proceed, can you confirm [specific question]?
 2. If IDEA.md is missing and either Claude loader file contains project-specific content: migrate that content into IDEA.md before proceeding
 3. Check if .claude/rules/ directory exists
 4. If missing or outdated: CREATE/UPDATE all rule files (see table below)
-5. If CLAUDE.md is missing: create the efficient loader version
-6. If a Claude loader file exists and starts with `# Project SPEC`: treat it as the standard loader format; update only if references/rules are stale
-7. If a Claude loader file exists but is not in the standard loader format: migrate project-specific content to IDEA.md, then merge remaining valid loader guidance into the efficient loader structure - NEVER overwrite blindly
-8. If TODO.AI.md or TODO.md exists: read both and check for needed updates (treat both files the same; never delete or empty the human-owned TODO.md)
-9. Commit all COMMIT, NEVER, and MUST rules to memory
+5. Check if .claude/memory/ directory exists; if missing, create it with an empty `.claude/memory/MEMORY.md` index (do not fabricate entries - it starts empty and grows only from real project-specific discoveries)
+6. If CLAUDE.md is missing: create the efficient loader version
+7. If a Claude loader file exists and starts with `# Project SPEC`: treat it as the standard loader format; update only if references/rules are stale
+8. If a Claude loader file exists but is not in the standard loader format: migrate project-specific content to IDEA.md, then merge remaining valid loader guidance into the efficient loader structure - NEVER overwrite blindly
+9. If TODO.AI.md or TODO.md exists: read both and check for needed updates (treat both files the same; never delete or empty the human-owned TODO.md)
+10. Read `.claude/memory/MEMORY.md` (if non-empty) and load referenced files as needed
+11. Commit all COMMIT, NEVER, and MUST rules to memory
 ```
 
 **Rule Files to Create/Update:**
@@ -4999,7 +5015,7 @@ For code that runs in the application, NEVER use bare `/path`. Always use `{fqdn
 | **JavaScript** | `fetch('/api/{api_version}/items')` | `fetch(\`${window.location.origin}/api/${apiVersion}/items\`)` |
 | **HTML templates** | `href="/api/docs"` | `href="https://{{.FQDN}}/api/docs"` |
 | **Config files** | `url: /callback` | `url: https://{fqdn}/callback` |
-| **Email templates** | `<a href="/server/alert">` | `<a href="https://{{.FQDN}}/server/alert">` |
+| **Email templates** | `<a href="/server/alert">` | `<a href="https://{fqdn}/server/alert?token={token}">` (PART 17: `{variable}` syntax, not Go templates) |
 
 **Why:** Bare paths break when:
 - Behind reverse proxy with different base path
@@ -5069,7 +5085,7 @@ if cfg.Server.Healthz.Root.Enabled {
 | docs/*.md | `{official_site}/path` | `curl -q -LSsf https://api.example.com/api/v1/items` |
 | Go code | `{fqdn}/path` | `fmt.Sprintf("https://%s/path", cfg.FQDN)` |
 | JS code | `origin/path` | `${window.location.origin}/path` |
-| Email templates | `{fqdn}/path` | `https://{{.FQDN}}/server/security/report/{{.Token}}` |
+| Email templates | `{fqdn}/path` (PART 17: `{variable}` syntax, not Go templates) | `https://{fqdn}/server/security/report/{token}` |
 | Router registration | `/path` | `router.GET("/api/"+apiVersion+"/items", ...)` (internal only) |
 
 **Platform-Specific URLs:**
@@ -46467,6 +46483,14 @@ maintainer_email: jane@example.com
 - [ ] **CRITICAL - ALWAYS DO section** - lists mandatory requirements from relevant PARTs
 - [ ] **Reference line** - `For complete details, see AI.md PART X, Y, Z`
 - [ ] **Not outdated** - rule files regenerated when AI.md modified
+
+### Project Memory (.claude/memory/)
+
+- [ ] **Directory exists and is committed** - not gitignored, same as `.claude/rules/`
+- [ ] **`.claude/memory/MEMORY.md` index exists** - even if empty (starts empty, grows only from real discoveries)
+- [ ] **Each file has YAML frontmatter** - `name`, `description`, `type: project`
+- [ ] **No secrets or credentials** - same masking rule as everywhere else in the repo
+- [ ] **No duplication of AI.md or `.claude/rules/` content** - only project-specific knowledge that exists solely because of this codebase's own history
 
 ### Behavior Rules
 
