@@ -42135,6 +42135,23 @@ func ensureTorFile(path string, content []byte) error {
 | Apply vanity address | `{project_name} tor vanity apply` |
 | Import existing keys | `{project_name} tor import-keys <path>` |
 
+**CLI-to-running-server control channel:** the server binary already owns the embedded Tor process, so a separately-invoked `{project_name} tor ...` subcommand cannot touch Tor directly — it must reach the running server. Same mechanism `--status` already uses to query a running server (see "Server Startup Sequence" → `--status`): the subcommand issues an HTTP request to the server's own listener at an **internal** endpoint, never a public one.
+
+| Endpoint | Method | Auth | Classification |
+|----------|--------|------|-----------------|
+| `/server/tor/status` | GET | Loopback source only | INTERNAL — same tier as `/server/metrics` (PART 20); never in OpenAPI, well-known, or FeaturesInfo |
+| `/server/tor/validate` | POST | Loopback source only | INTERNAL |
+| `/server/tor/restart` | POST | Loopback source only | INTERNAL |
+| `/server/tor/regenerate` | POST | Loopback source only | INTERNAL |
+| `/server/tor/vanity/start` | POST | Loopback source only | INTERNAL |
+| `/server/tor/vanity/apply` | POST | Loopback source only | INTERNAL |
+| `/server/tor/import-keys` | POST | Loopback source only | INTERNAL |
+
+- **"No REST API for Tor configuration" means no *public* REST API** — nothing under `/server/tor/*` is documented, versioned, advertised in `FeaturesInfo`, or reachable through `/api/{api_version}/**`. It is exactly as internal as `/server/metrics`, just without the bearer-token requirement (Tor control has no legitimate remote caller — the CLI always runs on the same host as the server).
+- **Loopback-gated, not public-gated**: handlers only accept requests whose immediate TCP peer is `127.0.0.1`/`::1` — same "trusted" address set as PART 12 → "Trusted Proxies". A request arriving from any other address is rejected (404, not 403 — the endpoint must not be discoverable).
+- **CLI resolution of the server's port**: identical to how `--status` locates the running server (PID file under `{data_dir}` + the configured bind port from `server.yml`/env) — no new discovery mechanism is introduced.
+- **No running server**: `tor restart`/`regenerate`/`vanity start`/`vanity apply`/`import-keys` all require a live server (they mutate a process Tor owns); if no server is detected, exit 1 with `Error: no running server detected — start the server first`. `tor status`/`tor validate` MAY fall back to reading on-disk state (`{data_dir}/tor/site/hostname`, `{config_dir}/tor/torrc`) directly when no server is running, since those two are read-only.
+
 ## Behavior
 
 | Scenario | Behavior |
