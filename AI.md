@@ -1411,14 +1411,16 @@ For complete details, see AI.md PART 0, 1
 
 ## LONG STRINGS (REQUIRED CSS)
 ```css
-.long-string, .ip-address, .onion-address, .api-token, .hash {
+.long-string, .ip-address, .api-token, .hash {
   word-break: break-all;
   overflow-wrap: break-word;
   font-family: monospace;
 }
 ```
 
-Apply to: IPv6, Tor .onion, API tokens, hashes, UUIDs, Base64
+Apply to: IPv6, API tokens, hashes, UUIDs, Base64 — values with no adjacent copy button.
+
+`.onion-address` / `.i2p-address` are copy-button values, NOT covered by the wrap rule above — using wrap CSS on them breaks the copy target into multiple lines. They require the scroll-box treatment; see "### Long Strings (IPv6, Tor, Tokens, Hashes)" below for the full wrap-vs-scroll-box split and the required `.onion-address`/`.i2p-address` CSS.
 
 ## BREAKPOINTS (mobile-first)
 | Target | CSS |
@@ -9393,7 +9395,7 @@ data:
 
   cve:
     # NVD (NIST National Vulnerability Database)
-    source: "https://nvd.nist.gov/feeds/json/cve/1.1"
+    source: "https://services.nvd.nist.gov/rest/json/cves/2.0"
     # Only download CVEs relevant to project dependencies
     filter_by_cpe: true
 
@@ -10677,14 +10679,36 @@ PHASE 5: Server startup (actual server start)
     ├─ SIGUSR1 → reopen log files (for rotation)
     └─ SIGUSR2 → dump status to log
 
-20. Log startup complete:
-    ├─ Log "Listening on {address}:{port}"
+20. Resolve display URL and print startup banner (no HTTP request context
+    exists yet, so only the non-header-dependent resolution priorities apply
+    — see "Resolution Order (Reverse Proxy Preferred)"):
+    ├─ Resolve {fqdn}: DOMAIN env var → system `hostname` → $HOSTNAME env var
+    │  → public IPv6 → public IPv4 → `localhost` fallback (priorities 2-7;
+    │  priorities 0-1, Tor onion match and reverse-proxy headers, require a
+    │  request and do NOT apply here)
+    ├─ Resolve {proto}: TLS enabled on the bound listener → `https`,
+    │  else default `http` (priority 5; header-based priorities 1-4 do not
+    │  apply here)
+    ├─ Resolve {port}: server listen port from step 13, else proto default
+    │  (priority 3-4)
+    ├─ Resolve {app_mode} via GetAppModeString()
+    ├─ Resolve {startup_datetime} = current UTC timestamp at this step
+    └─ Build `urls` from the resolved {proto}/{fqdn}/{port} and call
+       PrintServerStartupBanner(appName, version, appMode, urls,
+       forceColor) — the banner's "Listening on" line ALWAYS shows the
+       resolved {fqdn}, never the raw bind {address} (see "Banner
+       Placeholders (Must Be Defined)" for the full placeholder list)
+
+21. Log startup complete:
+    ├─ Log "Listening on {address}:{port}" (raw bind address is fine in logs
+    │  — only logs may show {address}; the banner, API, and frontend must
+    │  always show the resolved {fqdn} from step 20)
     ├─ Log "Mode: {production|development|debug}"
     ├─ Log "Tor: {.onion address}" (if enabled)
     ├─ Log "I2P: {.b32.i2p address}" (if enabled and provider available)
     └─ If first_run: log path to generated `server.yml`
 
-21. Enter main loop (block until shutdown signal received)
+22. Enter main loop (block until shutdown signal received)
 ```
 
 | Step | Runs As | Why |
@@ -10703,7 +10727,7 @@ PHASE 5: Server startup (actual server start)
 | **IF USER (step 9):** | | |
 | 9. Setup user directories | **user** | Create ~/.config/, ~/.local/share/, etc. |
 | **COMMON PATH:** | | |
-| 10-21. Everything else | **user** | Dirs exist, privileged sockets bound (if any) |
+| 10-22. Everything else | **user** | Dirs exist, privileged sockets bound (if any) |
 
 **Security principle:** Drop privileges as EARLY as possible, but AFTER:
 1. Creating the service user/group
@@ -14545,6 +14569,9 @@ User-agent: *
 Allow: /
 Allow: /api
 Sitemap: {app_url}/sitemap.xml
+
+# AI crawlers - default: no additional restrictions (inherit User-agent: * above)
+# Per-bot stanzas are only rendered when that bot is explicitly denied below
 ```
 
 **Configuration:**
@@ -14555,7 +14582,38 @@ web:
       - /
       - /api
     deny: []
+    # Per-AI-crawler access control (default: allow all - no AI blocking)
+    ai_bots:
+      # Applies to any recognized AI bot not listed individually below
+      default: allow
+      # Per-bot overrides: allow | deny
+      bots:
+        GPTBot: allow
+        ChatGPT-User: allow
+        ClaudeBot: allow
+        anthropic-ai: allow
+        Claude-Web: allow
+        CCBot: allow
+        Google-Extended: allow
+        Bytespider: allow
+        PerplexityBot: allow
+        Applebot-Extended: allow
+        Amazonbot: allow
+        Diffbot: allow
+        FacebookBot: allow
+        cohere-ai: allow
 ```
+
+**AI Crawler Rules:**
+- Default posture is **allow** - no AI bot is blocked unless the user explicitly sets it (or `ai_bots.default`) to `deny`.
+- `ai_bots.default: deny` flips the default for any bot not explicitly listed; explicit per-bot entries always take precedence over `default`.
+- Bots set to `allow` are covered by the existing `User-agent: *` block and get no separate stanza.
+- Bots set to `deny` render their own stanza:
+  ```
+  User-agent: {bot_name}
+  Disallow: /
+  ```
+- When `ai_bots.default: deny`, every recognized bot not explicitly set to `allow` also renders its own `Disallow: /` stanza, since a bot's own `User-agent` block overrides the wildcard `Allow: /` for that bot only.
 
 ### security.txt (RFC 9116)
 
@@ -17587,6 +17645,16 @@ type StatsInfo struct {
             </button>
           </div>
         </li>
+        <!-- I2P row mirrors Tor exactly (PART 31.2) — only rendered when features.i2p.enabled -->
+        <li class="feature-enabled">
+          🔗 I2P: <span class="status status-ok">✅ healthy</span>
+          <div class="code-block">
+            <code class="code-content">abc123xyz456abcdef789xyz456abcdef789xyz456abcdef789xyz.b32.i2p</code>
+            <button class="copy-btn" data-copy="abc123xyz456abcdef789xyz456abcdef789xyz456abcdef789xyz.b32.i2p">
+              <span class="copy-icon">📋</span><span class="copy-text" aria-live="polite">Copy</span>
+            </button>
+          </div>
+        </li>
         <li class="feature-enabled">🌍 GeoIP</li>
         <!-- PROJECT-SPECIFIC: Add project-specific feature flags here if applicable -->
       </ul>
@@ -20338,9 +20406,8 @@ formatURL(host, 8443, true)
 │  🔒 Running in mode: production                           │
 ├───────────────────────────────────────────────────────────┤
 │  🧅 Tor:   http://{onion_address}                         │
-│  🔐 HTTPS: {proto}://{fqdn}                               │
 ├───────────────────────────────────────────────────────────┤
-│  📡 Listening on {proto}://{address}                      │
+│  📡 Listening on {proto}://{fqdn}                         │
 │  ✅ Server started on {startup_datetime}                  │
 ╰───────────────────────────────────────────────────────────╯
 ```
@@ -20356,9 +20423,7 @@ formatURL(host, 8443, true)
 │  🔗 I2P:   http://{i2p_address}                           │
 │  📧 SMTP:  {smtp_address}:{smtp_port}                     │
 ├───────────────────────────────────────────────────────────┤
-│  📡 Listening on {proto}://{address}                      │
-├───────────────────────────────────────────────────────────┤
-│  🔐 Website: {proto}://{fqdn}                             │
+│  📡 Listening on {proto}://{fqdn}                         │
 ├───────────────────────────────────────────────────────────┤
 │  ✅ Server started on {startup_datetime}                  │
 ╰───────────────────────────────────────────────────────────╯
@@ -20371,9 +20436,7 @@ formatURL(host, 8443, true)
 ├───────────────────────────────────────────────────────────┤
 │  🔒 Running in mode: production                           │
 ├───────────────────────────────────────────────────────────┤
-│  🌐 HTTP:  {proto}://{fqdn}:{port}                        │
-├───────────────────────────────────────────────────────────┤
-│  📡 Listening on {proto}://{address}:{port}               │
+│  📡 Listening on {proto}://{fqdn}:{port}                  │
 │  ✅ Server started on {startup_datetime}                  │
 ╰───────────────────────────────────────────────────────────╯
 ```
@@ -20413,9 +20476,7 @@ formatURL(host, 8443, true)
 ├───────────────────────────────────────────────────────────┤
 │  🔒 Running in mode: production                           │
 ├───────────────────────────────────────────────────────────┤
-│  🌐 HTTP:  {proto}://{fqdn}                               │
-├───────────────────────────────────────────────────────────┤
-│  📡 Listening on {proto}://{address}                      │
+│  📡 Listening on {proto}://{fqdn}                         │
 │  ✅ Server started on {startup_datetime}                  │
 ╰───────────────────────────────────────────────────────────╯
 ```
@@ -20427,9 +20488,7 @@ formatURL(host, 8443, true)
 ├───────────────────────────────────────────────────────────┤
 │  🔒 Running in mode: {app_mode} [debugging]               │
 ├───────────────────────────────────────────────────────────┤
-│  🌐 HTTP:  {proto}://{fqdn}                               │
-├───────────────────────────────────────────────────────────┤
-│  📡 Listening on {proto}://{address}                      │
+│  📡 Listening on {proto}://{fqdn}                         │
 │  ✅ Server started on {startup_datetime}                  │
 ╰───────────────────────────────────────────────────────────╯
 ```
@@ -20461,8 +20520,7 @@ formatURL(host, 8443, true)
 ```
 🚀 {PROJECT_NAME} v{project_version}
 🔒 Mode: {app_mode}
-🌐 {proto}://{fqdn}
-📡 Listening: {proto}://{address}:{port}
+📡 Listening: {proto}://{fqdn}:{port}
 ✅ Started: {startup_datetime}
 ```
 
@@ -20503,8 +20561,7 @@ formatURL(host, 8443, true)
 ```
 {PROJECT_NAME} v{project_version}
 Mode: {app_mode}
-URL: {proto}://{fqdn}
-Listening: {proto}://{address}:{port}
+Listening: {proto}://{fqdn}:{port}
 Started: {startup_datetime}
 ```
 
@@ -21063,18 +21120,20 @@ fi
 |-------------|----------------|---------|
 | IPv6 address | 39 chars | `2001:0db8:85a3:0000:0000:8a2e:0370:7334` |
 | Tor v3 .onion | 62 chars | `duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion` |
+| I2P .b32.i2p | 60 chars | `ukeu3k5oycgaauneqgtnvselmt4yemvoilkln7jpvamvfx7dnkdq.b32.i2p` |
 | API token | 32-64 chars | `tok_EXAMPLE1234567890abcdefghij...` |
 | SHA-256 hash | 64 chars | `e3b0c44298fc1c149afbf4c8996fb924...` |
 | UUID | 36 chars | `550e8400-e29b-41d4-a716-446655440000` |
 | Base64 data | Variable | Long encoded strings |
 
-**Required CSS for ALL elements that may contain long strings:**
+**Two treatments — pick by whether a copy button sits next to the value.**
+
+**No adjacent copy control → wrap in place** (table cells, list rows, plain inline text — the reader has no other way to see the full value):
 
 ```css
-/* Apply to elements containing: IPs, URLs, hashes, tokens, codes */
+/* Apply to elements containing: IPs, hashes, tokens, codes with no copy button nearby */
 .long-string,
 .ip-address,
-.onion-address,
 .api-token,
 .hash,
 .uuid,
@@ -21089,6 +21148,22 @@ fi
   /* Optional: smaller font on mobile */
   font-size: 0.875rem;
 }
+```
+
+**Adjacent copy button → single-line scroll-box, never wrap** (the copy button is the intended way to get the value, so hiding overflow behind a scroll costs nothing and keeps the pill from inflating to multiple lines):
+
+```css
+.onion-address,
+.i2p-address,
+.copy-value {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  font-family: monospace;
+  font-size: 0.875rem;
+}
 
 /* Alternative: horizontal scroll for code blocks */
 .code-block {
@@ -21098,13 +21173,17 @@ fi
 }
 ```
 
+Apply `.copy-value` to any other long-string element (setup token, API token, session ID) rendered next to a copy-to-clipboard button.
+
 **Where to apply:**
 
 | Context | CSS Class | Behavior |
 |---------|-----------|----------|
-| Inline display (tables, lists) | `.long-string` | Word-break to wrap |
+| Inline display, no copy button (tables, lists) | `.long-string` | Word-break to wrap |
+| Onion / I2P address (always has a copy button) | `.onion-address` / `.i2p-address` | Single-line scroll, never wrap |
+| Any other value with an adjacent copy button | `.copy-value` | Single-line scroll, never wrap |
 | Code blocks | `.code-block` | Horizontal scroll |
-| Copy-friendly fields | `.monospace-data` | Word-break + select all |
+| Copy-friendly fields with no copy button | `.monospace-data` | Word-break + select all |
 
 **NEVER let long strings overflow their container or break mobile layouts.**
 
@@ -21612,6 +21691,15 @@ document.addEventListener('click', function(e) {
     <div class="code-block">
       <code class="code-content">abc123xyz789.onion</code>
       <button class="copy-btn" data-copy="abc123xyz789.onion">📋</button>
+    </div>
+  </li>
+  <!-- I2P row mirrors Tor exactly — only rendered when features.i2p.enabled -->
+  <li class="feature-enabled">
+    🔗 I2P:
+    <span class="status status-ok">✅ healthy</span>
+    <div class="code-block">
+      <code class="code-content">abc123xyz789.b32.i2p</code>
+      <button class="copy-btn" data-copy="abc123xyz789.b32.i2p">📋</button>
     </div>
   </li>
   <li class="feature-disabled">📊 GeoIP</li>
@@ -22247,27 +22335,47 @@ document.querySelectorAll(".site-banner .site-banner-dismiss").forEach((form) =>
 
 ### Theme Toggle
 
-**Theme toggle button in header. No user accounts; no profile dropdown.**
+**Theme toggle button in header, last item in the header-actions zone. No user accounts — but see "Header Layout" above for the profile/preferences zone that sits directly to its left, which is dependent on `owner_token` cookie state, not accounts/sessions.**
 
 **Theme Toggle Behavior:**
 
 | Feature | Description |
 |---------|-------------|
-| **Position** | Header, right side, last item |
+| **Position** | Header, right side, last item (after the profile/preferences zone) |
 | **Options** | Dark / Light / Auto (follows OS preference) |
 | **Persistence** | `theme` cookie (`light` \| `dark` \| `auto`) — server-readable, so the theme class is rendered on `<html>` with no init JS and no FOUC |
 | **Keyboard** | Enter/Space cycles modes |
-| **No-JS fallback** | Auto theming works from pure CSS (`prefers-color-scheme`); switching without JS uses a small `<noscript>` form POSTing to the theme endpoint |
+| **Cycle order** | dark → light → auto → dark (wraps) — see "Theme Cycle Logic" below |
+| **No-JS fallback** | Auto theming works from pure CSS (`prefers-color-scheme`); the button IS a form submit, so switching without JS works identically to switching with JS |
 
-**HTML Structure:**
+**Theme Cycle Logic (this is what makes repeated clicks keep working):** the button's POST target is never a hardcoded value — it is always the *next* mode after whatever the server just rendered, computed server-side from the current `theme` cookie via `nextTheme()`. A hardcoded target (e.g. a button that always submits `"light"`) is the classic bug: the first click changes the theme away from the default, but every click after that resubmits the same value and nothing changes. Computing the target from actual current state on every render is what prevents that.
+
+```go
+// nextTheme returns the next mode in the cycle: dark -> light -> auto -> dark.
+// Called when rendering the toggle button so its target is always derived
+// from the theme actually in effect for this request - never a fixed value.
+func nextTheme(current string) string {
+	switch current {
+	case "dark":
+		return "light"
+	case "light":
+		return "auto"
+	default: // "auto" or empty/unset
+		return "dark"
+	}
+}
+```
+
+**HTML Structure (no-JS-safe form; JS below is progressive enhancement only):**
 ```html
-<div class="theme-toggle" aria-label="Theme toggle">
-  <button class="theme-button" aria-label="Switch theme">
-    <svg class="icon-dark"><!-- moon --></svg>
-    <svg class="icon-light"><!-- sun --></svg>
-    <svg class="icon-auto"><!-- circle-half --></svg>
+<form action="/server/preferences" method="POST" class="theme-toggle-form">
+  <input type="hidden" name="theme" value="{{ nextTheme .Theme }}">
+  <button type="submit" class="theme-button" aria-label="Switch theme (currently {{ .Theme }})" title="Switch theme">
+    <svg class="icon-dark"><!-- moon, shown when .Theme == "dark" --></svg>
+    <svg class="icon-light"><!-- sun, shown when .Theme == "light" --></svg>
+    <svg class="icon-auto"><!-- circle-half, shown when .Theme == "auto" --></svg>
   </button>
-</div>
+</form>
 ```
 
 **CSS for Header Actions:**
@@ -22278,7 +22386,11 @@ document.querySelectorAll(".site-banner .site-banner-dismiss").forEach((form) =>
   gap: 1rem;
 }
 
-.theme-toggle {
+.theme-toggle-form {
+  display: flex;
+}
+
+.theme-button {
   background: none;
   border: none;
   cursor: pointer;
@@ -24046,16 +24158,31 @@ html.theme-light {
 
 **JavaScript theme switching (shared):**
 
-**Note:** Per "HTML5 & CSS Over JavaScript" rules - CSS does all theming via variables. JavaScript is ONLY the toggle click handler: set the cookie and swap the class (cannot be done in pure CSS).
+**Note:** Per "HTML5 & CSS Over JavaScript" rules - CSS does all theming via variables. JavaScript is ONLY the toggle click handler: set the cookie and swap the class (cannot be done in pure CSS). The form (see "Theme Toggle" → HTML Structure above) already works with zero JS; this is progressive enhancement only, intercepting the submit to avoid a full page reload. Critically, it recomputes the next mode from the LIVE `<html>` class on every click rather than trusting the form's `value` (which was rendered once at page load and would go stale after the first JS-driven switch) — this is what keeps repeated clicks working instead of "sticking" after one.
 
 ```javascript
-// Theme toggle handler - JS only sets the cookie and swaps the class;
-// CSS does all the actual styling, and the server renders the class on
-// the next request from the same cookie.
+// Theme cycle: dark -> light -> auto -> dark. Mirrors the server's
+// nextTheme() (see "Theme Toggle" above) so the JS-enhanced and no-JS
+// paths always agree on what "next" means.
+const THEME_CYCLE = ['dark', 'light', 'auto'];
+
+function currentTheme() {
+  const match = document.documentElement.className.match(/theme-(dark|light|auto)/);
+  return match ? match[1] : 'dark';
+}
+
 function setTheme(theme) {
   document.documentElement.className = `theme-${theme}`;
   document.cookie = `theme=${theme}; path=/; max-age=31536000; SameSite=Lax`;
 }
+
+document.querySelectorAll('.theme-toggle-form').forEach((form) => {
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const next = THEME_CYCLE[(THEME_CYCLE.indexOf(currentTheme()) + 1) % THEME_CYCLE.length];
+    setTheme(next);
+  });
+});
 ```
 
 ### Layout Partials
@@ -24323,7 +24450,8 @@ partial/
 | Element | Position | Purpose | Contents |
 |---------|----------|---------|----------|
 | `<nav>` | TOP | Navigation | Links to app sections |
-| `<footer>` | BOTTOM | Information | About, Privacy, Contact, Help, GitHub, version |
+| Header `.header-actions` | TOP | Cross-cutting UI state | Profile/preferences zone (always `/server/preferences`; contents vary if an `owner_token` cookie exists), then theme toggle — in that order, right of the centered nav links |
+| `<footer>` | BOTTOM | Information | About, Privacy, Contact, Help, Preferences, GitHub, version |
 
 **Nav contains (app navigation):**
 - Home link
@@ -24332,22 +24460,20 @@ partial/
 **Nav does NOT contain:**
 - API link (users access via `/server/docs/swagger` if needed)
 - Help link (belongs in footer)
+- Preferences link (lives next to the theme toggle in the header, not in nav — it's UI state, not app content; also always present in the footer for discoverability)
 
 **Default Navigation (nav.tmpl):**
 
 ```
-Desktop:
+Desktop (single row, 4 zones):
 ┌─────────────────────────────────────────────────────────────────┐
-│  {project_name}                                          [Theme] │  ← Header
-├─────────────────────────────────────────────────────────────────┤
-│  Home  |  [App Section 1]  |  [App Section 2]  |  ...           │  ← Nav
+│ {project_name}   Home | Section 1 | Section 2      [⚙] [Theme]  │  ← Header
 └─────────────────────────────────────────────────────────────────┘
+   ^logo/text       ^links (centered)              ^profile/prefs  ^theme
 
 Mobile:
 ┌─────────────────────────────────────────────────────────────────┐
-│  {project_name}                                          [Theme] │  ← Header
-├─────────────────────────────────────────────────────────────────┤
-│                                                      [☰ Menu]   │  ← Nav row
+│  {project_name}                            [☰]  [⚙] [Theme]     │  ← Header
 └─────────────────────────────────────────────────────────────────┘
                                               ┌───────────────────┐
                                               │  Home             │
@@ -24357,43 +24483,102 @@ Mobile:
                                               └───────────────────┘
 ```
 
+**Header Layout — single row, 4 zones, in this exact order:**
+
+```
+{logo/text}          {links}          {profile/preferences}  {theme_toggle}
+```
+
+Brand sits left, nav links are horizontally centered (not pushed right against
+the actions), and the actions cluster (profile/preferences, then theme toggle)
+sits right. Do NOT split header/nav into two separate rows on desktop — that
+pushes links flush right against the header edge with no centering, which is
+the layout bug this section fixes.
+
 ```html
-<!-- Header bar: site name + theme toggle -->
+<!-- Header bar: single row — brand | centered links | profile/preferences | theme toggle -->
 <header class="header">
   <a href="/" class="site-brand">{project_name}</a>
 
-  <!-- Theme toggle (always visible, far right) -->
-  <div class="header-actions">
-    <button class="theme-button" aria-label="Switch theme" title="Toggle theme">
-      <svg class="icon-theme"><!-- theme icon --></svg>
-    </button>
-  </div>
-</header>
-
-<!-- Nav bar: separate row below header (CSS-only mobile menu) -->
-<nav class="nav">
-  <!-- Hidden checkbox controls menu state - NO JavaScript -->
+  <!-- Hidden checkbox controls mobile menu state - NO JavaScript -->
   <input type="checkbox" id="nav-toggle" class="nav-checkbox" hidden>
 
-  <!-- Desktop: inline links | Mobile: hamburger only -->
-  <div class="nav-links">
+  <!-- Desktop: inline links, centered | Mobile: hamburger only -->
+  <nav class="nav-links">
     <a href="/">Home</a>
     <!-- App-specific sections (project-defined) -->
-  </div>
+  </nav>
 
   <!-- Mobile: hamburger toggle (checkbox label) -->
   <label for="nav-toggle" class="nav-toggle" aria-label="Toggle navigation">☰</label>
 
-  <!-- Slide-in panel for mobile -->
+  <!-- Slide-in panel for mobile (links only — actions below stay in header) -->
   <div class="nav-panel">
     <label for="nav-toggle" class="nav-close" aria-label="Close menu">✕</label>
     <a href="/">Home</a>
     <!-- App-specific sections (project-defined) -->
   </div>
-
-  <!-- Overlay - clicking label unchecks checkbox, closing menu -->
   <label for="nav-toggle" class="nav-overlay"></label>
-</nav>
+
+  <!-- Actions: profile/preferences zone, then theme toggle (always visible, far right) -->
+  <div class="header-actions">
+    <!-- Profile/preferences zone — state-dependent, see "Profile/Preferences Zone" below.
+         Route is always /server/preferences regardless of state; only the menu
+         CONTENTS change with whether an owner_token cookie exists. -->
+    {{ if ownerTokenCookieExists }}
+      <div class="dropdown">
+        <button class="dropdown-toggle header-link" aria-label="Preferences and resource management">
+          <svg class="icon-preferences"><!-- gear icon --></svg>
+        </button>
+        <div class="dropdown-menu">
+          <a href="{{ .OwnedResourceURL }}" class="dropdown-item" role="menuitem">Manage my {{ .ResourceLabel }}</a>
+          <div class="dropdown-divider" role="separator"></div>
+          <a href="/server/preferences" class="dropdown-item" role="menuitem">Preferences</a>
+        </div>
+      </div>
+    {{ else }}
+      <a href="/server/preferences" class="header-link" aria-label="Preferences" title="Preferences">
+        <svg class="icon-preferences"><!-- gear icon --></svg>
+      </a>
+    {{ end }}
+    <!-- Theme toggle: see "Theme Toggle" → HTML Structure above. Always a
+         form whose target is the SERVER-COMPUTED next mode (nextTheme()),
+         never a hardcoded value - that's what makes repeated clicks keep
+         cycling instead of sticking after the first one. -->
+    <form action="/server/preferences" method="POST" class="theme-toggle-form">
+      <input type="hidden" name="theme" value="{{ nextTheme .Theme }}">
+      <button type="submit" class="theme-button" aria-label="Switch theme (currently {{ .Theme }})" title="Switch theme">
+        <svg class="icon-theme"><!-- reflects .Theme: moon/sun/circle-half --></svg>
+      </button>
+    </form>
+  </div>
+</header>
+```
+
+```css
+.header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1.5rem;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  /* Centers the link cluster in the remaining space between brand and actions */
+  flex: 1;
+  justify-content: center;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  /* Actions stay right-aligned without pushing nav-links off-center */
+  flex: 0 0 auto;
+}
 ```
 
 **Mobile Menu Behavior:**
@@ -24456,8 +24641,8 @@ Mobile:
 ```
 
 **Mobile Responsive Rules:**
-- Nav row below header: inline links or hamburger
-- Theme toggle ALWAYS in header (never in menu)
+- Links live in the single header row: inline links (desktop) or hamburger (mobile) — no separate nav row
+- Profile/preferences and theme toggle ALWAYS in header actions (never in the mobile slide-in menu)
 - Menu slides from right edge
 - Touch-friendly: minimum 44x44px tap targets
 - Overlay closes menu on tap (CSS label toggles checkbox - no JS)
@@ -24919,11 +25104,16 @@ the hex values from `ThemePaletteDark`/`ThemePaletteLight`.
 ```
 
 **Theme Switching:**
-- Provide theme toggle in UI (☀️ Light / 🌙 Dark / 🔄 Auto)
+- Provide theme toggle in UI (☀️ Light / 🌙 Dark / 🔄 Auto) — see "Theme Toggle" above
 - Store preference in the `theme` cookie so the server renders the class on `<html>`
-- Apply theme class to `<html>` element: `theme-light`, `theme-dark`
-- NO page reload required - the toggle handler sets the cookie and swaps the class
-- No-JS visitors get correct auto theming from pure CSS and can switch via a `<noscript>` form POSTing to the theme endpoint
+- Apply theme class to `<html>` element: `theme-light`, `theme-dark`, `theme-auto`
+- The toggle's target is always the NEXT mode computed from the current cookie
+  (`nextTheme()`, dark → light → auto → dark) — never a hardcoded value. This is
+  what makes repeated clicks keep cycling instead of only working once.
+- NO page reload required when JS is available - it intercepts the form submit,
+  recomputes the next mode from the live `<html>` class, and swaps it instantly
+- No-JS visitors get correct auto theming from pure CSS, and switching works
+  identically without JS since the toggle is a real form submit, not a JS-only handler
 - All components (Swagger, GraphQL, public pages) switch simultaneously
 
 **Accessibility Requirements:**
@@ -24994,6 +25184,8 @@ server:
   <meta name="description" content="{description}">
   <meta name="keywords" content="{keywords}">
   <meta name="author" content="{author}">
+  <meta name="robots" content="{robots}">
+  <link rel="canonical" href="{current_url}">
 
   <!-- OpenGraph -->
   <meta property="og:title" content="{title}">
@@ -25008,8 +25200,31 @@ server:
   <meta name="twitter:description" content="{description}">
   <meta name="twitter:image" content="{og_image}">
   <meta name="twitter:site" content="{twitter_handle}">
+
+  <!-- Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "{title}",
+    "description": "{description}",
+    "url": "{current_url}"
+  }
+  </script>
 </head>
 ```
+
+### Robots Directive
+
+`{robots}` is computed server-side per route, never hardcoded:
+
+| Route type | Value |
+|------------|-------|
+| Public pages (homepage, docs, about) | `index,follow` |
+| `/admin`, `/api/*`, auth pages (login, register, reset) | `noindex,nofollow` |
+| Internal/health/debug endpoints | `noindex,nofollow` |
+
+Default to `index,follow` only for routes explicitly marked public; every other route defaults to `noindex,nofollow` (fail closed).
 
 ### Site Verification Meta Tags
 
@@ -25793,6 +26008,8 @@ When the operator sets `custom_html` in `server.yml`, the server logs at startup
     <a href="/server/contact">Contact</a>
     <span>•</span>
     <a href="/server/help">Help</a>
+    <span>•</span>
+    <a href="/server/preferences">Preferences</a>
   </p>
 
   <!-- Application branding -->
@@ -27987,8 +28204,8 @@ All databases come from [sapics/ip-location-db](https://github.com/sapics/ip-loc
 |----------|-----------------|---------|--------|
 | ASN | `@ip-location-db/asn-mmdb` → `asn.mmdb` | `https://cdn.jsdelivr.net/npm/@ip-location-db/asn-mmdb/asn.mmdb` | `autonomous_system_number`, `autonomous_system_organization` |
 | Country | `@ip-location-db/geo-whois-asn-country-mmdb` → `geo-whois-asn-country.mmdb` | `https://cdn.jsdelivr.net/npm/@ip-location-db/geo-whois-asn-country-mmdb/geo-whois-asn-country.mmdb` | `country_code` |
-| City (IPv4) | `@ip-location-db/dbip-city-mmdb` → `dbip-city-ipv4.mmdb` | `https://cdn.jsdelivr.net/npm/@ip-location-db/dbip-city-mmdb/dbip-city-ipv4.mmdb` | `city`, `country_code`, `state1`, `state2`, `postcode`, `latitude`, `longitude`, `timezone` |
-| City (IPv6) | `@ip-location-db/dbip-city-mmdb` → `dbip-city-ipv6.mmdb` | `https://cdn.jsdelivr.net/npm/@ip-location-db/dbip-city-mmdb/dbip-city-ipv6.mmdb` | (same fields as City IPv4) |
+| City (IPv4) | `@ip-location-db/dbip-city-mmdb` → `dbip-city-ipv4.mmdb` | `https://github.com/sapics/ip-location-db/releases/download/latest/dbip-city-ipv4.mmdb` | `city`, `country_code`, `state1`, `state2`, `postcode`, `latitude`, `longitude`, `timezone` |
+| City (IPv6) | `@ip-location-db/dbip-city-mmdb` → `dbip-city-ipv6.mmdb` | `https://github.com/sapics/ip-location-db/releases/download/latest/dbip-city-ipv6.mmdb` | (same fields as City IPv4) |
 
 **No separate "WHOIS" database.** Earlier drafts of this spec described a combined WHOIS lookup exposing a `registrant_org` field — no such dataset exists in ip-location-db. The `geo-whois-asn-country` package name is misleading: despite the name, it exposes only `country_code` (merged from RIR geofeed, whois, and ASN data at the NRO's publishing layer — the merge happens upstream, not in the file this project consumes). Organization-name data available to this project comes solely from the ASN database's `autonomous_system_organization` field (a BGP/RIR-derived AS holder name, not an RDAP/WHOIS registrant record) — use that field directly and do not label it "WHOIS" anywhere in code, config, or docs.
 
@@ -40044,8 +40261,7 @@ var localeFS embed.FS
     "daemon_started": "Demonio iniciado con PID {pid}",
     "already_running": "Ya en ejecución (pid {pid})",
     "running_in_mode": "Ejecutando en modo: {app_mode}",
-    "http_address": "HTTP: {proto}://{fqdn}:{port}",
-    "listening_on": "Escuchando en {proto}://{address}:{port}",
+    "listening_on": "Escuchando en {proto}://{fqdn}:{port}",
     "server_started_on": "Servidor iniciado en {startup_datetime}",
     "server_started_ok": "Servidor iniciado exitosamente",
     "received_signal": "Recibida señal {signal}, iniciando apagado graceful...",
@@ -47297,6 +47513,9 @@ make docker
 - [ ] `<meta name="author">` present (if configured)
 - [ ] OpenGraph tags present (og:title, og:description, og:image, og:url)
 - [ ] Twitter Card tags present (twitter:card, twitter:title, twitter:description)
+- [ ] `<link rel="canonical">` present and correct
+- [ ] `<meta name="robots">` present, correct index/noindex per route
+- [ ] JSON-LD structured data present and valid
 - [ ] All meta content properly escaped (XSS prevention)
 
 ### Static Files
