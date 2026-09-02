@@ -23943,7 +23943,7 @@ See **JavaScript Rules** section below for `app.js` structure.
 <input type="checkbox" id="menu-toggle" hidden>
 <nav class="menu">
   <a href="/">Home</a>
-  <a href="/server/about">About</a>
+  <a href="/server/login">Login</a>
 </nav>
 
 <style>
