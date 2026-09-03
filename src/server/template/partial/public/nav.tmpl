@@ -1,0 +1,17 @@
+{{define "nav"}}<nav id="navigation" class="site-nav" aria-label="{{t .Base.Lang "nav.main_navigation"}}" tabindex="-1">
+<div class="container site-nav-inner">
+<input type="checkbox" id="nav-toggle" class="nav-checkbox" hidden>
+<label for="nav-toggle" class="nav-toggle" aria-label="{{t .Base.Lang "nav.toggle_navigation"}}">
+<span class="sr-only">{{t .Base.Lang "nav.menu"}}</span>
+<span aria-hidden="true">&#9776;</span>
+</label>
+<ul id="nav-links" class="nav-links">
+<li><a href="/">{{t .Base.Lang "nav.home"}}</a></li>
+<li><a href="/list">{{t .Base.Lang "nav.list"}}</a></li>
+<li><a href="/server/about">{{t .Base.Lang "nav.about"}}</a></li>
+<li><a href="/server/help">{{t .Base.Lang "nav.help"}}</a></li>
+<li><a href="/server/contact">{{t .Base.Lang "nav.contact"}}</a></li>
+</ul>
+</div>
+</nav>
+{{end}}

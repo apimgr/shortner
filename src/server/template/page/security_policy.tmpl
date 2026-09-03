@@ -1,0 +1,9 @@
+{{define "content"}}<article class="security-policy-page">
+<h1>{{t .Base.Lang "security.disclosure_policy_title"}}</h1>
+
+{{range .Paragraphs}}<p>{{.}}</p>
+{{end}}
+
+<p><a href="/server/security">{{t .Base.Lang "security.back_to_security"}}</a></p>
+</article>
+{{end}}

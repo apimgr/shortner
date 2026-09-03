@@ -1,0 +1,28 @@
+{{define "header"}}<header class="site-header" role="banner">
+<div class="container site-header-inner">
+<a href="/" class="brand">{{.Base.SiteName}}</a>
+{{if .Base.I18NEnabled}}
+<form method="get" action="" class="lang-form" data-action="lang-form">
+<label for="lang-select" class="sr-only">{{t .Base.Lang "common.select_language"}}</label>
+<select id="lang-select" name="lang" class="lang-select">
+{{$active := .Base.Lang}}{{range .Base.AvailableLanguages}}<option value="{{.Code}}"{{if eq .Code $active}} selected{{end}}>{{.NativeName}}</option>{{end}}
+</select>
+<button type="submit" class="lang-go">{{t .Base.Lang "common.go"}}</button>
+</form>
+{{end}}
+<button type="button" class="theme-toggle" data-action="toggle-theme" data-theme="{{.Base.Theme}}" aria-label="{{t .Base.Lang "theme.toggle"}}">
+<span aria-hidden="true" data-theme-icon>{{if eq .Base.Theme "light"}}&#9728;{{else if eq .Base.Theme "auto"}}&#128260;{{else}}&#127769;{{end}}</span>
+<span class="sr-only">{{if eq .Base.Theme "light"}}{{t .Base.Lang "theme.light"}}{{else if eq .Base.Theme "auto"}}{{t .Base.Lang "theme.auto"}}{{else}}{{t .Base.Lang "theme.dark"}}{{end}}</span>
+</button>
+<noscript>
+<form method="POST" action="/server/theme" class="theme-noscript-form">
+<input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
+<input type="hidden" name="return_to" value="{{.Base.CurrentPath}}">
+<button type="submit" name="theme" value="dark">{{t .Base.Lang "theme.dark"}}</button>
+<button type="submit" name="theme" value="light">{{t .Base.Lang "theme.light"}}</button>
+<button type="submit" name="theme" value="auto">{{t .Base.Lang "theme.auto"}}</button>
+</form>
+</noscript>
+</div>
+</header>
+{{end}}

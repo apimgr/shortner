@@ -1,0 +1,50 @@
+# Development image — same build as docker/Dockerfile, binary runs in debug
+# mode. Tagged :devel. See AI.md PART 3 / PART 26.
+# =============================================================================
+# Build Stage - Compile Go binary
+# =============================================================================
+FROM casjaysdev/go:latest AS builder
+
+RUN apk add --no-cache git bash
+
+ARG TARGETARCH
+ARG VERSION=devel
+# BUILD_EPOCH is the single embedded time source; BuildDate is derived from it at process start
+ARG BUILD_EPOCH
+ARG COMMIT_ID
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} GOFLAGS=-buildvcs=false go build \
+    -trimpath \
+    -ldflags "-X 'github.com/apimgr/shortner/src/common/version.Version=${VERSION}' -X 'github.com/apimgr/shortner/src/common/version.CommitID=${COMMIT_ID}' -X 'github.com/apimgr/shortner/src/common/version.BuildEpoch=${BUILD_EPOCH}'" \
+    -o /app/binary/shortner ./src
+
+# =============================================================================
+# Runtime Stage - Minimal Alpine image, debug mode
+# =============================================================================
+FROM alpine:latest
+
+RUN apk add --no-cache git curl bash tini tor
+
+COPY --from=builder /app/binary/shortner /usr/local/bin/shortner
+COPY docker/rootfs/ /
+RUN chmod 755 /usr/local/bin/*
+
+ENV TZ=America/New_York \
+    DATABASE_DIR=/data/db/sqlite \
+    MODE=development \
+    DEBUG=true
+
+EXPOSE 80
+
+STOPSIGNAL SIGRTMIN+3
+
+HEALTHCHECK --start-period=1m --interval=30s --timeout=15s --retries=3 \
+    CMD /usr/local/bin/shortner --status || exit 1
+
+ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]

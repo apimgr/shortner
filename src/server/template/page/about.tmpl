@@ -1,0 +1,28 @@
+{{define "content"}}<article class="about-page">
+<h1>{{tf .Base.Lang "about.title_named" "site" .Base.SiteName}}</h1>
+<p>{{t .Base.Lang "about.intro"}}</p>
+
+<h2>{{t .Base.Lang "about.who_title"}}</h2>
+<ul>
+<li>{{t .Base.Lang "about.who_individuals"}}</li>
+<li>{{t .Base.Lang "about.who_developers"}}</li>
+<li>{{t .Base.Lang "about.who_sharers"}}</li>
+</ul>
+
+<h2>{{t .Base.Lang "about.features"}}</h2>
+<ul>
+<li><strong>{{t .Base.Lang "about.feature_shortening"}}</strong> &mdash; {{t .Base.Lang "about.feature_shortening_desc"}}</li>
+<li><strong>{{t .Base.Lang "about.feature_redirect"}}</strong> &mdash; {{t .Base.Lang "about.feature_redirect_desc"}}</li>
+<li><strong>{{t .Base.Lang "about.feature_analytics"}}</strong> &mdash; {{t .Base.Lang "about.feature_analytics_desc"}}</li>
+<li><strong>{{t .Base.Lang "about.feature_management"}}</strong> &mdash; {{t .Base.Lang "about.feature_management_desc"}}</li>
+<li><strong>{{t .Base.Lang "about.feature_no_accounts"}}</strong> &mdash; {{t .Base.Lang "about.feature_no_accounts_desc"}}</li>
+</ul>
+
+{{if .AboutContent}}<div class="about-extra">{{.AboutContent}}</div>{{end}}
+
+<h2>{{t .Base.Lang "about.geoip_title"}}</h2>
+<p>{{t .Base.Lang "about.geoip_before"}}
+<a href="https://db-ip.com/">{{t .Base.Lang "about.geoip_link"}}</a>.
+{{t .Base.Lang "about.geoip_after"}}</p>
+</article>
+{{end}}

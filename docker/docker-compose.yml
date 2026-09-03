@@ -1,0 +1,64 @@
+# nginx proxy address - http://172.17.0.1:64580
+# shortner - self-hosted URL shortener with API + web UI
+
+name: shortner
+
+x-logging: &default-logging
+  options:
+    max-size: '5m'
+    max-file: '1'
+  driver: json-file
+
+services:
+  shortner:
+    image: ghcr.io/apimgr/shortner:latest
+    container_name: shortner-app
+    hostname: shortner
+    restart: always
+    pull_policy: always
+    logging: *default-logging
+    environment:
+      PORT: 80
+      TZ: America/New_York
+      CACHE_URL: valkey://shortner-cache:6379
+      # For remote libsql/Turso: set DATABASE_DRIVER and DATABASE_URL
+      # DATABASE_DRIVER: libsql
+      # DATABASE_URL: libsql://your-db.turso.io?authToken={token}
+    volumes:
+      - './volumes/config:/config:z'
+      - './volumes/data:/data:z'
+    ports:
+      - '172.17.0.1:64580:80'
+    healthcheck:
+      test: ['CMD', '/usr/local/bin/shortner', '--status']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    depends_on:
+      shortner-cache:
+        condition: service_healthy
+    networks:
+      - shortner
+
+  shortner-cache:
+    image: valkey/valkey:alpine
+    pull_policy: always
+    container_name: shortner-cache
+    restart: always
+    logging: *default-logging
+    volumes:
+      - './volumes/data/db/valkey:/data:z'
+    healthcheck:
+      test: ['CMD-SHELL', 'valkey-cli ping || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - shortner
+
+networks:
+  shortner:
+    name: shortner
+    external: false

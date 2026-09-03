@@ -1,0 +1,29 @@
+{{define "content"}}{{$lang := .Base.Lang}}<article class="list-page">
+<h1>{{t .Base.Lang "list.title"}}</h1>
+<p>{{tf .Base.Lang "list.intro" "site" .Base.SiteName}}</p>
+
+{{if .Links}}
+<div class="table-wrapper">
+<table>
+<thead><tr><th>{{t .Base.Lang "list.column_slug"}}</th><th>{{t .Base.Lang "list.column_target"}}</th><th>{{t .Base.Lang "list.column_clicks"}}</th><th>{{t .Base.Lang "list.column_created"}}</th></tr></thead>
+<tbody>
+{{range .Links}}
+<tr>
+<td><a href="/{{.ShortCode}}">{{.ShortCode}}</a></td>
+<td class="long-string"><a href="{{.DestinationURL}}" rel="nofollow">{{.DestinationURL}}</a></td>
+<td>{{.ClickCount}}</td>
+<td>{{.CreatedAt}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+</div>
+{{else}}<p>{{t .Base.Lang "list.empty"}}</p>{{end}}
+
+<nav class="pagination" aria-label="{{t $lang "list.pagination"}}">
+{{if .HasPrev}}<a class="btn btn-secondary" href="/list?page={{.PrevPage}}">&laquo; {{t $lang "common.previous"}}</a>{{end}}
+<span>{{tf $lang "common.page_x_of_y" "current" .Pagination.Page "total" .Pagination.Pages}}</span>
+{{if .HasNext}}<a class="btn btn-secondary" href="/list?page={{.NextPage}}">{{t $lang "common.next"}} &raquo;</a>{{end}}
+</nav>
+</article>
+{{end}}

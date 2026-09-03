@@ -1,0 +1,48 @@
+{{define "content"}}{{$lang := .Base.Lang}}<article class="contact-page">
+<h1>{{t $lang "contact.title"}}</h1>
+
+{{if not .Enabled}}
+<p>{{t $lang "contact.disabled"}} {{if .AbuseEmail}}{{tf $lang "contact.urgent_email" "email" .AbuseEmail}}{{end}}</p>
+{{else if .Submitted}}
+<p class="form-success" role="status">{{.SuccessMessage}}</p>
+<a href="/server/contact" class="btn btn-secondary">{{t $lang "contact.send_another"}}</a>
+{{else}}
+<form method="POST" action="/server/contact" class="contact-form" data-action="contact-form" novalidate>
+<input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
+{{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
+<div class="form-group">
+<label for="name">{{t $lang "contact.name"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
+<input type="text" id="name" name="name" required aria-required="true" class="input-field" value="{{.Name}}">
+</div>
+<div class="form-group">
+<label for="email">{{t $lang "contact.email"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
+<input type="email" id="email" name="email" required aria-required="true" class="input-field" value="{{.Email}}" aria-describedby="email-help">
+<p id="email-help" class="field-help">{{t $lang "contact.email_hint"}}</p>
+</div>
+<div class="form-group">
+<label for="subject">{{t $lang "contact.subject"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
+<input type="text" id="subject" name="subject" required aria-required="true" class="input-field" value="{{.Subject}}">
+</div>
+<div class="form-group">
+<label for="message">{{t $lang "contact.message"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
+<textarea id="message" name="message" required aria-required="true" class="input-field" rows="6">{{.Message}}</textarea>
+</div>
+<div class="form-group">
+<label for="captcha">{{t $lang "contact.captcha_label"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
+<input type="text" id="captcha" name="captcha" required aria-required="true" class="input-field" autocomplete="off">
+</div>
+<button type="submit" class="btn btn-primary">{{t $lang "contact.send"}}</button>
+</form>
+{{end}}
+
+<section class="contact-info">
+<h2>{{t $lang "contact.security_title"}}</h2>
+<p>{{t $lang "contact.security_body_before"}}
+<a href="/server/security">/server/security</a>.</p>
+
+<h2>{{t $lang "contact.abuse_title"}}</h2>
+<p>{{t $lang "contact.abuse_body"}}
+{{if .AbuseEmail}}{{tf $lang "contact.abuse_or_email" "email" .AbuseEmail}}{{end}}.</p>
+</section>
+</article>
+{{end}}

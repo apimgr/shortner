@@ -1,0 +1,70 @@
+{{define "content"}}{{$lang := .Base.Lang}}<article class="privacy-page">
+<h1>{{t $lang "privacy.title"}}</h1>
+
+{{if .Content}}
+<div class="privacy-custom">{{.Content}}</div>
+{{else}}
+<section>
+<h2>{{t $lang "privacy.data_we_collect"}}</h2>
+<p>{{if .DataCollection}}{{.DataCollection}}{{else}}{{t $lang "privacy.default_data_collection"}}{{end}}</p>
+</section>
+
+<section>
+<h2>{{t $lang "privacy.how_we_use"}}</h2>
+<p>{{.DataUsage}}</p>
+</section>
+
+<section>
+<h2>{{t $lang "privacy.data_security"}}</h2>
+<p>{{if .DataSecurity}}{{.DataSecurity}}{{else}}{{t $lang "privacy.default_data_security"}}{{end}}</p>
+</section>
+
+<section id="cookies">
+<h2>{{t $lang "privacy.cookie_policy"}}</h2>
+<ul>
+{{if .CookieEssentialEnabled}}<li><strong>{{t $lang "cookie_consent.essential"}}</strong> &mdash; {{.CookieEssentialDescription}}</li>{{end}}
+{{if .CookiePreferencesEnabled}}<li><strong>{{t $lang "cookie_consent.preferences"}}</strong> &mdash; {{.CookiePreferencesDescription}}</li>{{end}}
+{{if .CookieAnalyticsEnabled}}<li><strong>{{t $lang "cookie_consent.analytics"}}</strong> &mdash; {{.CookieAnalyticsDescription}}</li>{{end}}
+</ul>
+<div class="cookie-buttons">
+<form method="POST" action="/server/consent">
+<input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
+<input type="hidden" name="decision" value="decline">
+<button type="submit" class="btn-decline">{{.Base.ConsentDeclineLabel}}</button>
+</form>
+<form method="POST" action="/server/consent">
+<input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
+<input type="hidden" name="decision" value="accept">
+<button type="submit" class="btn-accept">{{.Base.ConsentAcceptLabel}}</button>
+</form>
+</div>
+</section>
+
+{{if .Sold}}
+<section>
+<h2>{{t $lang "privacy.data_sale_title"}}</h2>
+<p>{{t $lang "privacy.data_sale_body"}}</p>
+</section>
+{{end}}
+
+{{if .ThirdPartyServices}}
+<section>
+<h2>{{t $lang "privacy.third_party_services"}}</h2>
+<table class="table-wrapper">
+<thead><tr><th>{{t $lang "privacy.service"}}</th><th>{{t $lang "privacy.purpose"}}</th><th>{{t $lang "privacy.data_sent"}}</th></tr></thead>
+<tbody>
+{{range .ThirdPartyServices}}
+<tr><td>{{.Name}}</td><td>{{.Purpose}}</td><td>{{.DataSent}}</td></tr>
+{{end}}
+</tbody>
+</table>
+</section>
+{{end}}
+
+<section>
+<h2>{{t $lang "privacy.data_retention"}}</h2>
+<p>{{.RetentionPeriod}}</p>
+</section>
+{{end}}
+</article>
+{{end}}

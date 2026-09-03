@@ -1,0 +1,21 @@
+Subject: SSL Renewal Failed - {app_name}
+---
+SSL RENEWAL FAILED
+
+From: {app_name} ({fqdn})
+Time: {timestamp}
+
+Renewing the TLS certificate for {fqdn} failed. If it is not renewed
+before it expires, clients will stop trusting this server.
+
+Error: {error}
+Expires in: {expires_in} days
+Expiry date: {expiry_date}
+Next retry: {next_retry}
+
+You are receiving this because ssl_renewal_failed email notifications are
+enabled in server.notifications.email.events.
+
+--
+{app_name}
+{app_url}

@@ -1,0 +1,66 @@
+# shortner - automated testing compose (ephemeral cache, debug enabled)
+# MUST be copied to a temp directory before use - NEVER run from the project directory
+
+name: shortner-test
+
+x-logging: &default-logging
+  options:
+    max-size: '5m'
+    max-file: '1'
+  driver: json-file
+
+services:
+  shortner:
+    image: ghcr.io/apimgr/shortner:devel
+    pull_policy: always
+    container_name: shortner-test
+    hostname: shortner
+    restart: 'no'
+    logging: *default-logging
+    environment:
+      PORT: 80
+      DEBUG: true
+      MODE: development
+      TZ: America/New_York
+      CACHE_URL: valkey://shortner-cache-test:6379
+    volumes:
+      # CRITICAL: ./volumes/ must resolve to $TEMP_DIR/volumes/, NOT project directory
+      # This file MUST be copied to a temp directory before running
+      # AI: NEVER run this from the project directory
+      - './volumes/config:/config:z'
+      - './volumes/data:/data:z'
+    ports:
+      - '172.17.0.1:64581:80'
+    healthcheck:
+      test: ['CMD', '/usr/local/bin/shortner', '--status']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    depends_on:
+      shortner-cache-test:
+        condition: service_healthy
+    networks:
+      - shortner-test
+
+  shortner-cache-test:
+    image: valkey/valkey:alpine
+    pull_policy: always
+    container_name: shortner-cache-test
+    restart: 'no'
+    logging: *default-logging
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ['CMD-SHELL', 'valkey-cli ping || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - shortner-test
+
+networks:
+  shortner-test:
+    name: shortner-test
+    external: false

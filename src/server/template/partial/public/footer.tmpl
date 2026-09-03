@@ -1,0 +1,45 @@
+{{define "footer"}}<footer class="site-footer" role="contentinfo">
+<div class="container">
+{{if .Base.FooterCustomHTML}}
+<div class="footer-custom">{{.Base.FooterCustomHTML}}</div>
+{{end}}
+{{if .Base.TorOnionAddress}}
+<p class="footer-onion">
+<a href="/server/help#tor-access" aria-label="{{t .Base.Lang "footer.tor_support"}}">&#129483;</a>
+<code class="onion-address long-string monospace-data">{{.Base.TorOnionAddress}}</code>
+<button type="button" class="copy-btn" data-copy="{{.Base.TorOnionAddress}}" aria-label="{{t .Base.Lang "footer.copy_onion_address"}}"><span aria-hidden="true">&#128203;</span></button>
+</p>
+{{end}}
+{{if .Base.I2PAddress}}
+<p class="footer-i2p">
+<a href="/server/help#i2p-access" aria-label="{{t .Base.Lang "footer.i2p_support"}}">&#127760;</a>
+<code class="i2p-address long-string monospace-data">{{.Base.I2PAddress}}</code>
+<button type="button" class="copy-btn" data-copy="{{.Base.I2PAddress}}" aria-label="{{t .Base.Lang "footer.copy_i2p_address"}}"><span aria-hidden="true">&#128203;</span></button>
+</p>
+{{end}}
+<p class="footer-links">
+<a href="/server/about">{{t .Base.Lang "nav.about"}}</a>
+<span aria-hidden="true">&middot;</span>
+<a href="/server/privacy">{{t .Base.Lang "nav.privacy"}}</a>
+<span aria-hidden="true">&middot;</span>
+<a href="/server/terms">{{t .Base.Lang "nav.terms"}}</a>
+<span aria-hidden="true">&middot;</span>
+<a href="/server/contact">{{t .Base.Lang "nav.contact"}}</a>
+<span aria-hidden="true">&middot;</span>
+<a href="/server/help">{{t .Base.Lang "nav.help"}}</a>
+<span aria-hidden="true">&middot;</span>
+<a href="/server/privacy#cookies" data-action="open-consent-preferences">{{t .Base.Lang "footer.cookie_preferences"}}</a>
+</p>
+<p class="footer-branding">
+{{tf .Base.Lang "footer.copyright" "year" .Base.CurrentYear "org" .Base.ProjectOrg}}
+<span aria-hidden="true">&middot;</span>
+<a href="{{.Base.RepoURL}}" target="_blank" rel="noopener">{{t .Base.Lang "common.made_with"}}<span class="sr-only"> ({{t .Base.Lang "a11y.external_link"}})</span></a> &#10084;&#65039;
+<span aria-hidden="true">&middot;</span>
+<span>{{.Base.SiteName}} v{{.Base.ProjectVersion}}</span>
+</p>
+<p class="footer-build">
+<a href="/server/healthz">{{tf .Base.Lang "common.last_updated" "datetime" .Base.BuildDateTime}}</a>
+</p>
+</div>
+</footer>
+{{end}}

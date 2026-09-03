@@ -1,0 +1,16 @@
+{{define "content"}}{{$lang := .Base.Lang}}<article class="dpo-page">
+<h1>{{t $lang "dpo.title"}}</h1>
+
+<p>{{tf $lang "dpo.intro" "site" .Base.SiteName}}</p>
+
+<dl class="dpo-details">
+{{if .Name}}<dt>{{t $lang "dpo.name"}}</dt><dd>{{.Name}}</dd>{{end}}
+{{if .Email}}<dt>{{t $lang "dpo.email"}}</dt><dd><a href="mailto:{{.Email}}">{{.Email}}</a></dd>{{end}}
+{{if .Address}}<dt>{{t $lang "dpo.postal_address"}}</dt><dd>{{.Address}}</dd>{{end}}
+</dl>
+
+<p>{{t $lang "dpo.see_privacy_before"}}
+<a href="/server/privacy">{{t $lang "dpo.privacy_policy_link"}}</a>
+{{t $lang "dpo.see_privacy_after"}}</p>
+</article>
+{{end}}

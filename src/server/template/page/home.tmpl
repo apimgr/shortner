@@ -1,0 +1,44 @@
+{{define "content"}}<section class="home-hero">
+<img src="/favicon.ico" alt="" class="home-logo" width="96" height="96">
+<h1>{{.Base.SiteName}}</h1>
+<p class="tagline">{{.Base.Tagline}}</p>
+
+{{if .Link}}
+<div class="create-link-card success-card">
+<h2 class="text-success">{{t .Base.Lang "home.success"}}</h2>
+<div class="result-row">
+<span class="result-label">{{t .Base.Lang "home.your_short_url"}}</span>
+<div class="long-string monospace-data">
+<a href="{{.Link.ShortURL}}">{{.Link.ShortURL}}</a>
+<button type="button" class="copy-btn" data-copy="{{.Link.ShortURL}}" aria-label="{{t .Base.Lang "home.copy_short_url"}}">
+<span aria-hidden="true">&#128203;</span>
+</button>
+</div>
+</div>
+{{if .Link.OwnerToken}}
+<div class="result-row">
+<span class="result-label">{{t .Base.Lang "home.owner_token_label"}}</span>
+<div class="long-string monospace-data api-token">{{.Link.OwnerToken}}</div>
+</div>
+{{end}}
+<a href="/" class="btn btn-secondary">{{t .Base.Lang "home.create_another"}}</a>
+</div>
+{{else}}
+<form method="POST" action="/" class="create-link-card" data-action="create-link-form" novalidate>
+<input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
+{{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
+<div class="form-group">
+<label for="url">{{t .Base.Lang "home.url_label"}} <span class="form-required">{{t .Base.Lang "form.required_field"}}</span></label>
+<input type="url" id="url" name="url" required aria-required="true" placeholder="{{t .Base.Lang "home.url_placeholder"}}" value="{{.Destination}}" class="input-field" aria-describedby="url-help">
+<p id="url-help" class="field-help">{{t .Base.Lang "home.url_hint"}}</p>
+</div>
+<div class="form-group">
+<label for="slug">{{t .Base.Lang "home.slug_label"}}</label>
+<input type="text" id="slug" name="slug" pattern="[A-Za-z0-9-]{3,20}" minlength="3" maxlength="20" placeholder="{{t .Base.Lang "home.slug_placeholder"}}" value="{{.CustomSlug}}" class="input-field" aria-describedby="slug-help">
+<p id="slug-help" class="field-help">{{t .Base.Lang "home.slug_hint"}}</p>
+</div>
+<button type="submit" class="btn btn-primary">{{t .Base.Lang "home.submit"}}</button>
+</form>
+{{end}}
+</section>
+{{end}}

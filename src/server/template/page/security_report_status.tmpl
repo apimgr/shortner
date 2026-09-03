@@ -1,0 +1,28 @@
+{{define "content"}}{{$lang := .Base.Lang}}<article class="security-report-status-page">
+<h1>{{t $lang "security.report_status_title"}}</h1>
+
+<p>{{t $lang "security.report_status_intro"}}</p>
+
+<dl class="security-report-status">
+<dt>{{t $lang "security.report_tracking_id"}}</dt><dd><code>{{.TrackingID}}</code></dd>
+<dt>{{t $lang "security.report_state"}}</dt><dd>{{.StatusLabel}}</dd>
+<dt>{{t $lang "security.report_severity"}}</dt><dd>{{.Severity}}</dd>
+<dt>{{t $lang "security.report_component"}}</dt><dd>{{.Component}}</dd>
+<dt>{{t $lang "security.report_received"}}</dt><dd>{{.ReceivedAt}}</dd>
+{{if .DisclosureAt}}<dt>{{t $lang "security.report_disclosure_date"}}</dt><dd>{{.DisclosureAt}}</dd>{{end}}
+</dl>
+
+<h2>{{t $lang "security.report_comments"}}</h2>
+{{if .Comments}}
+{{range .Comments}}<p>{{.}}</p>
+{{end}}
+{{else}}
+<p>{{t $lang "security.report_no_comments"}}</p>
+{{end}}
+
+<p>{{t $lang "security.report_status_once_per_day"}}</p>
+
+<p><a href="{{.PolicyURL}}">{{t $lang "security.disclosure_policy_title"}}</a></p>
+<p><a href="/server/security">{{t $lang "security.back_to_security"}}</a></p>
+</article>
+{{end}}

@@ -1,0 +1,33 @@
+{{define "content"}}{{$lang := .Base.Lang}}<article class="terms-page">
+<h1>{{t $lang "terms.title"}}</h1>
+
+{{if .Content}}
+<div class="terms-custom">{{.Content}}</div>
+{{else}}
+<section>
+<h2>{{t $lang "terms.acceptance_title"}}</h2>
+<p>{{tf $lang "terms.acceptance_body" "site" .Base.SiteName}}</p>
+</section>
+
+<section>
+<h2>{{t $lang "terms.acceptable_use"}}</h2>
+<p>{{t $lang "terms.acceptable_use_body"}}</p>
+</section>
+
+<section>
+<h2>{{t $lang "terms.liability_title"}}</h2>
+<p>{{t $lang "terms.liability_body"}}</p>
+</section>
+
+<section>
+<h2>{{t $lang "terms.changes_title"}}</h2>
+<p>{{t $lang "terms.changes_body"}}</p>
+</section>
+
+<section>
+<h2>{{t $lang "terms.governing_law"}}</h2>
+<p>{{t $lang "terms.governing_law_body"}}</p>
+</section>
+{{end}}
+</article>
+{{end}}

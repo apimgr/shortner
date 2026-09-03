@@ -1,0 +1,23 @@
+{{define "cookie-consent"}}{{if not .Base.HasConsentCookie}}<div id="cookie-consent" class="cookie-banner" role="region" aria-label="{{t .Base.Lang "cookie_consent.label"}}" data-sold="{{.Base.CCPAEnabled}}">
+<div class="cookie-banner-content">
+<span class="cookie-message">
+{{.Base.ConsentMessage}}
+{{if .Base.ConsentPolicyURL}}- <a href="{{.Base.ConsentPolicyURL}}" class="policy-link">{{.Base.ConsentPolicyText}}</a>{{end}}
+{{if .Base.CCPAEnabled}}- <a href="/server/ccpa" class="policy-link">{{t .Base.Lang "ccpa.do_not_sell"}}</a>{{end}}
+</span>
+<div class="cookie-buttons">
+<button type="button" class="btn-preferences" data-action="open-consent-preferences">{{.Base.ConsentPreferencesText}}</button>
+<form method="POST" action="/server/consent">
+<input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
+<input type="hidden" name="decision" value="decline">
+<button type="submit" class="btn-decline">{{.Base.ConsentDeclineLabel}}</button>
+</form>
+<form method="POST" action="/server/consent">
+<input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
+<input type="hidden" name="decision" value="accept">
+<button type="submit" class="btn-accept">{{.Base.ConsentAcceptLabel}}</button>
+</form>
+</div>
+</div>
+</div>
+{{end}}{{end}}
