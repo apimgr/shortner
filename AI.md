@@ -42599,6 +42599,7 @@ No impact on binary size - Tor is external. Application binary remains small and
 | Tor config file | `{config_dir}/tor/torrc` | Server generates with 0600 |
 | Tor data directory | `{data_dir}/tor/` | Server creates with 0700 |
 | Hidden service keys | `{data_dir}/tor/site/` | Server creates with 0700 |
+| Vanity candidate keys | `{data_dir}/tor/vanity/{address}/` | Server creates with 0700 (see "Vanity Onion Address Search") |
 | Tor process PID | `{data_dir}/tor/tor.pid` | |
 | Tor log file | `{log_dir}/tor.log` | |
 
@@ -42753,6 +42754,7 @@ func ensureTorFile(path string, content []byte) error {
 | Restart Tor | `{project_name} tor restart` |
 | Regenerate .onion address | `{project_name} tor regenerate` |
 | Start vanity address search | `{project_name} tor vanity start` |
+| Cancel vanity address search | `{project_name} tor vanity stop` |
 | Apply vanity address | `{project_name} tor vanity apply` |
 | Import existing keys | `{project_name} tor import-keys <path>` |
 
@@ -42765,13 +42767,52 @@ func ensureTorFile(path string, content []byte) error {
 | `/server/tor/restart` | POST | Loopback source only | INTERNAL |
 | `/server/tor/regenerate` | POST | Loopback source only | INTERNAL |
 | `/server/tor/vanity/start` | POST | Loopback source only | INTERNAL |
+| `/server/tor/vanity/stop` | POST | Loopback source only | INTERNAL |
 | `/server/tor/vanity/apply` | POST | Loopback source only | INTERNAL |
 | `/server/tor/import-keys` | POST | Loopback source only | INTERNAL |
 
 - **"No REST API for Tor configuration" means no *public* REST API** — nothing under `/server/tor/*` is documented, versioned, advertised in `FeaturesInfo`, or reachable through `/api/{api_version}/**`. It is exactly as internal as `/server/metrics`, just without the bearer-token requirement (Tor control has no legitimate remote caller — the CLI always runs on the same host as the server).
 - **Loopback-gated, not public-gated**: handlers only accept requests whose immediate TCP peer is `127.0.0.1`/`::1` — same "trusted" address set as PART 12 → "Trusted Proxies". A request arriving from any other address is rejected (404, not 403 — the endpoint must not be discoverable).
 - **CLI resolution of the server's port**: identical to how `--status` locates the running server (PID file under `{data_dir}` + the configured bind port from `server.yml`/env) — no new discovery mechanism is introduced.
-- **No running server**: `tor restart`/`regenerate`/`vanity start`/`vanity apply`/`import-keys` all require a live server (they mutate a process Tor owns); if no server is detected, exit 1 with `Error: no running server detected — start the server first`. `tor status`/`tor validate` MAY fall back to reading on-disk state (`{data_dir}/tor/site/hostname`, `{config_dir}/tor/torrc`) directly when no server is running, since those two are read-only.
+- **No running server**: `tor restart`/`regenerate`/`vanity start`/`vanity stop`/`vanity apply`/`import-keys` all require a live server (they mutate a process Tor owns); if no server is detected, exit 1 with `Error: no running server detected — start the server first`. `tor status`/`tor validate` MAY fall back to reading on-disk state (`{data_dir}/tor/site/hostname`, `{config_dir}/tor/torrc`) directly when no server is running, since those two are read-only.
+
+### Vanity Onion Address Search
+
+`tor vanity start` brute-forces v3 onion keypairs in-process until one derives an address beginning with the requested prefix — the same approach as `mkp224o`, with no external tool dependency: each worker generates a random ed25519 keypair, derives the v3 onion address per rend-spec-v3 (`base32(pubkey ‖ checksum ‖ 0x03)` where `checksum = SHA3-256(".onion checksum" ‖ pubkey ‖ 0x03)[0:2]`), compares the prefix, and repeats until a worker finds a match. A vanity key is an ordinary random ed25519 keypair merely *selected* by its address — the search does not weaken key security.
+
+**Parameters** — CLI flags on `tor vanity start`, identical names as JSON fields in the `/server/tor/vanity/start` POST body:
+
+| Parameter | Default | Rules |
+|-----------|--------|-------|
+| `prefix` | required | 1–6 chars, base32 charset `a-z2-7` only (`0`, `1`, `8`, `9`, and uppercase cannot appear in an onion address); an invalid or too-long prefix is rejected with a clear error before any worker starts |
+| `workers` | logical CPUs − 1 (min 1) | 1 to logical CPUs; the default leaves one core free for serving traffic |
+
+- **One search at a time** — starting while another search is running fails (CLI: exit 1 with the running search's prefix; endpoint: 409)
+- **7+ characters are external-only** — expected work scales as 32^len (1–4 chars: seconds–minutes · 5: minutes–hours · 6: hours–days on CPU), so the built-in search refuses prefixes over 6 chars and tells the operator to generate with an external GPU-capable tool (e.g. `mkp224o`) and bring the keys in via `tor import-keys`
+- The search runs as a background job inside the server process; the current .onion address stays live and untouched while it runs. A running search does NOT survive a server restart; found candidates on disk do
+- `tor vanity stop` cancels the running search (no-op message if none is running); candidates already written to disk are kept
+- **Progress**: `tor status` (and `/server/tor/status`) includes the search whenever one is running or a candidate is waiting — `state` (`idle`/`running`/`found`), `prefix`, `workers`, total `attempts`, `rate` (attempts/sec), `elapsed_seconds`, and `candidates` (found addresses). Attempt counts are approximate (per-worker counters, sampled)
+
+**Storage — candidate keys:**
+
+| Data | Location | Permissions |
+|------|----------|-------------|
+| Candidate directory | `{data_dir}/tor/vanity/{address}/` | `0700`, written atomically (temp dir + rename) |
+| Secret key | `{data_dir}/tor/vanity/{address}/hs_ed25519_secret_key` | `0600` |
+| Public key | `{data_dir}/tor/vanity/{address}/hs_ed25519_public_key` | `0600` |
+| Hostname | `{data_dir}/tor/vanity/{address}/hostname` | `0600` |
+
+Files are written in Tor's own on-disk formats (the secret key as the 64-byte expanded key behind the `== ed25519v1-secret: type0 ==` header) — byte-for-byte the same layout Tor persists in `{data_dir}/tor/site/` and the same layout `mkp224o` emits, so a found candidate dir, an external `mkp224o` output dir, and the live site dir are interchangeable. The search never writes into `{data_dir}/tor/site/`, and secret key material is never logged — only the found address is.
+
+**Handoff — `tor vanity apply <address>`.** The candidate directory IS the handoff format; apply is a file swap, never a re-derivation:
+
+1. Resolve the argument against `{data_dir}/tor/vanity/` — a unique prefix of one candidate is accepted; with exactly one candidate on disk the argument MAY be omitted; zero or ambiguous matches exit 1 listing the candidates
+2. Confirm — same destructive-action confirmation as `tor regenerate` (the current address stops working permanently)
+3. Stop Tor (per Tor Restart Triggers), delete the old keys in `{data_dir}/tor/site/`, move the candidate's three files in
+4. Start Tor and verify the published hostname equals the candidate address — on mismatch, fail loudly (exit 1, ERROR log) rather than silently serving an unexpected address
+5. Remove the now-empty candidate directory; any other candidates are kept
+
+`tor import-keys <path>` reuses exactly this swap path — an imported key directory is treated like a found candidate.
 
 ## Behavior
 
