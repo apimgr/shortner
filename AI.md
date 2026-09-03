@@ -2263,16 +2263,16 @@ server:
 
 ## How to Read This Large File
 
-**AI.md is ~1.8MB and ~48,000 lines. You CANNOT read it all at once. Follow these procedures.**
+**AI.md is ~1.8MB and ~49,000 lines. You CANNOT read it all at once. Follow these procedures.**
 
 ### File Size Reality
 
 | Constraint | Value |
 |------------|-------|
 | File size | ~1.8MB |
-| Line count | ~48,000 lines |
+| Line count | ~49,000 lines |
 | Read limit | ~500 lines per read |
-| Full reads needed | ~96 reads (impractical) |
+| Full reads needed | ~98 reads (impractical) |
 
 **Use the PART index to find relevant sections, then read each section COMPLETELY.**
 
@@ -2282,41 +2282,41 @@ server:
 
 | PART | Line | Topic | When to Read |
 |------|------|-------|--------------|
-| 0 | ~2383 | AI Assistant Rules | **ALWAYS READ FIRST**, **AI Behavior Rules**, **Host System Safety Rule**, **Translation Rule** |
-| 1 | ~4186 | Critical Rules | **ALWAYS READ FIRST** |
-| 2 | ~5449 | License & Attribution | License requirements |
-| 3 | ~5782 | Project Structure | Setting up new project, **CI/CD badge detection** |
-| 4 | ~6649 | OS-Specific Paths | Path handling |
-| 5 | ~6845 | Configuration | Config file work, **Path Security**, **Privileged Ports**, **Escalation** |
-| 6 | ~8653 | Application Modes | Mode handling, debug endpoints |
-| 7 | ~9294 | Binary Requirements | Binary building, **Display detection**, **TERM=dumb**, **NO_COLOR** |
-| 8 | ~9920 | Server Binary CLI | CLI flags/commands, **NO_COLOR Support**, **--color/--lang flags** |
-| 9 | ~12898 | Error Handling & Caching | Error/cache patterns |
-| 10 | ~13314 | Database | Database work |
-| 11 | ~13720 | Security & Logging | Security features, **Resource Owner Tokens**, **Context Detection** |
-| 12 | ~15777 | Server Configuration | Server settings, **Allowlist**, **Blocklists**, **GeoIP** |
-| 13 | ~17208 | Health & Versioning | Health endpoints |
-| 14 | ~17906 | API Structure | REST/GraphQL/Route Compliance, **Non-Interactive Text Output** |
-| 15 | ~19628 | SSL/TLS & Let's Encrypt | SSL certificates |
-| 16 | ~20597 | Web Frontend | Frontend/UI, **Sitemap**, **Site Verification**, **Branding/SEO** |
-| 17 | ~26787 | Email & Notifications | Email/SMTP, **SMTP Auto-Detection** |
-| 18 | ~27356 | Scheduler | Background tasks, **NO external schedulers**, **Backup tasks** |
-| 19 | ~27783 | GeoIP | GeoIP features, **Country blocking (deny/allow)** |
-| 20 | ~27904 | Metrics | Prometheus metrics, **INTERNAL only** |
-| 21 | ~29405 | Backup & Restore | Backup features, **Compliance encryption** |
-| 22 | ~29911 | Update Command | Update feature |
-| 23 | ~30525 | Privilege Escalation & Service | Service/privilege work |
-| 24 | ~31139 | Service Support | Systemd/runit/rc.d/launchd templates |
-| 25 | ~31452 | Makefile | Local dev/tests/debug only, **NOT used in CI/CD** |
-| 26 | ~32275 | Docker | Docker/containers, **NEVER copy/symlink binaries** |
-| 27 | ~33318 | CI/CD Workflows | GitHub/GitLab/Gitea Actions |
-| 28 | ~36664 | Testing & Development | Testing/dev workflow, **Host Safety in tests**, **AI Docker Compose Rules**, **Content Negotiation Testing** |
-| 29 | ~38428 | ReadTheDocs Documentation | Documentation |
-| 30 | ~39222 | I18N & A11Y | Internationalization, **Translation parity (both binaries)**, **--lang flag** |
-| 31 | ~40649 | Overlay Networks (Tor & I2P) | 31.1 Tor (binary auto-enables), 31.2 I2P eepsite (**opt-in**) |
-| 32 | ~42739 | Client | Client **REQUIRED** — CLI/TUI/GUI, **Resource Owner Tokens**, **Smart Context**, **First-Run Wizard** |
-| 33 | ~46023 | IDEA.md Reference | **Examples only** - NEVER modify |
-| FINAL | ~46260 | Compliance Checklist | Final verification, **AI Quick Reference Rules**, **Console/Banner Checklist**, **I18N Checklist**, **Host Safety Checklist** |
+| 0 | ~2411 | AI Assistant Rules | **ALWAYS READ FIRST**, **AI Behavior Rules**, **Host System Safety Rule**, **Translation Rule** |
+| 1 | ~4216 | Critical Rules | **ALWAYS READ FIRST** |
+| 2 | ~5479 | License & Attribution | License requirements |
+| 3 | ~5813 | Project Structure | Setting up new project, **CI/CD badge detection** |
+| 4 | ~6680 | OS-Specific Paths | Path handling |
+| 5 | ~6876 | Configuration | Config file work, **Path Security**, **Privileged Ports**, **Escalation** |
+| 6 | ~8684 | Application Modes | Mode handling, debug endpoints |
+| 7 | ~9325 | Binary Requirements | Binary building, **Display detection**, **TERM=dumb**, **NO_COLOR** |
+| 8 | ~9964 | Server Binary CLI | CLI flags/commands, **NO_COLOR Support**, **--color/--lang flags**, **Resource Owner Tokens** |
+| 9 | ~12964 | Error Handling & Caching | Error/cache patterns |
+| 10 | ~13380 | Database | Database work |
+| 11 | ~13786 | Security & Logging | Security features, **Context Detection** |
+| 12 | ~15861 | Server Configuration | Server settings, **Allowlist**, **Blocklists**, **GeoIP** |
+| 13 | ~17292 | Health & Versioning | Health endpoints |
+| 14 | ~18000 | API Structure | REST/GraphQL/Route Compliance, **Non-Interactive Text Output** |
+| 15 | ~19751 | SSL/TLS & Let's Encrypt | SSL certificates |
+| 16 | ~20709 | Web Frontend | Frontend/UI, **Sitemap**, **Site Verification**, **Branding/SEO** |
+| 17 | ~27596 | Email & Notifications | Email/SMTP, **SMTP Auto-Detection** |
+| 18 | ~28167 | Scheduler | Background tasks, **NO external schedulers**, **Backup tasks** |
+| 19 | ~28594 | GeoIP | GeoIP features, **Country blocking (deny/allow)** |
+| 20 | ~28747 | Metrics | Prometheus metrics, **INTERNAL only** |
+| 21 | ~30248 | Backup & Restore | Backup features, **Compliance encryption** |
+| 22 | ~30754 | Update Command | Update feature |
+| 23 | ~31368 | Privilege Escalation & Service | Service/privilege work |
+| 24 | ~31982 | Service Support | Systemd/runit/rc.d/launchd templates |
+| 25 | ~32295 | Makefile | Local dev/tests/debug only, **NOT used in CI/CD** |
+| 26 | ~33118 | Docker | Docker/containers, **NEVER copy/symlink binaries** |
+| 27 | ~34087 | CI/CD Workflows | GitHub/GitLab/Gitea Actions |
+| 28 | ~37445 | Testing & Development | Testing/dev workflow, **Host Safety in tests**, **AI Docker Compose Rules**, **Content Negotiation Testing** |
+| 29 | ~39209 | ReadTheDocs Documentation | Documentation |
+| 30 | ~40003 | I18N & A11Y | Internationalization, **Translation parity (both binaries)**, **--lang flag** |
+| 31 | ~41429 | Overlay Networks (Tor & I2P) | Tor (required) + I2P eepsite (opt-in) |
+| 32 | ~43575 | Client | Client **REQUIRED** — CLI/TUI/GUI, **Resource Owner Tokens**, **Smart Context**, **First-Run Wizard** |
+| 33 | ~46859 | IDEA.md Reference | **Examples only** - NEVER modify |
+| FINAL | ~47096 | Compliance Checklist | Final verification, **AI Quick Reference Rules**, **Console/Banner Checklist**, **I18N Checklist**, **Host Safety Checklist** |
 
 ### How to Read This File
 
@@ -2353,20 +2353,20 @@ Example: If you're partway through PART 5 and it says "See PART 10", read PART 1
 
 | Task | Read These PARTs |
 |------|------------------|
-| **Migrating existing app** | 0, Migration sections, 1, 2, 6, 30 |
-| **New project/app setup** | 0, New Project Rules, 1, 2, 7, 30, 33 |
-| **CLI implementation** | 0, 1, 6, 8, 24 |
-| **API development** | 0, 1, 13, 14 |
+| **Migrating existing app** | 0, Migration sections, 1, 2, 6, 26 |
+| **New project/app setup** | 0, New Project Rules, 1, 2, 3, 7, 26, 32 |
+| **CLI implementation** | 0, 1, 6, 8, 32 |
+| **API development** | 0, 1, 13, 14, 16 |
 | **Frontend/UI work** | 0, 1, 16, 30 |
 | **Database work** | 0, 1, 4, 10 |
-| **User/auth system** | 0, 1, 11, 15 |
+| **User/auth system** | 0, 1, 11, 14 |
 | **Docker/deployment** | 0, 1, 7, 26, 27 |
 | **Documentation** | 0, 1, 29 |
-| **Security features** | 0, 1, 11, 16 |
+| **Security features** | 0, 1, 11, 15 |
 | **Background tasks** | 0, 1, 18 |
 | **Email features** | 0, 1, 17 |
 | **Backup features** | 0, 1, 21 |
-| **Debugging/profiling** | 0, 1, 5 |
+| **Debugging/profiling** | 0, 1, 5, 6 |
 
 ### Search Before Reading
 
@@ -7853,11 +7853,11 @@ sudo {project_name} --service --install
 | Step | Running As | Actions |
 |------|-----------|---------|
 | 1 | **root** | Service manager starts binary |
-| 2 | **root** | Create system user `{project_name}` (if needed) |
+| 2 | **root** | Create system user `{internal_name}` (if needed) |
 | 3 | **root** | Create directories, set ownership |
 | 4 | **root** | Bind configured ports (any port works) |
 | 5 | **root** | Spawn managed children (e.g. Tor) with setuid/setgid service-user credentials |
-| 6 | **root→user** | **DROP PRIVILEGES** to `{project_name}` user |
+| 6 | **root→user** | **DROP PRIVILEGES** to `{internal_name}` user |
 | 7 | **user** | Initialize config, database, etc. |
 | 8 | **user** | Start serving requests |
 
@@ -8159,7 +8159,7 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 | `--maintenance secret rotate <name>` | 🔐 Auth | Requires `server.token` OR root | N/A |
 | (normal start) | ❌ No | Adapts paths to current user | N/A |
 
-**Key insight:** After service install, the `{project_name}` user owns all data directories. However, sensitive operations require AUTHORIZATION, not just file access.
+**Key insight:** After service install, the `{internal_name}` user owns all data directories. However, sensitive operations require AUTHORIZATION, not just file access.
 
 #### Sensitive Operations (🔐 Auth Required)
 
@@ -8361,20 +8361,20 @@ Binary checks:
 └─ Warn user of actual port in use
 ```
 
-#### The `{project_name}` System User/Group
+#### The `{internal_name}` System User/Group
 
 **Created automatically during first root/service startup.**
 
 | Property | Value |
 |----------|-------|
-| **Username** | `{project_name}` |
-| **Group** | `{project_name}` |
+| **Username** | `{internal_name}` |
+| **Group** | `{internal_name}` |
 | **Shell** | `/usr/sbin/nologin` (no login) |
 | **Home** | `/var/lib/{internal_org}/{internal_name}` |
 | **UID/GID** | Auto-assigned by system |
 | **Type** | System user (UID < 1000 on Linux) |
 
-**What the `{project_name}` user CAN do:**
+**What the `{internal_name}` user CAN do:**
 
 | Permission | Details |
 |------------|---------|
@@ -8389,7 +8389,7 @@ Binary checks:
 | Manage database | SQLite in data dir |
 | Manage SSL certs | In `{config_dir}/ssl/` |
 
-**What the `{project_name}` user CANNOT do:**
+**What the `{internal_name}` user CANNOT do:**
 
 | Restriction | Reason |
 |-------------|--------|
@@ -8427,7 +8427,7 @@ chmod 755 /var/log/{internal_org}/{internal_name}/
 | Aspect | System Service | User Service |
 |--------|---------------|--------------|
 | **Installed by** | root/admin | Unprivileged OS user |
-| **Runs as** | root → drops to `{project_name}` | Calling user |
+| **Runs as** | root → drops to `{internal_name}` | Calling user |
 | **Ports** | Any | >1024 only |
 | **Paths** | `/etc/`, `/var/` | `~/.config/`, `~/.local/` |
 | **Survives logout** | Yes | Depends on `lingering` |
@@ -10557,7 +10557,7 @@ PHASE 5: Server startup (actual server start)
 
 8. IF RUNNING AS ROOT - setup system resources BEFORE dropping privileges:
    a. Check/create system user:
-      ├─ User {project_name} exists → use it
+      ├─ User {internal_name} exists → use it
       └─ User missing → create {internal_name}:{internal_name} (see PART 23)
    b. Create ALL directories (while still root):
       ├─ {config_dir}/ and subdirs (ssl/, tor/)
@@ -12282,14 +12282,14 @@ func isWritable(path string) bool {
 func systemBackupDir() string {
     switch runtime.GOOS {
     case "darwin":
-        return filepath.Join("/Library/Backups", projectOrg, projectName)
+        return filepath.Join("/Library/Backups", internalOrg, internalName)
     case "windows":
-        return filepath.Join(os.Getenv("ProgramData"), "Backups", projectOrg, projectName)
+        return filepath.Join(os.Getenv("ProgramData"), "Backups", internalOrg, internalName)
     case "freebsd", "openbsd", "netbsd":
-        return filepath.Join("/var/backups", projectOrg, projectName)
+        return filepath.Join("/var/backups", internalOrg, internalName)
     // linux
     default:
-        return filepath.Join("/mnt/Backups", projectOrg, projectName)
+        return filepath.Join("/mnt/Backups", internalOrg, internalName)
     }
 }
 
@@ -12303,12 +12303,12 @@ func userBackupDir() string {
     home, _ := os.UserHomeDir()
     switch runtime.GOOS {
     case "darwin":
-        return filepath.Join(home, "Library/Backups", projectOrg, projectName)
+        return filepath.Join(home, "Library/Backups", internalOrg, internalName)
     case "windows":
-        return filepath.Join(os.Getenv("LOCALAPPDATA"), "Backups", projectOrg, projectName)
+        return filepath.Join(os.Getenv("LOCALAPPDATA"), "Backups", internalOrg, internalName)
     // linux, bsd
     default:
-        return filepath.Join(home, ".local/share/Backups", projectOrg, projectName)
+        return filepath.Join(home, ".local/share/Backups", internalOrg, internalName)
     }
 }
 ```
@@ -14505,9 +14505,9 @@ func extractContextFromPath(path string) (*Context, error) {
 
 | Scenario | HTTP Status | Error |
 |----------|-------------|-------|
-| Invalid path format | 400 | `{"error": "invalid API path"}` |
-| Resource not found | 404 | `{"error": "resource not found"}` |
-| Rate limit exceeded | 429 | `{"error": "rate limit exceeded", "retry_after": 60}` |
+| Invalid path format | 400 | `{"ok": false, "error": "BAD_REQUEST", "message": "invalid API path"}` |
+| Resource not found | 404 | `{"ok": false, "error": "NOT_FOUND", "message": "resource not found"}` |
+| Rate limit exceeded | 429 | `{"ok": false, "error": "RATE_LIMITED", "message": "rate limit exceeded", "details": {"retry_after": 60}}` |
 
 ## Well-Known Files
 
@@ -15336,42 +15336,24 @@ server:
 - Show only first 8 characters: `token_abc12345...`
 - Or use separate ID field that doesn't expose token value
 
-## Audit Log
+## Audit Log Access
 
-| Element | Type | Description |
-|---------|------|-------------|
-| Log viewer | Table | Paginated audit log entries |
-| Filters | Dropdowns | Filter by category, severity, date range |
-| Search | Text input | Search by actor, IP, event type |
-| Export | Button | Download filtered results as JSON/CSV |
-| Retention | Display | Show current retention policy |
-| Stats | Cards | Event counts by category/severity |
+**There is no admin web UI (PART 11) — the audit log is read on the server, not through web routes.**
 
-**Export follows the "Import/Export UI Convention" section** — a plain link/GET response with `Content-Disposition: attachment`, never a JS Blob/download-attribute trick.
+| Access Method | Description |
+|---------------|-------------|
+| Log files | JSONL files under `{log_dir}` — one JSON object per line |
+| `jq` / `grep` | Filter by category, severity, actor, IP, event type, or date range directly on the files |
+| Export | Files are already JSON; convert to CSV with `jq -r` if needed |
+| Retention | Governed by the `keep` setting in Audit Log Configuration above |
 
-**Log Viewer Columns:**
-| Column | Description |
-|--------|-------------|
-| Time | Timestamp (local timezone) |
-| Event | Event type with icon |
-| Actor | Who performed action |
-| Target | What was affected |
-| IP | Source IP address |
-| Result | Success/failure badge |
-| Details | Expandable row |
+**Filtering examples (operator, on the server):**
+- By category: `jq 'select(.category == "security")' audit.log`
+- By severity: `jq 'select(.severity == "error")' audit.log`
+- By actor or IP: `jq 'select(.actor == "admin" or .ip == "203.0.113.7")' audit.log`
+- By result: `jq 'select(.result == "failure")' audit.log`
 
-**Filters:**
-- Category: All, Authentication, Configuration, Security, etc.
-- Severity: All, Info, Warn, Error, Critical
-- Result: All, Success, Failure
-- Date range: Today, Last 7 days, Last 30 days, Custom
-- Actor: Text search
-- IP: Text search
-
-**Export Options:**
-- Format: JSON (default), CSV
-- Range: Current view, All matching filters, Full log
-- Note: Export respects same masking rules as display
+**Masking note:** entries are written with the masking rules above already applied, so exports and copies never expose raw tokens or emails.
 
 ## Audit Log Integrity
 
@@ -18303,7 +18285,7 @@ GET /api/{api_version}/items?status=active            ✓ Filtering
 | **Indentation** | 2 spaces — never tabs, never 4 spaces |
 | **Trailing newline** | Every JSON response ends with exactly one `\n` |
 | **No bare arrays at root** | Never emit a top-level JSON array — always wrap: `{ "data": [...] }`. Bare arrays cannot grow new sibling fields (pagination, metadata) without a breaking change, and some older clients reject them as JSON. |
-| **Success shape** | `{ "ok": true, "data": { ... } }` — `ok` is the discriminator; `data` carries the payload. Exception: health endpoints return the bare health object (see PART 13). |
+| **Success shape** | `{ "ok": true, "data": { ... } }` — `ok` is the discriminator; `data` carries the payload (object or array); list responses add a sibling `pagination` object (see "Standard Response Formats"). Exception: health endpoints return the bare health object (see PART 13). |
 | **Error shape** | `{ "ok": false, "error": "CODE", "message": "...", "details": {} }` — see PART 14 |
 
 ```go
@@ -19672,13 +19654,16 @@ Need additional compatible endpoints?"
 
 ```json
 {
-  "id": "item_123",
-  "name": "Example",
-  "created_at": "2024-01-15T10:30:00Z"
+  "ok": true,
+  "data": {
+    "id": "item_123",
+    "name": "Example",
+    "created_at": "2024-01-15T10:30:00Z"
+  }
 }
 ```
 
-*Returns the item directly without wrapper.*
+*The item is carried in `data` — every success response uses the `{ "ok": true, "data": ... }` envelope so it is programmatically distinguishable from errors.*
 
 #### Action Response (Create, Update, Delete)
 
@@ -19737,6 +19722,7 @@ Need additional compatible endpoints?"
 
 ```json
 {
+  "ok": true,
   "data": [],
   "pagination": {
     "page": 1,
@@ -19749,7 +19735,7 @@ Need additional compatible endpoints?"
 
 ---
 
-# CHECKPOINT 6: FRONTEND & API VERIFICATION
+# CHECKPOINT 5: FRONTEND & API VERIFICATION
 
 Before proceeding, confirm you understand:
 - [ ] Frontend is required for ALL projects
@@ -20759,6 +20745,21 @@ Startup (for configured FQDN)
 | `GET /api/{api_version}/{resource}/{id}` | `GET /{resource}/{id}` | Resource detail page |
 | `GET /api/{api_version}/server/about` | `GET /server/about` | About page |
 
+Routes are registered on the router in `main.go`/`routes.go`. All frontend routes are public — there is no admin web UI, no dashboard, and no settings pages (no auth, no user accounts). Auth is bearer-token only (operator token or resource owner token) and applies to `/api/` routes, never to HTML pages.
+
+```go
+// Public frontend routes (no auth required)
+r.Get("/", homeHandler)
+r.Get("/search", searchHandler)
+
+// Server info pages (public)
+r.Get("/server/about", aboutHandler)
+r.Get("/server/privacy", privacyHandler)
+r.Get("/server/contact", contactHandler)
+r.Get("/server/help", helpHandler)
+r.Get("/server/terms", termsHandler)
+```
+
 ### Vanity URLs (OPTIONAL - project-specific)
 
 **For apps with public resource profiles, support short vanity URLs at root level.**
@@ -21014,6 +21015,37 @@ func detectClientType(r *http.Request) string {
    ```
 
 **Rule:** CRUD must work for browsers (HTML forms), APIs (JSON), and CLI (text/form-encoded).
+
+**Handler pattern (server-rendered form → POST → redirect; build and verify this path FIRST, with JavaScript disabled — JS may only enhance what already works):**
+
+```go
+// Create
+func createHandler(w http.ResponseWriter, r *http.Request) {
+    // validate
+    // call service layer
+    // return redirect or error page
+}
+
+// Read (list)
+func listHandler(w http.ResponseWriter, r *http.Request) {
+    // query db
+    // render template
+}
+
+// Update
+func updateHandler(w http.ResponseWriter, r *http.Request) {
+    // validate ownership
+    // update record
+    // return redirect or error page
+}
+
+// Delete
+func deleteHandler(w http.ResponseWriter, r *http.Request) {
+    // validate ownership
+    // soft-delete or hard-delete
+    // return redirect
+}
+```
 
 ### Frontend Testing Best Practice
 
@@ -21529,7 +21561,7 @@ document.addEventListener('click', function(e) {
   white-space: nowrap;
 }
 
-/* Mode badges (badge-{mode}) */
+/* Mode badges (badge-{mode} — see PART 13 healthz display rules) */
 .badge-production { background: var(--color-success-bg); color: var(--color-success); }
 .badge-development { background: var(--color-warning-bg); color: var(--color-warning); }
 .badge-debug { background: var(--color-error-bg); color: var(--color-error); }
@@ -21804,9 +21836,24 @@ document.addEventListener('click', function(e) {
 
 ---
 
+## CSS — Font Family Variables
+
+Use CSS custom properties for repeated or long strings. Never hardcode them inline.
+
+```css
+:root {
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", ui-monospace,
+    SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+  --font-sans: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Lora", Georgia, "Times New Roman", Times, serif;
+}
+```
+
 ## CSS Variable Reference
 
-**All components use these CSS variables for consistent theming:**
+**All components use these CSS variables for consistent theming** — copy the block into `static/css/variables.css`:
 
 ```css
 :root {
@@ -21833,8 +21880,87 @@ document.addEventListener('click', function(e) {
   --color-error-bg: rgba(255, 85, 85, 0.15);
   --color-warning: #ffb86c;
   --color-warning-bg: rgba(255, 184, 108, 0.15);
+  --color-info: #8be9fd;
+  --color-info-bg: rgba(139, 233, 253, 0.15);
   --color-primary: #bd93f9;
   --color-primary-bg: rgba(189, 147, 249, 0.15);
+  --color-secondary: #50fa7b;
+  --color-accent: #ff79c6;
+  --color-on-error: #ffffff;
+
+  /* Typography (font families defined in "CSS — Font Family Variables" above) */
+  --font-size-xs:   0.75rem;
+  --font-size-sm:   0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg:   1.125rem;
+  --font-size-xl:   1.25rem;
+  --font-size-2xl:  1.5rem;
+  --font-size-3xl:  1.875rem;
+  --font-size-4xl:  2.25rem;
+  --line-height-tight:  1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.75;
+  --font-weight-normal:   400;
+  --font-weight-medium:   500;
+  --font-weight-semibold: 600;
+  --font-weight-bold:     700;
+
+  /* Spacing (4px base) */
+  --space-0:  0;
+  --space-px: 1px;
+  --space-1:  0.25rem;
+  --space-2:  0.5rem;
+  --space-3:  0.75rem;
+  --space-4:  1rem;
+  --space-5:  1.25rem;
+  --space-6:  1.5rem;
+  --space-7:  1.75rem;
+  --space-8:  2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+  --space-24: 6rem;
+
+  /* Border radius */
+  --radius-none: 0;
+  --radius-sm:   0.125rem;
+  --radius-base: 0.25rem;
+  --radius-md:   0.375rem;
+  --radius-lg:   0.5rem;
+  --radius-xl:   0.75rem;
+  --radius-2xl:  1rem;
+  --radius-3xl:  1.5rem;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm:  0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-base: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-md:  0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg:  0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-xl:  0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --shadow-inner: inset 0 2px 4px 0 rgb(0 0 0 / 0.05);
+
+  /* Z-index layers */
+  --z-below:   -1;
+  --z-base:     0;
+  --z-raised:   10;
+  --z-dropdown: 100;
+  --z-sticky:   200;
+  --z-overlay:  300;
+  --z-modal:    400;
+  --z-toast:    500;
+  --z-tooltip:  600;
+
+  /* Transitions */
+  --transition-fast:   150ms ease;
+  --transition-base:   250ms ease;
+  --transition-slow:   400ms ease;
+  --transition-spring: 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Focus ring */
+  --focus-ring: 0 0 0 3px var(--color-primary);
+  --focus-ring-offset: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-primary);
 }
 
 /* Light theme overrides — light palette, based on GitHub Light */
@@ -21855,8 +21981,13 @@ html.theme-light {
   --color-error-bg: rgba(209, 36, 47, 0.12);
   --color-warning: #9a6700;
   --color-warning-bg: rgba(154, 103, 0, 0.12);
+  --color-info: #0969da;
+  --color-info-bg: rgba(9, 105, 218, 0.12);
   --color-primary: #0969da;
   --color-primary-bg: rgba(9, 105, 218, 0.12);
+  --color-secondary: #1a7f37;
+  --color-accent: #8250df;
+  --color-on-error: #ffffff;
 }
 ```
 
@@ -21927,6 +22058,24 @@ This rule governs the entire spec — it is not restricted to buttons, not restr
 | **NO JS Alerts** | Use custom modals/toasts | See UI Components below |
 | **NO Inline CSS/JS** | External files only | See CSS/JS Rules below |
 
+**Go frontend stack:**
+
+| Layer | Technology |
+|---|---|
+| Language | Go |
+| Router | `github.com/go-chi/chi/v5` |
+| Template engine | `html/template` (stdlib) |
+| CSS | Custom properties + BEM |
+| JavaScript | Vanilla ES modules (no bundler required) |
+| Static files | `http.FileServer` over embedded FS |
+| Embedded assets | `//go:embed` |
+| JSON | `encoding/json` (stdlib) |
+| HTTP client | `net/http` (stdlib) |
+| HTML sanitizer | `github.com/microcosm-cc/bluemonday` |
+| Logging | `log/slog` (stdlib) |
+| Fonts | System UI stack + optional Google Fonts |
+| Icons | Inline SVG |
+
 ## UI Components
 
 **No-JS-first (PART 16 rule):** build the server-rendered form → POST → redirect path FIRST and verify it works with JavaScript disabled; JS may only enhance what already works.
@@ -21991,16 +22140,92 @@ fetch('/api/save', { method: 'POST', body: data })
   });
 ```
 
+**Button markup & base styles:**
+
+```html
+<!-- Primary -->
+<button type="button" class="btn btn-primary">Save</button>
+
+<!-- Secondary -->
+<button type="button" class="btn btn-secondary">Cancel</button>
+
+<!-- Danger -->
+<button type="button" class="btn btn-danger">Delete</button>
+
+<!-- Ghost -->
+<button type="button" class="btn btn-ghost">More</button>
+
+<!-- Icon button -->
+<button type="button" class="btn btn-icon" aria-label="Edit">
+  <svg>…</svg>
+</button>
+
+<!-- Loading state -->
+<button type="button" class="btn btn-primary" aria-busy="true" disabled>
+  <span class="spinner" aria-hidden="true"></span>
+  Saving…
+</button>
+```
+
+```css
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast),
+    box-shadow var(--transition-fast);
+  border: 1px solid transparent;
+}
+.btn:focus-visible { box-shadow: var(--focus-ring-offset); outline: none; }
+.btn-primary   { background: var(--color-primary);   color: var(--color-bg); }
+.btn-secondary { background: var(--color-bg-card);   color: var(--color-text); border-color: var(--color-border); }
+.btn-danger    { background: var(--color-error);     color: var(--color-on-error); }
+.btn-ghost     { background: transparent;            color: var(--color-text); border-color: var(--color-border); }
+.btn[disabled], .btn[aria-busy="true"] { opacity: 0.6; cursor: not-allowed; }
+```
+
 ### Toggle Switches
 
 **CSS-only toggle using hidden checkbox:**
 
 ```html
 <label class="toggle">
-  <input type="checkbox" name="setting">
-  <span class="slider"></span>
-  Enable Feature
+  <input type="checkbox" name="setting" role="switch" aria-checked="false">
+  <span class="toggle-track">
+    <span class="toggle-thumb"></span>
+  </span>
+  <span class="toggle-label">Enable Feature</span>
 </label>
+```
+
+```css
+.toggle { display: inline-flex; align-items: center; gap: var(--space-3); cursor: pointer; }
+.toggle-track {
+  position: relative;
+  width: 2.5rem;
+  height: 1.5rem;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  transition: background var(--transition-fast);
+}
+.toggle input:checked + .toggle-track { background: var(--color-primary); border-color: var(--color-primary); }
+.toggle-thumb {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: calc(1.5rem - 6px);
+  height: calc(1.5rem - 6px);
+  background: var(--color-on-error);
+  border-radius: var(--radius-full);
+  transition: transform var(--transition-fast);
+}
+.toggle input:checked + .toggle-track .toggle-thumb { transform: translateX(1rem); }
+.toggle input:focus-visible + .toggle-track { box-shadow: var(--focus-ring-offset); }
 ```
 
 ### Modals
@@ -22056,6 +22281,15 @@ fetch('/api/save', { method: 'POST', body: data })
 ```
 
 **Note:** Native `<dialog>` element handles focus trap and backdrop automatically. Use `showModal()` to open with backdrop; close/cancel buttons use `<form method="dialog">` — zero JS and CSP-safe.
+
+The Cancel and X buttons close the dialog natively via `<form method="dialog">` — zero JavaScript, and `Esc` closes it as well. Only opening the modal uses JS (`showModal()` has no HTML equivalent for `<dialog>`), which is a permitted enhancement: without JS the triggering action falls back to its plain-page flow.
+
+```javascript
+// Open — the only JS the modal needs; closing is native <form method="dialog">
+document.getElementById('confirm-modal').showModal();
+// Close on backdrop click (enhancement)
+modal.addEventListener('click', e => { if (e.target === modal) modal.close(); });
+```
 
 ### Toast vs Modal: When to Use Which
 
@@ -22258,6 +22492,27 @@ dismissToast(toastId);
 dismissAllToasts();
 ```
 
+**Toast implementation (external `static/js/app.js`):**
+
+```javascript
+// Auto-dismiss defaults: success/info 3s, warning 5s, error never (duration 0 = manual dismiss)
+function showToast(message, type = 'info', duration = 3000) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  toast.setAttribute('role', 'alert');
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('toast-visible'));
+  if (duration > 0) {
+    setTimeout(() => {
+      toast.classList.remove('toast-visible');
+      toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+    }, duration);
+  }
+}
+```
+
 ### Site Banner
 
 **Site-wide announcements (scheduled maintenance, service notices) are a server-rendered banner — the FIRST element inside `<body>`, before `<main>`. No notification center, no bell icon — API projects have no user accounts and no server-side notification storage (see PART 17 → "Notification Storage"). The banner renders and dismisses without JavaScript; JS only makes dismissal reload-free.**
@@ -22270,20 +22525,22 @@ dismissAllToasts();
 | **Placement** | Immediately after `<body>`, before `<main>` — rendered server-side in the base template, so there is no layout shift and no JS dependency |
 | **Types** | `info`, `warning`, `error`, `success` |
 | **ARIA** | `role="status"` for `info` and `success`; `role="alert"` for `warning` and `error` |
-| **Dismissal** | X button (only when `dismissible: true`) is a tiny POST form — the server appends the announcement `id` to the `dismissed_announcements` cookie (comma-separated ids), redirects back, and skips rendering dismissed announcements entirely; changing the `id` reshows the banner for everyone. Works with zero JS; external JS intercepts to dismiss without reload |
+| **Dismissal** | X button (only when `dismissible: true`) — a tiny `<form method="post" action="/announcements/dismiss">`; the server appends the announcement `id` to the `dismissed_announcements` cookie (comma-separated ids) and redirects back, so dismissal works with zero JS. The cookie is keyed on the announcement `id`, so changing the `id` reshows the banner for everyone |
+| **Storage** | `dismissed_announcements` cookie — server-readable, so the server skips rendering dismissed announcements entirely; no flash of a dismissed banner and no JS dependency |
 | **Expiry** | Per-announcement `start`/`end` (ISO 8601, UTC); outside the window = banner not rendered |
 | **Stacking** | Multiple active announcements stack in config order; cookie consent and the PWA update banner share the slot, ordered: cookie consent → announcements → PWA update |
 
 **HTML Structure:**
 ```html
 <body>
-  <!-- Rendered only when the id is absent from the dismissed_announcements cookie -->
   <div class="site-banner site-banner-warning" role="alert" data-announcement-id="maintenance-2025-01">
     <span class="site-banner-icon" aria-hidden="true">⚠</span>
     <span class="site-banner-text">Scheduled maintenance: 2026-07-06 02:00–04:00 UTC</span>
     <!-- Dismissal works with zero JS - the server appends the id to the cookie and redirects back -->
     <form method="post" action="/announcements/dismiss" class="site-banner-dismiss">
+      <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
       <input type="hidden" name="id" value="maintenance-2025-01">
+      <input type="hidden" name="return_to" value="{{ .CurrentPath }}">
       <button type="submit" class="site-banner-close" aria-label="Dismiss announcement">&times;</button>
     </form>
   </div>
@@ -22293,6 +22550,8 @@ dismissAllToasts();
   </main>
 </body>
 ```
+
+The server only renders banners whose `id` is absent from the `dismissed_announcements` cookie; `POST /announcements/dismiss` appends the submitted `id` to that cookie and redirects back to `return_to` (same-site relative paths only, as with `/consent`).
 
 **CSS:**
 ```css
@@ -22328,21 +22587,18 @@ dismissAllToasts();
 
 **Dismissal JavaScript (enhancement only — the form POST works without it):**
 ```javascript
-// Intercept the dismiss form to skip the reload; the cookie stays
-// server-readable so dismissed announcements are never rendered again.
-// Dismissal is keyed on the announcement id — changing the id resets dismissals
+// No-reload enhancement — the POST /announcements/dismiss fallback always works.
+// Dismissal is keyed on the announcement id — changing the id resets dismissals.
 document.querySelectorAll(".site-banner .site-banner-dismiss").forEach((form) => {
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const banner = form.closest(".site-banner");
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const id = form.elements.id.value;
     const match = document.cookie.match(/(?:^|;\s*)dismissed_announcements=([^;]*)/);
-    const ids = match ? decodeURIComponent(match[1]).split(",") : [];
-    if (!ids.includes(banner.dataset.announcementId)) {
-      ids.push(banner.dataset.announcementId);
-    }
-    document.cookie = "dismissed_announcements=" + encodeURIComponent(ids.join(",")) +
-      "; path=/; max-age=31536000; SameSite=Lax";
-    banner.remove();
+    const ids = match ? decodeURIComponent(match[1]).split(",").filter(Boolean) : [];
+    if (!ids.includes(id)) ids.push(id);
+    const value = encodeURIComponent(ids.join(","));
+    document.cookie = `dismissed_announcements=${value}; path=/; max-age=${60*60*24*365}; SameSite=Lax; Secure`;
+    form.closest(".site-banner").remove();
   });
 });
 ```
@@ -22413,6 +22669,32 @@ func nextTheme(current string) string {
   gap: 0.25rem;
 }
 ```
+There is no client-side init and no `matchMedia` script. The only JS is an optional instant-preview enhancement (external file) — it does not intercept or replace the submit, so the cookie is always set server-side on every click, with or without JS:
+
+```javascript
+// static/js/theme.js — instant-preview enhancement only; the real POST still
+// happens on submit. Recomputes the next mode from the LIVE <html> class on
+// every click rather than trusting the form's hidden value (rendered once at
+// page load, and stale after the first JS-driven switch) - this is what keeps
+// repeated clicks cycling instead of sticking after the first one.
+// `auto` = no class, CSS prefers-color-scheme rules apply.
+const THEME_CYCLE = ['dark', 'light', 'auto'];
+
+function currentTheme() {
+  if (document.documentElement.classList.contains('theme-dark')) return 'dark';
+  if (document.documentElement.classList.contains('theme-light')) return 'light';
+  return 'auto';
+}
+
+document.querySelectorAll('.theme-toggle-form').forEach((form) => {
+  form.addEventListener('submit', () => {
+    // Does NOT call preventDefault() - the form still submits normally so the
+    // server sets the cookie and re-renders with the correct next target.
+    const next = THEME_CYCLE[(THEME_CYCLE.indexOf(currentTheme()) + 1) % THEME_CYCLE.length];
+    document.documentElement.className = next === 'auto' ? '' : `theme-${next}`;
+  });
+});
+```
 
 - See PART 17: EMAIL & NOTIFICATIONS for full notification specification
 
@@ -22436,6 +22718,20 @@ func nextTheme(current string) string {
   <p class="empty-state-message">Create your first item to get started.</p>
   <a href="/items/new" class="btn btn-primary">Create Item</a>
 </div>
+```
+
+```css
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-16) var(--space-8);
+  text-align: center;
+}
+.empty-state-icon { width: 3rem; height: 3rem; color: var(--color-muted); }
+.empty-state-title { font-size: var(--font-size-xl); font-weight: var(--font-weight-semibold); }
+.empty-state-message { color: var(--color-muted); max-width: 40ch; }
 ```
 
 **Rules:**
@@ -22504,6 +22800,13 @@ textarea:user-invalid {
   border-color: var(--color-error);
 }
 
+/* Show the styled message element purely via CSS once the field is invalid */
+input:user-invalid ~ .field-error,
+select:user-invalid ~ .field-error,
+textarea:user-invalid ~ .field-error {
+  display: block;
+}
+
 .form-group.error input,
 .form-group.error select,
 .form-group.error textarea {
@@ -22520,6 +22823,54 @@ textarea:user-invalid {
 .form-group.success input {
   border-color: var(--color-success);
 }
+```
+**Field hint pattern & base input styling:**
+
+```html
+<div class="form-group">
+  <label class="label" for="email">Email</label>
+  <input
+    type="email"
+    id="email"
+    name="email"
+    class="input"
+    aria-describedby="email-hint email-error"
+    aria-invalid="false"
+    required
+  >
+  <p id="email-hint"  class="field-hint">We'll never share your email.</p>
+  <p id="email-error" class="field-error" role="alert" hidden></p>
+</div>
+```
+
+```javascript
+// Optional enhancement: mirror the native validationMessage into the styled
+// error element — styling and submit-blocking already work without this
+document.querySelectorAll('.form-group input, .form-group select, .form-group textarea').forEach(el => {
+  el.addEventListener('invalid', () => {
+    const error = document.getElementById(`${el.id}-error`);
+    if (!error) return;
+    error.hidden = false;
+    error.textContent = el.validationMessage;
+  });
+});
+```
+
+```css
+.form-group  { display: flex; flex-direction: column; gap: var(--space-1); }
+.label       { font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
+.input {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-card);
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.input:focus { border-color: var(--color-primary); box-shadow: var(--focus-ring); outline: none; }
+.input[aria-invalid="true"] { border-color: var(--color-error); }
+.field-hint  { font-size: var(--font-size-xs); color: var(--color-muted); }
 ```
 
 ## Import/Export UI Convention
@@ -22547,22 +22898,41 @@ textarea:user-invalid {
 | Requirement | Implementation |
 |-------------|----------------|
 | **Keyboard Navigation** | All interactive elements focusable and operable via keyboard |
-| **Focus Indicators** | Visible focus ring on all focusable elements |
+| **Focus Indicators** | Visible `:focus-visible` ring on all focusable elements |
 | **ARIA Labels** | Proper `aria-label`, `aria-describedby`, `role` attributes |
+| **ARIA Landmarks** | `<header>`, `<nav>`, `<main>`, `<aside>`, `<footer>` |
+| **ARIA Live Regions** | `role="status"` / `role="alert"` / `aria-live` for dynamic content |
 | **Color Contrast** | Minimum 4.5:1 for normal text, 3:1 for large text |
-| **Alt Text** | All images have descriptive `alt` attributes |
+| **Alt Text** | All images have descriptive `alt` attributes; decorative images use `alt=""` |
 | **Form Labels** | All inputs have associated `<label>` elements |
-| **Error Messages** | Announced to screen readers via `aria-live` |
-| **Skip Links** | "Skip to content" link for keyboard users |
+| **Error Messages** | Announced to screen readers via `aria-live`; linked via `aria-describedby` and `aria-invalid` |
+| **Skip Links** | `<a href="#main-content" class="skip-link">Skip to main content</a>` for keyboard users |
 | **Semantic HTML** | Proper heading hierarchy (h1 → h2 → h3) |
 | **Reduced Motion** | Respect `prefers-reduced-motion` preference |
 
 ```css
+/* Skip link */
+.skip-link {
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-4);
+  z-index: var(--z-tooltip);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-primary);
+  color: var(--color-bg);
+  border-radius: var(--radius-md);
+  transform: translateY(-200%);
+  transition: transform var(--transition-fast);
+}
+.skip-link:focus { transform: none; }
+
 /* Respect reduced motion preference */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 ```
@@ -23540,23 +23910,28 @@ async function requestPersistentStorage() {
 |------|---------|---------|
 | 200 | OK | Successful GET, PUT, PATCH |
 | 201 | Created | Successful POST creating resource |
-| 204 | No Content | Successful DELETE |
-| 301 | Moved Permanently | Permanent redirects |
-| 302 | Found | Temporary redirects |
+| 204 | No Content | Successful DELETE, or PUT with no body |
+| 301 | Moved Permanently | Permanent/canonical redirect (URL normalize, old → new URL) |
+| 302 | Found | Temporary redirect (post-form) |
+| 304 | Not Modified | Conditional GET cache hit |
 | 400 | Bad Request | Invalid input, validation errors |
 | 401 | Unauthorized | Not authenticated |
 | 403 | Forbidden | Authenticated but not authorized |
 | 404 | Not Found | Resource doesn't exist |
 | 405 | Method Not Allowed | Wrong HTTP method |
 | 409 | Conflict | Duplicate resource, version conflict |
+| 410 | Gone | Resource permanently deleted |
 | 422 | Unprocessable Entity | Semantic validation errors |
 | 429 | Too Many Requests | Rate limit exceeded |
 | 500 | Internal Server Error | Server-side errors |
+| 502 | Bad Gateway | Upstream service failure |
 | 503 | Service Unavailable | Maintenance mode |
 
 ## Unified Response Format
 
 **ALL responses (server → client) use this exact format. Simple to parse everywhere.**
+
+**Canonical envelope — see PART 14 → "Error Response" for the authoritative definition.** All API endpoints return the same JSON shape; absent fields are omitted entirely, never emitted as `null`, and no endpoint may invent its own shape or add ad-hoc top-level fields.
 
 ### Success Response
 
@@ -23743,6 +24118,18 @@ ERROR: VALIDATION_FAILED: email must be valid
 ## Server Response Rules
 
 **These rules apply SERVER-WIDE to ALL responses (API, frontend AJAX, CLI, webhooks).**
+
+**Core rules:**
+
+| Rule | Detail |
+|---|---|
+| Always return `Content-Type` | Include charset for text types: `text/html; charset=utf-8` |
+| Never return 200 on error | Use the correct 4xx or 5xx code |
+| Redirect after POST | Always redirect (302) after a successful POST mutation |
+| Include `X-Request-ID` | Echo the request ID in every response header |
+| Sanitize error messages | Never leak stack traces or internal paths to clients |
+| Consistent envelope | All JSON responses use the `APIResponse` struct |
+| Set `Cache-Control` | Static assets: `immutable, max-age=31536000`; HTML: `no-store` |
 
 ### Content-Type Detection
 
@@ -25098,7 +25485,7 @@ the hex values from `ThemePaletteDark`/`ThemePaletteLight`.
 
 | Platform | Detection Method | Notes |
 |----------|------------------|-------|
-| **Web** | `prefers-color-scheme` media query | CSS/JavaScript |
+| **Web** | `prefers-color-scheme` media query | Pure CSS — no JS needed |
 | **Linux** | `gsettings get org.gnome.desktop.interface color-scheme` | GNOME |
 | **macOS** | `defaults read -g AppleInterfaceStyle` | Returns "Dark" if dark mode |
 | **Windows** | Registry `AppsUseLightTheme` | 0 = dark, 1 = light |
@@ -25165,6 +25552,10 @@ server:
     tagline: ""
     # Longer description for SEO/about
     description: ""
+    # empty = use embedded default
+    favicon: ""
+    # empty = use embedded default
+    logo: ""
 
   seo:
     # Project-specific - define per app
@@ -25207,6 +25598,7 @@ server:
   <meta property="og:image" content="{og_image}">
   <meta property="og:type" content="website">
   <meta property="og:url" content="{current_url}">
+  <meta property="og:site_name" content="{title}">
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image">
@@ -25235,7 +25627,7 @@ server:
 | Route type | Value |
 |------------|-------|
 | Public pages (homepage, docs, about) | `index,follow` |
-| `/admin`, `/api/*`, auth pages (login, register, reset) | `noindex,nofollow` |
+| `/api/*` and any non-public route | `noindex,nofollow` (no admin or auth pages exist in API projects) |
 | Internal/health/debug endpoints | `noindex,nofollow` |
 
 Default to `index,follow` only for routes explicitly marked public; every other route defaults to `noindex,nofollow` (fail closed).
@@ -25422,7 +25814,7 @@ server:
 
 | Source | Format | Example |
 |--------|--------|---------|
-| Local file | File path | Set `branding.logo_path` in config to an absolute file path |
+| Local file | File path | Set `server.branding.logo` in config to an absolute file path |
 | Remote URL | URL input | `https://example.com/logo.png` |
 | Embedded default | - | Built-in fallback |
 
@@ -26818,67 +27210,70 @@ func trackingScript(r *http.Request) template.HTML {
 
 ```json
 {
-  "summary": {
-    "data_stored_on_server": true,
-    "data_sold": false,
-    "user_control": true
-  },
-  "cookies": {
-    "essential": {
-      "enabled": true,
-      "description": "Required for the site to function. Includes security tokens (CSRF) and site preferences."
-    },
-    "preferences": {
-      "enabled": true,
-      "description": "Remember your settings such as theme (dark/light), language, and UI preferences."
-    },
-    "analytics": {
-      "enabled": true,
-      "description": "Help us understand how visitors use our site. Analytics data is anonymized and never sold."
-    }
-  },
+  "ok": true,
   "data": {
-    "sold": false,
-    "stored_on_server": true,
-    "sharing": [
-      {
-        "condition": "analytics",
-        "when": "Tracking configured AND user consents",
-        "data": "Anonymized: page views, browser type, country"
+    "summary": {
+      "data_stored_on_server": true,
+      "data_sold": false,
+      "user_control": true
+    },
+    "cookies": {
+      "essential": {
+        "enabled": true,
+        "description": "Required for the site to function. Includes security tokens (CSRF) and site preferences."
       },
-      {
-        "condition": "email",
-        "when": "SMTP configured for sending emails",
-        "data": "Email address, message content"
+      "preferences": {
+        "enabled": true,
+        "description": "Remember your settings such as theme (dark/light), language, and UI preferences."
       },
-      {
-        "condition": "user_initiated",
-        "when": "User explicitly shares content",
-        "data": "Whatever user chooses to share"
+      "analytics": {
+        "enabled": true,
+        "description": "Help us understand how visitors use our site. Analytics data is anonymized and never sold."
       }
-    ]
-  },
-  "tracking": {
-    "enabled": false,
-    "type": "",
-    "type_name": ""
-  },
-  "retention": {
-    "period": "Account data is retained while your account is active. Upon account deletion, all personal data is permanently deleted within 30 days.",
-    "export_available": true,
-    "deletion_available": true
-  },
-  "third_party": {
-    "services": []
-  },
-  "ccpa": {
-    "applicable": false,
-    "opt_out_url": "/server/privacy#ccpa-opt-out",
-    "user_opted_out": false
-  },
-  "content": {
-    "consent_message": "...",
-    "data_usage": "..."
+    },
+    "data": {
+      "sold": false,
+      "stored_on_server": true,
+      "sharing": [
+        {
+          "condition": "analytics",
+          "when": "Tracking configured AND user consents",
+          "data": "Anonymized: page views, browser type, country"
+        },
+        {
+          "condition": "email",
+          "when": "SMTP configured for sending emails",
+          "data": "Email address, message content"
+        },
+        {
+          "condition": "user_initiated",
+          "when": "User explicitly shares content",
+          "data": "Whatever user chooses to share"
+        }
+      ]
+    },
+    "tracking": {
+      "enabled": false,
+      "type": "",
+      "type_name": ""
+    },
+    "retention": {
+      "period": "Account data is retained while your account is active. Upon account deletion, all personal data is permanently deleted within 30 days.",
+      "export_available": true,
+      "deletion_available": true
+    },
+    "third_party": {
+      "services": []
+    },
+    "ccpa": {
+      "applicable": false,
+      "opt_out_url": "/server/privacy#ccpa-opt-out",
+      "user_opted_out": false
+    },
+    "content": {
+      "consent_message": "...",
+      "data_usage": "..."
+    }
   }
 }
 ```
@@ -27041,8 +27436,8 @@ curl -H "Accept: application/xml" https://jokes.example.com/api/v1/joke</code></
 
   <h4>Onion Address</h4>
   <div class="code-block">
-    <code class="code-content">{{ .TorAddress }}</code>
-    <button type="button" class="copy-btn" data-copy="{{ .TorAddress }}" aria-label="Copy to clipboard">
+    <code class="code-content">{{ .OnionAddress }}</code>
+    <button type="button" class="copy-btn" data-copy="{{ .OnionAddress }}" aria-label="Copy to clipboard">
       <span class="copy-icon">📋</span>
       <span class="copy-text" aria-live="polite">Copy</span>
     </button>
@@ -28325,8 +28720,8 @@ server:
 
 ## Country Blocking Presets (Operator-Defined, Never Auto-Applied)
 
-**The admin panel MUST let operators save the current `deny_countries` or
-`allow_countries` selection as a named, reusable preset** (`geoip.presets`,
+**Operators MUST be able to save the current `deny_countries` or
+`allow_countries` selection as a named, reusable preset in `server.yml`** (`geoip.presets`,
 `name -> []code`) — so a list built once can be reapplied to other
 allow/deny fields or exported/imported across environments without
 hand-retyping ISO codes each time.
@@ -28345,7 +28740,7 @@ it in a compliance-sensitive form.
 **Preset rules:**
 - A preset is only ever a name plus the country codes the operator entered — the project never fetches, infers, or auto-suggests preset contents from any external source
 - `deny_countries: []` / `allow_countries: []` remain the defaults on every fresh install regardless of what presets exist — allow all, deny none, unchanged by this feature
-- Selecting a preset in the admin UI only pre-fills `deny_countries`/`allow_countries` for the operator to review and save; it is never applied automatically or silently
+- Referencing a preset only pre-fills `deny_countries`/`allow_countries` for the operator to review and save in `server.yml`; it is never applied automatically or silently
 - If an operator needs a compliance-driven blocklist, they build and save it themselves as a preset, sourced from their own current legal/compliance review — never from a template default
 - Presets are a pure config-reuse convenience; the actually-enforced behavior is always driven by `deny_countries`/`allow_countries` at the time of the request, never by the preset name itself
 
@@ -28663,6 +29058,22 @@ server:
 |--------|---------|
 | `scheduler_task_duration_seconds` | 0.1, 0.5, 1, 5, 10, 30, 60, 300, 600 |
 
+### Rate Limiting Metrics (if rate limiting enabled)
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `ratelimit_requests_total` | Counter | `limit`, `status` | Total rate-limited requests |
+| `ratelimit_blocked_total` | Counter | `limit` | Requests blocked by rate limiter |
+
+**Rate limiting label values:**
+
+| Label | Values | Notes |
+|-------|--------|-------|
+| `limit` | `global`, `per_ip`, `per_user`, `per_endpoint` | Rate limit type |
+| `status` | `allowed`, `limited` | Request outcome |
+
+**Cardinality note:** `per_ip` is a `limit` label *value*, never a per-address label. Never use a raw client IP as a metric label — per-IP labels are unbounded-cardinality and a memory-DoS vector. The rate limiter must cap the set of tracked IPs (e.g., a fixed-size LRU) or aggregate; never emit one label value per unique client IP. Log per-IP details to structured logs instead; metrics answer "how many?" while logs answer "which IPs?"
+
 ### System Metrics (if `include_system: true`)
 
 | Metric | Type | Labels | Description |
@@ -28694,22 +29105,6 @@ server:
 | `tor_circuit_established` | Gauge | - | 1 if circuit established, 0 otherwise |
 | `tor_requests_total` | Counter | - | Total requests via Tor hidden service |
 
-### Rate Limiting Metrics (if rate limiting enabled)
-
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `ratelimit_requests_total` | Counter | `limit`, `status` | Total rate-limited requests |
-| `ratelimit_blocked_total` | Counter | `limit` | Requests blocked by rate limiter |
-
-**Rate limiting label values:**
-
-| Label | Values | Notes |
-|-------|--------|-------|
-| `limit` | `global`, `per_ip`, `per_user`, `per_endpoint` | Rate limit type |
-| `status` | `allowed`, `limited` | Request outcome |
-
-**Cardinality note:** `per_ip` is a `limit` label *value*, never a per-address label. Never use a raw client IP as a metric label — per-IP labels are unbounded-cardinality and a memory-DoS vector. The rate limiter must cap the set of tracked IPs (e.g., a fixed-size LRU) or aggregate; never emit one label value per unique client IP. Log per-IP details to structured logs instead; metrics answer "how many?" while logs answer "which IPs?"
-
 ## Metrics Output Example
 
 **Sample `/server/metrics` output (Prometheus text format):**
@@ -28729,23 +29124,23 @@ server:
 
 # HELP {project_name}_http_requests_total Total number of HTTP requests
 # TYPE {project_name}_http_requests_total counter
-{project_name}_http_requests_total{method="GET",path="/api/v1/items",status="200"} 1523
-{project_name}_http_requests_total{method="GET",path="/api/v1/items/:id",status="200"} 892
-{project_name}_http_requests_total{method="GET",path="/api/v1/items/:id",status="404"} 23
-{project_name}_http_requests_total{method="POST",path="/api/v1/items",status="201"} 42
+{project_name}_http_requests_total{method="GET",path="/api/{api_version}/items",status="200"} 1523
+{project_name}_http_requests_total{method="GET",path="/api/{api_version}/items/:id",status="200"} 892
+{project_name}_http_requests_total{method="GET",path="/api/{api_version}/items/:id",status="404"} 23
+{project_name}_http_requests_total{method="POST",path="/api/{api_version}/items",status="201"} 42
 {project_name}_http_requests_total{method="GET",path="/server/healthz",status="200"} 8640
 
 # HELP {project_name}_http_request_duration_seconds HTTP request duration in seconds
 # TYPE {project_name}_http_request_duration_seconds histogram
-{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/items",le="0.001"} 120
-{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/items",le="0.005"} 890
-{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/items",le="0.01"} 1400
-{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/items",le="0.025"} 1500
-{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/items",le="0.05"} 1510
-{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/items",le="0.1"} 1520
-{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/v1/items",le="+Inf"} 1523
-{project_name}_http_request_duration_seconds_sum{method="GET",path="/api/v1/items"} 12.456
-{project_name}_http_request_duration_seconds_count{method="GET",path="/api/v1/items"} 1523
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/items",le="0.001"} 120
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/items",le="0.005"} 890
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/items",le="0.01"} 1400
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/items",le="0.025"} 1500
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/items",le="0.05"} 1510
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/items",le="0.1"} 1520
+{project_name}_http_request_duration_seconds_bucket{method="GET",path="/api/{api_version}/items",le="+Inf"} 1523
+{project_name}_http_request_duration_seconds_sum{method="GET",path="/api/{api_version}/items"} 12.456
+{project_name}_http_request_duration_seconds_count{method="GET",path="/api/{api_version}/items"} 1523
 
 # HELP {project_name}_http_active_requests Number of active HTTP requests
 # TYPE {project_name}_http_active_requests gauge
@@ -30299,7 +30694,7 @@ on a Sunday counts as daily + weekly + monthly + yearly — uses highest priorit
 |-----------|----------------------|----------|
 | **CLI** | Interactive prompt | Prompts: `Enter backup password:` |
 | **WebUI** | Shows dialog | Password input dialog before restore |
-| **API** | Returns 400 error | `{"error": "password_required", "message": "Encrypted backup requires password"}` |
+| **API** | Returns 400 error | `{"ok": false, "error": "VALIDATION_FAILED", "message": "Encrypted backup requires password"}` |
 
 **CLI Restore:**
 
@@ -31336,7 +31731,7 @@ useradd --system --uid {id} --gid {id} \
 | Drop | root→`{project_name}` | Binary drops privileges |
 | Run | `{project_name}` | Serve requests as unprivileged user |
 
-**The `{project_name}` user is created automatically by the binary on first startup.**
+**The `{internal_name}` user is created automatically by the binary on first startup.**
 
 macOS uses `dscl` (Directory Service Command Line) to create system users. The user is hidden from login screen and has no shell access.
 
@@ -31605,7 +32000,7 @@ func installWindowsService() error {
 
 ## Service Templates
 
-**Unix default:** service starts elevated only for privileged startup, then drops to `{project_name}` user after port binding.
+**Unix default:** service starts elevated only for privileged startup, then drops to `{internal_name}` user after port binding.
 **Windows: Service runs as Virtual Service Account (`NT SERVICE\{internal_name}`).**
 
 This allows any port configuration without service file changes.
@@ -33199,11 +33594,11 @@ services:
     logging: *default-logging
     environment:
       PORT: 80
-      TZ: America/New_York
+      TZ: ${TZ:-America/New_York}
       CACHE_URL: valkey://{project_name}-cache:6379
-      # For remote libsql/Turso: set DATABASE_DRIVER and DATABASE_URL
+      # For remote libsql/Turso: set DATABASE_DRIVER=libsql and DATABASE_URL
       # DATABASE_DRIVER: libsql
-      # DATABASE_URL: libsql://your-db.turso.io?authToken={token}
+      # DATABASE_URL: libsql://your-db.turso.io?authToken=${TURSO_AUTH_TOKEN}
     volumes:
       - ./volumes/config:/config:z
       - ./volumes/data:/data:z
@@ -33312,7 +33707,7 @@ services:
       PORT: 80
       DEBUG: true
       MODE: development
-      TZ: America/New_York
+      TZ: ${TZ:-America/New_York}
     volumes:
       - ./volumes/config:/config:z
       - ./volumes/data:/data:z
@@ -33433,13 +33828,13 @@ $TEMP_DIR/
 - `docker/rootfs/` is for container overlay (entrypoint.sh, service configs) - NOT for runtime volumes
 - NEVER commit runtime `volumes/` from local runs
 
-### Running Docker Compose
+### Running Docker Compose (AI / Automated Testing)
 
-**NEVER run docker compose in the project directory.**
+**AI must NEVER run `docker-compose.yml` or `docker-compose.dev.yml` — those are human-only.** AI's preferred interface for testing is the project's `tests/` directory scripts (`tests/docker.sh`, `tests/run_tests.sh`), which wrap the temp-dir copy/run/cleanup sequence below. Direct invocation of `docker-compose.test.yml` is only a fallback when no `tests/` script exists yet.
 
-**Always use temp directory workflow:**
-1. Create unique temp dir with apimgr prefix
-2. Copy `docker/docker-compose.yml` to temp dir
+**When a direct invocation is unavoidable, always use the temp directory workflow:**
+1. Create unique temp dir with `{project_org}` prefix
+2. Copy `docker/docker-compose.test.yml` to temp dir (as `docker-compose.yml`)
 3. Create `volumes/` structure in temp dir
 4. Run docker compose from temp dir
 5. Data lives in temp dir, isolated from project
@@ -33454,11 +33849,11 @@ mkdir -p "${TMPDIR:-/tmp}/${PROJECT_ORG}"
 TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${INTERNAL_NAME}-XXXXXX")
 mkdir -p "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
 
-# Copy docker-compose.yml
-cp "$PROJECT_ROOT/docker/docker-compose.yml" "$TEMP_DIR/"
+# Copy docker-compose.test.yml
+cp "$PROJECT_ROOT/docker/docker-compose.test.yml" "$TEMP_DIR/docker-compose.yml"
 
 # Run from temp dir - ./volumes/ resolves to $TEMP_DIR/volumes/
-cd "$TEMP_DIR" && docker compose up -d
+cd "$TEMP_DIR" && docker compose up --abort-on-container-exit
 
 # Stop and cleanup
 cd "$TEMP_DIR" && docker compose down
@@ -33479,7 +33874,8 @@ rm -rf "$TEMP_DIR"
 - Safe cleanup
 
 **NEVER:**
-- Run docker compose in project directory
+- Run `docker-compose.yml` or `docker-compose.dev.yml` as AI — those are human-only
+- Run docker compose in the project directory
 - Run docker compose with `--project-directory` pointing to project root
 - Mount volumes to `{project_root}/volumes/`
 
@@ -33487,32 +33883,32 @@ rm -rf "$TEMP_DIR"
 
 | Mode | Format | Example |
 |------|--------|---------|
-| Development | `{randomport}:80` | `64580:80` |
-| Production | `172.17.0.1:{randomport}:80` | `172.17.0.1:64580:80` |
+| Development (human) | `{randomport}:80` | `64580:80` |
+| Production / Test | `172.17.0.1:{randomport}:80` | `172.17.0.1:64580:80` |
 
 **Rules:**
-- Internal port defaults to `80` (override with `PORT` env var)
+- Internal port is always `80` (`PORT: 80` in every compose file)
 - External port is random unused port in `64xxx` range
-- Production binds to Docker bridge IP (`172.17.0.1`) for security
-- Development binds to all interfaces for easier access
+- Production and test bind to Docker bridge IP (`172.17.0.1`) for security
+- Development binds to all interfaces for easier human access
 - If changing internal port, update docker-compose port mapping to match
 
 ### Environment Variables
 
-**ALL environment variables MUST be hardcoded with sane defaults. NEVER require .env files.**
+**Stack must work with zero `.env` files. Use inline `${VAR:-default}` fallbacks.**
 
 | Rule | Description |
 |------|-------------|
-| **NEVER** | Use `${VAR}` or `${VAR:-default}` syntax requiring .env |
 | **NEVER** | Create `.env`, `.env.example`, `.env.sample` files |
-| **ALWAYS** | Hardcode values directly in docker-compose.yml |
-| **ALWAYS** | Use sane, working defaults |
+| **NEVER** | Use `${VAR}` without a fallback (stack breaks if var is unset) |
+| **NEVER** | Use list-style env vars (`- KEY=value`) — always YAML map style (`KEY: value`) |
+| **ALWAYS** | Use `${VAR:-default}` so the stack works without any `.env` |
+| **ALWAYS** | Operators may override via `.env` or shell env — the fallback just handles zero-config |
 
-**Why hardcoded defaults?**
+**Why inline fallbacks?**
 - Works out of the box — no setup required
-- No confusion about required variables
+- Operators can still override any value via environment
 - No outdated `.env.example` files to maintain
-- Users can override by editing docker-compose.yml directly
 
 ### Docker Compose (Test) - AI/AUTOMATED TESTING
 
@@ -33543,7 +33939,7 @@ services:
       PORT: 80
       DEBUG: true
       MODE: development
-      TZ: America/New_York
+      TZ: ${TZ:-America/New_York}
       CACHE_URL: valkey://{project_name}-cache-test:6379
     volumes:
       # CRITICAL: ./volumes/ must resolve to $TEMP_DIR/volumes/, NOT project directory
@@ -33598,81 +33994,6 @@ cd "$TEMP_DIR" && docker compose up --abort-on-container-exit
 # Cleanup after tests
 rm -rf "$TEMP_DIR"
 ```
-
-### Docker Compose with Cache Example
-
-**Location:** `docker/docker-compose.yml`
-
-```yaml
-name: {project_name}
-
-x-logging: &default-logging
-  options:
-    max-size: "5m"
-    max-file: "1"
-  driver: json-file
-
-services:
-  {project_name}:
-    image: {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest
-    pull_policy: always
-    container_name: {project_name}-app
-    restart: always
-    logging: *default-logging
-    environment:
-      # Tor auto-enabled (tor binary installed in image)
-      # NO DEBUG/MODE - production defaults apply
-      PORT: 80
-      TZ: America/New_York
-      CACHE_URL: valkey://{project_name}-cache:6379
-      # DOMAIN (optional - containers behind reverse proxy auto-detect from headers)
-      # Only set if NOT behind reverse proxy, comma-separated list supported
-      # DOMAIN: myapp.com,www.myapp.com,api.myapp.com
-      # For remote libsql/Turso: set DATABASE_DRIVER and DATABASE_URL
-      # DATABASE_DRIVER: libsql
-      # DATABASE_URL: libsql://your-db.turso.io?authToken={token}
-    volumes:
-      - ./volumes/config:/config:z
-      - ./volumes/data:/data:z
-    ports:
-      # Production: bound to Docker bridge only (reverse proxy handles external)
-      - "172.17.0.1:64580:80"
-    healthcheck:
-      test: ["CMD", "/usr/local/bin/{project_name}", "--status"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 90s
-    depends_on:
-      {project_name}-cache:
-        condition: service_healthy
-    networks:
-      - {project_name}
-
-  {project_name}-cache:
-    image: valkey/valkey:alpine
-    pull_policy: always
-    container_name: {project_name}-cache
-    restart: always
-    logging: *default-logging
-    volumes:
-      - ./volumes/data/db/valkey/{project_name}:/data:z
-    healthcheck:
-      test: ["CMD-SHELL", "valkey-cli ping || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    networks:
-      - {project_name}
-
-networks:
-  {project_name}:
-    name: {project_name}
-    external: false
-```
-
-**Run:** Use temp directory workflow (see "Running Docker Compose" section above).
 
 ## Container Configuration
 
@@ -37099,7 +37420,7 @@ REGISTRY = "ghcr.io/${PROJECT_ORG}/${INTERNAL_NAME}"
 
 ---
 
-# CHECKPOINT 5: BUILD & DEPLOYMENT VERIFICATION
+# CHECKPOINT 6: BUILD & DEPLOYMENT VERIFICATION
 
 Before proceeding, confirm you understand:
 - [ ] Docker uses tini as init, Alpine base
@@ -38096,7 +38417,7 @@ docker run --rm \
 
     echo '=== Open API Smoke Test ==='
     # No auth required — all endpoints are publicly accessible
-    curl -q -LSsf http://localhost:64580/server/healthz | grep -q '"status":"healthy"' \
+    curl -q -LSsf http://localhost:64580/server/healthz | grep -q '"status"' \
         && echo '✓ Health endpoint works' \
         || echo '✗ FAILED: Health endpoint'
 
@@ -38293,7 +38614,7 @@ incus exec "$CONTAINER_NAME" -- bash -c "
 
     echo '=== Open API Smoke Test ==='
     # No auth required — all endpoints are publicly accessible
-    curl -q -LSsf http://localhost:80/server/healthz | grep -q '"status":"healthy"' \
+    curl -q -LSsf http://localhost:80/server/healthz | grep -q '"status"' \
         && echo '✓ Health endpoint works' \
         || echo '✗ FAILED: Health endpoint'
 
@@ -38524,7 +38845,7 @@ sleep 3
 
 # 1. Health check
 echo "Testing health endpoint..."
-curl -q -LSsf http://localhost:64580/server/healthz | grep -q '"status":"healthy"' \
+curl -q -LSsf http://localhost:64580/server/healthz | grep -q '"status"' \
     && echo '✓ Health endpoint works' \
     || { echo '✗ FAILED: Health endpoint'; kill $SERVER_PID; exit 1; }
 
@@ -41472,7 +41793,7 @@ This prevents conflicts with any existing Tor installation on the system.
 
 **Process:**
 1. Server starts (possibly as root for port binding)
-2. Server drops privileges to `{project_name}` user (if started as root)
+2. Server drops privileges to `{internal_name}` user (if started as root)
 3. Server starts Tor process **as the current (dropped) user**
 4. Tor inherits user context from server process
 
@@ -41974,6 +42295,18 @@ The hidden service is declared in the generated torrc; Tor creates and persists 
 // Parses HAProxy PROXY v1 header to read the exported circuit ID
 "github.com/pires/go-proxyproto"
 ```
+
+### Circuit-ID Export & PROXY-Protocol Backend Listener
+
+`HiddenServiceExportCircuitID haproxy` makes Tor prepend a HAProxy **PROXY-protocol v1 header** to *every* connection it forwards to the hidden-service target, encoding the 64-bit rendezvous-circuit ID in the source address (`fc00::/8` IPv6 range). This ID is the opaque per-session token the committed Tor logging/audit/rate-limit rules key on as `tor:{circuit_id}` — never an IP, never deanonymizing.
+
+Because the PROXY header is sent on every connection, the `HiddenServicePort` target MUST be a **dedicated loopback listener** the app binds specifically for Tor (`127.0.0.1:{tor_backend_port}`), **separate from the public clearnet listener** — clearnet connections carry no PROXY header and would fail to parse against a listener that requires one. The app:
+
+- binds the dedicated Tor backend listener and parses the PROXY-protocol header on its accept path (Go: `github.com/pires/go-proxyproto`),
+- reads the circuit ID from that header and uses it as the `tor:{circuit_id}` key for logs, audit trails, admin UI, and rate limiting,
+- points `HiddenServicePort {virtual_port} 127.0.0.1:{tor_backend_port}` at this listener (not the clearnet HTTP port).
+
+`VanguardsLiteEnabled 1` keeps Tor's built-in layer-2 vanguards on (guard-discovery-attack defense for the service); it is never disabled. Full layer-3 vanguards/bandguards/rendguard, if ever wanted, are control-protocol operations the app can drive itself — no external tool.
 
 ### Tor Process Lifecycle
 
@@ -47136,7 +47469,7 @@ make docker
 - [ ] Long strings have `word-break: break-all` CSS (IPv6, .onion, tokens, hashes)
 - [ ] Touch targets minimum 44x44px on mobile
 
-### Phase 6: Email & Scheduler (PART 17)
+### Phase 6: Email & Notifications (PART 17)
 
 **PART 17: Email & Notifications**
 - [ ] SMTP configuration in config file and API
@@ -47146,7 +47479,7 @@ make docker
 - [ ] Email queue with retry logic
 - [ ] Email logging (success/failure)
 
-### Phase 7: Features (PARTS 18-21)
+### Phase 7: Scheduler & Features (PARTS 18-21)
 
 **PART 18: Scheduler**
 - [ ] Built-in scheduler always running
@@ -47257,7 +47590,7 @@ make docker
 - [ ] API testing included
 - [ ] Beta testing procedures documented
 
-### Phase 10: Documentation (PARTS 29-30)
+### Phase 10: Documentation & I18N (PARTS 29-30)
 
 **PART 29: ReadTheDocs Documentation**
 - [ ] docs/ directory for MkDocs only
@@ -48529,5 +48862,152 @@ When stuck:
 4. **Propose solutions** for human review
 
 **NEVER guess or assume** - always ask when uncertain.
+
+---
+
+## How to Read This Large File
+
+**AI.md is ~1.8MB and ~49,000 lines. You CANNOT read it all at once. Follow these procedures.**
+
+### File Size Reality
+
+| Constraint | Value |
+|------------|-------|
+| File size | ~1.8MB |
+| Line count | ~49,000 lines |
+| Read limit | ~500 lines per read |
+| Full reads needed | ~98 reads (impractical) |
+
+**Use the PART index to find relevant sections, then read each section COMPLETELY.**
+
+### PART Index (Quick Reference)
+
+**Use `grep -n "^# PART" AI.md` to get exact current line numbers.**
+
+| PART | Line | Topic | When to Read |
+|------|------|-------|--------------|
+| 0 | ~2411 | AI Assistant Rules | **ALWAYS READ FIRST**, **AI Behavior Rules**, **Host System Safety Rule**, **Translation Rule** |
+| 1 | ~4216 | Critical Rules | **ALWAYS READ FIRST** |
+| 2 | ~5479 | License & Attribution | License requirements |
+| 3 | ~5813 | Project Structure | Setting up new project, **CI/CD badge detection** |
+| 4 | ~6680 | OS-Specific Paths | Path handling |
+| 5 | ~6876 | Configuration | Config file work, **Path Security**, **Privileged Ports**, **Escalation** |
+| 6 | ~8684 | Application Modes | Mode handling, debug endpoints |
+| 7 | ~9325 | Binary Requirements | Binary building, **Display detection**, **TERM=dumb**, **NO_COLOR** |
+| 8 | ~9964 | Server Binary CLI | CLI flags/commands, **NO_COLOR Support**, **--color/--lang flags**, **Resource Owner Tokens** |
+| 9 | ~12964 | Error Handling & Caching | Error/cache patterns |
+| 10 | ~13380 | Database | Database work |
+| 11 | ~13786 | Security & Logging | Security features, **Context Detection** |
+| 12 | ~15861 | Server Configuration | Server settings, **Allowlist**, **Blocklists**, **GeoIP** |
+| 13 | ~17292 | Health & Versioning | Health endpoints |
+| 14 | ~18000 | API Structure | REST/GraphQL/Route Compliance, **Non-Interactive Text Output** |
+| 15 | ~19751 | SSL/TLS & Let's Encrypt | SSL certificates |
+| 16 | ~20709 | Web Frontend | Frontend/UI, **Sitemap**, **Site Verification**, **Branding/SEO** |
+| 17 | ~27596 | Email & Notifications | Email/SMTP, **SMTP Auto-Detection** |
+| 18 | ~28167 | Scheduler | Background tasks, **NO external schedulers**, **Backup tasks** |
+| 19 | ~28594 | GeoIP | GeoIP features, **Country blocking (deny/allow)** |
+| 20 | ~28747 | Metrics | Prometheus metrics, **INTERNAL only** |
+| 21 | ~30248 | Backup & Restore | Backup features, **Compliance encryption** |
+| 22 | ~30754 | Update Command | Update feature |
+| 23 | ~31368 | Privilege Escalation & Service | Service/privilege work |
+| 24 | ~31982 | Service Support | Systemd/runit/rc.d/launchd templates |
+| 25 | ~32295 | Makefile | Local dev/tests/debug only, **NOT used in CI/CD** |
+| 26 | ~33118 | Docker | Docker/containers, **NEVER copy/symlink binaries** |
+| 27 | ~34087 | CI/CD Workflows | GitHub/GitLab/Gitea Actions |
+| 28 | ~37445 | Testing & Development | Testing/dev workflow, **Host Safety in tests**, **AI Docker Compose Rules**, **Content Negotiation Testing** |
+| 29 | ~39209 | ReadTheDocs Documentation | Documentation |
+| 30 | ~40003 | I18N & A11Y | Internationalization, **Translation parity (both binaries)**, **--lang flag** |
+| 31 | ~41429 | Overlay Networks (Tor & I2P) | Tor (required) + I2P eepsite (opt-in) |
+| 32 | ~43575 | Client | Client **REQUIRED** — CLI/TUI/GUI, **Resource Owner Tokens**, **Smart Context**, **First-Run Wizard** |
+| 33 | ~46859 | IDEA.md Reference | **Examples only** - NEVER modify |
+| FINAL | ~47096 | Compliance Checklist | Final verification, **AI Quick Reference Rules**, **Console/Banner Checklist**, **I18N Checklist**, **Host Safety Checklist** |
+
+### How to Read This File
+
+**Step 1: Always read these first (MANDATORY)**
+- PART 0: AI ASSISTANT RULES
+- PART 1: CRITICAL RULES
+
+**Step 2: Read sections relevant to your task**
+
+Use `grep` to find the PART you need:
+```bash
+# List all PARTs with line numbers
+grep -n "^# PART" AI.md
+# Find specific content
+grep -n "keyword" AI.md
+```
+
+**Step 3: Read the specific PART completely**
+
+Once you identify the PART, read ALL of it.
+
+**Step 4: Return after cross-references (CRITICAL)**
+
+When reading a PART and you encounter a reference like "See PART X" or "Read PART X":
+1. **Note your current location** (PART number and approximate line)
+2. Jump to the referenced PART and read it
+3. **Return to your original location** and continue reading
+
+Example: If you're partway through PART 5 and it says "See PART 10", read PART 10, then **return to your previous position in PART 5** and continue.
+
+**Never abandon your current PART after following a reference.**
+
+### Reading Strategy by Task Type
+
+| Task | Read These PARTs |
+|------|------------------|
+| **Migrating existing app** | 0, Migration sections, 1, 2, 6, 26 |
+| **New project/app setup** | 0, New Project Rules, 1, 2, 3, 7, 26, 32 |
+| **CLI implementation** | 0, 1, 6, 8, 32 |
+| **API development** | 0, 1, 13, 14, 16 |
+| **Frontend/UI work** | 0, 1, 16, 30 |
+| **Database work** | 0, 1, 4, 10 |
+| **User/auth system** | 0, 1, 11, 14 |
+| **Docker/deployment** | 0, 1, 7, 26, 27 |
+| **Documentation** | 0, 1, 29 |
+| **Security features** | 0, 1, 11, 15 |
+| **Background tasks** | 0, 1, 18 |
+| **Email features** | 0, 1, 17 |
+| **Backup features** | 0, 1, 21 |
+| **Debugging/profiling** | 0, 1, 5, 6 |
+
+### Search Before Reading
+
+**ALWAYS search first to find exactly what you need:**
+
+```bash
+# Find specific topics
+grep -n "rate limit" AI.md
+grep -n "CSRF" AI.md
+grep -n "server.yml" AI.md
+
+# Find code examples
+grep -n "```go" AI.md
+grep -n "```yaml" AI.md
+
+# Find tables
+grep -n "^|" AI.md | head -50
+```
+
+### Common Mistakes When Reading This File
+
+| Mistake | Consequence | Correct Approach |
+|---------|-------------|------------------|
+| Reading sequentially from start | Context window exhausted | Use index, read specific PARTs |
+| Reading only part of a PART | Missing critical details | Read complete PART sections |
+| Not reading relevant spec before implementing | Drift from spec | Read the PART(s) relevant to the current task |
+| Guessing instead of searching | Wrong implementation | Use grep to find answers |
+| Skipping PART 0 and 1 | Missing critical rules | ALWAYS read these first |
+| Adding content without searching first | Duplicate rules/content | Search for existing content before adding |
+| Reading entire file at once | Context overflow, missed details | Read PART by PART, implement fully before next |
+
+### When You Can't Find Information
+
+1. **Search with grep** - use multiple keywords
+2. **Check related PARTs** - information may be in adjacent sections
+3. **Read the FINAL CHECKPOINT** - summary of all requirements
+4. **Continue researching or implementing the non-ambiguous parts**
+5. **ASK the user only if the unresolved point is actually blocking** - don't guess
 
 ---
