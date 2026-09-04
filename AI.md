@@ -41048,16 +41048,18 @@ LANG=es_ES.UTF-8 {project_name}-cli --help
 2. Translate ALL keys (no key may be omitted)
 3. Add language code to `config.server.i18n.available_languages`
 4. Language automatically appears in the language selector (WebUI) and `--lang` flag (CLI)
-5. Run `make i18n-validate` to verify all keys are present
+5. Run `make test` (or the raw Docker command below) to verify all keys are present
 6. Rebuild ALL binaries — server and CLI both get the new language via `go:embed`
 
 ### Build-Time Validation
 
+No standalone `cmd/i18n-validate` binary — PART 3's allowed-directories list bans a
+root `cmd/` directory. Validation instead lives in `src/common/i18n/*_test.go` as
+ordinary Go tests, run like every other test inside Docker (this PART →
+"Host System Safety Applies to All Testing & Debugging"):
+
 ```bash
-# Makefile target
-i18n-validate:
-	@echo "Validating translation files..."
-	@go run cmd/i18n-validate/main.go src/common/i18n/locales/
+$GO_DOCKER casjaysdev/go:latest go test -run "TestKeyConsistency|TestLocalesFS" ./src/common/i18n/...
 
 # Validates:
 # - All language files have identical key sets to en.json
@@ -41066,6 +41068,9 @@ i18n-validate:
 # - All plural categories required by the language are present
 # - No orphaned keys (keys in other languages not in en.json)
 ```
+
+`make test` already runs the full `./...` suite, including this package — no
+separate Makefile target is needed.
 
 ### RTL (Right-to-Left) Support
 
