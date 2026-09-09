@@ -4460,7 +4460,7 @@ Content-Type: application/json
 
 {
   "ok": false,
-  "error": "SERVICE_ERROR",
+  "error": "MAINTENANCE",
   "message": "Service temporarily unavailable"
 }
 ```
@@ -11783,7 +11783,7 @@ INSERT INTO config (key, value, type) VALUES
     ('ssl.min_version', '"TLS1.2"', 'string'),
     ('cors.allowed_origins', '["https://example.com","https://api.example.com"]', 'array'),
     -- per minute per IP (see server.rate_limit.*)
-    ('rate_limit.read.requests', '120', 'number'),
+    ('server.rate_limit.read.requests', '120', 'number'),
     ('branding.site_name', '"My App"', 'string');
 -- NOTE: server.token is NEVER stored here — it lives in server.yml only,
 -- and only its SHA-256 hash is cached in memory (see API Token Model below)
@@ -13574,6 +13574,7 @@ func NewDB(cfg *config.Database) (*sql.DB, error) {
 | Simple SELECT | 5 seconds | Fast reads |
 | Complex SELECT (JOIN) | 15 seconds | More processing |
 | INSERT/UPDATE/DELETE | 10 seconds | Write operations |
+| Transactions (multi-statement) | 30 seconds | Bounds the whole `BeginTx`...`Commit`/`Rollback` span, not per-statement |
 | Bulk operations | 60 seconds | Large data sets |
 | Migrations | 5 minutes | Schema changes |
 | Reports | 2 minutes | Aggregations |
@@ -24419,6 +24420,42 @@ src/server/template/
 - NO generic browser error pages - always render themed template
 - **Every request MUST terminate in a rendered response — the error path itself must never fail the request.** A panic/`recover` middleware and a template-render failure MUST both fall back to a minimal, hardcoded error response (correct status code, short body, honoring content negotiation — HTML for browsers, JSON for API clients) instead of a blank body, a dropped connection, or a leaked stack trace. The failure handler must never be the thing that breaks the site — the backend mirror of the service-worker guaranteed-`Response` rule.
 
+**Panic-safety implementation (recover middleware):**
+
+```go
+// RecoverMiddleware guarantees every request terminates in a response, even
+// when a handler panics. Wrap the router with this as the outermost
+// middleware, before routing, logging, or any other layer that could itself
+// panic.
+func RecoverMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("panic recovered: %v\n%s", rec, debug.Stack())
+				renderFallbackError(w, r, http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// renderFallbackError is the last-resort error response used when the
+// themed error.tmpl itself fails to render, or a panic is recovered here.
+// It MUST NOT depend on the template engine, theme system, or any state
+// that could itself panic or fail — plain strings only.
+func renderFallbackError(w http.ResponseWriter, r *http.Request, status int) {
+	if strings.Contains(r.Header.Get("Accept"), "application/json") {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		fmt.Fprintf(w, `{"error":%q,"status":%d}`, http.StatusText(status), status)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	fmt.Fprintf(w, "<html><body><h1>%d %s</h1></body></html>", status, http.StatusText(status))
+}
+```
+
 **Error page structure:**
 ```html
 {{template "public.tmpl" .}}
@@ -28178,6 +28215,19 @@ server:
 | **Persistent State** | Task state survives restarts (stored in server.db) |
 | **Automatic Recovery** | Missed tasks run on startup if within catch-up window |
 | **No External Dependencies** | Built-in, no cron or external scheduler needed |
+
+### Task Execution Panic Safety (MUST)
+
+**A single scheduled task MUST NEVER be able to crash the scheduler or the server process.**
+
+Every task run MUST execute inside its own panic/`recover` boundary, isolated from the scheduler's own control loop and from every other task:
+
+| Requirement | Description |
+|-------------|-------------|
+| **Per-task recover** | Each task invocation runs behind a `defer`+`recover` (or equivalent isolation) that catches any panic raised by that task's code |
+| **Scheduler loop survives** | A panicking task MUST be logged and marked `failed` for that run — the scheduler loop itself MUST keep running and MUST still fire the task's next scheduled occurrence |
+| **No cross-task impact** | A panic in one task MUST NOT skip, delay, or corrupt the state of any other task |
+| **Same guarantee as HTTP handlers** | This is the same non-negotiable guarantee as the per-request panic/`recover` requirement in "Error Pages (MUST Match Theme)" — a background job is not exempt just because no browser is watching it |
 
 ## NEVER Use External Schedulers
 
