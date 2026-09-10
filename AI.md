@@ -23477,6 +23477,10 @@ async function revokeLocalToken() {
 | `ccpa_opt_out` | `true` | unset |
 | `{project_name}_build` | running build stamp `{project_version}-{short_commit}` | set on first HTML response — drives the PART 9 version-change purge |
 
+**This page must be editable, not read-only:** every cookie above needs a control on `/server/preferences` that the visitor can act on directly — a theme selector, a language selector, cookie-consent category toggles (reachable here, not only from the first-visit banner), a CCPA opt-out toggle, and a control for every app-specific `{project_name}_pref_*` setting below. Rendering the current values as plain text with no way to change them turns a preferences page into a status page — the entire point of this page is letting the guest change these settings in place.
+
+**App-specific guest preferences:** the table above is the base set every project needs — add project-specific guest-scoped preferences to it too: settings a visitor can adjust without an account (default view mode, results-per-page, sort order, syntax-highlighting theme, unit system, etc.). Name them `{project_name}_pref_{key}`, document each one in this project's own AI.md preferences table, and hold them to the same rules as `theme`/`lang`: cookie-only, read per request, never persisted server-side. They belong here because API projects have no authenticated end-user accounts to attach a preference to (only `Server`/`Operator` — see "Account Types") — if a setting genuinely needs identity-scoping, it belongs on the relevant resource/tenant config, never in a user-preferences table, since none exists here.
+
 **Preference writes (JS enhancement — the server sets the same cookies on its POST endpoints):**
 ```javascript
 // Write - the server reads these on the next request
@@ -23489,14 +23493,15 @@ document.cookie = "lang=fr; path=/; max-age=31536000; SameSite=Lax";
 - Never persist preferences server-side — the server reads the cookie per request; there is no preferences table
 - Never store PII in cookies or localStorage
 - Always fall back to a safe default when a cookie is missing or invalid
+- App-specific preferences use the same cookie table and rules above — don't invent a second storage mechanism for them
 
 **Cross-device preference sync (export/import — stateless, no preferences table required):**
 
 Preferences aren't tied to identity — any two guests who set the same `theme`/`lang` produce the same code/URL, because the code/URL *is* the preference values, not a lookup key. This lets a preference be carried to a new browser/device without an account and without the server ever storing anything.
 
-- Only `theme` and `lang` are exportable. `cookie_consent` and `ccpa_opt_out` are NEVER included — consent is a per-browser legal acknowledgment that must be re-affirmed on each device, not a portable preference. `{project_name}_build` is NEVER included — it is a device-local cache-purge stamp.
+- `theme`, `lang`, and every app-specific `{project_name}_pref_*` cookie are exportable — export/import round-trips the full guest preference set, not just theme/lang. `cookie_consent` and `ccpa_opt_out` are NEVER included — consent is a per-browser legal acknowledgment that must be re-affirmed on each device, not a portable preference. `{project_name}_build` is NEVER included — it is a device-local cache-purge stamp.
 - Guest preferences live at `/server/preferences`, API-mirrored at `/api/{api_version}/server/preferences` — the export/import actions are sub-routes of it, never the standalone `/prefs/*` path, nor bare `/preferences` without the `/server` prefix. API projects have no admin panel or WebUI at all — administration is done entirely via `server.yml`/CLI (see "Account Types": only `Server` and `Operator` exist) — so there is no `/server/admin` route and no `{admin_path}`/`{admin_username}` segment to collide with, and the `{admin_path}` reserved-word-list rule (SERVER.md/HYBRID.md) does not apply here. If an old/non-canonical route (e.g. a bare `/preferences` or `/prefs/*`) exists in already-written code, delete it outright and update all callers to `/server/preferences` — never keep it as a redirect or alias "for backward compatibility" (see "Canonical Terms Only").
-- **Export** (`GET /server/preferences/export`, API-mirrored at `GET /api/{api_version}/server/preferences/export`, or a "Copy preferences" UI action): reads the current `theme`/`lang` cookies and returns two forms of the same state:
+- **Export** (`GET /server/preferences/export`, API-mirrored at `GET /api/{api_version}/server/preferences/export`, or a "Copy preferences" UI action): reads the current `theme`, `lang`, and app-specific `{project_name}_pref_*` cookies and returns two forms of the same state:
   - **Full URL** — `https://{host}/server/preferences/import?theme=dark&lang=fr`: a plain query string, human-readable, and stable across schema changes (a link made before a new preference key existed just omits it on import).
   - **Short code** — `base64url(theme=dark&lang=fr)`: the query string alone, for manual retyping on a device without copy/paste; the import form strips a leading `https://.../server/preferences/import?` if pasted with it.
 - **Import** (`GET /server/preferences/import?theme=dark&lang=fr`, API-mirrored at `GET /api/{api_version}/server/preferences/import`, or a paste-a-code field feeding the same route): validates each parameter against its normal enum/BCP-47 allowlist — reject or drop anything unknown or malformed, an imported value is still untrusted input — sets the matching cookies, then `303 See Other` to `/` (or the referring page) so the code never lingers in the visible URL or browser history.
