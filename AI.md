@@ -25377,7 +25377,7 @@ var staticFS embed.FS
 - GraphiQL interface
 - CLI colored output
 - TUI (bubbletea/lipgloss)
-- Native GUI (GTK/Cocoa/Win32)
+- Native-feel GUI (Gio/Fyne, pure Go)
 - ReadTheDocs documentation (if possible)
 - All interactive elements
 
@@ -25519,7 +25519,7 @@ var TerminalPaletteLight = TerminalPalette{
 **Native GUI does NOT consume the literal hex palette above either** —
 native widget theming should follow the OS, not a custom app palette.
 `src/client/gui/theme_*.go` only detects light/dark (see System Theme
-Detection below) and lets the native toolkit (GTK/Cocoa/Win32) apply its
+Detection below) and lets the toolkit (Gio/Fyne) apply its
 own light/dark widget theme; it does not paint individual widgets with
 the hex values from `ThemePaletteDark`/`ThemePaletteLight`.
 
@@ -44006,7 +44006,7 @@ if env.IsAutoDetectDisplayModeGUI() {
 
 | DisplayMode | Priority | When Auto-Detected | CLI Binary Behavior |
 |-------------|----------|-------------------|---------------------|
-| **DisplayModeGUI** | 1 | Native display, no remote | Launch native GUI (GTK/Cocoa/Win32) |
+| **DisplayModeGUI** | 1 | Native display, no remote | Launch native GUI (Gio/Fyne, pure Go) |
 | **DisplayModeTUI** | 2 | Interactive terminal | Launch bubbletea TUI |
 | **DisplayModeCLI** | 3 | Command provided or piped | Text output with colors |
 | **DisplayModeHeadless** | 4 | No display, no TTY | Error (CLI requires interaction) |
@@ -44079,7 +44079,7 @@ Why CLI needs a setup wizard:
 
 | Requirement | GUI | TUI |
 |-------------|-----|-----|
-| **Professional UI/UX** | Native look (GTK/Cocoa/Win32) | Clean bubbletea interface |
+| **Professional UI/UX** | Native-feel look (Gio/Fyne, OS-themed, pure Go) | Clean bubbletea interface |
 | **Full server functionality** | 100% feature coverage | 100% feature coverage |
 | **Keyboard navigation** | Tab, Enter, Escape | Full keyboard support |
 | **Real-time validation** | Input validation | Input validation |
@@ -44184,7 +44184,7 @@ func selectSetupMode() SetupMode {
 | **Reliability** | TUI works on any terminal, X11 can fail |
 | **Bandwidth** | TUI uses minimal bandwidth vs GUI rendering |
 
-**GUI Setup Wizard (Native - GTK/Cocoa/Win32):**
+**GUI Setup Wizard (Native-feel - Gio/Fyne, pure Go):**
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -44311,14 +44311,16 @@ func EnsureConfigured() error {
 
 ### GUI Mode Requirements
 
-**When GUI mode is available, use NATIVE platform toolkit. No Electron, no web views.**
+**When GUI mode is available, use a pure-Go GUI toolkit. `CGO_ENABLED=0` is absolute (see go_conventions.md's Code Rules — "always; pure Go, no C, no exceptions") — no toolkit that requires cgo is permitted, no exceptions. No Electron, no web views.**
 
 | Platform | Toolkit | Notes |
 |----------|---------|-------|
-| **Linux** | GTK4 or Qt6 | GTK4 preferred for GNOME, Qt6 for KDE |
-| **macOS** | Cocoa (AppKit) | Native macOS UI via cgo |
-| **Windows** | Win32/WinUI | Native Windows UI |
-| **BSD** | GTK4 or Qt6 | Same as Linux |
+| **Linux** | `gioui.org` (Gio) | Pure Go, speaks X11/Wayland wire protocol directly — no `libX11`/`libwayland-client` link |
+| **macOS** | `gioui.org` (Gio) | Pure Go, no cgo — native window via Gio's CGO-free platform driver |
+| **Windows** | `gioui.org` (Gio) | Pure Go, native window via `golang.org/x/sys/windows` |
+| **BSD** | `gioui.org` (Gio) | Same binary and code path as Linux — X11 and Wayland |
+
+**One toolkit, one implementation, every platform.** Gio (`gioui.org`) is cross-platform in a single codebase — there is no per-OS launcher file and no `runtime.GOOS` dispatch. (`fyne.io/fyne/v2` is the accepted alternative documented in APPLICATION.md; pick one project-wide and stay consistent — never mix GUI toolkits within a project.)
 
 ```go
 // src/client/gui/gui.go
@@ -44327,7 +44329,12 @@ func EnsureConfigured() error {
 package gui
 
 import (
-    "runtime"
+    "log"
+    "os"
+
+    "gioui.org/app"
+    "gioui.org/layout"
+    "gioui.org/op"
 )
 
 // GUI is conditionally compiled
@@ -44338,240 +44345,42 @@ func IsGUIAvailable() bool {
     return env.HasDisplay && !env.IsSSH && !env.IsMosh
 }
 
+// LaunchGUI opens the Gio window. Gio is pure Go and cross-platform — the
+// same window code runs unmodified on Linux (X11/Wayland), macOS, Windows,
+// and BSD, so there is no per-platform launcher file to maintain.
 func LaunchGUI(config *Config) error {
-    switch runtime.GOOS {
-    case "linux", "freebsd", "openbsd", "netbsd":
-        return launchGTKGui(config)
-    case "darwin":
-        return launchCocoaGui(config)
-    case "windows":
-        return launchWin32Gui(config)
-    default:
-        return ErrGUIUnsupported
-    }
-}
-```
-
-### Platform-Specific GUI Launchers
-
-```go
-// --- gui_linux.go ---
-//go:build linux && gui
-// +build linux,gui
-
-package gui
-
-import (
-    "github.com/diamondburned/gotk4/pkg/gtk/v4"
-    "github.com/diamondburned/gotk4/pkg/gio/v2"
-)
-
-func launchGTKGui(config *Config) error {
-    app := gtk.NewApplication("{plist_name}.cli", gio.ApplicationFlagsNone)
-
-    app.ConnectActivate(func() {
-        win := gtk.NewApplicationWindow(app)
-        win.SetTitle("{PROJECT_NAME} CLI")
-        win.SetDefaultSize(800, 600)
-
-        // Build UI from config
-        buildMainWindow(win, config)
-
-        win.Show()
-    })
-
-    return app.Run(nil)
-}
-
-func buildMainWindow(win *gtk.ApplicationWindow, config *Config) {
-    // Main container
-    box := gtk.NewBox(gtk.OrientationVertical, 10)
-    box.SetMarginTop(10)
-    box.SetMarginBottom(10)
-    box.SetMarginStart(10)
-    box.SetMarginEnd(10)
-
-    // Header
-    header := gtk.NewHeaderBar()
-    header.SetShowTitleButtons(true)
-    win.SetTitlebar(header)
-
-    // Content area - implement based on CLI functionality
-    // ...
-
-    win.SetChild(box)
-}
-```
-
-```go
-// --- gui_darwin.go ---
-//go:build darwin && gui
-// +build darwin,gui
-
-package gui
-
-/*
-#cgo CFLAGS: -x objective-c
-#cgo LDFLAGS: -framework Cocoa
-#import <Cocoa/Cocoa.h>
-
-void launchCocoaApp(const char* title, int width, int height);
-*/
-import "C"
-import "unsafe"
-
-func launchCocoaGui(config *Config) error {
-    title := C.CString("{PROJECT_NAME} CLI")
-    defer C.free(unsafe.Pointer(title))
-
-    C.launchCocoaApp(title, 800, 600)
-    return nil
-}
-
-// Objective-C implementation in gui_darwin.m:
-// @interface AppDelegate : NSObject <NSApplicationDelegate>
-// @property (strong) NSWindow *window;
-// @end
-//
-// @implementation AppDelegate
-// - (void)applicationDidFinishLaunching:(NSNotification *)notification {
-//     NSRect frame = NSMakeRect(0, 0, 800, 600);
-//     self.window = [[NSWindow alloc] initWithContentRect:frame
-//         styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-//                    NSWindowStyleMaskResizable | NSWindowStyleMaskMiniaturizable)
-//         backing:NSBackingStoreBuffered defer:NO];
-//     [self.window setTitle:@"{PROJECT_NAME} CLI"];
-//     [self.window center];
-//     [self.window makeKeyAndOrderFront:nil];
-// }
-// @end
-```
-
-```go
-// --- gui_windows.go ---
-//go:build windows && gui
-// +build windows,gui
-
-package gui
-
-import (
-    "syscall"
-    "unsafe"
-
-    "golang.org/x/sys/windows"
-)
-
-var (
-    user32           = windows.NewLazySystemDLL("user32.dll")
-    createWindowExW  = user32.NewProc("CreateWindowExW")
-    defWindowProcW   = user32.NewProc("DefWindowProcW")
-    dispatchMessageW = user32.NewProc("DispatchMessageW")
-    getMessageW      = user32.NewProc("GetMessageW")
-    postQuitMessage  = user32.NewProc("PostQuitMessage")
-    registerClassExW = user32.NewProc("RegisterClassExW")
-    showWindow       = user32.NewProc("ShowWindow")
-    translateMessage = user32.NewProc("TranslateMessage")
-    updateWindow     = user32.NewProc("UpdateWindow")
-)
-
-const (
-    WS_OVERLAPPEDWINDOW = 0x00CF0000
-    WS_VISIBLE          = 0x10000000
-    SW_SHOW             = 5
-    WM_DESTROY          = 0x0002
-)
-
-func launchWin32Gui(config *Config) error {
-    className := windows.StringToUTF16Ptr("{project_name}_cli_window")
-    windowName := windows.StringToUTF16Ptr("{PROJECT_NAME} CLI")
-
-    // Register window class
-    var wc WNDCLASSEXW
-    wc.CbSize = uint32(unsafe.Sizeof(wc))
-    wc.LpfnWndProc = syscall.NewCallback(wndProc)
-    wc.HInstance = 0
-    wc.LpszClassName = className
-
-    registerClassExW.Call(uintptr(unsafe.Pointer(&wc)))
-
-    // Create window
-    hwnd, _, _ := createWindowExW.Call(
-        0,
-        uintptr(unsafe.Pointer(className)),
-        uintptr(unsafe.Pointer(windowName)),
-        WS_OVERLAPPEDWINDOW|WS_VISIBLE,
-        // x, y, width, height
-        100, 100, 800, 600,
-        0, 0, 0, 0,
-    )
-
-    showWindow.Call(hwnd, SW_SHOW)
-    updateWindow.Call(hwnd)
-
-    // Message loop
-    var msg MSG
-    for {
-        ret, _, _ := getMessageW.Call(
-            uintptr(unsafe.Pointer(&msg)), 0, 0, 0,
-        )
-        if ret == 0 {
-            break
+    go func() {
+        w := new(app.Window)
+        w.Option(app.Title("{PROJECT_NAME} CLI"), app.Size(800, 600))
+        if err := runWindow(w, config); err != nil {
+            log.Fatal(err)
         }
-        translateMessage.Call(uintptr(unsafe.Pointer(&msg)))
-        dispatchMessageW.Call(uintptr(unsafe.Pointer(&msg)))
-    }
-
+        os.Exit(0)
+    }()
+    app.Main()
     return nil
 }
 
-func wndProc(hwnd, msg, wParam, lParam uintptr) uintptr {
-    switch msg {
-    case WM_DESTROY:
-        postQuitMessage.Call(0)
-        return 0
+func runWindow(w *app.Window, config *Config) error {
+    var ops op.Ops
+    for {
+        switch e := w.Event().(type) {
+        case app.DestroyEvent:
+            return e.Err
+        case app.FrameEvent:
+            gtx := app.NewContext(&ops, e)
+            buildMainWindow(gtx, config)
+            e.Frame(gtx.Ops)
+        }
     }
-    ret, _, _ := defWindowProcW.Call(hwnd, msg, wParam, lParam)
-    return ret
 }
 
-type WNDCLASSEXW struct {
-    CbSize        uint32
-    Style         uint32
-    LpfnWndProc   uintptr
-    CbClsExtra    int32
-    CbWndExtra    int32
-    HInstance     uintptr
-    HIcon         uintptr
-    HCursor       uintptr
-    HbrBackground uintptr
-    LpszMenuName  *uint16
-    LpszClassName *uint16
-    HIconSm       uintptr
-}
-
-type MSG struct {
-    Hwnd    uintptr
-    Message uint32
-    WParam  uintptr
-    LParam  uintptr
-    Time    uint32
-    Pt      struct{ X, Y int32 }
-}
-```
-
-```go
-// --- gui_bsd.go ---
-//go:build (freebsd || openbsd || netbsd) && gui
-// +build freebsd openbsd netbsd
-// +build gui
-
-package gui
-
-// BSD uses the same GTK implementation as Linux
-func launchGTKGui(config *Config) error {
-    // Same implementation as gui_linux.go
-    // GTK4 works on BSD systems
-    return launchGTKGuiImpl(config)
+func buildMainWindow(gtx layout.Context, config *Config) layout.Dimensions {
+    // Content area — implement based on CLI functionality. Use Gio's theme
+    // package for OS light/dark detection; never invent a literal hex
+    // palette (see Color Palette rule).
+    // ...
+    return layout.Dimensions{}
 }
 ```
 
