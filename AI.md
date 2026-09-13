@@ -5670,7 +5670,7 @@ Full license: https://spdx.org/licenses/BSD-3-Clause.html
 # .github/workflows/licenses.yml
 name: License Check
 
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 
 jobs:
   check-licenses:
@@ -25377,7 +25377,7 @@ var staticFS embed.FS
 - GraphiQL interface
 - CLI colored output
 - TUI (bubbletea/lipgloss)
-- Native-feel GUI (Gio/Fyne, pure Go)
+- Native-feel GUI (`gogpu/ui`, pure Go)
 - ReadTheDocs documentation (if possible)
 - All interactive elements
 
@@ -25519,7 +25519,7 @@ var TerminalPaletteLight = TerminalPalette{
 **Native GUI does NOT consume the literal hex palette above either** —
 native widget theming should follow the OS, not a custom app palette.
 `src/client/gui/theme_*.go` only detects light/dark (see System Theme
-Detection below) and lets the toolkit (Gio/Fyne) apply its
+Detection below) and lets the toolkit (`gogpu/ui`) apply its
 own light/dark widget theme; it does not paint individual widgets with
 the hex values from `ThemePaletteDark`/`ThemePaletteLight`.
 
@@ -34231,6 +34231,7 @@ on:
   schedule:
     # Weekly security run (Monday 06:00 UTC) — only security jobs run on schedule
     - cron: '0 6 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -34371,6 +34372,7 @@ on:
     tags:
       - 'v*'
       - '[0-9]*.[0-9]*.[0-9]*'
+  workflow_dispatch: {}
 
 concurrency:
   group: release-${{ github.ref }}
@@ -34545,6 +34547,7 @@ on:
   push:
     branches:
       - beta
+  workflow_dispatch:
 
 concurrency:
   group: beta-${{ github.ref }}
@@ -35192,6 +35195,7 @@ on:
     tags:
       - 'v*'
       - '[0-9]*.[0-9]*.[0-9]*'
+  workflow_dispatch: {}
 
 concurrency:
   group: release-${{ gitea.ref }}
@@ -35356,6 +35360,7 @@ on:
   push:
     branches:
       - beta
+  workflow_dispatch:
 
 concurrency:
   group: beta-${{ gitea.ref }}
@@ -44006,7 +44011,7 @@ if env.IsAutoDetectDisplayModeGUI() {
 
 | DisplayMode | Priority | When Auto-Detected | CLI Binary Behavior |
 |-------------|----------|-------------------|---------------------|
-| **DisplayModeGUI** | 1 | Native display, no remote | Launch native GUI (Gio/Fyne, pure Go) |
+| **DisplayModeGUI** | 1 | Native display, no remote | Launch native GUI (`gogpu/ui`, pure Go) |
 | **DisplayModeTUI** | 2 | Interactive terminal | Launch bubbletea TUI |
 | **DisplayModeCLI** | 3 | Command provided or piped | Text output with colors |
 | **DisplayModeHeadless** | 4 | No display, no TTY | Error (CLI requires interaction) |
@@ -44079,7 +44084,7 @@ Why CLI needs a setup wizard:
 
 | Requirement | GUI | TUI |
 |-------------|-----|-----|
-| **Professional UI/UX** | Native-feel look (Gio/Fyne, OS-themed, pure Go) | Clean bubbletea interface |
+| **Professional UI/UX** | Native-feel look (`gogpu/ui`, OS-themed, pure Go) | Clean bubbletea interface |
 | **Full server functionality** | 100% feature coverage | 100% feature coverage |
 | **Keyboard navigation** | Tab, Enter, Escape | Full keyboard support |
 | **Real-time validation** | Input validation | Input validation |
@@ -44184,7 +44189,7 @@ func selectSetupMode() SetupMode {
 | **Reliability** | TUI works on any terminal, X11 can fail |
 | **Bandwidth** | TUI uses minimal bandwidth vs GUI rendering |
 
-**GUI Setup Wizard (Native-feel - Gio/Fyne, pure Go):**
+**GUI Setup Wizard (Native-feel - `gogpu/ui`, pure Go):**
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -44315,12 +44320,12 @@ func EnsureConfigured() error {
 
 | Platform | Toolkit | Notes |
 |----------|---------|-------|
-| **Linux** | `gioui.org` (Gio) | Pure Go, speaks X11/Wayland wire protocol directly — no `libX11`/`libwayland-client` link |
-| **macOS** | `gioui.org` (Gio) | Pure Go, no cgo — native window via Gio's CGO-free platform driver |
-| **Windows** | `gioui.org` (Gio) | Pure Go, native window via `golang.org/x/sys/windows` |
-| **BSD** | `gioui.org` (Gio) | Same binary and code path as Linux — X11 and Wayland |
+| **Linux** | `github.com/gogpu/ui` + `github.com/gogpu/gogpu` | Pure Go, zero CGO — `goffi` `dlopen`s `libX11`/`libwayland-client` at runtime, no link-time C dependency; native Wayland, not XWayland compat |
+| **macOS** | `github.com/gogpu/ui` + `github.com/gogpu/gogpu` | Pure Go, no cgo — Metal access via the Objective-C runtime through `goffi` |
+| **Windows** | `github.com/gogpu/ui` + `github.com/gogpu/gogpu` | Pure Go, no cgo — DX12 via `goffi` |
+| **BSD** | none | `gogpu/gogpu`'s windowing layer does not implement BSD yet (stubbed via build tags). Compile GUI support out on `freebsd`/`netbsd`/`openbsd` (`caps.GUISupported == false`); falls back to TUI, or CLI if no TTY (see APPLICATION.md's Smart Detect Rules) |
 
-**One toolkit, one implementation, every platform.** Gio (`gioui.org`) is cross-platform in a single codebase — there is no per-OS launcher file and no `runtime.GOOS` dispatch. (`fyne.io/fyne/v2` is the accepted alternative documented in APPLICATION.md; pick one project-wide and stay consistent — never mix GUI toolkits within a project.)
+**One toolkit, one implementation, every platform GUI is supported on.** `gogpu/ui` (+ `gogpu/gogpu` for windowing) is cross-platform in a single codebase for Linux/macOS/Windows — there is no per-OS launcher file and no `runtime.GOOS` dispatch. `gioui.org` (Gio) and `fyne.io/fyne/v2` are **NOT compliant** — both require cgo on Linux (Gio's own install docs list `libwayland-dev`/`libx11-dev`/`libxkbcommon-x11-dev`/etc.; Fyne is built on `go-gl`/`glfw`) and are therefore banned project-wide, not just discouraged.
 
 ```go
 // src/client/gui/gui.go
@@ -44330,11 +44335,16 @@ package gui
 
 import (
     "log"
-    "os"
 
-    "gioui.org/app"
-    "gioui.org/layout"
-    "gioui.org/op"
+    "github.com/gogpu/gg"
+    _ "github.com/gogpu/gg/gpu"
+    "github.com/gogpu/gg/integration/ggcanvas"
+    "github.com/gogpu/gogpu"
+    "github.com/gogpu/ui/app"
+    "github.com/gogpu/ui/primitives"
+    "github.com/gogpu/ui/render"
+    "github.com/gogpu/ui/theme/material3"
+    "github.com/gogpu/ui/widget"
 )
 
 // GUI is conditionally compiled
@@ -44345,42 +44355,74 @@ func IsGUIAvailable() bool {
     return env.HasDisplay && !env.IsSSH && !env.IsMosh
 }
 
-// LaunchGUI opens the Gio window. Gio is pure Go and cross-platform — the
-// same window code runs unmodified on Linux (X11/Wayland), macOS, Windows,
-// and BSD, so there is no per-platform launcher file to maintain.
+// LaunchGUI opens the gogpu/ui window. gogpu/ui is pure Go, zero CGO (via
+// goffi's runtime dlopen) and cross-platform — the same code runs
+// unmodified on Linux (X11/Wayland), macOS, and Windows. BSD has no
+// backend yet, so IsGUIAvailable/caps.GUISupported must already be false
+// there and this function must never be reached on freebsd/netbsd/openbsd.
 func LaunchGUI(config *Config) error {
-    go func() {
-        w := new(app.Window)
-        w.Option(app.Title("{PROJECT_NAME} CLI"), app.Size(800, 600))
-        if err := runWindow(w, config); err != nil {
-            log.Fatal(err)
+    gogpuApp := gogpu.NewApp(gogpu.DefaultConfig().
+        WithTitle("{PROJECT_NAME} CLI").
+        WithSize(800, 600))
+
+    m3 := material3.New(widget.Hex(0x6750A4))
+
+    uiApp := app.New(
+        app.WithWindowProvider(gogpuApp),
+        app.WithPlatformProvider(gogpuApp),
+        app.WithEventSource(gogpuApp.EventSource()),
+    )
+    uiApp.SetRoot(buildMainWindow(config, m3))
+
+    var canvas *ggcanvas.Canvas
+    gogpuApp.OnDraw(func(dc *gogpu.Context) {
+        w, h := dc.Width(), dc.Height()
+        if w <= 0 || h <= 0 {
+            return
         }
-        os.Exit(0)
-    }()
-    app.Main()
-    return nil
+        if canvas == nil {
+            provider := gogpuApp.GPUContextProvider()
+            if provider == nil {
+                return
+            }
+            var err error
+            canvas, err = ggcanvas.New(provider, w, h)
+            if err != nil {
+                log.Printf("ggcanvas: %v", err)
+                return
+            }
+        }
+        uiApp.Frame()
+        cw, ch := canvas.Size()
+        if cw != w || ch != h {
+            if err := canvas.Resize(w, h); err != nil {
+                log.Printf("resize: %v", err)
+            }
+            cw, ch = w, h
+        }
+        sv := dc.SurfaceView()
+        sw, sh := dc.SurfaceSize()
+        canvas.Draw(func(cc *gg.Context) {
+            cc.SetRGBA(0.94, 0.94, 0.94, 1)
+            cc.DrawRectangle(0, 0, float64(cw), float64(ch))
+            cc.Fill()
+            uiApp.Window().DrawTo(render.NewCanvas(cc, cw, ch))
+        })
+        if err := canvas.RenderDirect(sv, sw, sh); err != nil {
+            log.Printf("render: %v", err)
+        }
+    })
+
+    return gogpuApp.Run()
 }
 
-func runWindow(w *app.Window, config *Config) error {
-    var ops op.Ops
-    for {
-        switch e := w.Event().(type) {
-        case app.DestroyEvent:
-            return e.Err
-        case app.FrameEvent:
-            gtx := app.NewContext(&ops, e)
-            buildMainWindow(gtx, config)
-            e.Frame(gtx.Ops)
-        }
-    }
-}
-
-func buildMainWindow(gtx layout.Context, config *Config) layout.Dimensions {
-    // Content area — implement based on CLI functionality. Use Gio's theme
-    // package for OS light/dark detection; never invent a literal hex
-    // palette (see Color Palette rule).
-    // ...
-    return layout.Dimensions{}
+func buildMainWindow(config *Config, m3 *material3.Theme) *primitives.BoxWidget {
+    // Content area — implement based on CLI functionality. Use
+    // gogpu/ui's Material 3 / Fluent / Cupertino theme packages for OS
+    // light/dark detection; never invent a literal hex palette (see
+    // Color Palette rule) — the 0x6750A4 seed above is a placeholder,
+    // resolve it from the detected OS theme instead.
+    return primitives.Box().Padding(24).Gap(12)
 }
 ```
 
