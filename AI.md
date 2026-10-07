@@ -1728,15 +1728,10 @@ Both files use the same structure. Settings are merged: `settings.local.json` ov
 
 ```json
 {
-  "model": "",
-  "thinking": "off",
   "permissions": {
     "allow": [],
     "deny": [],
     "ask": []
-  },
-  "preferences": {
-    "auto_commit": false
   },
   "hooks": {
     "PreToolUse": [],
@@ -1750,10 +1745,7 @@ Both files use the same structure. Settings are merged: `settings.local.json` ov
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `model` | string | Model override (empty = default, e.g., `"claude-sonnet-4-20250514"`) |
-| `thinking` | string | Extended thinking: `"off"`, `"on"`, or token limit (e.g., `"10000"`) |
 | `permissions` | object | Tool permission rules (allow/deny/ask arrays) |
-| `preferences` | object | Behavior preferences |
 | `hooks` | object | Pre/post tool execution hooks |
 | `env` | object | Environment variables for Bash commands |
 
@@ -1761,41 +1753,40 @@ Both files use the same structure. Settings are merged: `settings.local.json` ov
 
 ```json
 {
-  "model": "",
-  "thinking": "off",
   "permissions": {
     "allow": [
+      "Bash(**)",
       "Read(**)",
       "Edit(**)",
-      "Bash(go *)",
-      "Bash(make *)",
-      "Bash(docker *)",
-      "Bash(docker-compose *)",
-      "Bash(git *)",
-      "Bash(curl *)",
-      "Bash(tree *)",
-      "Bash(find *)",
-      "Bash(grep *)",
-      "Bash(rm *)",
-      "Bash(mv *)",
-      "Bash(cp *)",
-      "Bash(mkdir *)",
-      "Bash(chmod *)",
-      "Bash(ln *)",
-      "Bash(cat *)",
-      "Bash(head *)",
-      "Bash(tail *)",
-      "Bash(ls *)",
-      "Bash(pwd *)",
-      "Bash(timeout *)",
-      "Bash(sort *)",
-      "Bash(wc *)",
-      "Bash(diff *)",
-      "WebSearch",
-      "WebFetch(domain:github.com)",
-      "WebFetch(domain:pkg.go.dev)",
-      "WebFetch(domain:go.dev)",
-      "WebFetch(domain:golang.org)"
+      "Skill(**)",
+      "Agent",
+      "WebFetch",
+      "Monitor",
+      "Edit(~/Projects/**/.git/COMMIT_MESS)",
+      "Edit(**/.git/COMMIT_MESS)",
+      "Edit(**/.git/COMMIT_EDITMSG)",
+      "Edit(**/AI.md)",
+      "Edit(**/CLAUDE.md)",
+      "Edit(**/IDEA.md)",
+      "Edit(**/SPEC.md)",
+      "Edit(**/TODO.AI.md)",
+      "Edit(**/TODO.md)",
+      "Edit(**/PLAN.AI.md)",
+      "Edit(**/PLAN.md)",
+      "Edit(**/.env)",
+      "Edit(**/app.env)",
+      "Edit(**/default.env)",
+      "Edit(**/.no_push)",
+      "Edit(**/.dockerignore)",
+      "Edit(**/.gitignore)",
+      "Edit(**/.gitattributes)",
+      "Edit(**/.editorconfig)",
+      "Edit(**/.npmignore)",
+      "Edit(**/.eslintignore)",
+      "Edit(**/.prettierignore)",
+      "Edit(**/settings.json)",
+      "Edit(**/settings.local.json)",
+      "WebSearch"
     ],
     "deny": [
       "Bash(git commit *)",
@@ -1808,9 +1799,6 @@ Both files use the same structure. Settings are merged: `settings.local.json` ov
       "Bash(git reset *)",
       "Bash(git checkout -- *)"
     ]
-  },
-  "preferences": {
-    "auto_commit": false
   },
   "hooks": {
     "PreToolUse": [
