@@ -856,3 +856,21 @@ banner row.
 
 - `git init` and initial commit — intentionally left to the calling
   session; this bootstrap pass did not run any git command.
+- CI-breaking compile errors in `src/httpserver` (found 2026-09-17 while
+  diagnosing failing "Docker Build"/"Daily Build" GitHub Actions runs):
+  `src/httpserver/securitystatus.go` reads `rep.ClosedAt`,
+  `rep.LastViewedAt`, `rep.Comments`, `rep.DisclosureAt`, and calls
+  `db.TouchSecurityReportView`, `db.IsSecurityReportStatus`,
+  `db.StatusReceived` — none of which exist on `db.SecurityReport`
+  (`src/db/securityreport.go` only has `TrackingID`, `ReceivedAt`,
+  `Severity`, `Component`, `Status`, `Sealed`) or in the `db` package.
+  `src/httpserver/sitemap.go` reads `sd.cfg.Server.SEO.Sitemap`, but
+  `config.SEO` (`src/config/config.go`) only has `Description` and
+  `Keywords` — no `Sitemap` field. Both look like incomplete
+  implementations from the initial commit rather than a recent
+  regression (`git log` shows only the initial commit touching these
+  files). Needs a design decision (report status enum/lifecycle,
+  comment storage, disclosure timeline, sitemap config toggle) that is
+  out of scope for a CI-fix pass — do not stub the fields, implement the
+  real feature per AI.md PART 11 (security reports) and PART 16/sitemap
+  spec.
