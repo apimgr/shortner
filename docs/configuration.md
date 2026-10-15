@@ -253,6 +253,10 @@ server:
   seo:
     description: ""
     keywords: ""
+    sitemap:
+      enabled: true
+      max_urls: 50000
+      include_images: false
   contact:
     general:
       email: ""
@@ -267,6 +271,14 @@ server:
       email: ""
       address: ""
 ```
+
+The sitemap is generated dynamically at `/sitemap.xml`. It contains public
+pages and unexpired short-link redirect and stats URLs; API and management
+routes are excluded. When its URL count exceeds `max_urls`, the root file
+becomes a sitemap index and refers to numbered sitemap pages. The protocol
+maximum of 50,000 URLs per sitemap page is always enforced. `include_images`
+currently has no effect because this product does not associate image assets
+with links.
 
 The `admin` address is internal only and is never rendered on a page. The
 `security` address feeds `/.well-known/security.txt`; when empty it

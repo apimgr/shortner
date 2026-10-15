@@ -23,11 +23,9 @@ https://shortner.example.com
 - Bot-exclusion for click analytics
 - Server-side rendered web UI — works fully without JavaScript
 - REST API mirrors every web UI feature
-- Single static binary, no runtime dependencies
-
-Planned (not yet shipped): GeoIP enrichment for click analytics, Tor hidden
-service support (auto-enabled when Tor is found), and an optional I2P
-eepsite (off by default).
+- Local GeoIP enrichment for click analytics and country-based controls
+- Tor v3 hidden service when a Tor binary is available; optional I2P eepsite
+- Single static server binary; overlay networking uses optional system runtimes
 
 ## Production
 

@@ -245,15 +245,12 @@ Still open under PART 9-11:
   implemented this pass; only the create-link page itself was required.
   Read: AI.md PART 16 "PWA"
 - `sitemap.xml` — implemented (`src/httpserver/sitemap.go`,
-  `GET/HEAD /sitemap.xml`): static public-page entries (home, `/list`,
-  `/server/about|help|privacy|terms|contact|security|security/policy|
-  security/thanks`, plus `/server/ccpa` and `/server/dpo` gated on the
-  same config conditions as their own handlers), gated on
-  `server.seo.sitemap.enabled` (default true) and truncated at
-  `server.seo.sitemap.max_urls` (default 50000). Individual short-link
-  slugs are intentionally excluded — user content, not a published
-  resource page. `robots.txt` already pointed at `/sitemap.xml`
-  (PART 16 "Static Files"); it now resolves.
+  `GET/HEAD /sitemap.xml`): static public pages plus each unexpired public
+  short-link redirect and its `/stats` page. The configured per-file URL
+  limit is clamped to the sitemap protocol maximum; oversized catalogs use
+  `/sitemap.xml` as an index with numbered sitemap pages. Expired resources,
+  management routes, and API endpoints are excluded. Sitemap generation is
+  covered by `src/httpserver/sitemap_test.go`.
 - Remote branding/SEO image fetching + site-verification meta tags — not
   implemented; `head.tmpl` has no dynamic OG/Twitter image logic beyond
   static config fields already present.
@@ -620,8 +617,8 @@ The remaining items below are environment limits, not unbuilt work.
   `src/service.go` + `src/update.go` + `src/email_cli.go` +
   `src/backup_cli.go` + `src/scheduler_cli.go`) rather than from the
   spec's placeholder skeletons, and every TODO.AI.md-deferred item is
-  described as deferred rather than shipped — no `shortner-cli`, no
-  Swagger/GraphQL, no Tor/I2P, no DNS-01, no PWA/sitemap, no hot reload,
+  described as deferred rather than shipped — no Swagger/GraphQL, no
+  DNS-01, no PWA, no hot reload,
   no cache in the request path, unpopulated business metrics, no
   `ssl_renewed` trigger, no backup `list`/`delete`. `mkdocs build
   --strict` verified clean inside `python:alpine` (built in 2.25s, zero
@@ -630,12 +627,6 @@ The remaining items below are environment limits, not unbuilt work.
   for organization accounts; no pre-existing RTD project name was found
   anywhere in the repo.
   Read: AI.md PART 29
-- README.md is stale against the shipped code: it lists GeoIP under
-  "Planned (not yet shipped)" although PART 19 is implemented, and it
-  still lists `shortner-cli` only in passing. The client now exists, so
-  README.md and `docs/cli.md` both need a real client section (verbs,
-  flags, setup wizard, TUI keys, completions) and the GeoIP correction.
-  Read: AI.md PART 29, PART 32
 - PART 30 (I18N & A11Y) is DONE for the server binary and the Web UI:
   `src/common/i18n/` (embedded `locales/*.json` for all 7 spec languages,
   `Translate`/`TranslateFormat`/`TranslatePlural`/`IsSupported`/
@@ -856,21 +847,3 @@ banner row.
 
 - `git init` and initial commit — intentionally left to the calling
   session; this bootstrap pass did not run any git command.
-- CI-breaking compile errors in `src/httpserver` (found 2026-09-17 while
-  diagnosing failing "Docker Build"/"Daily Build" GitHub Actions runs):
-  `src/httpserver/securitystatus.go` reads `rep.ClosedAt`,
-  `rep.LastViewedAt`, `rep.Comments`, `rep.DisclosureAt`, and calls
-  `db.TouchSecurityReportView`, `db.IsSecurityReportStatus`,
-  `db.StatusReceived` — none of which exist on `db.SecurityReport`
-  (`src/db/securityreport.go` only has `TrackingID`, `ReceivedAt`,
-  `Severity`, `Component`, `Status`, `Sealed`) or in the `db` package.
-  `src/httpserver/sitemap.go` reads `sd.cfg.Server.SEO.Sitemap`, but
-  `config.SEO` (`src/config/config.go`) only has `Description` and
-  `Keywords` — no `Sitemap` field. Both look like incomplete
-  implementations from the initial commit rather than a recent
-  regression (`git log` shows only the initial commit touching these
-  files). Needs a design decision (report status enum/lifecycle,
-  comment storage, disclosure timeline, sitemap config toggle) that is
-  out of scope for a CI-fix pass — do not stub the fields, implement the
-  real feature per AI.md PART 11 (security reports) and PART 16/sitemap
-  spec.

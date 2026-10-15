@@ -397,6 +397,9 @@ Server-rendered HTML. Every one of these works with JavaScript disabled.
 | `POST /server/consent` | Cookie consent choice |
 | `POST /server/theme` | Theme preference |
 | `GET /static/*` | Embedded CSS, JS, and images |
+| `GET /favicon.ico` | Embedded default favicon |
+| `GET /sitemap.xml` | Public-page sitemap or sitemap index |
+| `GET /sitemap-{part}.xml` | A numbered sitemap page when the URL limit is exceeded |
 
 Two routes are conditional: `/server/ccpa` exists only when
 `server.privacy.data.sold` is true, and `/server/dpo` only when compliance
