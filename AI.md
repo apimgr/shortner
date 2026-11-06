@@ -8780,11 +8780,11 @@ Before proceeding, confirm you understand:
 | `--mode development` | development |
 | `--mode prod` | production |
 | `--mode production` | production |
-| `--mode debug` | development + debug on |
+| `--mode debug` | debug (debug flag on by default; `--debug=false` / `DEBUG=false` turns it off) |
 
 ## Debug Endpoints (`--debug` / `DEBUG=true` Only)
 
-**Debug endpoints are ONLY available when `--debug` flag or `DEBUG=true` is set. Otherwise returns 404.**
+**Debug endpoints are ONLY available when `--debug` flag or `DEBUG=true` is set. Otherwise returns 404. When enabled, EVERY `/debug/*` endpoint (including pprof and expvar) additionally requires the operator token (`server.token`) as a Bearer credential — `--debug` turns the endpoints on, it never replaces authentication.**
 
 ### pprof Endpoints
 
@@ -8820,15 +8820,18 @@ Before proceeding, confirm you understand:
 package server
 
 import (
+    "crypto/sha256"
+    "crypto/subtle"
     "expvar"
     "net/http"
     "net/http/pprof"
     "runtime"
+    "strings"
 
     "github.com/go-chi/chi/v5"
 )
 
-// registerDebugRoutes registers debug endpoints (--debug/DEBUG=true only)
+// registerDebugRoutes registers debug endpoints (--debug/DEBUG=true only); every endpoint also requires the operator token
 func (s *Server) registerDebugRoutes(r chi.Router) {
     if !s.config.IsDebug() {
         // No debug routes unless --debug or DEBUG=true
@@ -8836,6 +8839,9 @@ func (s *Server) registerDebugRoutes(r chi.Router) {
     }
 
     r.Route("/debug", func(r chi.Router) {
+        // Every debug endpoint (pprof, expvar, custom) requires the operator token (server.token) - never bypassed
+        r.Use(s.requireOperatorToken)
+
         // pprof endpoints
         r.HandleFunc("/pprof/", pprof.Index)
         r.HandleFunc("/pprof/cmdline", pprof.Cmdline)
@@ -8860,6 +8866,19 @@ func (s *Server) registerDebugRoutes(r chi.Router) {
         r.Get("/scheduler", s.handleDebugScheduler)
         r.Get("/memory", s.handleDebugMemory)
         r.Get("/goroutines", s.handleDebugGoroutines)
+    })
+}
+
+// requireOperatorToken rejects every /debug request without the correct server.token Bearer credential:
+// the inbound token is SHA-256 hashed and compared in constant time against the hash cached at startup
+func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        got := sha256.Sum256([]byte(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")))
+        if subtle.ConstantTimeCompare(got[:], s.operatorTokenHash[:]) != 1 {
+            respondError(w, http.StatusUnauthorized, "Operator token required")
+            return
+        }
+        next.ServeHTTP(w, r)
     })
 }
 
@@ -23639,9 +23658,9 @@ async function revokeLocalToken() {
 | `ccpa_opt_out` | `true` | unset |
 | `{project_name}_build` | running build stamp `{project_version}-{short_commit}` | set on first HTML response — drives the PART 9 version-change purge |
 
-**This page must be editable, not read-only:** every cookie above needs a control on `/server/preferences` that the visitor can act on directly — a theme selector, a language selector, cookie-consent category toggles (reachable here, not only from the first-visit banner), a CCPA opt-out toggle, and a control for every app-specific `{project_name}_pref_*` setting below. Rendering the current values as plain text with no way to change them turns a preferences page into a status page — the entire point of this page is letting the guest change these settings in place. The page layout, buttons and save behavior are fixed by rules 13–17 of the sync contract below.
+**This page must be editable, not read-only:** every cookie above except `{project_name}_build` needs a control on `/server/preferences` that the visitor can act on directly — a theme selector, a language selector, cookie-consent category toggles (reachable here, not only from the first-visit banner), a CCPA opt-out toggle, and a control for every app-specific `{project_name}_pref_*` setting below. Rendering the current values as plain text with no way to change them turns a preferences page into a status page — the entire point of this page is letting the guest change these settings in place. The page layout, buttons and save behavior are fixed by rules 13–17 of the sync contract below. `{project_name}_build` is the one exemption from the control requirement: it is an automatic, device-local cache-purge stamp set by the server on the first HTML response — it has no control, is never exported or imported, and is removed only by Reset.
 
-**App-specific guest preferences:** the table above is the base set every project needs — add project-specific guest-scoped preferences to it too: settings a visitor can adjust without an account (default view mode, results-per-page, sort order, syntax-highlighting theme, unit system, etc.). Name them `{project_name}_pref_{key}`, document each one (exact name, allowed values, default, export/import behavior) in IDEA.md `## Business logic` → `### Product scope & non-goals` — `AI.md` is read-only, so the base table above is never edited, and hold them to the same rules as `theme`/`lang`: cookie-only, read per request, never persisted server-side. They belong here because API projects have no authenticated end-user accounts to attach a preference to (only `Server`/`Operator` plus credential-only owners — see "Account Types") — if a setting genuinely needs identity-scoping, it belongs on the relevant resource/tenant config, never in a user-preferences table, since none exists here.
+**App-specific guest preferences:** the table above is the base set every project needs; a project adds its own guest-scoped preferences as further cookies of the same kind, recorded in IDEA.md and never as new rows in this `AI.md` table (a project whose table lacks its `{project_name}_pref_*` cookies is correct, not incomplete): settings a visitor can adjust without an account (default view mode, results-per-page, sort order, syntax-highlighting theme, unit system, etc.). Name them `{project_name}_pref_{key}`, document each one (exact name, allowed values, default, export/import behavior) in IDEA.md `## Business logic` → `### Product scope & non-goals` — `AI.md` is read-only, so the base table above is never edited, and hold them to the same rules as `theme`/`lang`: cookie-only, read per request, never persisted server-side. They belong here because API projects have no authenticated end-user accounts to attach a preference to (only `Server`/`Operator` plus credential-only owners — see "Account Types") — if a setting genuinely needs identity-scoping, it belongs on the relevant resource/tenant config, never in a user-preferences table, since none exists here.
 
 **Preference writes (JS enhancement — the server sets the same cookies on its POST endpoints):**
 ```javascript
@@ -29866,6 +29885,7 @@ package store
 import (
     "context"
     "database/sql"
+    "errors"
     "strings"
     "time"
 
@@ -29905,6 +29925,32 @@ func (m *MetricsDB) ExecContext(ctx context.Context, query string, args ...any) 
         metrics.DBErrors.WithLabelValues(op, classifyError(err)).Inc()
     }
     return result, err
+}
+
+// MetricsRow defers metric recording to Scan: database/sql reports a QueryRow error only there, never from QueryRowContext
+type MetricsRow struct {
+    row   *sql.Row
+    op    string
+    table string
+    start time.Time
+}
+
+// QueryRowContext shadows the embedded sql.DB method so single-row queries are counted like QueryContext/ExecContext
+func (m *MetricsDB) QueryRowContext(ctx context.Context, query string, args ...any) *MetricsRow {
+    op, table := parseQuery(query)
+    start := time.Now()
+    return &MetricsRow{row: m.DB.QueryRowContext(ctx, query, args...), op: op, table: table, start: start}
+}
+
+// Scan records the query, its duration and any error; sql.ErrNoRows is a normal outcome, not a database error
+func (r *MetricsRow) Scan(dest ...any) error {
+    err := r.row.Scan(dest...)
+    metrics.DBQueriesTotal.WithLabelValues(r.op, r.table).Inc()
+    metrics.DBQueryDuration.WithLabelValues(r.op, r.table).Observe(time.Since(r.start).Seconds())
+    if err != nil && !errors.Is(err, sql.ErrNoRows) {
+        metrics.DBErrors.WithLabelValues(r.op, classifyError(err)).Inc()
+    }
+    return err
 }
 
 // UpdateConnectionMetrics updates connection pool metrics
@@ -32633,7 +32679,7 @@ func (ws *windowsService) Execute(args []string, r <-chan svc.ChangeRequest, s c
 
 # PART 25: MAKEFILE
 
-**Six core targets. DO NOT ADD MORE.**
+**Six core targets. DO NOT ADD MORE.** The only other permitted target is `clean`, a housekeeping target that removes `binaries/` and `releases/` and builds nothing. There is no `all` target and none is required.
 
 ## Targets
 
@@ -37768,7 +37814,7 @@ REGISTRY = "ghcr.io/${PROJECT_ORG}/${INTERNAL_NAME}"
 
 Before proceeding, confirm you understand:
 - [ ] Docker uses tini as init, Alpine base
-- [ ] Makefile has exactly 6 targets: dev, local, build, test, release, docker
+- [ ] Makefile has exactly 6 build targets (dev, local, build, test, release, docker) plus the `clean` housekeeping target; no `all`
 - [ ] Binary naming: NEVER include -musl suffix
 - [ ] All 8 platform builds required (4 OS x 2 arch)
 - [ ] CLI builds (if src/client/ exists): 8 additional binaries with `-cli` suffix
