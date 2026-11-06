@@ -27995,6 +27995,43 @@ server:
 | `SMTP_FROM_NAME` | `from.name` | (app title) |
 | `SMTP_FROM_EMAIL` | `from.email` | no-reply@{fqdn} |
 
+### SMTP TLS Verification
+
+**Encryption is always negotiated per `smtp.tls`; certificate verification is skipped only when the configured `smtp.host` is an IP literal in a private range.** A relay on the operator's own network (for example the Docker bridge `172.17.0.1`) almost never has a certificate with an IP SAN, so verification there always fails with `x509: cannot validate certificate for {ip} because it doesn't contain any IP SAN`. The operator is handing mail to a local relay inside their own infrastructure, so TLS stays on (traffic is still encrypted) and only chain and name verification are relaxed.
+
+| Configured `smtp.host` | Certificate verification |
+|------------------------|--------------------------|
+| IPv4 literal in `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `127.0.0.0/8` or `169.254.0.0/16` | **Skipped** (TLS still negotiated) |
+| IPv6 literal `::1`, `fc00::/7` (ULA) or `fe80::/10` (link-local) | **Skipped** (TLS still negotiated) |
+| Any public IP literal | Verified against the system roots; the certificate must carry an IP SAN |
+| Any hostname (including one that resolves to a private address) | Verified against the system roots and the hostname |
+
+- **Keyed on the configured host string, never on DNS results** — a hostname that resolves to a private address is still verified, so DNS answers can never downgrade verification
+- **Go:** classify with `netip.Addr` (`IsPrivate()`, `IsLoopback()`, `IsLinkLocalUnicast()`, plus the `100.64.0.0/10` range); set `tls.Config{ServerName: host, InsecureSkipVerify: true}` only for those addresses and never for any other path. **Rust:** classify with `std::net::IpAddr` and the same ranges, and apply the relaxed verifier only for those addresses
+- **Unchanged otherwise:** `tls: none` still sends plaintext, `tls: starttls` and `tls: tls` still require the upgrade to succeed (no silent plaintext fallback), and `AUTH` is sent only after TLS is established
+- **One info line at startup and on config change:** `SMTP host {ip} is a private address: TLS certificate verification skipped` — never per message
+- The startup connection test (EHLO) and every send use the same policy, so a relay that passes the test never fails later on verification
+- **Tests required:** each private range above skips verification; a public IP literal and every hostname verify; a hostname resolving to a private address verifies; `starttls` against a server without STARTTLS fails instead of falling back to plaintext
+
+### Email Message Standards
+
+**Every message the app sends MUST be a well-formed RFC 5322 / MIME message, whatever relay it goes through.**
+
+| Part | Requirement |
+|------|-------------|
+| `From` | `from.name` and `from.email` as one RFC 5322 mailbox; a non-ASCII display name is RFC 2047 encoded. The SMTP envelope `MAIL FROM` is `from.email` |
+| `To` | One valid `addr-spec` per message; recipients are never exposed to each other and never placed in `Bcc` headers |
+| `Subject` | Present and non-empty; non-ASCII is RFC 2047 encoded-word UTF-8 |
+| `Date` | RFC 5322 date-time with numeric zone, generated at send time |
+| `Message-ID` | Unique, `<{random}@{fqdn}>`, generated per message |
+| `MIME-Version` | `1.0` |
+| Body | `multipart/alternative` with a non-empty `text/plain; charset=UTF-8` part first and the `text/html; charset=UTF-8` part second; transfer encoding `quoted-printable` or `base64` |
+| `Auto-Submitted` | `auto-generated` on every notification and system email |
+| Line format | CRLF line endings, no line over 998 octets (wrap at 78 where the encoding allows) |
+| Header safety | Any value taken from user input is rejected if it contains CR or LF — header injection is never possible |
+
+- **Tests required:** every message carries all headers above; a non-ASCII subject and display name round-trip through RFC 2047; a CR/LF in a recipient, subject or name is rejected before sending; the plain-text part is never empty
+
 ### SMTP Requirement
 
 **ALL emails require a valid and working SMTP server. No SMTP = No emails. Don't even try.**
