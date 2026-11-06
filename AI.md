@@ -785,7 +785,7 @@ Every project ships workflow files for all five CI/CD providers. Same gates, dif
 
 Go projects never have `build-toolchain.yml` — `casjaysdev/go:latest` is maintained externally and needs no per-project rebuild workflow.
 
-**Toolchain image — `casjaysdev/go:latest`.** All Go CI jobs and containerized builds use this maintained image by default; a build image declared in IDEA.md/AI.md overrides it, and a `docker/Dockerfile.build` is created only for a genuine custom need the image cannot satisfy — then it MUST be `FROM casjaysdev/go:latest` (extend, never replace). This picks the toolchain image only; the runtime image (final stage of `docker/Dockerfile`) is a separate decision. Image defaults: `CGO_ENABLED=0`, `GOFLAGS=-buildvcs=false`, `GOTOOLCHAIN=auto`, `GOTELEMETRY=off`. Pre-installed tools:
+**Toolchain image — `casjaysdev/go:latest`.** All Go CI jobs and containerized builds use this maintained image by default; a build image declared in IDEA.md overrides it, and a `docker/Dockerfile.build` is created only for a genuine custom need the image cannot satisfy — then it MUST be `FROM casjaysdev/go:latest` (extend, never replace). This picks the toolchain image only; the runtime image (final stage of `docker/Dockerfile`) is a separate decision. Image defaults: `CGO_ENABLED=0`, `GOFLAGS=-buildvcs=false`, `GOTOOLCHAIN=auto`, `GOTELEMETRY=off`. Pre-installed tools:
 
 - Latest stable Go toolchain (`go`, `gofmt`, `go vet`)
 - `golangci-lint`, `staticcheck`, `gofumpt`, `goimports` — linting and formatting
@@ -3487,7 +3487,7 @@ When the specification is unclear:
 1. **Check if clarified elsewhere** - search the full spec
 2. **Look for similar patterns** - how are similar features handled?
 3. **Ask the user** - don't guess
-4. **Document the decision** - add to AI.md for future reference
+4. **Document the decision** - record it in IDEA.md `## Business logic` for future reference (`AI.md` is read-only)
 
 ## Common Mistakes to Avoid
 
@@ -3665,7 +3665,7 @@ logging:
 | **Project uses different flag** | Change to template flag, update docs |
 | **Project uses different config format** | Migrate to YAML, template structure |
 | **Project uses different directory layout** | Reorganize to template structure |
-| **Project needs different base image** | Allowed - document reason in AI.md |
+| **Project needs different base image** | Allowed - document reason in IDEA.md |
 | **Project needs additional packages** | Allowed - add to Dockerfile |
 
 ### When Template Would Break Functionality
@@ -10799,6 +10799,8 @@ PHASE 5: Server startup (actual server start)
 | cgroup | `/proc/1/cgroup` contains `docker`, `kubepods`, `lxc` |
 | Self wrapper | Parent process is `{project_name}` (entrypoint wrapper) |
 
+**Systemd system containers (Incus/LXC/LXD/systemd-nspawn):** these run a full init, so the table above does not make them "container" for service-manager purposes. When systemd launched the process (`INVOCATION_ID` set), the service manager is `systemd` and service install/start/stop/status work normally; "container" applies to application containers (Docker, Podman, Kubernetes) and to Incus/LXC containers without systemd. The systemd check runs before generic container detection.
+
 **Manual Start Priority Order:**
 1. `--daemon` CLI flag (highest)
 2. `server.daemonize` config setting
@@ -10864,7 +10866,12 @@ func isContainer() bool {
 
 // detectServiceManager returns the active service manager
 func detectServiceManager() string {
-    // Check for container environment first
+    // systemd as init (incl. Incus/LXC/nspawn system containers) wins over generic container detection
+    if os.Getenv("INVOCATION_ID") != "" {
+        return "systemd"
+    }
+
+    // Check for container environment
     if isContainer() {
         return "container"
     }
@@ -13981,7 +13988,7 @@ When `DEBUG=true` is active and an error occurs, the canonical error body (PART 
 | Credential stuffing | Rate limit per IP + per token-prefix + global | Constant-time SHA-256 comparison (no "fast path" for invalid prefixes) | Generic "invalid token" message | Token auto-revoked after N consecutive failures |
 | Path traversal | Validate paths, reject `..` / null bytes | `filepath.Clean()` + base-dir confinement | n/a | OS-level read perms restrict reachable files |
 | Token / credential leakage | n/a | Never `slog.Info("token=", t)` — log token ID hash only | Sanitization layer strips known sensitive query params from URL fields in reports / logs / error contexts (see PART 11 → "Reporting API (Modern + Legacy)") | TLS in transit (PART 15) |
-| CSRF | Validate Origin + same-origin check | n/a | CSRF token on cookie-authenticated state-changing requests (PART 16 → CSRF) | `SameSite=Strict` cookies (browser-level enforcement) |
+| CSRF | Validate Origin + same-origin check | n/a | CSRF token on cookie-authenticated state-changing frontend requests only — never `/api/**` or compatibility layers (PART 16 → CSRF) | `SameSite=Strict` cookies (browser-level enforcement) |
 
 **Rule:** when implementing a feature, walk every layer. Don't assume "the input validator caught it" or "the output template will escape it" — write the code as if every other layer is broken.
 
@@ -14070,7 +14077,7 @@ When `DEBUG=true` is active and an error occurs, the canonical error body (PART 
 | Default | Why |
 |---------|-----|
 | HTTPS preferred everywhere — `http://` upgrade on first visit | One config (cert) and TLS just works (PART 15 → Let's Encrypt) |
-| CSRF on by default with `SameSite=Strict` cookies | No knobs to flip. Bypasses for Bearer/public/exempt paths are automatic (PART 16 → CSRF) |
+| CSRF on by default with `SameSite=Strict` cookies | No knobs to flip. Backend (`/api/**`), compatibility-layer, Bearer, public, and exempt paths are never checked (PART 16 → CSRF) |
 | CSP on by default with sensible per-directive allow-list | "Just works" for typical apps; auto-detects own domain (PART 11 → CSP) |
 | CORS on by default, credential-aware | "Just works" for public APIs and authenticated apps (PART 16 → CORS) |
 | Rate limit on by default | Per-IP + per-identifier on auth endpoints; configurable but non-zero by default |
@@ -14285,7 +14292,7 @@ web:
     honor_sec_gpc: true
     # DNT is dead in modern browsers — off by default
     honor_dnt: false
-    # reject cross-site state-changers (CSRF defense layer)
+    # reject cross-site state-changers on frontend routes only (CSRF defense layer; never /api/** or compat)
     sec_fetch_validation: true
     # never emit Server-Timing in production
     server_timing_in_debug_only: true
@@ -14335,12 +14342,11 @@ web:
 
 ## Sec-Fetch-* Request Validation
 
-**The spec uses the `Sec-Fetch-*` family as a defense-in-depth layer against CSRF and clickjacking. These are browser-set request headers (not response headers) — the binary validates them on state-changing requests.**
+**The spec uses the `Sec-Fetch-*` family as a defense-in-depth layer against CSRF and clickjacking. These are browser-set request headers (not response headers) — the binary validates them on state-changing FRONTEND requests only (never `/api/**` or compatibility-layer routes).**
 
 | Header | Validated on | Reject if |
 |--------|--------------|-----------|
-| `Sec-Fetch-Site` | POST/PUT/PATCH/DELETE | `cross-site` AND no Bearer token AND path is not in CSRF `exempt_paths` |
-| `Sec-Fetch-Mode` | POST/PUT/PATCH/DELETE | `navigate` on JSON API endpoints (`/api/*`) — blocks form-based navigation CSRF. GET/HEAD navigation is ALLOWED: opening an API URL in a browser returns the JSON normally (GETs are side-effect-free and responses carry `nosniff`; matches the standard Fetch Metadata resource-isolation policy, which permits top-level GET navigations) |
+| `Sec-Fetch-Site` | POST/PUT/PATCH/DELETE | `cross-site` AND frontend route (never `/api/**` or a compatibility-layer route) AND no Bearer token AND path is not in CSRF `exempt_paths` |
 | `Sec-Fetch-Dest` | media/document endpoints | `iframe` for endpoints not in `frame-ancestors` allow-list |
 | `Sec-Fetch-User` | authenticated state-changers | absent on a navigation that should be user-initiated (sensitive operator-token flows only) |
 
@@ -14845,7 +14851,7 @@ web:
 
 | Aspect | Rule |
 |--------|------|
-| Default | **On** (`server.mcp.enabled: true`); the admin panel toggle in "Web" settings disables it. When disabled every route below returns `404` |
+| Default | **On** (`server.mcp.enabled: true`); set `server.mcp.enabled: false` in `server.yml` to disable it (config file only — API projects have no admin panel or web toggle; applied by the normal config hot-reload, PART 12). When disabled every route below returns `404` |
 | Transport | **Streamable HTTP, remote only** — one endpoint, JSON-RPC 2.0 over HTTP `POST`. No stdio build, no local-process mode, no separate MCP binary or port |
 | Specification | Follow the current MCP specification (https://modelcontextprotocol.io/specification) — the revision, header and error rules come from it, not from this file. Negotiate the version the client asks for; unsupported version → `400` with the spec's `UnsupportedProtocolVersionError` listing the supported versions |
 | Canonical route | `/api/{api_version}/server/mcp` |
@@ -14880,7 +14886,7 @@ web:
 - Handler errors map to the MCP tool result with `isError: true` and the API's normal error body (`ok: false`, `error`, `message`); secrets are never included in a tool result any more than in an API response.
 - Resources and prompts are not exposed unless the project's `IDEA.md` defines them.
 
-#### Config and Admin Panel
+#### Configuration
 
 ```yaml
 server:
@@ -14891,7 +14897,7 @@ server:
 
 | Element | Type | Description |
 |---------|------|-------------|
-| MCP endpoint | Toggle | Enables `server.mcp.enabled`; takes effect without restart |
+| MCP endpoint | Config key | `server.mcp.enabled` in `server.yml`; hot-reloaded without restart |
 | Endpoint URL | Read-only | The resolved `/api/{api_version}/server/mcp` URL (per request via the URL-resolution rules) |
 | Auth note | Read-only help text | MCP uses the same Bearer tokens as the API; there is no separate MCP token |
 
@@ -18429,7 +18435,7 @@ GET /api/{api_version}/items?status=active            ✓ Filtering
 | **Indentation** | 2 spaces — never tabs, never 4 spaces |
 | **Trailing newline** | Every JSON response ends with exactly one `\n` |
 | **No bare arrays at root** | Never emit a top-level JSON array — always wrap: `{ "data": [...] }`. Bare arrays cannot grow new sibling fields (pagination, metadata) without a breaking change, and some older clients reject them as JSON. |
-| **Success shape** | `{ "ok": true, "data": { ... } }` — `ok` is the discriminator; `data` carries the payload (object or array); list responses add a sibling `pagination` object (see "Standard Response Formats"). Exception: health endpoints return the bare health object (see PART 13). |
+| **Success shape** | `{ "ok": true, "data": { ... } }` — `ok` is the discriminator; `data` carries the payload (object or array); list responses add a sibling `pagination` object (see "Standard Response Formats"). Exceptions: health endpoints return the bare health object (see PART 13); compatibility-layer routes return the target service's native body (see PART 14 → "External API Compatibility"). |
 | **Error shape** | `{ "ok": false, "error": "CODE", "message": "...", "details": {} }` — see PART 14 |
 
 ```go
@@ -19578,9 +19584,10 @@ Result:
 | **1:1 parity = features** | "1:1 parity" / "1:1+ parity" means feature parity, not automatic route parity |
 | **Routes only when asked** | Add external routes only when the user explicitly requests route/API/client compatibility |
 | **Match response format** | Field names, structure, content-type must match target exactly |
+| **Envelope exemption** | Compatibility-layer routes return the target service's native success body (bare JSON, plain text, XML, etc.) and native error shape — they are exempt from the `{ "ok": true, "data": ... }` success envelope and the canonical error body. Every non-compat route keeps the envelope |
 | **Standard routes for rest** | Use our `/api/{api_version}/*` patterns for all other operations |
 | **Avoid complexity** | Do NOT add hundreds of redundant routes |
-| **Document compatibility** | List what IS and ISN'T compatible in AI.md |
+| **Document compatibility** | List what IS and ISN'T compatible in IDEA.md (`### Product scope & non-goals`) |
 
 **What to implement:**
 - ✓ Feature/behavior compatibility
@@ -19622,7 +19629,7 @@ This is NOT optional. This is NOT about "adding compatibility." If you're buildi
 2. **Implement ALL required behavior** per specifications
 3. **Follow exact message formats, response codes, headers, etc.**
 4. **Handle edge cases and error conditions** as specified
-5. **Document which RFCs are implemented** in AI.md
+5. **Document which RFCs are implemented** in IDEA.md (`### Product scope & non-goals`)
 
 **Example:**
 ```
@@ -19841,7 +19848,7 @@ Need additional compatible endpoints?"
 
 **Canonical error shape — same shape everywhere (PART 9, PART 11, PART 14, PART 16). The HTTP status code carries the status; do not duplicate it in the body.**
 
-**All 4xx/5xx responses MUST use this envelope** (RFC 7807-inspired — `ok` + `error` code + human `message` + structured `details`). No endpoint may invent its own error shape; this is the single source of truth for every error response in the service.
+**All 4xx/5xx responses MUST use this envelope** (RFC 7807-inspired — `ok` + `error` code + human `message` + structured `details`). No endpoint may invent its own error shape — except compatibility-layer routes, which return the emulated service's native error shape; this is the single source of truth for every other error response in the service.
 
 ```json
 {
@@ -20898,7 +20905,7 @@ Startup (for configured FQDN)
 | `GET /api/{api_version}/{resource}/{id}` | `GET /{resource}/{id}` | Resource detail page |
 | `GET /api/{api_version}/server/about` | `GET /server/about` | About page |
 
-Routes are registered on the router in `main.go`/`routes.go`. All frontend routes are public — there is no admin web UI, no dashboard, and no settings pages (no auth, no user accounts). Auth is bearer-token only (operator token, owner token, or linked token) and applies to `/api/` routes, never to HTML pages; the only cookie-authenticated web actions are the owner-token management forms (PART 8 → "API Token Model").
+Routes are registered on the router in `main.go`/`routes.go`. All frontend routes are public — there is no admin web UI, no dashboard, and no settings pages beyond the guest `/server/preferences` page (no auth, no user accounts). Auth is bearer-token only (operator token, owner token, or linked token) and applies to `/api/` routes, never to HTML pages; the only cookie-authenticated web actions are the owner-token management forms (PART 8 → "API Token Model").
 
 ```go
 // Public frontend routes (no auth required)
@@ -23631,7 +23638,7 @@ async function revokeLocalToken() {
 
 **This page must be editable, not read-only:** every cookie above needs a control on `/server/preferences` that the visitor can act on directly — a theme selector, a language selector, cookie-consent category toggles (reachable here, not only from the first-visit banner), a CCPA opt-out toggle, and a control for every app-specific `{project_name}_pref_*` setting below. Rendering the current values as plain text with no way to change them turns a preferences page into a status page — the entire point of this page is letting the guest change these settings in place.
 
-**App-specific guest preferences:** the table above is the base set every project needs — add project-specific guest-scoped preferences to it too: settings a visitor can adjust without an account (default view mode, results-per-page, sort order, syntax-highlighting theme, unit system, etc.). Name them `{project_name}_pref_{key}`, document each one in this project's own AI.md preferences table, and hold them to the same rules as `theme`/`lang`: cookie-only, read per request, never persisted server-side. They belong here because API projects have no authenticated end-user accounts to attach a preference to (only `Server`/`Operator` plus credential-only owners — see "Account Types") — if a setting genuinely needs identity-scoping, it belongs on the relevant resource/tenant config, never in a user-preferences table, since none exists here.
+**App-specific guest preferences:** the table above is the base set every project needs — add project-specific guest-scoped preferences to it too: settings a visitor can adjust without an account (default view mode, results-per-page, sort order, syntax-highlighting theme, unit system, etc.). Name them `{project_name}_pref_{key}`, document each one (exact name, allowed values, default, export/import behavior) in IDEA.md `## Business logic` → `### Product scope & non-goals` — `AI.md` is read-only, so the base table above is never edited, and hold them to the same rules as `theme`/`lang`: cookie-only, read per request, never persisted server-side. They belong here because API projects have no authenticated end-user accounts to attach a preference to (only `Server`/`Operator` plus credential-only owners — see "Account Types") — if a setting genuinely needs identity-scoping, it belongs on the relevant resource/tenant config, never in a user-preferences table, since none exists here.
 
 **Preference writes (JS enhancement — the server sets the same cookies on its POST endpoints):**
 ```javascript
@@ -26376,7 +26383,24 @@ Credentials (`Access-Control-Allow-Credentials: true`) are sent only when the re
 
 ## CSRF Protection
 
-**Use the stateless double-submit cookie pattern — there are no sessions, so the token is never stored server-side. The server sets a `csrf_token` cookie (`SameSite=Strict`, `Secure`, NOT `HttpOnly` — JavaScript must read it) and every mutating browser request must echo the same value in the `X-CSRF-Token` header or a `csrf_token` form field. The middleware compares the two in constant time.**
+**Use the stateless double-submit cookie pattern — there are no sessions, so the token is never stored server-side. The server sets a `csrf_token` cookie (`SameSite=Strict`, `Secure`, NOT `HttpOnly` — JavaScript must read it) and every mutating frontend (HTML form/page) request must echo the same value in the `X-CSRF-Token` header or a `csrf_token` form field. The middleware compares the two in constant time.**
+
+### Scope — Frontend Only (Never Backend)
+
+**CSRF applies ONLY to the frontend: server-rendered HTML pages and forms (web UI, admin panel) that authenticate with a browser cookie. It NEVER applies to the backend.**
+
+| Surface | CSRF |
+|---------|------|
+| Frontend HTML routes and forms (cookie-authenticated) | Per "When CSRF Validation Runs" below |
+| Backend: every `/api/**` route, regardless of auth method | **Never** — no token issued, required, or checked |
+| Compatibility layers (PART 14 → "External API Compatibility" — external-service routes/APIs) | **Never** — unless the emulated protocol itself defines a CSRF token and expects clients to send it; then enforce exactly what that protocol specifies, on that layer's routes only |
+
+**Rules:**
+
+- The CSRF middleware is mounted on the frontend route group only — never on `/api/**` or on a compatibility-layer route group
+- Backend and compatibility clients (CLI tools, agents, SDKs, webhooks, third-party clients of an emulated service) never receive or send `csrf_token` / `X-CSRF-Token` and are never rejected with `CSRF_FAILED`
+- The `Sec-Fetch-*` validation layer (PART 11) follows the same scope — frontend routes only
+- `exempt_paths` is for frontend paths only; backend routes are outside CSRF scope and need no entry
 
 ### When CSRF Validation Runs
 
@@ -26385,18 +26409,20 @@ Credentials (`Access-Control-Allow-Credentials: true`) are sent only when the re
 | Condition | Reason |
 |-----------|--------|
 | Method is `POST`, `PUT`, `PATCH`, or `DELETE` | Read-only methods (`GET`, `HEAD`, `OPTIONS`) cannot change state |
+| Request targets a frontend route (HTML page/form) — NOT `/api/**` and NOT a compatibility-layer route | CSRF is frontend-only; the backend never validates it (see "Scope") |
 | No `Authorization: Bearer …` / `X-API-Token: …` / similar bearer header present | Bearer credentials are not auto-attached by browsers, so cross-site forgery has no vector |
 
 **Bypass the CSRF check (no validation, no token needed) if ANY of these are true:**
 
 | Bypass | Reason |
 |--------|--------|
+| Request targets the backend: any `/api/**` route, or any compatibility-layer route (unless that layer's protocol expects CSRF — see "Scope") | CSRF is frontend-only; backend clients (CLI, agents, SDKs, webhooks, compat clients) never carry or need a token |
 | `Authorization: Bearer …` or `X-API-Token: …` header present | Bearer auth — caller proves possession of a credential the browser cannot auto-attach. CSRF protects against forgery of *cookie-carried* values; this is a different auth model. |
 | Method is `GET`, `HEAD`, or `OPTIONS` | Safe per RFC 9110. Must remain side-effect-free; if a `GET` mutates, that is a separate spec violation, not a CSRF problem. |
 | WebSocket upgrade request (`Upgrade: websocket`) | Auth happens at the connection level, then per-message; CSRF tokens don't fit the WS lifecycle. |
-| Endpoint is in the explicit `server.csrf.exempt_paths` allow-list | Operator-declared exception. Used for OAuth callbacks, webhook receivers, and other endpoints that are POST'd to from origins the operator has whitelisted but cannot supply a token. |
+| Endpoint is in the explicit `server.csrf.exempt_paths` allow-list | Operator-declared exception for FRONTEND endpoints only (e.g. a cross-site POST to a frontend callback). Backend routes are never subject to CSRF and need no entry. |
 
-**There is NO Origin-based bypass.** A same-origin `Origin` header never skips token validation — `Origin`/`Referer` can be absent or spoofed by non-browser clients, and the double-submit check is cheap. Every mutating browser request presents the token.
+**There is NO Origin-based bypass.** A same-origin `Origin` header never skips token validation — `Origin`/`Referer` can be absent or spoofed by non-browser clients, and the double-submit check is cheap. Every mutating frontend request presents the token.
 
 **Why these bypasses are safe:** CSRF is a defense against *the browser auto-attaching cookies to a cross-site request*. If the credential is not cookie-carried (Bearer), or the method cannot change state, there is no auto-attached value to forge. Adding CSRF on top of those situations breaks legitimate non-browser clients without adding any defense.
 
@@ -26423,10 +26449,9 @@ server:
     header_name: X-CSRF-Token
     # auto | true | false. "auto" sets Secure when proto is https.
     secure: auto
-    # Endpoints exempt from CSRF (operator-declared). Glob patterns supported.
-    # Common exemptions: webhook receivers, external callbacks.
-    exempt_paths:
-      - /api/{api_version}/webhooks/*
+    # Frontend (non-/api) endpoints exempt from CSRF (operator-declared). Glob patterns supported.
+    # Backend (/api/**, compatibility layers) is never subject to CSRF and needs no entry.
+    exempt_paths: []
 ```
 
 ### Implementation Rules
@@ -26435,7 +26460,7 @@ server:
 |------|--------|
 | Token in cookie + matching value in form/header | Double-submit cookie pattern. Token cookie is `SameSite=Strict`, `HttpOnly=false` (the form needs to read it), `Secure` per `csrf.secure`. |
 | Forms include hidden `<input name="csrf_token" value="…">` | Server-rendered HTML inserts the token automatically — no manual work in templates. |
-| Mutating requests without a bearer header check the token | Per the "When CSRF Validation Runs" table above — Bearer/read-only/exempt paths skip the check. |
+| Mutating frontend requests without a bearer header check the token | Per the "When CSRF Validation Runs" table above — Bearer/read-only/exempt paths skip the check. |
 | Token regenerated when the `csrf_token` cookie is absent, and on token revocation | Prevents fixation. |
 | Validation failure → `403 FORBIDDEN` with canonical error body | `{"ok": false, "error": "CSRF_FAILED", "message": "CSRF token validation failed"}` (PART 14 → "Error Response"). |
 | Reject if cookie present and header/form missing, or if values mismatch | No silent fallback. |
@@ -26446,7 +26471,7 @@ server:
 | Attack | Stops it? |
 |--------|-----------|
 | Attacker page POSTs a form to our domain from the victim's browser | ✓ Yes (token mismatch / SameSite=Strict drops the cookie) |
-| Attacker page calls our JSON API with `fetch()` from another origin, no Bearer | ✓ Yes (token mismatch + SameSite=Strict; CORS preflight also blocks) |
+| Attacker page calls our JSON API with `fetch()` from another origin, no Bearer | n/a — backend is outside CSRF scope (no token required or checked); CORS preflight and `SameSite=Strict` cookies still block it |
 | Attacker steals a CSRF token via XSS and submits a forged request | ✗ No (XSS bypasses CSRF — the attacker is now running in our origin). XSS defense is CSP + escaping. |
 | Attacker submits a request with a stolen Bearer token | ✗ No (Bearer auth bypasses CSRF by design). Defense is token rotation, scoping, and rate limiting. |
 | Public endpoint POST'd to from anywhere | n/a (no auth, nothing to abuse) |
@@ -31387,14 +31412,22 @@ func DoUpdate(ctx context.Context, release *Release) error {
         return fmt.Errorf("no binary found for %s/%s", runtime.GOOS, runtime.GOARCH)
     }
 
-    // Download to temp file
-    tmpFile, err := os.CreateTemp("", "{project_name}-update-*")
+    // Download to a temp file under the {project_org}/{internal_name}-XXXXXX namespace (never the OS temp root)
+    orgDir := filepath.Join(os.TempDir(), "{project_org}")
+    if err := os.MkdirAll(orgDir, 0o755); err != nil {
+        return fmt.Errorf("failed to create temp namespace: %w", err)
+    }
+    tmpDir, err := os.MkdirTemp(orgDir, "{internal_name}-")
+    if err != nil {
+        return fmt.Errorf("failed to create temp dir: %w", err)
+    }
+    // Remove the whole temp dir on every exit path
+    defer os.RemoveAll(tmpDir)
+    tmpFile, err := os.CreateTemp(tmpDir, "update-*")
     if err != nil {
         return fmt.Errorf("failed to create temp file: %w", err)
     }
     tmpPath := tmpFile.Name()
-    // Clean up on error
-    defer os.Remove(tmpPath)
 
     req, err := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
     if err != nil {
@@ -40261,7 +40294,7 @@ make test
 - Maintain WCAG AA contrast ratios (4.5:1 minimum)
 - Keep both light and dark themes readable
 - Update `docs/stylesheets/dark.css` and `docs/stylesheets/light.css` accordingly
-- Document color choices in project's AI.md file
+- Document color choices in the project's IDEA.md file
 
 **Example project-specific customization:**
 - Change accent colors to match project branding
@@ -41749,7 +41782,7 @@ server:
     use_network: false
 
     # --- Performance Settings ---
-    # Maximum circuits to keep open (higher = faster but more memory)
+    # Maximum circuits Tor builds concurrently — rendered into torrc as MaxClientCircuitsPending (Tor default 32; higher = faster setup under load, more memory)
     max_circuits: 32
 
     # Circuit timeout in seconds (how long before giving up)
@@ -42490,8 +42523,9 @@ AccountingMax %s`, cfg.MaxMonthlyBandwidth)
 # Security Hardening
 SafeLogging %s
 
-# Circuit limits
+# Circuit limits (MaxClientCircuitsPending comes from server.tor.max_circuits)
 MaxCircuitDirtiness 600
+MaxClientCircuitsPending {max_circuits}
 
 # Bandwidth limits per second (from config)
 BandwidthRate %s
@@ -42541,6 +42575,7 @@ HiddenServiceExportCircuitID haproxy
 | `DirPort 0` | Disabled | Not a directory server |
 | `ExitPolicy reject *:*` | Block all | Extra safety |
 | `MaxCircuitDirtiness 600` | 10 minutes | Keep circuits longer |
+| `MaxClientCircuitsPending {max_circuits}` | `server.tor.max_circuits` (default 32) | Cap on circuits under construction at once |
 
 **Runtime Port Detection:**
 - Ports are NEVER hardcoded or saved - always detected at runtime
@@ -43051,6 +43086,25 @@ func ensureTorFile(path string, content []byte) error {
 - **Loopback-gated, not public-gated**: handlers only accept requests whose immediate TCP peer is `127.0.0.1`/`::1` — same "trusted" address set as PART 12 → "Trusted Proxies". A request arriving from any other address is rejected (404, not 403 — the endpoint must not be discoverable).
 - **CLI resolution of the server's port**: identical to how `--status` locates the running server (PID file under `{data_dir}` + the configured bind port from `server.yml`/env) — no new discovery mechanism is introduced.
 - **No running server**: `tor restart`/`regenerate`/`vanity start`/`vanity stop`/`vanity apply`/`import-keys` all require a live server (they mutate a process Tor owns); if no server is detected, exit 1 with `Error: no running server detected — start the server first`. `tor status`/`tor validate` MAY fall back to reading on-disk state (`{data_dir}/tor/site/hostname`, `{config_dir}/tor/torrc`) directly when no server is running, since those two are read-only.
+
+### Control Endpoint Contracts
+
+**Every endpoint uses the canonical envelope (PART 14 → "Standard Response Formats" / "Error Response"): success is `{ "ok": true, "data": { ... } }`, failure is the canonical error body. Request bodies are JSON (`Content-Type: application/json`); field names below are fixed and match the CLI flag names. Unknown fields are rejected with `400 BAD_REQUEST`. No CSRF token is required or checked (backend routes — see PART 16 → "CSRF Protection").**
+
+| Endpoint | Request body | Success `data` (200 unless noted) | Error codes |
+|----------|--------------|-----------------------------------|-------------|
+| `GET /server/tor/status` | none | `running` (bool), `pid` (int, omitted when not running), `version` (string), `onion_address` (string, omitted until published), `bootstrap_percent` (0–100), `circuit_established` (bool), `vanity` (object, see "Progress" below; `{ "state": "idle" }` when no search) | — |
+| `POST /server/tor/validate` | none | `valid` (bool), `errors` (array of `{ "field", "message" }`, empty when valid) | `SERVER_ERROR` |
+| `POST /server/tor/restart` | none | `restarted` (true), `onion_address` | `SERVER_ERROR` (Tor failed to come back; the previous process state is reported in `message`) |
+| `POST /server/tor/regenerate` | `confirm` (bool, required `true`) | `onion_address` (the new address), `previous_address` | `VALIDATION_FAILED` (`confirm` not `true`), `SERVER_ERROR` |
+| `POST /server/tor/vanity/start` | `prefix` (string, required), `workers` (int, optional) | `202 Accepted`: `state` (`running`), `prefix`, `workers` | `VALIDATION_FAILED` (bad or too-long prefix, workers out of range), `CONFLICT` (a search is already running; `details.prefix` names it) |
+| `POST /server/tor/vanity/stop` | none | `stopped` (bool — `false` when no search was running), `candidates` (array of found addresses kept on disk) | — |
+| `POST /server/tor/vanity/apply` | `address` (string, optional prefix of one candidate), `confirm` (bool, required `true`) | `onion_address` (the applied address) | `VALIDATION_FAILED` (`confirm` not `true`), `NOT_FOUND` (no matching candidate), `CONFLICT` (ambiguous prefix; `details.candidates` lists them), `SERVER_ERROR` (hostname mismatch after restart) |
+| `POST /server/tor/import-keys` | `path` (string, absolute path to a key directory readable by the app user, required), `confirm` (bool, required `true`) | `onion_address` (the imported address) | `VALIDATION_FAILED` (`confirm` not `true`, path not absolute, key files missing or malformed), `SERVER_ERROR` |
+
+- **`confirm`** is the server-side half of the destructive-action confirmation: the CLI prompts the operator (or honors `--yes`), then sends `confirm: true`. A request without it never mutates anything
+- **Method mismatch** returns `404` like any non-loopback request, not `405` — the endpoint stays undiscoverable (see "Loopback-gated" above)
+- **Secret key material never appears** in any request or response body; only addresses and file paths do
 
 ### Vanity Onion Address Search
 
@@ -47710,12 +47764,12 @@ make docker
 - [ ] BSD: rc.d script
 
 **PART 25: Makefile**
-- [ ] `make build` - Build binary
+- [ ] `make dev` - Quick development build
+- [ ] `make local` - Production test build
+- [ ] `make build` - Full release build (all platforms)
 - [ ] `make test` - Run tests
-- [ ] `make docker` - Build Docker image
-- [ ] `make release` - Create release
-- [ ] `make clean` - Clean build artifacts
-- [ ] `make all` - Full build
+- [ ] `make release` - Create release with source archive
+- [ ] `make docker` - Build container image
 - [ ] Cross-compilation targets
 - [ ] Version injection at build time
 
