@@ -8629,18 +8629,18 @@ server:
   rate_limit:
     enabled: true
     read:
-      # per minute per IP
+      # per minute per IP (per token when authenticated)
       requests: 120
       window: 60
     write:
-      # per minute per IP
+      # per minute per IP (per token when authenticated)
       requests: 10
       window: 60
     health:
-      # per minute per IP (health/status endpoints)
+      # per minute per IP (per token when authenticated) (health/status endpoints)
       requests: 120
       window: 60
-    # per minute per IP (absolute ceiling across all endpoint types)
+    # per minute per IP (per token when authenticated) (absolute ceiling across all endpoint types)
     global_burst: 240
 
   # Database
@@ -11823,7 +11823,7 @@ INSERT INTO config (key, value, type) VALUES
     ('ssl.key', '""', 'string'),
     ('ssl.min_version', '"TLS1.2"', 'string'),
     ('cors.allowed_origins', '["https://example.com","https://api.example.com"]', 'array'),
-    -- per minute per IP (see server.rate_limit.*)
+    -- per minute per IP (per token when authenticated) (see server.rate_limit.*)
     ('server.rate_limit.read.requests', '120', 'number'),
     ('branding.site_name', '"My App"', 'string');
 -- NOTE: server.token is NEVER stored here — it lives in server.yml only,
@@ -14679,8 +14679,7 @@ Allow: /
 Allow: /api
 Sitemap: {app_url}/sitemap.xml
 
-# AI crawlers - default: no additional restrictions (inherit User-agent: * above)
-# Per-bot stanzas are only rendered when that bot is explicitly denied below
+# AI crawlers get no special treatment: they follow the User-agent: * rules above like any other client
 ```
 
 **Configuration:**
@@ -14691,38 +14690,12 @@ web:
       - /
       - /api
     deny: []
-    # Per-AI-crawler access control (default: allow all - no AI blocking)
-    ai_bots:
-      # Applies to any recognized AI bot not listed individually below
-      default: allow
-      # Per-bot overrides: allow | deny
-      bots:
-        GPTBot: allow
-        ChatGPT-User: allow
-        ClaudeBot: allow
-        anthropic-ai: allow
-        Claude-Web: allow
-        CCBot: allow
-        Google-Extended: allow
-        Bytespider: allow
-        PerplexityBot: allow
-        Applebot-Extended: allow
-        Amazonbot: allow
-        Diffbot: allow
-        FacebookBot: allow
-        cohere-ai: allow
 ```
 
 **AI Crawler Rules:**
-- Default posture is **allow** - no AI bot is blocked unless the user explicitly sets it (or `ai_bots.default`) to `deny`.
-- `ai_bots.default: deny` flips the default for any bot not explicitly listed; explicit per-bot entries always take precedence over `default`.
-- Bots set to `allow` are covered by the existing `User-agent: *` block and get no separate stanza.
-- Bots set to `deny` render their own stanza:
-  ```
-  User-agent: {bot_name}
-  Disallow: /
-  ```
-- When `ai_bots.default: deny`, every recognized bot not explicitly set to `allow` also renders its own `Disallow: /` stanza, since a bot's own `User-agent` block overrides the wildcard `Allow: /` for that bot only.
+- AI bots are ordinary crawlers: there is no AI-specific blocking, no `ai_bots` setting and no per-bot stanzas in `robots.txt`, and the server never refuses a request because the caller is an AI.
+- **Unauthenticated:** an AI client gets exactly what any other crawler gets — the `User-agent: *` rules above (`Allow` and `Disallow` paths, advisory like every `robots.txt`) and the public endpoints. Anonymous MCP calls see only the public API operations, the same as an unauthenticated REST call.
+- **Authenticated (Bearer token, including MCP):** `robots.txt` does not apply. The caller can use everything its token allows, auth-only routes and tools included, and nothing more; access is decided by the token's permissions and scope alone, never by the caller being an AI.
 
 ### security.txt (RFC 9116)
 
@@ -14780,7 +14753,7 @@ web:
 
 ### llms.txt (AI Discovery)
 
-**ALL projects MUST serve an llms.txt file for AI agent discovery.**
+**ALL projects serve an llms.txt file for AI agent discovery (enabled by default; `web.llms.enabled: false` turns it off).**
 
 llms.txt tells AI agents (Claude, GPT, etc.) what the application does, what API endpoints are available, and how to interact with it programmatically. This is the AI equivalent of robots.txt.
 
@@ -14792,7 +14765,7 @@ llms.txt tells AI agents (Claude, GPT, etc.) what the application does, what API
 
 ## API
 Base URL: {app_url}/api/{api_version}
-Authentication: Bearer token (owner token issued on first resource creation, a linked token created on /server/preferences/tokens, or the operator token)
+Authentication: Bearer token (owner token issued on first resource creation, or a linked token created on /server/preferences/tokens — one linked token per MCP client)
 Rate limit: {rate_limit} requests/minute
 MCP: {app_url}/mcp (Streamable HTTP; same Bearer token as the API)
 
@@ -14859,10 +14832,13 @@ web:
 | Specification | Follow the current MCP specification (https://modelcontextprotocol.io/specification) — the revision, header and error rules come from it, not from this file. Negotiate the version the client asks for; unsupported version → `400` with the spec's `UnsupportedProtocolVersionError` listing the supported versions |
 | Canonical route | `/api/{api_version}/server/mcp` |
 | Aliases | `/api/mcp` and `/mcp` — direct aliases for the current `{api_version}`; the SAME handler mounted at all three paths, never a redirect (see "Unversioned API aliases") |
-\1| Help page | `/server/help/mcp` documents how to connect a client (see \"/server/help/mcp\"); `/server/help` links to it. Both return `404` when MCP is disabled |\n| Methods | `POST` only. `GET` and `DELETE` → `405 Method Not Allowed` (the server keeps no sessions and opens no standalone stream) |
+| Route class | All three paths, including the root `/mcp` alias, are API-class: never content-negotiated, no User-Agent detection, never HTML or plain text. Every response, including `400`, `403`, `404` and `405`, is JSON (a JSON-RPC error object when the request parsed, otherwise the canonical error body); success is `application/json` or `text/event-stream` according to the client's `Accept` |
+| Reserved name | `mcp` is in `reservedNames` so no user, org, or project slug can claim `/mcp` |
+| Help page | `/server/help/mcp` documents how to connect a client (see "/server/help/mcp"); `/server/help` links to it. Both return `404` when MCP is disabled |
+| Methods | `POST` only. `GET` and `DELETE` → `405 Method Not Allowed` (the server keeps no sessions and opens no standalone stream) |
 | Responses | A single `application/json` object per request; an SSE stream only when a tool needs to stream progress. Server-initiated requests are never sent |
 | Sessions | None. An `Mcp-Session-Id` header, if sent by an older client, is ignored — never minted, never echoed |
-| `Origin` | If an `Origin` header is present it MUST be validated against the request's own origin / configured public origins (PART 8 → "Resolution Order"); invalid → `403` (DNS-rebinding protection required by the spec) |
+| `Origin` | If an `Origin` header is present it MUST be the request's own origin, a configured public origin (PART 8 → "Resolution Order"), or an explicit entry of the resolved CORS allow-list (PART 16 → "CORS Allow-list Resolution Order"); the `*` default of that list does NOT authorize MCP origins; anything else → `403` (DNS-rebinding protection required by the spec). Requests without an `Origin` header (non-browser clients) are unaffected |
 | Header checks | `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` MUST match the JSON-RPC body; mismatch → `400` with the spec's `HeaderMismatch` error |
 
 #### Authentication — reuse, never new
@@ -14879,7 +14855,7 @@ web:
 | Operator token | `server.token` works as Bearer and sees operator-only tools; for any other caller those tools are absent from `tools/list` AND rejected on `tools/call` |
 | MCP clients | Give each MCP client its own linked token (never the primary, never `server.token` — that is full operator access). A project without owner tokens exposes only its public endpoints to MCP clients; there is no non-operator credential to issue there |
 | Token management | **Never exposed as tools.** Reveal, rotate, create, revoke and restore of tokens exist only on `/server/preferences/tokens` and its API mirror, never over MCP |
-| Creation by an anonymous client | A create tool called without a token issues an owner exactly as the API does and returns `owner_token` in the tool result; a client that wants to keep access MUST store it. Clients that already have a token pass it and no new owner is created |
+| Creation by an anonymous client | **Not allowed over MCP.** A tool that would issue a new owner (and its token) requires an existing token; without one it fails with the API's `401`, and such tools are absent from `tools/list` for anonymous callers. Owner tokens are issued only by the REST API or the web form, never inside a tool result — tool results enter the model's context and the provider's logs. A caller that already has a token passes it and no new owner is created |
 
 #### Tools
 
@@ -16310,32 +16286,32 @@ Expires: {expiry_date}
 
 ## Rate Limiting
 
-Rate limiting is the primary abuse defense. All limits are per-IP using a sliding window counter stored in `server.db` by default; when an external cache (Valkey/Redis) is configured, the counters live in the cache instead (see the cache usage table in PART 12).
+Rate limiting is the primary abuse defense. Anonymous requests are limited per IP; requests carrying a valid Bearer token (REST and MCP alike) are limited per token, so clients that share an egress IP (hosted assistants, NAT) never throttle one another, and failed authentication is always counted per IP. Counters use a sliding window stored in `server.db` by default; when an external cache (Valkey/Redis) is configured, the counters live in the cache instead (see the cache usage table in PART 12).
 
 ```yaml
 server:
   rate_limit:
     enabled: true
     read:
-      # per minute per IP
+      # per minute per IP (per token when authenticated)
       requests: 120
       window: 60
     write:
-      # per minute per IP
+      # per minute per IP (per token when authenticated)
       requests: 10
       window: 60
     health:
-      # per minute per IP (health/status endpoints)
+      # per minute per IP (per token when authenticated) (health/status endpoints)
       requests: 120
       window: 60
-    # per minute per IP (absolute ceiling across all endpoint types)
+    # per minute per IP (per token when authenticated) (absolute ceiling across all endpoint types)
     global_burst: 240
 ```
 
 | Endpoint class | Default limit | Window | Notes |
 |----------------|---------------|--------|-------|
-| Read (GET, HEAD) | 120 req/min | 60s | Per IP, sliding window |
-| Write (POST, PUT, PATCH, DELETE) | 10 req/min | 60s | Per IP, sliding window |
+| Read (GET, HEAD) | 120 req/min | 60s | Per IP (anonymous) or per token (authenticated), sliding window |
+| Write (POST, PUT, PATCH, DELETE) | 10 req/min | 60s | Per IP (anonymous) or per token (authenticated), sliding window |
 | Health / status | 120 req/min | 60s | `/server/healthz` (and the optional `/healthz` root alias) |
 | Global burst | 240 req/min | 60s | Absolute ceiling across all types |
 
@@ -18734,7 +18710,7 @@ func getAPIResponseFormat(r *http.Request) string {
 | **3** | Non-interactive client detected (HTTP tools: curl, wget) | `curl /api/{api_version}/joke` | Plain text |
 | **4** | Default (browsers, API clients, `Accept: application/json`) | `/api/{api_version}/joke` | JSON |
 
-**For frontend routes (`/**`), response format is determined in this order:**
+**For frontend routes (`/**`), response format is determined in this order (the MCP aliases are API-class and never use it — see "MCP Endpoint"):**
 
 | Priority | Method | Example | Returns |
 |----------|--------|---------|---------|
@@ -26384,7 +26360,7 @@ server:
 |--------|-------|
 | `Access-Control-Allow-Origin` | Configured origin(s) or `*` |
 | `Access-Control-Allow-Methods` | `GET, POST, PUT, PATCH, DELETE, OPTIONS` |
-| `Access-Control-Allow-Headers` | `Content-Type, Accept, X-Requested-With, Authorization, X-CSRF-Token, X-XSRF-Token` |
+| `Access-Control-Allow-Headers` | `Content-Type, Accept, X-Requested-With, Authorization, X-CSRF-Token, X-XSRF-Token, MCP-Protocol-Version, Mcp-Method, Mcp-Name` |
 | `Access-Control-Allow-Credentials` | `true` (only when specific origin, not `*`) |
 | `Access-Control-Max-Age` | `86400` (24 hours) |
 
