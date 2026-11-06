@@ -19584,6 +19584,7 @@ Result:
 | **1:1 parity = features** | "1:1 parity" / "1:1+ parity" means feature parity, not automatic route parity |
 | **Routes only when asked** | Add external routes only when the user explicitly requests route/API/client compatibility |
 | **Match response format** | Field names, structure, content-type must match target exactly |
+| **No CSRF** | CSRF would break compatibility clients, so compatibility-layer routes never get the CSRF middleware, token, or `CSRF_FAILED` rejection — unless the emulated protocol itself defines a CSRF token and expects clients to send it, in which case enforce exactly what that protocol specifies on that layer's routes only (PART 16 → "CSRF Protection" → "Scope") |
 | **Envelope exemption** | Compatibility-layer routes return the target service's native success body (bare JSON, plain text, XML, etc.) and native error shape — they are exempt from the `{ "ok": true, "data": ... }` success envelope and the canonical error body. Every non-compat route keeps the envelope |
 | **Standard routes for rest** | Use our `/api/{api_version}/*` patterns for all other operations |
 | **Avoid complexity** | Do NOT add hundreds of redundant routes |
