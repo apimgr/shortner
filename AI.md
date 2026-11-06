@@ -3998,7 +3998,7 @@ User preferences like theme, language, and UI settings can be stored client-side
 
 | Storage | Use Case | Persistence |
 |---------|----------|-------------|
-| Cookies | Theme, language, consent flags — anything the server reads to render pages; plus, only when the project defines owner tokens (PART 12, per IDEA.md), the `owner_token` cookie (HttpOnly + Secure + SameSite=Strict) set when an owner is issued (web-form resource creation) or restored on `/server/preferences`, so token-gated web management works with JS disabled | Configurable expiry |
+| Cookies | Theme, language, consent flags — anything the server reads to render pages; plus, only when the project defines owner tokens (PART 12, per IDEA.md), the `owner_token` cookie (HttpOnly + Secure + SameSite=Strict) set when an owner is issued (web-form resource creation) or restored on `/server/preferences/tokens`, so token-gated web management works with JS disabled | Configurable expiry |
 | `localStorage` | Optional JS-enhancement copy of the owner API token, and pure client-only state — never load-bearing; every flow must also work via the `owner_token` cookie with JS disabled | Until cleared |
 
 ## AI Implementation Process
@@ -5441,7 +5441,7 @@ curl -L https://api.example.com/server/healthz
 **Tokens/passwords shown ONLY ONCE on generation:**
 - Show only on: first run, password changes, token regeneration
 - Show in difficult environments: Docker, headless servers
-- User must copy immediately - never retrievable again (**exception: owner and linked API tokens** are always viewable, masked by default, on `/server/preferences` — see "API Token Model")
+- User must copy immediately - never retrievable again (**exception: owner and linked API tokens** are always viewable, masked by default, on `/server/preferences/tokens` — see "API Token Model")
 - **NEVER log sensitive data**
 - **NEVER in error messages or stack traces**
 - Mask in UI: show `••••••••` or last 4 chars only
@@ -11774,7 +11774,7 @@ CREATE TABLE IF NOT EXISTS owners (
 CREATE TABLE IF NOT EXISTS api_tokens (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_id      TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
-    -- 'primary' (exactly one per owner) or 'linked' (created on /server/preferences)
+    -- 'primary' (exactly one per owner) or 'linked' (created on /server/preferences/tokens)
     kind          TEXT NOT NULL CHECK (kind IN ('primary', 'linked')),
     -- label for linked tokens ("ci", "laptop-cli"); NULL for primary
     name          TEXT,
@@ -11837,8 +11837,8 @@ INSERT INTO config (key, value, type) VALUES
 | Tier | Source | Scope | Purpose |
 |------|--------|-------|---------|
 | **`server.token`** | `server.yml` (auto-generated on first run) | Global — all resources, separate tier | Operator actions: delete any resource, enforce TOS, revoke tokens |
-| **Owner token (primary)** | Server-generated when an owner is first issued a resource | Every resource the owner has created, now and later | Owner reads, edits, deletes their resources; manages their linked tokens on `/server/preferences` |
-| **Linked token** | Created by the owner on `/server/preferences` | The same owner's resources — identical to the primary, minus token management | Automation: CLI, CI, scripts, MCP clients — revocable one by one without touching the primary |
+| **Owner token (primary)** | Server-generated when an owner is first issued a resource | Every resource the owner has created, now and later | Owner reads, edits, deletes their resources; manages their linked tokens on `/server/preferences/tokens` |
+| **Linked token** | Created by the owner on `/server/preferences/tokens` | The same owner's resources — identical to the primary, minus token management | Automation: CLI, CI, scripts, MCP clients — revocable one by one without touching the primary |
 
 Clients send any of them as:
 ```
@@ -11878,7 +11878,7 @@ server:
 | One primary per owner | Created with the owner; **never expires and never disappears** — not when resources expire or are deleted, not when the owner has none left. It ends only by owner rotation (replaced in place), operator revocation, or the optional idle purge below |
 | Reuse | A caller presenting a valid token (Bearer header, or cookie on web forms) creates new resources under the same owner and receives no new token. The `owner_token` response field is present only when a NEW owner was issued |
 | Cookie | `{project_name}_owner_token_XXXXXX` holds the primary token (HttpOnly + Secure + SameSite=Strict + Path=/). Max-Age `server.tokens.cookie_max_age` (default `1y`), **sliding** — refreshed on every valid use. An invalid or revoked cookie is cleared on the next response |
-| Lost cookie / new device | Paste the primary token into "Use an existing token" on `/server/preferences` (restore). Valid → cookie set, identity restored. Linked tokens cannot restore an identity |
+| Lost cookie / new device | Paste the primary token into "Use an existing token" on `/server/preferences/tokens` (restore). Valid → cookie set, identity restored. Linked tokens cannot restore an identity |
 | Idle purge | `server.tokens.idle_purge_days` (default `0` = never). When greater than 0, an owner with **zero resources** and no token use for that many days is deleted with its tokens. Owners with resources are never purged |
 | No guessing aid | Invalid/revoked/expired tokens and non-owned resources return the same response as a missing resource — no existence hints (see "Ownership check") |
 
@@ -11898,7 +11898,7 @@ POST /pastes                       (no token)
 POST /pastes                       (Authorization: Bearer tok_...)
 → 201 Created   { "ok": true, "data": { "id": "def456", "url": "/pastes/def456" } }
 ```
-The server creates the owner and its primary token (hash + encrypted copy), stores the resource with `owner_id`, and returns the raw token in the creation response so API clients can save it. Browsers get **dual delivery**: the web-form create response shows the token (copy button) AND sets the owner cookie, so web management works with JS disabled; JS may additionally save a convenience copy to `localStorage` — never load-bearing. The token is not "shown once": it remains viewable on `/server/preferences` (see "Token Management").
+The server creates the owner and its primary token (hash + encrypted copy), stores the resource with `owner_id`, and returns the raw token in the creation response so API clients can save it. Browsers get **dual delivery**: the web-form create response shows the token (copy button) AND sets the owner cookie, so web management works with JS disabled; JS may additionally save a convenience copy to `localStorage` — never load-bearing. The token is not "shown once": it remains viewable on `/server/preferences/tokens` (see "Token Management").
 
 **Naming:** the JSON response field `owner_token` is fixed across all projects — never rename it. Browser storage names are project-unique: both the cookie and the localStorage key are `{project_name}_owner_token_XXXXXX`, where `XXXXXX` is a random suffix generated once at project creation and recorded verbatim in IDEA.md (e.g. `owner_token: pastebin_owner_token_5qvQQyc5`) — fixed for the project's lifetime so the server always knows which cookie to read, and unique so apps, forks, or sibling deployments on one domain never collide. The suffix is not a secret (cookie names are visible); HttpOnly protects the value. Spec text uses `owner_token` as shorthand for that cookie.
 
@@ -11910,13 +11910,13 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 5. Verify the resource's `owner_id` equals the token's `owner_id`
 6. Update `last_used_at` (at most once per minute per token) and the owner's `last_seen_at`
 
-**Cookie auth scope:** web management forms (plain `POST`: edit, delete, and the `/server/preferences` token actions) MAY fall back to the owner cookie when no `Authorization` header is present — same hash + constant-time match + revoked/expiry/ownership checks as the Bearer path. API routes (`/api/...`) accept the `Authorization` header ONLY and MUST ignore cookies — no ambient authority for programmatic endpoints. `SameSite=Strict`, POST-only mutations, and CSRF tokens keep the web fallback CSRF-safe.
+**Cookie auth scope:** web management forms (plain `POST`: edit, delete, and the `/server/preferences/tokens` token actions) MAY fall back to the owner cookie when no `Authorization` header is present — same hash + constant-time match + revoked/expiry/ownership checks as the Bearer path. API routes (`/api/...`) accept the `Authorization` header ONLY and MUST ignore cookies — no ambient authority for programmatic endpoints. `SameSite=Strict`, POST-only mutations, and CSRF tokens keep the web fallback CSRF-safe.
 
 **Anonymous access** (no `Authorization` header): allowed for all public GET endpoints and for resource creation where the project allows it, subject to default rate limits.
 
-#### Token Management (`/server/preferences`)
+#### Token Management (`/server/preferences/tokens`)
 
-**Owner tokens are always viewable — masked by default.** Because tokens are randomly generated and the owner cannot choose one, the owner must be able to see, copy, rotate and add tokens after creation. This lives on the preferences page, in a "Tokens" section shown only when a valid owner cookie is present.
+**Owner tokens are always viewable — masked by default.** Because tokens are randomly generated and the owner cannot choose one, the owner must be able to see, copy, rotate and add tokens after creation. This lives on its own page, `/server/preferences/tokens`, linked from `/server/preferences` and never inside the single preferences form (rule 15). Each action on it is its own small `POST` form with its own CSRF token. The page lists tokens only when a valid owner cookie is present; without one it shows just the "Use an existing token" restore form.
 
 | Control | Behavior |
 |---------|----------|
@@ -11944,7 +11944,7 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 
 | Web route | API mirror | Description |
 |-----------|-----------|-------------|
-| `GET /server/preferences` | `GET /api/{api_version}/server/preferences/tokens` | Tokens section / list (masked) |
+| `GET /server/preferences/tokens` | `GET /api/{api_version}/server/preferences/tokens` | Tokens page / list (masked) |
 | `POST /server/preferences/token/reveal` | `POST /api/{api_version}/server/preferences/tokens/primary/reveal` | Reveal the primary token |
 | `POST /server/preferences/token/rotate` | `POST /api/{api_version}/server/preferences/tokens/primary/rotate` | Rotate the primary token in place |
 | `POST /server/preferences/token/restore` | — | Restore an identity from a pasted primary token (sets the cookie; web only) |
@@ -13028,38 +13028,22 @@ func RequestIDMiddleware(next http.Handler) http.Handler {
 }
 ```
 
-### Auth Token Headers (All Headers Supported)
+### Auth Token Presentation (Authorization Header Only)
 
-**Standard Authorization:**
-- `Authorization` - Standard: `Bearer {token}`, `Basic {base64}`, `Digest {credentials}`
+**Tokens are presented one way on every native route: `Authorization: Bearer {token}`.**
 
-**API Key Headers:**
-- `X-API-Key` - Common API key header
-- `X-Api-Key` - Case variant (treat as same)
-- `API-Key` - Alternative without X- prefix
-- `ApiKey` - No hyphen variant
+| Rule | Detail |
+|------|--------|
+| Native routes | `/api/{api_version}/**`, the MCP endpoint, and web management actions that accept a bearer credential: `Authorization: Bearer {token}` is the ONLY accepted form |
+| Other headers | `X-API-Key`, `API-Key`, `X-Auth-Token`, `X-Access-Token`, `X-Token`, `Token`, Basic and Digest are NOT credentials on native routes — they are ignored, so the request is anonymous |
+| Query string | A `?token=` parameter is never read: tokens in URLs leak through server logs, browser history and `Referer`. It is ignored and never logged |
+| Compatibility-layer routes | Accept exactly the credential form the emulated protocol defines (for example an API-key header), on that layer's routes only |
+| Priority | There is no priority list: no `Authorization` header means anonymous |
+| `401` | A missing, invalid, expired or revoked token returns `401` with `WWW-Authenticate: Bearer realm="{project_name}"` (RFC 6750 §3); an invalid, expired or revoked token adds `error="invalid_token"` |
+| `403` | A valid token without the needed scope or ownership returns `403`; when the route is bearer-protected the response adds `WWW-Authenticate: Bearer error="insufficient_scope"` |
+| Logging | The `Authorization` value is never logged and never echoed in an error body |
 
-**Custom Token Headers:**
-- `X-Auth-Token` - Custom auth token
-- `X-Access-Token` - Access token header
-- `X-Token` - Short form
-- `Token` - Minimal form
-
-**Session/CSRF Headers:**
-- `X-CSRF-Token` - CSRF protection token
-- `X-XSRF-Token` - Angular variant
-- `X-Session-ID` - Session identifier
-
-**Service-to-Service:**
-- `X-Service-Token` - Internal service auth
-- `X-Internal-Token` - Internal API calls
-
-**Priority Order (first found wins):**
-1. `Authorization` header (standard, preferred)
-2. `X-API-Key` / `API-Key`
-3. `X-Auth-Token` / `X-Access-Token`
-4. `X-Token` / `Token`
-5. Query parameter `?token=` (least preferred, avoid in production)
+`X-CSRF-Token` and `X-XSRF-Token` carry the CSRF token on web forms; they are not credentials. Service-to-service calls use the same Bearer token — there is no separate internal-token header.
 
 ### Implementation Requirements
 
@@ -14140,7 +14124,7 @@ The root secret all other derived material hangs off. Without it, in-flight HMAC
 
 | Key | Length | Storage | Purpose | Rotation |
 |-----|--------|---------|---------|----------|
-| `server.security.encryption_key` | 32 bytes (AES-256-GCM) | `server.yml` (auto-generated on first run) | At-rest encryption for ALL sensitive server data: encrypted copies of owner and linked API tokens (so they stay viewable on `/server/preferences`), security report bodies (used as the AES fallback when no PGP keypair exists, see PART 11 → "Security Reports"), and any future at-rest encrypted data. | Manual via `--maintenance secret rotate encryption_key` (PART 11 → "Secret Rotation"). Sensitive-operation flow (PART 5 → "Sensitive Operations"): re-prompt for the operator token, log to `audit.log` as `security.encryption_key_rotated`. 30-day grace for in-flight encrypted data. |
+| `server.security.encryption_key` | 32 bytes (AES-256-GCM) | `server.yml` (auto-generated on first run) | At-rest encryption for ALL sensitive server data: encrypted copies of owner and linked API tokens (so they stay viewable on `/server/preferences/tokens`), security report bodies (used as the AES fallback when no PGP keypair exists, see PART 11 → "Security Reports"), and any future at-rest encrypted data. | Manual via `--maintenance secret rotate encryption_key` (PART 11 → "Secret Rotation"). Sensitive-operation flow (PART 5 → "Sensitive Operations"): re-prompt for the operator token, log to `audit.log` as `security.encryption_key_rotated`. 30-day grace for in-flight encrypted data. |
 
 ### Secret Rotation (`--maintenance secret` / `server.token`)
 
@@ -14808,7 +14792,7 @@ llms.txt tells AI agents (Claude, GPT, etc.) what the application does, what API
 
 ## API
 Base URL: {app_url}/api/{api_version}
-Authentication: Bearer token (owner token issued on first resource creation, a linked token created on /server/preferences, or the operator token)
+Authentication: Bearer token (owner token issued on first resource creation, a linked token created on /server/preferences/tokens, or the operator token)
 Rate limit: {rate_limit} requests/minute
 MCP: {app_url}/mcp (Streamable HTTP; same Bearer token as the API)
 
@@ -14875,8 +14859,7 @@ web:
 | Specification | Follow the current MCP specification (https://modelcontextprotocol.io/specification) — the revision, header and error rules come from it, not from this file. Negotiate the version the client asks for; unsupported version → `400` with the spec's `UnsupportedProtocolVersionError` listing the supported versions |
 | Canonical route | `/api/{api_version}/server/mcp` |
 | Aliases | `/api/mcp` and `/mcp` — direct aliases for the current `{api_version}`; the SAME handler mounted at all three paths, never a redirect (see "Unversioned API aliases") |
-| Reserved name | `mcp` is in `reservedNames` so no user, org, or project slug can claim `/mcp` |
-| Methods | `POST` only. `GET` and `DELETE` → `405 Method Not Allowed` (the server keeps no sessions and opens no standalone stream) |
+\1| Help page | `/server/help/mcp` documents how to connect a client (see \"/server/help/mcp\"); `/server/help` links to it. Both return `404` when MCP is disabled |\n| Methods | `POST` only. `GET` and `DELETE` → `405 Method Not Allowed` (the server keeps no sessions and opens no standalone stream) |
 | Responses | A single `application/json` object per request; an SSE stream only when a tool needs to stream progress. Server-initiated requests are never sent |
 | Sessions | None. An `Mcp-Session-Id` header, if sent by an older client, is ignored — never minted, never echoed |
 | `Origin` | If an `Origin` header is present it MUST be validated against the request's own origin / configured public origins (PART 8 → "Resolution Order"); invalid → `403` (DNS-rebinding protection required by the spec) |
@@ -14889,12 +14872,13 @@ web:
 | Credential | The existing `Authorization: Bearer ...` header, exactly as for every other API route. **There is no MCP token, no MCP scope, and no MCP-specific setting that grants access** |
 | Validation | Run through the SAME token validation function and middleware as the API — one code path, not a copy |
 | Cookies | Ignored. Like every `/api/...` route, the MCP endpoint accepts the `Authorization` header only — no ambient authority |
-| No token | Anonymous: only what an unauthenticated API call may do (public endpoints, default rate limits). An operation that needs auth returns the API's normal `401` JSON-RPC error |
+| No token | Anonymous: only what an unauthenticated API call may do (public endpoints, default rate limits). An operation that needs auth returns the API's normal `401` (with `WWW-Authenticate: Bearer`, PART 8 → "Auth Token Presentation") JSON-RPC error |
 | Authorization | Per tool call, with the caller's token, by the same checks as the matching API endpoint. A token that cannot call an endpoint over REST cannot call its tool |
 | Rate limiting, audit | The same limiters and audit events as the API; the audit `source` is `mcp` so MCP traffic is distinguishable |
-| Owner and linked tokens | Both work as the Bearer token. A tool call sees exactly the owner's resources and runs the API's ownership check. **A linked token is the intended credential for MCP clients** — create one named for the client on `/server/preferences` so it can be revoked without touching the primary |
+| Owner and linked tokens | Both work as the Bearer token. A tool call sees exactly the owner's resources and runs the API's ownership check. **A linked token is the intended credential for MCP clients** — create one named for the client on `/server/preferences/tokens` so it can be revoked without touching the primary |
 | Operator token | `server.token` works as Bearer and sees operator-only tools; for any other caller those tools are absent from `tools/list` AND rejected on `tools/call` |
-| Token management | **Never exposed as tools.** Reveal, rotate, create, revoke and restore of tokens exist only on `/server/preferences` and its API mirror, never over MCP |
+| MCP clients | Give each MCP client its own linked token (never the primary, never `server.token` — that is full operator access). A project without owner tokens exposes only its public endpoints to MCP clients; there is no non-operator credential to issue there |
+| Token management | **Never exposed as tools.** Reveal, rotate, create, revoke and restore of tokens exist only on `/server/preferences/tokens` and its API mirror, never over MCP |
 | Creation by an anonymous client | A create tool called without a token issues an owner exactly as the API does and returns `owner_token` in the tool result; a client that wants to keep access MUST store it. Clients that already have a token pass it and no new owner is created |
 
 #### Tools
@@ -18176,7 +18160,7 @@ OS/Arch: {GOOS}/{GOARCH}
 
 ## Authentication & CORS (Cross-References)
 
-- **Auth token extraction:** every auth-protected API endpoint MUST accept a valid token from ANY header in PART 8 → "Auth Token Headers (All Headers Supported)", plus the `?token=` query param, following the PART 8 priority order (first found wins). A valid token grants access regardless of which header carried it.
+- **Auth token extraction:** every auth-protected native API endpoint MUST read the token from `Authorization: Bearer {token}` only (PART 8 → "Auth Token Presentation"); any other header and any `?token=` query parameter is ignored, never logged and never treated as a credential. Compatibility-layer routes accept only the credential form their emulated protocol defines.
 - **CORS policy:** browser cross-origin rules for these endpoints — headers table, allow-list resolution order, and preflight caveats — are defined in PART 16 → "CORS".
 
 ## Legacy vs Compatibility Endpoints
@@ -20927,7 +20911,7 @@ Startup (for configured FQDN)
 | `GET /api/{api_version}/{resource}/{id}` | `GET /{resource}/{id}` | Resource detail page |
 | `GET /api/{api_version}/server/about` | `GET /server/about` | About page |
 
-Routes are registered on the router in `main.go`/`routes.go`. All frontend routes are public — there is no admin web UI, no dashboard, and no settings pages beyond the guest `/server/preferences` page (no auth, no user accounts). Auth is bearer-token only (operator token, owner token, or linked token) and applies to `/api/` routes, never to HTML pages; the only cookie-authenticated web actions are the owner-token management forms (PART 8 → "API Token Model").
+Routes are registered on the router in `main.go`/`routes.go`. All frontend routes are public — there is no admin web UI, no dashboard, and no settings pages beyond the guest `/server/preferences` page and its `/server/preferences/tokens` sub-page (no auth, no user accounts). Auth is bearer-token only (operator token, owner token, or linked token) and applies to `/api/` routes, never to HTML pages; the only cookie-authenticated web actions are the owner-token management forms (PART 8 → "API Token Model").
 
 ```go
 // Public frontend routes (no auth required)
@@ -20939,6 +20923,7 @@ r.Get("/server/about", aboutHandler)
 r.Get("/server/privacy", privacyHandler)
 r.Get("/server/contact", contactHandler)
 r.Get("/server/help", helpHandler)
+r.Get("/server/help/mcp", helpMCPHandler)
 r.Get("/server/terms", termsHandler)
 ```
 
@@ -23672,7 +23657,7 @@ document.cookie = "lang=fr; path=/; max-age=31536000; SameSite=Lax";
 
 **Rules:**
 - Preferences survive token revocation — they are UI state, not account data
-- Never persist preferences server-side — the server reads the cookie per request; there is no preferences table (owner and linked tokens are credentials, not preferences: they live in `api_tokens` and are managed in the "Tokens" section of `/server/preferences`, see "API Token Model")
+- Never persist preferences server-side — the server reads the cookie per request; there is no preferences table (owner and linked tokens are credentials, not preferences: they live in `api_tokens` and are managed on the separate `/server/preferences/tokens` page, see "API Token Model")
 - Never store PII in cookies or localStorage
 - Always fall back to a safe default when a cookie is missing or invalid
 - App-specific preferences use the same cookie table and rules above — don't invent a second storage mechanism for them
@@ -23704,7 +23689,7 @@ Preferences aren't tied to identity — any two guests who set the same `theme`/
 | 12 | **Auth and CSRF** | None required — guest cookies. `POST` forms carry the normal CSRF token; the API mirror needs none (no ambient authority: it accepts and sets only these UI cookies). Import is a `GET` on purpose so a shared link works; it can set only the exportable set (rule 1), so it can never change credentials or consent. Standard rate limits apply |
 | 13 | **Export response** | The export block (full URL and short code as read-only selectable text, each with one Copy control) is rendered inline on `/server/preferences` on every load — never behind a button, toggle, accordion or separate step. Web `GET /server/preferences/export` is content-negotiated like every page: HTML → the same preferences page; `text/plain` → the lines `URL: ...` and `Code: ...`; JSON → the API body below. Copy is a client-side action (clipboard) and never submits the form; the export link and code use CSS `user-select: all` so one click selects the whole value for a manual copy, and the Copy control is an optional JS enhancement over that baseline — the page is fully usable without JS |
 | 14 | **Import field** | An always-visible field named `code` (textarea or text input, accepts a pasted full URL, query string or short code) inside the single preferences form (rule 15) — no separate Import form or button. On save, a non-empty `code` is resolved per rule 5 and its valid values override the form's submitted values key by key (the visitor pasted it on purpose); an empty `code` is ignored. `GET /server/preferences/import` stays for shared links and API parity (rule 5 unchanged). JS may enhance (clipboard paste) but never changes the request |
-| 15 | **Page layout and buttons** | `/server/preferences` is ONE `<form method="POST" action="/server/preferences">` carrying the CSRF token and every section: appearance (`theme`), language (`lang`), cookie-consent and CCPA controls, every `{project_name}_pref_{key}` control, and a Data Management section (export block, rule 13; import field, rule 14) — all sections always visible, none collapsed or revealed by a button. The form has exactly three action buttons (the header theme toggle is a separate mini-form on other pages and is not part of this page's form): **Save** (submit; applies every changed field plus `code`, then `303` per rules 9–10), **Cancel** (a link to the rule 10 redirect target; discards unsaved edits, sends no write) and **Reset** (a `type="button"` with `popovertarget` that opens a native HTML `popover` — no JS; the popover holds the warning, an **Erase everything** submit with `action=reset`, and a dismiss control using `popovertargetaction="hide"`; those two belong to Reset, not to the page's button set; forgets the visitor completely: every cookie this app set — `theme`, `lang`, `{project_name}_pref_*`, `cookie_consent`, `ccpa_opt_out`, `{project_name}_build` — is deleted (`Max-Age=0`, same `Path`/attributes as rule 8), and the `303` carries `Clear-Site-Data: "storage"` to wipe localStorage/sessionStorage/IndexedDB without JS. Defaults apply and the consent banner returns on the next page. Never deletes session, CSRF or other credential cookies — signing out is a separate action. The popover warning states exactly what is erased. Only Reset confirms — Save and Cancel never ask for confirmation. The popover is styled with CSS, and a direct `POST action=reset` behaves identically on the server). No per-section save buttons, no "Sync", "Export", "Import" or "Show" buttons; Copy controls (rule 13) are the only other controls |
+| 15 | **Page layout and buttons** | `/server/preferences` is ONE `<form method="POST" action="/server/preferences">` carrying the CSRF token and every section: appearance (`theme`), language (`lang`), cookie-consent and CCPA controls, every `{project_name}_pref_{key}` control, and a Data Management section (export block, rule 13; import field, rule 14) — all sections always visible, none collapsed or revealed by a button. The form has exactly three action buttons (the header theme toggle is a separate mini-form on other pages and is not part of this page's form): **Save** (submit; applies every changed field plus `code`, then `303` per rules 9–10), **Cancel** (a link to the rule 10 redirect target; discards unsaved edits, sends no write) and **Reset** (a `type="button"` with `popovertarget` that opens a native HTML `popover` — no JS; the popover holds the warning, an **Erase everything** submit with `action=reset`, and a dismiss control using `popovertargetaction="hide"`; those two belong to Reset, not to the page's button set; forgets the visitor completely: every noncredential cookie this app set — `theme`, `lang`, `{project_name}_pref_*`, `cookie_consent`, `ccpa_opt_out`, `{project_name}_build`, plus any other noncredential cookie the project defines (announcement dismissals, flash messages, age-verification or content-acknowledgment cookies, forwarding preferences) — is deleted (`Max-Age=0`, same `Path`/attributes as rule 8), and the `303` carries `Clear-Site-Data: "storage"` to wipe localStorage/sessionStorage/IndexedDB without JS. Defaults apply and the consent banner returns on the next page. Never deletes session, CSRF or other credential cookies — signing out is a separate action. The popover warning states exactly what is erased. Only Reset confirms — Save and Cancel never ask for confirmation. The popover is styled with CSS, and a direct `POST action=reset` behaves identically on the server). No per-section save buttons, no "Sync", "Export", "Import" or "Show" buttons; Copy controls (rule 13) are the only other controls. Owner-token management (PART 12) is NOT part of this form: it lives on its own page, `GET /server/preferences/tokens`, reached from a plain link on this page (rendered only when the project defines owner tokens), and that page's per-action mini-forms are exempt from this button limit. Reset never deletes credential cookies: session, CSRF and, when the project defines owner tokens, the owner-token cookie |
 | 16 | **Web save never `400`** | `400 VALIDATION_FAILED` (rule 11) is API-only. A web `POST /server/preferences` always answers `303` (rule 9) — including empty submits, unchecked checkboxes (absent fields), invalid values (dropped) and a bad `code`. The only `4xx` is a missing/invalid CSRF token (`403`), so the page form MUST always render the token and post only to the canonical route, never to the `/api/{api_version}/…` mirror |
 | 17 | **Consent and CCPA controls** | The page form's cookie-consent toggles (`consent_preferences`, `consent_analytics`; `essential` is always on and not a field) and CCPA opt-out toggle (`ccpa_opt_out`) are web-form-only controls handled by `POST /server/preferences`, with a hidden `consent_form=1` marker rendered inside the form. They are applied only when `consent_form=1` is present — an unchecked checkbox then means off, while a POST without the marker (the header theme toggle) never touches consent or CCPA. Applying writes `cookie_consent` (JSON per PART 16 consent state, with a fresh timestamp in Unix seconds) and `ccpa_opt_out` with the rule 8 attributes. Import and the API mirror never write them, Reset deletes them (rule 15), and they are never exported (rule 1) |
 
@@ -23736,7 +23721,7 @@ Preferences aren't tied to identity — any two guests who set the same `theme`/
 Reset opens a native popover (no JS):
 ┌───────────────────────────────────────────┐
 │  Forget me?                               │
-│  This erases ALL cookies and local data   │
+│  This erases all site data except your sign-in   │
 │  for this site. It cannot be undone.      │
 │              [Keep]  [Erase everything]   │
 └───────────────────────────────────────────┘
@@ -23752,7 +23737,7 @@ Reset opens a native popover (no JS):
 
 `prefs` is keyed by the bare `{key}` (without the `{project_name}_pref_` prefix) and is `{}` when none are set. `theme`, `lang` and `prefs` are the resulting effective state. `applied` and `ignored` list request parameter names (`theme`, `lang`, `{project_name}_pref_{key}`, or the unrecognized name) and are always arrays. The names `url` and `code` are fixed — never `full_url`, `short_code`, `export_url` or `export_code`.
 
-**Tests required** (the preferences sync is easy to get subtly wrong; these are the minimum): round trip export → import yields identical cookies; direct params override `code`; pasted full URL, plain query string, padded and unpadded base64url all import; invalid `theme`/`lang`/pref values are dropped and listed in `ignored`; excluded names (`cookie_consent`, `{project_name}_build`, an owner/session token) are never exported and are ignored on import; import never removes an existing cookie; redirect rejects `//evil.example`, `/\evil`, absolute URLs and CR/LF; cookie attributes match rule 8 behind a TLS-terminating proxy; oversized `code` is ignored; the web page renders the export block, import field and exactly Save/Cancel/Reset with no other buttons, and Save/Cancel without any confirmation; a web `POST` with no valid values, with an empty body or with only a bad `code` returns `303`, not `400`; Reset deletes every app-set cookie (including `cookie_consent`, `ccpa_opt_out`, `{project_name}_build`) and sends `Clear-Site-Data: "storage"` but leaves session/CSRF/credential cookies, and the Reset popover opens without JS, shows the warning and only its confirm submits; a non-empty `code` on save overrides the form's values.
+**Tests required** (the preferences sync is easy to get subtly wrong; these are the minimum): round trip export → import yields identical cookies; direct params override `code`; pasted full URL, plain query string, padded and unpadded base64url all import; invalid `theme`/`lang`/pref values are dropped and listed in `ignored`; excluded names (`cookie_consent`, `{project_name}_build`, an owner/session token) are never exported and are ignored on import; import never removes an existing cookie; redirect rejects `//evil.example`, `/\evil`, absolute URLs and CR/LF; cookie attributes match rule 8 behind a TLS-terminating proxy; oversized `code` is ignored; the web page renders the export block, import field and exactly Save/Cancel/Reset with no other buttons, and Save/Cancel without any confirmation; a web `POST` with no valid values, with an empty body or with only a bad `code` returns `303`, not `400`; Reset deletes every noncredential app-set cookie (including `cookie_consent`, `ccpa_opt_out`, `{project_name}_build`, dismissal and flash cookies) and sends `Clear-Site-Data: "storage"` but leaves session/CSRF/credential cookies, and the Reset popover opens without JS, shows the warning and only its confirm submits; a non-empty `code` on save overrides the form's values.
 
 ### Offline Behavior
 
@@ -26399,13 +26384,13 @@ server:
 |--------|-------|
 | `Access-Control-Allow-Origin` | Configured origin(s) or `*` |
 | `Access-Control-Allow-Methods` | `GET, POST, PUT, PATCH, DELETE, OPTIONS` |
-| `Access-Control-Allow-Headers` | `Content-Type, Accept, X-Requested-With, Authorization, X-API-Key, X-Api-Key, API-Key, ApiKey, X-Auth-Token, X-Access-Token, X-Token, Token, X-CSRF-Token, X-XSRF-Token, X-Session-ID, X-Service-Token, X-Internal-Token` |
+| `Access-Control-Allow-Headers` | `Content-Type, Accept, X-Requested-With, Authorization, X-CSRF-Token, X-XSRF-Token` |
 | `Access-Control-Allow-Credentials` | `true` (only when specific origin, not `*`) |
 | `Access-Control-Max-Age` | `86400` (24 hours) |
 
-**Never `*` here:** the Fetch spec's `Access-Control-Allow-Headers: *` wildcard does NOT cover `Authorization`, and wildcards are invalid when credentials are allowed. Every supported auth header is listed by name — keep in sync with PART 8 → "Auth Token Headers (All Headers Supported)".
+**Never `*` here:** the Fetch spec's `Access-Control-Allow-Headers: *` wildcard does NOT cover `Authorization`, and wildcards are invalid when credentials are allowed. Every header a browser client may send is listed by name — keep in sync with PART 8 → "Auth Token Presentation".
 
-**Query param bypass:** `?token=` auth (last in the PART 8 priority order) travels in the URL, not a header — it never triggers a CORS preflight and works from any origin regardless of the Allow-Headers list.
+**No query-param auth:** tokens are never accepted in a URL (they leak into logs, history and `Referer`); a `?token=` parameter is ignored.
 
 ### Behavior
 
@@ -26471,14 +26456,14 @@ Credentials (`Access-Control-Allow-Credentials: true`) are sent only when the re
 |-----------|--------|
 | Method is `POST`, `PUT`, `PATCH`, or `DELETE` | Read-only methods (`GET`, `HEAD`, `OPTIONS`) cannot change state |
 | Request targets a frontend route (HTML page/form) — NOT `/api/**` and NOT a compatibility-layer route | CSRF is frontend-only; the backend never validates it (see "Scope") |
-| No `Authorization: Bearer …` / `X-API-Token: …` / similar bearer header present | Bearer credentials are not auto-attached by browsers, so cross-site forgery has no vector |
+| No `Authorization: Bearer …` header present | Bearer credentials are not auto-attached by browsers, so cross-site forgery has no vector |
 
 **Bypass the CSRF check (no validation, no token needed) if ANY of these are true:**
 
 | Bypass | Reason |
 |--------|--------|
 | Request targets the backend: any `/api/**` route, or any compatibility-layer route (unless that layer's protocol expects CSRF — see "Scope") | CSRF is frontend-only; backend clients (CLI, agents, SDKs, webhooks, compat clients) never carry or need a token |
-| `Authorization: Bearer …` or `X-API-Token: …` header present | Bearer auth — caller proves possession of a credential the browser cannot auto-attach. CSRF protects against forgery of *cookie-carried* values; this is a different auth model. |
+| `Authorization: Bearer …` header present | Bearer auth — caller proves possession of a credential the browser cannot auto-attach. CSRF protects against forgery of *cookie-carried* values; this is a different auth model. |
 | Method is `GET`, `HEAD`, or `OPTIONS` | Safe per RFC 9110. Must remain side-effect-free; if a `GET` mutates, that is a separate spec violation, not a CSRF problem. |
 | WebSocket upgrade request (`Upgrade: websocket`) | Auth happens at the connection level, then per-message; CSRF tokens don't fit the WS lifecycle. |
 | Endpoint is in the explicit `server.csrf.exempt_paths` allow-list | Operator-declared exception for FRONTEND endpoints only (e.g. a cross-site POST to a frontend callback). Backend routes are never subject to CSRF and need no entry. |
@@ -27640,6 +27625,7 @@ func trackingScript(r *http.Request) template.HTML {
 |---------|-------------|
 | Getting started | Quick start guide |
 | Features | How to use key features |
+| MCP | Link to `/server/help/mcp` (only shown if `server.mcp.enabled`) |
 | API Documentation | Links to Swagger (`/server/docs/swagger`) and GraphQL (`/server/docs/graphql`) — UIs fetch from `/api/swagger` and `/api/graphql` aliases |
 | Tor Access | How to access via Tor (only shown if Tor enabled) |
 | I2P Access | How to access via I2P (only shown if I2P enabled and running) |
@@ -27731,6 +27717,7 @@ curl -H "Accept: application/xml" https://jokes.example.com/api/v1/joke</code></
   <ul>
     <li><a href="/server/docs/swagger">Swagger UI</a> - Interactive REST API explorer</li>
     <li><a href="/server/docs/graphql">GraphiQL</a> - Interactive GraphQL explorer</li>
+    {{ if .MCPEnabled }}<li><a href="/server/help/mcp">MCP server</a> - Use this application from an AI assistant</li>{{ end }}
   </ul>
 </div>
 ```
@@ -27793,6 +27780,43 @@ curl -H "Accept: application/xml" https://jokes.example.com/api/v1/joke</code></
 
 **⚠️ REMINDER: All content sections MUST be populated from IDEA.md - see sourcing rules above.**
 
+### /server/help/mcp
+
+**MCP help page — how to connect an AI assistant to this application. The base content below is defined here and rendered by every project; a project expands it and never removes or contradicts it.**
+
+| Route | Description |
+|-------|-------------|
+| `GET /server/help/mcp` | MCP help page (HTML) |
+| `GET /api/{api_version}/server/help/mcp` | Same content as JSON |
+
+When `server.mcp.enabled` is `false`, both routes return `404` and no link to the page is rendered anywhere (the same rule as every MCP route). `/server/help` links to this page (see "/server/help"); the link is shown only when MCP is enabled.
+
+**Base sections (always rendered, in this order, each with its anchor id):**
+
+| Anchor | Section | Content |
+|--------|---------|---------|
+| `#overview` | What this is | One short paragraph: this application is an MCP server over Streamable HTTP (remote only); every public API operation is available to an assistant as a tool |
+| `#endpoint` | Endpoint | The full MCP URL resolved for this request (PART 8 → "Resolution Order", never hardcoded) with the two aliases (`/api/mcp`, `/mcp`) and a copy control; the URL text uses CSS `user-select: all` so it works without JS |
+| `#authentication` | Authentication | Requests authenticate with `Authorization: Bearer {token}` — the same tokens as the REST API, no MCP-specific token. Anonymous access works for public tools. Use a **linked token** created for this client on `/server/preferences/tokens` (named for the client, revocable alone). Never the primary token and never the operator token (`server.token`). A project without owner tokens has no client credential to issue: MCP clients get its public tools anonymously. |
+| `#connect` | Connect a client | Copy-paste snippets using the resolved URL and the project name: a Claude Code command (`claude mcp add --transport http {project_name} {url} --header "Authorization: Bearer $MCP_TOKEN"`), a generic JSON client config (`mcpServers` with `type`, `url`, `headers`), and a `curl` `initialize` request that verifies the connection. The token is the only value the page cannot know, so it appears as the shell variable `$MCP_TOKEN` — no other placeholders |
+| `#tools` | Tools | The live tool list for an anonymous caller (name and description from the same registry that backs `tools/list`) — never hand-written. When authenticated callers see more tools, say so |
+| `#limits` | Behavior and limits | `POST` only; no sessions; the same rate limits and audit as the API; `Origin` validated; the supported MCP protocol versions |
+| `#troubleshooting` | Troubleshooting | A table of `400` (protocol-version or header mismatch), `401` (missing, invalid or expired token — `WWW-Authenticate: Bearer`), `403` (bad `Origin` or insufficient scope), `404` (MCP disabled), `405` (GET or DELETE; the endpoint is POST-only) with the fix for each |
+
+**Project expansion (required content):** the project appends its own section, `#project`, after the base sections. The text comes from IDEA.md and is stored as Markdown in `pages.help.mcp` (editable in the admin panel's Pages → Help editor where an admin panel exists). It MUST use the project's real tool names and real data — example prompts a user can paste into an assistant, per-tool tips and limits, and documentation of any MCP resources or prompts the project exposes. It never repeats or contradicts the base sections, and generic placeholder text is forbidden (same rule as `/server/help`).
+
+**JSON body (`GET /api/{api_version}/server/help/mcp`, envelope `{ "ok": true, "data": ... }`; field names are fixed):**
+```json
+{
+  "enabled": true,
+  "url": "https://host/api/v1/server/mcp",
+  "aliases": ["https://host/api/mcp", "https://host/mcp"],
+  "auth": { "scheme": "Bearer" },
+  "tools": [ { "name": "operationId", "description": "..." } ],
+  "project": "Markdown from pages.help.mcp, or an empty string"
+}
+```
+
 ### /server/terms
 
 **Terms of Service - legal terms for using the application.**
@@ -27854,6 +27878,7 @@ server:
 | **Privacy Policy** | `pages.privacy.content` (Markdown) |
 | **Contact Page** | `pages.contact.enabled`, `pages.contact.captcha`, `pages.contact.success_message` (recipient: `server.contact.general.email`, falls back to `server.contact.admin.email`) |
 | **Help Page** | `pages.help.content` (Markdown) |
+| **Help MCP Page** | `pages.help.mcp` (Markdown, appended after the base MCP help sections) |
 | **Terms of Service** | `pages.terms.content` (Markdown) |
 
 ### /server/ API Endpoints
@@ -27864,6 +27889,7 @@ server:
 | `/api/{api_version}/server/privacy` | GET | Privacy policy (JSON) |
 | `/api/{api_version}/server/contact` | POST | Submit contact form |
 | `/api/{api_version}/server/help` | GET | Help content (JSON) |
+| `/api/{api_version}/server/help/mcp` | GET | MCP help content (JSON); `404` when MCP is disabled |
 | `/api/{api_version}/server/terms` | GET | Terms of service (JSON) |
 | `/api/{api_version}/server/healthz` | GET | Health check (JSON default; text via API rules) |
 | `/api/{api_version}/server/swagger` | GET | OpenAPI JSON spec |
@@ -27889,6 +27915,7 @@ server:
 | `/server/privacy` | Privacy policy page (HTML) |
 | `/server/contact` | Contact form page (HTML) |
 | `/server/help` | Help page (HTML) |
+| `/server/help/mcp` | MCP help page (HTML); `404` when MCP is disabled |
 | `/server/terms` | Terms of service page (HTML) |
 | `/server/healthz` | Health page (HTML) |
 | `/healthz` | Optional direct alias to `/server/healthz` when `server.healthz.root.enabled` is `true` |
@@ -46268,7 +46295,7 @@ Example commands (project-dependent):
 | Auth Type | When Used |
 |-----------|-----------|
 | None | Public endpoints (e.g., `GET /api/{api_version}/pastes/{id}`) |
-| Owner or linked token | Protected endpoints for the owner's resources; token management on `/server/preferences` (primary only) |
+| Owner or linked token | Protected endpoints for the owner's resources; token management on `/server/preferences/tokens` (primary only) |
 | Operator Token (`server.token`) | Server-wide operator actions (CLI only) |
 
 **Token Storage:**
