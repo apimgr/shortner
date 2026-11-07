@@ -1027,9 +1027,8 @@ src/
 │   │   │   ├── es.json        # Spanish
 │   │   │   ├── fr.json        # French
 │   │   │   ├── de.json        # German
-│   │   │   ├── zh.json        # Chinese
-│   │   │   ├── ar.json        # Arabic
-│   │   │   └── ja.json        # Japanese
+│   │   │   ├── it.json        # Italian
+│   │   │   └── ar.json        # Arabic (RTL)
 │   │   └── i18n_test.go       # Translation tests
 │   ├── display/
 │   │   └── detect.go          # Terminal/display detection
@@ -2824,9 +2823,9 @@ fi
 | Adding JavaScript UI text | Use `translations[key]` from loaded locale |
 | Modifying `<html>` tag | Use `lang="{{.Lang}}" dir="{{.Dir}}"` — never hardcoded `lang="en"` |
 
-**After adding translation keys, AI MUST:**
+**After adding, changing or removing translation keys, AI MUST:**
 1. Add the key to the Spanish (`es.json`) example in PART 30 with proper translation
-2. Note that ALL other language files (`fr`, `de`, `zh`, `ar`, `ja`) need the same key added
+2. Add a best-effort translation of the key to EVERY other locale file (`fr`, `de`, `it`, `ar`, and every translator-added language) in the same change — likewise update the translation when the English text changes, and remove the key from every file when it is removed. Translators can fix wording later; never leave a key changed in `en.json` alone so the files drift apart
 3. Ensure the key exists in the English base file (`en.json`)
 
 **If AI is unsure whether text is user-facing → treat it as user-facing and translate it.**
@@ -6029,6 +6028,7 @@ PROJECT_ORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+
 │   ├── security.md         # Security, public endpoints, and reporting
 │   ├── integrations.md     # External identity and protocol integrations
 │   ├── development.md      # Development guide
+│   ├── translating.md      # Translation guide (how translators add or update a language)
 │   ├── stylesheets/        # MkDocs theme customization
 │   │   ├── dark.css        # Dark theme customization for ReadTheDocs
 │   │   └── light.css       # Light theme customization for ReadTheDocs (optional)
@@ -15871,7 +15871,7 @@ When GDPR/CCPA (right to erasure) conflicts with HIPAA/SOC2 (retention requireme
 | `/server/privacy` | GET | Privacy policy |
 | `/server/dpo` | GET | Data Protection Officer contact (GDPR) |
 
-**DPO contact source:** `server.contact.dpo.email` (with optional `server.contact.dpo.name`), part of the Contact Configuration tree (PART 12). When `dpo.email` is empty the page shows `server.contact.general.email`; when that is empty too it renders only a link to the contact form (`/server/contact`). It never invents an address and never shows the admin address. The JSON mirror is `GET /api/{api_version}/server/dpo` (`name`, `email`, `privacy_url`) and follows the same fallback chain for `email`; when no address resolves it still answers `200` with `email` = `""` (and `name` = `""` when unset), never `404`; `privacy_url` is always `/server/privacy`. The HTML page shows the DPO name when set, the address as a `mailto:` link when one resolves, and always links to `/server/privacy` and `/server/contact`.
+**DPO contact source:** `server.contact.dpo.email` (with optional `server.contact.dpo.name`), part of the Contact Configuration tree (PART 12). When `dpo.email` is empty the page shows `server.contact.general.email`; when that is empty too it renders only a link to the contact form (`/server/contact`). It never invents an address and never shows the admin address. The JSON mirror is `GET /api/{api_version}/server/dpo` (`name`, `email`, `privacy_url`) and follows the same fallback chain for `email`; when no address resolves it still answers `200` with `email` = `""` (and `name` = `""` when unset), never `404`; `privacy_url` is always present and is an absolute URL: the request's resolved base URL (PART 8 → "Resolution Order", never a cached value) + `/server/privacy`, so on an onion or I2P request it carries that address; the HTML page itself links with the root-relative path `/server/privacy`. The HTML page shows the DPO name when set, the address as a `mailto:` link when one resolves, and always links to `/server/privacy` and `/server/contact`.
 
 **Compliance is configured entirely in `server.yml`. Consent state is stored client-side (cookies, so the server can read it per-request) — there is no server-side user consent table. Operators run `{project_name} --maintenance compliance report` for a compliance summary.**
 
@@ -40066,6 +40066,7 @@ Documentation uses MkDocs Material theme with dark/light/auto switching.
 | `security.md` | ✓ | Security model, auth, health/public endpoints, security reporting, and well-known namespace |
 | `integrations.md` | ✓ | Machine/agent identity, native app links, autodiscovery, webhooks, federation, and other protocol/platform integrations (or an explicit "none enabled" statement) |
 | `development.md` | ✓ | Development/contributing guide |
+| `translating.md` | ✓ | Translation guide for translators (format, glossary, review, credits) |
 | `stylesheets/dark.css` | Optional | Dark theme customization |
 | `stylesheets/light.css` | Optional | Light theme customization |
 | `requirements.txt` | ✓ | Python dependencies for MkDocs |
@@ -40190,6 +40191,7 @@ nav:
     - Integrations: integrations.md
   - Development:
     - Contributing: development.md
+    - Translating: translating.md
 
 extra:
   social:
@@ -40541,6 +40543,7 @@ docker run --name "{project_name}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -
 - [Security](security.md) - Auth, public endpoints, reporting, and hardening behavior
 - [Integrations](integrations.md) - Machine/agent identity, discovery, and platform integrations
 - [Development](development.md) - Contributing guide
+- [Translating](translating.md) - How to add or update a language
 
 ## Links
 
@@ -40842,19 +40845,18 @@ make test
 |------|----------|-----------|-------------------|
 | `en` | English | `ltr` | one, other |
 | `es` | Spanish | `ltr` | one, other |
-| `zh` | Chinese (Mandarin) | `ltr` | other (no plural forms) |
 | `fr` | French | `ltr` | one, other (0 is "one") |
 | `ar` | Arabic | `rtl` | zero, one, two, few, many, other |
 | `de` | German | `ltr` | one, other |
-| `ja` | Japanese | `ltr` | other (no plural forms) |
+| `it` | Italian | `ltr` | one, many, other (`many` only for round multiples of 1,000,000) |
 
-**The table above is the REQUIRED MINIMUM, not the exhaustive list.** A project may support more languages; it never supports fewer. Rules for any language beyond the table:
+**The table above is the REQUIRED MINIMUM, not the exhaustive list.** A project may support more languages; it never supports fewer. Translators are expected to add more over time (see "Translating"); Chinese and Japanese, for example, are deliberately not in the minimum and can be contributed later. Rules for any language beyond the table:
 
 | Rule | Detail |
 |------|--------|
 | **Supported = has a complete locale file** | A language is supported if and only if a locale file with exactly the keys of `en.json` is embedded in the binary (the build-time key check applies to it). No locale file = not supported, anywhere |
 | **One registry** | The supported set comes from ONE registry (code, native name, direction, CLDR plural categories) that is checked at build time against the embedded locale files: registry entries, locale files and the runtime default list MUST be the same set. No separate hardcoded language list in config defaults, the language selector, `Accept-Language` matching or `isSupported` |
-| **Defaults** | The runtime default enabled languages are every embedded locale (the minimum seven plus any extra); an operator may narrow the list but never below the seven |
+| **Defaults** | The runtime default enabled languages are every embedded locale (the required minimum six plus any extra); an operator may narrow the list but never below the six |
 | **Documentation** | README, `--help` and the language selector list only supported languages, derived from or verified against the registry; the stated count MUST equal the number of locale files. Claiming a language with no locale file (for example a README listing Korean without `ko.json`) is a defect |
 | **Adding a language** | Add the locale file, the registry entry (direction + plural categories) and the table row above in the project's docs in one change; the build fails if any of the three is missing |
 
@@ -41852,12 +41854,37 @@ LANG=es_ES.UTF-8 {project_name}-cli --help
 
 ### Adding New Languages
 
-1. Copy `src/common/i18n/locales/en.json` to `src/common/i18n/locales/{lang}.json`
-2. Translate ALL keys (no key may be omitted)
-3. Add language code to `config.server.i18n.available_languages`
+**The supported-language table is a MINIMUM. Translators are expected to add languages over time — adding one needs no code beyond the steps below.**
+
+1. Copy `src/common/i18n/locales/en.json` to `src/common/i18n/locales/{lang}.json` (`{lang}` = the BCP 47 language code, lowercase, e.g. `pt`, `pt-br`, `ko`)
+2. Translate ALL keys (no key may be omitted) and fill the `meta` block: `language` (code), `name` (English name), `native_name`, `direction` (`ltr` or `rtl`), `version`; optional `translators` (names or handles)
+3. Register the language: add it to the language registry (code, native name, direction, CLDR plural categories) and to `config.server.i18n.available_languages`
 4. Language automatically appears in the language selector (WebUI) and `--lang` flag (CLI)
 5. Run `make test` (or the raw Docker command below) to verify all keys are present
 6. Rebuild ALL binaries — server and CLI both get the new language via `go:embed`
+7. Update the project's README language list and `docs/translating.md` credits (the count MUST equal the number of locale files)
+
+### Translating (Guide for Translators)
+
+**Every project ships `docs/translating.md` (ReadTheDocs page, linked from `CONTRIBUTING`/README) with the content of this section, so a translator can contribute without reading the code. `en.json` is the single source: translators never edit it, they translate it.**
+
+| Topic | Rule |
+|-------|------|
+| **Who and how** | Anyone may translate. Open a pull request (or send the file to the maintainer) containing ONE locale file `{lang}.json` plus the registry/config lines from "Adding New Languages". Updating an existing language is the same: edit that language's file only |
+| **File format** | UTF-8 JSON, same structure and key order as `en.json`, 2-space indent, no trailing commas, no comments. Keys are never translated or renamed; only values are |
+| **Placeholders** | `{count}`, `{total}`, `{datetime}` and every other `{name}` stays EXACTLY as in English (same name, same braces); only its position in the sentence may move. A value with a missing or renamed placeholder fails the build |
+| **Plurals** | Provide every CLDR plural category the language needs (`zero`, `one`, `two`, `few`, `many`, `other`; see "Plural Rules"). Translators check the category list for their language at the CLDR plural chart; a missing category fails the build |
+| **Whole sentences** | Each value is a complete phrase. Never rely on joining fragments; word order, gender and case differ per language. If an English string looks like a fragment, report it as an issue instead of working around it |
+| **Register and tone** | One consistent register per language (formal "you": `Sie`, `usted`, `vous`, `Lei`, ...). Short and neutral, matching the English UI tone; no slang, humor or idioms that do not travel |
+| **What stays untranslated** | Product and brand names, protocol and technology names (API, Tor, `.onion`, I2P, JSON, token), code, file names, config keys, URLs and the literal values users type (`dark`, `auto`). The project's glossary in `docs/translating.md` lists the agreed term for every recurring word (token, paste, rotate, revoke, ...), and translators reuse it |
+| **Typography** | Follow the language's own rules (French non-breaking space before `: ; ! ?`, quotation marks, decimal and thousands separators come from `golang.org/x/text`, not from the translation) |
+| **Machine translation** | May produce a first draft only; a human fluent in the language MUST review every string before it merges. Unreviewed machine output is not accepted |
+| **Layout check** | Translations are often longer than English (up to about 40%). The translator or reviewer opens the app in that language at 320, 768 and 1280 px (see the review matrix) and confirms nothing is clipped, wrapped badly or overflowing; right-to-left languages are also checked mirrored |
+| **Scripts needing fonts** | A language whose script the system font stack may not cover (for example CJK, Devanagari, Thai) is added together with a font-stack entry in `--font-family` and a check that long text wraps without spaces (`overflow-wrap: anywhere`) |
+| **Review and merge** | A maintainer (or a second native speaker) checks: tests pass, placeholders and plurals intact, glossary respected, layout check done, README count and `docs/translating.md` credits updated. Reviewer sign-off is noted in the PR |
+| **Keeping translations current** | AI assistants keep every locale file in sync with each English string change (add, change, remove) using best-effort translations in the same change — the AI rule in PART 0 → "Translation Rule" — so key sets never drift. Translators refine or correct those translations at any time through the normal contribution flow; no marker or flag is needed. A language is dropped from the build only if its maintainer asks to retire it |
+| **Credit** | Translators are credited in `docs/translating.md` and in the locale file's `meta.translators` (their choice of name or handle) |
+
 
 ### Build-Time Validation
 
@@ -41911,13 +41938,13 @@ separate Makefile target is needed.
 
 **Use Go's `golang.org/x/text` package for locale-aware formatting.**
 
-| Format Type | Example (en-US) | Example (de-DE) | Example (ar-SA) | Example (ja-JP) |
+| Format Type | Example (en-US) | Example (de-DE) | Example (ar-SA) | Example (it-IT) |
 |-------------|-----------------|-----------------|-----------------|-----------------|
-| Date | 12/31/2024 | 31.12.2024 | ٣١/١٢/٢٠٢٤ | 2024/12/31 |
+| Date | 12/31/2024 | 31.12.2024 | ٣١/١٢/٢٠٢٤ | 31/12/2024 |
 | Time | 2:30 PM | 14:30 | ٢:٣٠ م | 14:30 |
-| Number | 1,234.56 | 1.234,56 | ١٬٢٣٤٫٥٦ | 1,234.56 |
-| Currency | $1,234.56 | 1.234,56 € | ١٬٢٣٤٫٥٦ ر.س | ¥1,235 |
-| Percentage | 45.5% | 45,5 % | ٤٥٫٥٪ | 45.5% |
+| Number | 1,234.56 | 1.234,56 | ١٬٢٣٤٫٥٦ | 1.234,56 |
+| Currency | $1,234.56 | 1.234,56 € | ١٬٢٣٤٫٥٦ ر.س | 1.234,56 € |
+| Percentage | 45.5% | 45,5 % | ٤٥٫٥٪ | 45,5% |
 
 **Implementation:**
 ```go
@@ -41942,8 +41969,7 @@ func FormatNumber(n float64, lang string) string {
 | French (fr) | one, other (0 is "one") |
 | German (de) | one, other |
 | Arabic (ar) | zero, one, two, few, many, other |
-| Chinese (zh) | other (no plural forms) |
-| Japanese (ja) | other (no plural forms) |
+| Italian (it) | one, many, other (`many` only for round multiples of 1,000,000) |
 
 **Go Implementation:**
 ```go
@@ -41967,11 +41993,10 @@ server:
     available_languages:
       - en
       - es
-      - zh
       - fr
-      - ar
       - de
-      - ja
+      - it
+      - ar
     fallback_language: en
     cookie_name: lang
     # 1 year
@@ -48714,6 +48739,7 @@ make docker
   - [ ] docs/security.md
   - [ ] docs/integrations.md
   - [ ] docs/development.md
+  - [ ] docs/translating.md
 - [ ] ReadTheDocs builds successfully
 - [ ] Documentation badge in README.md
 
@@ -49283,7 +49309,7 @@ make docker
 
 ### Translation File Integrity
 
-- [ ] All locale files exist in `src/common/i18n/locales/` (en, es, fr, de, zh, ar, ja)
+- [ ] All locale files exist in `src/common/i18n/locales/` (en, es, fr, de, it, ar, plus any translator-added language)
 - [ ] `en.json` is complete — every user-facing string has a key
 - [ ] All locale files have identical key sets to `en.json` (no missing, no extra)
 - [ ] All interpolation variables (`{var}`) match across all locale files
@@ -49700,6 +49726,7 @@ When bootstrapping a new project from this specification:
    touch docs/security.md
    touch docs/integrations.md
    touch docs/development.md
+   touch docs/translating.md
    touch docs/requirements.txt
    touch docs/stylesheets/dark.css
    touch docs/stylesheets/light.css
