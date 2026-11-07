@@ -375,7 +375,15 @@
     "disclosure_policy_title": "协同披露政策",
     "back_to_security": "返回安全页面",
     "acknowledgments_title": "安全致谢",
-    "thanks_intro": "感谢以下研究人员，他们负责任地报告了问题并同意署名致谢。"
+    "thanks_intro": "感谢以下研究人员，他们负责任地报告了问题并同意署名致谢。",
+    "report_status_title": "安全报告状态",
+    "report_state": "状态",
+    "report_state_received": "已收到",
+    "report_state_triaged": "已分类",
+    "report_state_confirmed": "已确认",
+    "report_state_patching": "修复中",
+    "report_state_disclosed": "已披露",
+    "report_state_wont_fix": "不予修复"
   },
   "security_report": {
     "title": "报告漏洞",

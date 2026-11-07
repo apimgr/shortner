@@ -314,8 +314,16 @@ type Branding struct {
 // SEO holds `server.seo`, per AI.md PART 16 "SEO Meta Tags". Site-
 // verification meta tags are not implemented yet (see TODO.AI.md).
 type SEO struct {
-	Description string `yaml:"description"`
-	Keywords    string `yaml:"keywords"`
+	Description string  `yaml:"description"`
+	Keywords    string  `yaml:"keywords"`
+	Sitemap     Sitemap `yaml:"sitemap"`
+}
+
+// Sitemap controls the public sitemap endpoint, per AI.md PART 16.
+type Sitemap struct {
+	Enabled       bool `yaml:"enabled"`
+	MaxURLs       int  `yaml:"max_urls"`
+	IncludeImages bool `yaml:"include_images"`
 }
 
 // Contact holds `server.contact`, per AI.md PART 16 "/server/contact" ->
@@ -686,6 +694,9 @@ func Default(dbPath string) *Config {
 				CookieName:  "csrf_token",
 				HeaderName:  "X-CSRF-Token",
 				Secure:      "auto",
+			},
+			SEO: SEO{
+				Sitemap: Sitemap{Enabled: true, MaxURLs: 50000},
 			},
 			Contact: Contact{},
 			GeoIP: GeoIP{

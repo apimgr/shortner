@@ -83,7 +83,7 @@ func TestMaintenanceReadDepsCoversEveryHelpCommand(t *testing.T) {
 	// backup and restore are implemented (AI.md PART 21) and update is an
 	// alias for --update (AI.md PART 22), so all three dispatch directly
 	// rather than through maintenanceReadDeps.
-	implemented := map[string]bool{"backup": true, "restore": true, "update": true}
+	implemented := map[string]bool{"backup": true, "restore": true, "update": true, "pgp": true}
 	for _, cmd := range []string{"backup", "restore", "update", "mode", "setup", "pgp", "secret", "token", "data", "compliance"} {
 		if implemented[cmd] {
 			continue

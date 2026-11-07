@@ -375,7 +375,15 @@
     "disclosure_policy_title": "سياسة الإفصاح المنسّق",
     "back_to_security": "العودة إلى الأمان",
     "acknowledgments_title": "التنويهات الأمنية",
-    "thanks_intro": "شكرًا للباحثين المذكورين أدناه، الذين أبلغوا عن المشكلات بمسؤولية ووافقوا على نسبها إليهم."
+    "thanks_intro": "شكرًا للباحثين المذكورين أدناه، الذين أبلغوا عن المشكلات بمسؤولية ووافقوا على نسبها إليهم.",
+    "report_status_title": "حالة تقرير الأمان",
+    "report_state": "الحالة",
+    "report_state_received": "تم الاستلام",
+    "report_state_triaged": "قيد الفرز",
+    "report_state_confirmed": "مؤكد",
+    "report_state_patching": "جارٍ الإصلاح",
+    "report_state_disclosed": "تم الإفصاح",
+    "report_state_wont_fix": "لن يتم الإصلاح"
   },
   "security_report": {
     "title": "الإبلاغ عن ثغرة",

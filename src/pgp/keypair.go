@@ -46,7 +46,12 @@ type Keypair struct {
 // Identity renders the AI.md PART 11 user id for the project keypair:
 // `{app_name} Security <{security_contact}>`.
 func Identity(appName, contactEmail string) string {
-	return fmt.Sprintf("%s Security <%s>", strings.TrimSpace(appName), strings.TrimSpace(contactEmail))
+	name := IdentityName(appName)
+	email := strings.TrimSpace(contactEmail)
+	if email == "" {
+		return name
+	}
+	return fmt.Sprintf("%s <%s>", name, email)
 }
 
 // IdentityName is the user-id name half — everything before the address.

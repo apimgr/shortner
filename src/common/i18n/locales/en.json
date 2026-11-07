@@ -375,7 +375,15 @@
     "disclosure_policy_title": "Coordinated Disclosure Policy",
     "back_to_security": "Back to security",
     "acknowledgments_title": "Security Acknowledgments",
-    "thanks_intro": "Thank you to the researchers below, who reported issues responsibly and agreed to be credited."
+    "thanks_intro": "Thank you to the researchers below, who reported issues responsibly and agreed to be credited.",
+    "report_status_title": "Security report status",
+    "report_state": "Status",
+    "report_state_received": "Received",
+    "report_state_triaged": "Triaged",
+    "report_state_confirmed": "Confirmed",
+    "report_state_patching": "Patching",
+    "report_state_disclosed": "Disclosed",
+    "report_state_wont_fix": "Won’t Fix"
   },
   "security_report": {
     "title": "Report a vulnerability",

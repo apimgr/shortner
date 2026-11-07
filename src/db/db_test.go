@@ -466,3 +466,31 @@ func TestEnsureCoreSecrets(t *testing.T) {
 		t.Errorf("EnsureCoreSecrets() returned duplicate values across distinct secrets")
 	}
 }
+
+func TestTryTouchSecurityReportViewConsumesIntervalAtomically(t *testing.T) {
+	sqlDB := openTestDB(t)
+	ctx := context.Background()
+	report := SecurityReport{
+		TrackingID: "sec_0123456789abcdef",
+		ReceivedAt: time.Now().UTC(),
+		Severity:   "high",
+		Component:  "api",
+		Sealed:     "encrypted",
+	}
+	if err := InsertSecurityReport(ctx, sqlDB, report); err != nil {
+		t.Fatalf("InsertSecurityReport() error = %v", err)
+	}
+	now := time.Now().UTC()
+	allowed, err := TryTouchSecurityReportView(ctx, sqlDB, report.TrackingID, now, 24*time.Hour)
+	if err != nil || !allowed {
+		t.Fatalf("first TryTouchSecurityReportView() = (%t, %v), want (true, nil)", allowed, err)
+	}
+	allowed, err = TryTouchSecurityReportView(ctx, sqlDB, report.TrackingID, now.Add(time.Minute), 24*time.Hour)
+	if err != nil || allowed {
+		t.Fatalf("second TryTouchSecurityReportView() = (%t, %v), want (false, nil)", allowed, err)
+	}
+	allowed, err = TryTouchSecurityReportView(ctx, sqlDB, report.TrackingID, now.Add(25*time.Hour), 24*time.Hour)
+	if err != nil || !allowed {
+		t.Fatalf("TryTouchSecurityReportView() after interval = (%t, %v), want (true, nil)", allowed, err)
+	}
+}

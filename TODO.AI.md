@@ -847,3 +847,6 @@ banner row.
 
 - `git init` and initial commit — intentionally left to the calling
   session; this bootstrap pass did not run any git command.
+- shortner: rename plural Go dirs src/metrics and src/paths to singular
+- shortner: Makefile VERSION fallback should be 0.1.0 instead of devel
+- shortner: src/cmd/i18n-validate sits outside the single ./src build target (layout note)

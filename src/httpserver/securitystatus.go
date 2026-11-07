@@ -64,14 +64,17 @@ func (fd *frontendDeps) securityReportStatusHandler(w http.ResponseWriter, r *ht
 		sendError(w, r, apperr.New(apperr.CodeGone))
 		return
 	}
-	if !rep.LastViewedAt.IsZero() && now.Sub(rep.LastViewedAt) < reportViewInterval {
+	// Atomically consume the daily view before rendering so parallel requests
+	// cannot reuse the same one-shot token window.
+	allowed, err := db.TryTouchSecurityReportView(r.Context(), fd.ld.sqlDB, trackingID, now, reportViewInterval)
+	if err != nil {
+		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
+		return
+	}
+	if !allowed {
 		sendError(w, r, apperr.New(apperr.CodeRateLimited))
 		return
 	}
-	// A view is recorded even if rendering later fails: the limit exists to
-	// stop the token being used as an oracle, so it must not be bypassable
-	// by inducing a render error.
-	_ = db.TouchSecurityReportView(r.Context(), fd.ld.sqlDB, trackingID, now)
 
 	status := rep.Status
 	if !db.IsSecurityReportStatus(status) {

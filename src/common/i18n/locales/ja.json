@@ -375,7 +375,15 @@
     "disclosure_policy_title": "協調的な脆弱性開示ポリシー",
     "back_to_security": "セキュリティに戻る",
     "acknowledgments_title": "セキュリティに関する謝辞",
-    "thanks_intro": "責任ある形で問題を報告し、クレジットの掲載に同意してくださった以下の研究者の皆様に感謝いたします。"
+    "thanks_intro": "責任ある形で問題を報告し、クレジットの掲載に同意してくださった以下の研究者の皆様に感謝いたします。",
+    "report_status_title": "セキュリティ報告の状況",
+    "report_state": "状況",
+    "report_state_received": "受領済み",
+    "report_state_triaged": "トリアージ済み",
+    "report_state_confirmed": "確認済み",
+    "report_state_patching": "修正中",
+    "report_state_disclosed": "公開済み",
+    "report_state_wont_fix": "対応しない"
   },
   "security_report": {
     "title": "脆弱性を報告する",

@@ -25,7 +25,7 @@ Commands:
   mode {production|development}
                          Set and persist the application mode
   setup                 Reset server configuration to defaults
-  pgp                   Manage the backup encryption PGP key
+  pgp [ACTION]          Manage the security-report PGP key
   secret [NAME]         Manage stored secrets
   token [ACTION]         Manage the operator token
   data [ACTION]          Manage stored application data
@@ -41,7 +41,6 @@ var maintenanceReadDeps = map[string]string{
 	"compliance": "PART 21",
 	"mode":       "PART 11, 12",
 	"setup":      "PART 11, 12",
-	"pgp":        "PART 11, 21",
 	"secret":     "PART 11",
 	"token":      "PART 11",
 }
@@ -81,6 +80,8 @@ func runMaintenance(binaryName, command string, opts maintenanceOptions) int {
 		return runBackupCreate(binaryName, opts.paths, opts.arg, opts.includeSSL, opts.includeData)
 	case "restore":
 		return runBackupRestore(binaryName, opts.paths, opts.arg)
+	case "pgp":
+		return runPGP(binaryName, opts.paths, opts.args)
 	case "update":
 		// AI.md PART 22: `--maintenance update [cmd]` is an alias for
 		// `--update [cmd]`, with the same subcommands and the same

@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -245,7 +246,7 @@ func TestManagerFiles(t *testing.T) {
 		{Systemd, []string{"/etc/systemd/system/shortner.service"}},
 		{OpenRC, []string{"/etc/init.d/shortner"}},
 		{SysVinit, []string{"/etc/init.d/shortner"}},
-		{Runit, []string{"/etc/sv/shortner", "runsvdir/default/shortner"}},
+		{Runit, []string{"/etc/sv/shortner"}},
 		{RCd, []string{"/usr/local/etc/rc.d/shortner"}},
 		{Launchd, []string{"/Library/LaunchDaemons/io.github.apimgr.shortner.plist"}},
 	}
@@ -259,6 +260,19 @@ func TestManagerFiles(t *testing.T) {
 			for _, want := range tc.want {
 				if !strings.Contains(files, want) {
 					t.Errorf("Files() = %v, want to contain %q", m.Files(), want)
+				}
+			}
+			if tc.init == Runit {
+				activeDirs := []string{"/etc/runit/runsvdir/default", "/var/service", "/etc/service", "/service"}
+				found := false
+				for _, dir := range activeDirs {
+					if strings.Contains(files, filepath.Join(dir, "shortner")) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("runit Files() = %v, want a recognized active runsvdir link", m.Files())
 				}
 			}
 		})

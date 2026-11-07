@@ -375,7 +375,15 @@
     "disclosure_policy_title": "Política de divulgación coordinada",
     "back_to_security": "Volver a seguridad",
     "acknowledgments_title": "Reconocimientos de seguridad",
-    "thanks_intro": "Gracias a los investigadores que se indican a continuación, que informaron de problemas de forma responsable y aceptaron ser mencionados."
+    "thanks_intro": "Gracias a los investigadores que se indican a continuación, que informaron de problemas de forma responsable y aceptaron ser mencionados.",
+    "report_status_title": "Estado del informe de seguridad",
+    "report_state": "Estado",
+    "report_state_received": "Recibido",
+    "report_state_triaged": "En evaluación",
+    "report_state_confirmed": "Confirmado",
+    "report_state_patching": "En reparación",
+    "report_state_disclosed": "Divulgado",
+    "report_state_wont_fix": "No se corregirá"
   },
   "security_report": {
     "title": "Informar de una vulnerabilidad",

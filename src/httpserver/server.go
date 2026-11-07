@@ -172,6 +172,8 @@ func New(opts Options) *Server {
 	}
 	wk.registerWellKnownRoutes(r)
 
+	(&sitemapDeps{cfg: cfg, resolver: resolver, startTime: opts.StartTime, sqlDB: opts.DB}).registerSitemapRoutes(r)
+
 	fd := &frontendDeps{
 		cfg:           cfg,
 		version:       opts.Version,

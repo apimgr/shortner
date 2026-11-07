@@ -197,16 +197,24 @@ var createStatements = []string{
 		severity    TEXT NOT NULL,
 		component   TEXT NOT NULL,
 		status      TEXT NOT NULL DEFAULT 'received',
-		sealed      TEXT NOT NULL
+		sealed      TEXT NOT NULL,
+		closed_at INTEGER NOT NULL DEFAULT 0,
+		last_viewed_at INTEGER NOT NULL DEFAULT 0,
+		disclosure_at INTEGER NOT NULL DEFAULT 0,
+		comments TEXT NOT NULL DEFAULT ''
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_security_reports_received ON security_reports(received_at)`,
 }
 
 // schemaUpdates holds idempotent ALTER TABLE / index additions applied
-// after createStatements, per AI.md PART 10 "Schema Updates". Empty for
-// now — this project has no prior schema version to migrate from; new
-// entries are appended here (never edited in place) as the schema grows.
-var schemaUpdates []string
+// after createStatements, per AI.md PART 10 "Schema Updates". New entries
+// are appended here (never edited in place) as the schema grows.
+var schemaUpdates = []string{
+	`ALTER TABLE security_reports ADD COLUMN closed_at INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE security_reports ADD COLUMN last_viewed_at INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE security_reports ADD COLUMN disclosure_at INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE security_reports ADD COLUMN comments TEXT NOT NULL DEFAULT ''`,
+}
 
 // EnsureSchema creates tables and applies schema updates. Safe to run on
 // every startup (idempotent), per AI.md PART 10 "EnsureSchema".

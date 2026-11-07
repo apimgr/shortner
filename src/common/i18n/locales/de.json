@@ -375,7 +375,15 @@
     "disclosure_policy_title": "Richtlinie zur koordinierten Offenlegung",
     "back_to_security": "Zurück zur Sicherheit",
     "acknowledgments_title": "Sicherheitsdanksagungen",
-    "thanks_intro": "Vielen Dank an die unten genannten Forschenden, die Probleme verantwortungsvoll gemeldet und einer namentlichen Nennung zugestimmt haben."
+    "thanks_intro": "Vielen Dank an die unten genannten Forschenden, die Probleme verantwortungsvoll gemeldet und einer namentlichen Nennung zugestimmt haben.",
+    "report_status_title": "Status des Sicherheitsberichts",
+    "report_state": "Status",
+    "report_state_received": "Eingegangen",
+    "report_state_triaged": "Eingestuft",
+    "report_state_confirmed": "Bestätigt",
+    "report_state_patching": "Fehlerbehebung läuft",
+    "report_state_disclosed": "Offengelegt",
+    "report_state_wont_fix": "Wird nicht behoben"
   },
   "security_report": {
     "title": "Sicherheitslücke melden",

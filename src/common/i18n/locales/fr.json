@@ -375,7 +375,15 @@
     "disclosure_policy_title": "Politique de divulgation coordonnée",
     "back_to_security": "Retour à la sécurité",
     "acknowledgments_title": "Remerciements sécurité",
-    "thanks_intro": "Merci aux chercheurs ci-dessous, qui ont signalé des problèmes de manière responsable et ont accepté d'être crédités."
+    "thanks_intro": "Merci aux chercheurs ci-dessous, qui ont signalé des problèmes de manière responsable et ont accepté d'être crédités.",
+    "report_status_title": "État du rapport de sécurité",
+    "report_state": "État",
+    "report_state_received": "Reçu",
+    "report_state_triaged": "Évalué",
+    "report_state_confirmed": "Confirmé",
+    "report_state_patching": "Correction en cours",
+    "report_state_disclosed": "Divulgué",
+    "report_state_wont_fix": "Ne sera pas corrigé"
   },
   "security_report": {
     "title": "Signaler une vulnérabilité",
