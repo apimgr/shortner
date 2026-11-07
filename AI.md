@@ -40878,7 +40878,7 @@ make test
 
 | Rule | Detail |
 |------|--------|
-| **Supported = has a complete locale file** | A language is supported if and only if a locale file with exactly the keys of `en.json` is embedded in the binary (the build-time key check applies to it). No locale file = not supported, anywhere |
+| **Supported = has a complete locale file** | A language is supported if and only if a locale file whose message keys exactly match `en.json` (plural messages by key, categories per "Plural key parity") is embedded in the binary (the build-time key check applies to it). No locale file = not supported, anywhere |
 | **One registry** | The supported set comes from ONE registry (code, native name, direction, CLDR plural categories) that is checked at build time against the embedded locale files: registry entries, locale files and the runtime default list MUST be the same set. No separate hardcoded language list in config defaults, the language selector, `Accept-Language` matching or `isSupported` |
 | **Defaults** | The runtime default enabled languages are every embedded locale (the required minimum six plus any extra); an operator may narrow the list but never below the six |
 | **Documentation** | README, `--help` and the language selector list only supported languages, derived from or verified against the registry; the stated count MUST equal the number of locale files. Claiming a language with no locale file (for example a README listing Korean without `ko.json`) is a defect |
@@ -41921,7 +41921,7 @@ ordinary Go tests, run like every other test inside Docker (this PART →
 $GO_DOCKER casjaysdev/go:latest go test -run "TestKeyConsistency|TestLocalesFS" ./src/common/i18n/...
 
 # Validates:
-# - All language files have identical key sets to en.json
+# - All language files have identical message-key sets to en.json (plural categories per "Plural key parity")
 # - No empty string values
 # - All interpolation variables ({var}) match across languages
 # - All plural categories required by the language are present
@@ -41985,6 +41985,8 @@ func FormatNumber(n float64, lang string) string {
 ### Plural Rules
 
 **Use CLDR plural categories:** `zero`, `one`, `two`, `few`, `many`, `other`
+
+**Plural key parity (exception to exact key parity):** key parity with `en.json` is measured on MESSAGE keys. A plural message (an object under `plurals`, for example `plurals.items`) counts as ONE key whatever categories it holds. Inside it, each language provides exactly the CLDR categories that language needs (always `other`): English `one`, `other`; Arabic `zero`, `one`, `two`, `few`, `many`, `other`; Italian `one`, `many`, `other`; Chinese or Japanese `other` only. A language never needs to copy English's categories and never omits one it requires. `zero` is additionally allowed in any language as an optional explicit zero-count text ("No items"). Any other category the language does not use is an orphan and fails the build. Placeholders (`{count}`) must still match across every category and language.
 
 | Language | Categories Used |
 |----------|-----------------|
