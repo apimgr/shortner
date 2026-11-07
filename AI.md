@@ -12011,10 +12011,10 @@ Token-management routes get no unversioned alias (they are data-shaped, see "Unv
 |---|------|----------|
 | 0 | **Page header** | `<h1>Owner tokens</h1>` once; above it the back link `← Preferences` (one translation key). No second "Owner tokens" heading |
 | 1 | **Restore** (only when there is no owner cookie) | Label "Primary token", one text field with a paste hint, one primary button "Restore identity". Nothing else on the page is shown without a cookie |
-| 2 | **Primary token** | Title, status badge (Active), the masked value in `.copy-value` (single-line scroll, never wraps), help text ("Full access to your pastes. Keep it private."), actions: **Reveal**, **Copy** (once revealed), **Rotate** (confirmation popover) |
+| 2 | **Primary token** | Title, status badge (Active), the masked value in `.copy-value` (single-line scroll, never wraps), help text ("Full access to your {resources}. Keep it private.", where {resources} is the project's plural resource label from IDEA.md, never a hardcoded product noun), actions: **Reveal**, **Copy** (once revealed), **Rotate** (confirmation popover) |
 | 3 | **Linked tokens** | Heading with the count. One card per token: name (`<h3>`), status badge (Active / Expired / Revoked), masked value, a `<dl>` with Created, Last used and Expires, and a footer toolbar: **Reveal**, **Rotate**, **Edit** (a `<details>` holding the rename + expiry form with one Save button), **Revoke** (danger, confirmation popover). Empty state: "No linked tokens yet" with the hint "Create one per app, for example your MCP client" |
 | 4 | **Create linked token** | **Name** (label, help "For example: MCP client") and **Expiry** (ONE `<select>`: Never, 7 days, 30 days, 90 days, 1 year, Custom date). When "Custom date" is chosen a labeled **Expires on** date input is used (rendered inside a `<details>` so it works without JavaScript). ONE primary button "Create token" |
-| 5 | **This browser** | "Saved in this browser" with a **Forget saved token** button (danger-ghost, confirmation popover) and the sentence that pastes are not deleted |
+| 5 | **This browser** | "Saved in this browser" with a **Forget saved token** button (danger-ghost, confirmation popover) and the sentence that {resources} are not deleted |
 
 **Layout by viewport:**
 
@@ -25490,10 +25490,29 @@ the layout bug this section fixes.
 **Smart Menu :**
 - If all nav links fit on screen → show inline links, NO hamburger
 - If nav links overflow → show hamburger menu
-- Detect dynamically on load and resize
+- Detection is the `app.js` enhancement described below; the CSS baseline uses the 768px breakpoint and works without JavaScript
 - Don't show hamburger if not needed
 
-**CSS-Only Mobile Menu (NO JavaScript) - Mobile-First:**
+**No-JS first; a small script is an enhancement only:** the CSS below is the complete baseline and MUST work with JavaScript disabled — hamburger below 768px, inline links from 768px, open and close through the checkbox, the scrim label and the ✕ label. A small script in `app.js` MAY enhance it, and nothing may depend on it:
+
+| Enhancement | Behavior |
+|-------------|----------|
+| **Overflow detection ("Smart Menu")** | On load and resize, if the inline `.nav-links` do not fit at >= 768px, add `nav-collapsed` to `<html>` so the hamburger is used instead. Without the script the 768px breakpoint decides |
+| **Keyboard** | Esc unchecks the checkbox; focus moves into the panel on open, stays inside while open and returns to the toggle on close |
+
+```css
+/* Overflow fallback: only when app.js added .nav-collapsed on a wide viewport */
+@media (min-width: 768px) {
+  .nav-collapsed .nav-toggle { display: block; }
+  .nav-collapsed .nav-links { display: none; }
+  .nav-collapsed .nav-panel { display: block; }
+  .nav-collapsed .nav-checkbox:checked ~ .nav-overlay { display: block; }
+}
+```
+
+Without the script: Esc and overflow detection are unavailable, but the scrim, the ✕ and the toggle still open and close the menu.
+
+**CSS-Only Baseline (works with NO JavaScript) - Mobile-First:**
 ```css
 /* Base: Mobile styles (no media query) */
 .nav-toggle { display: block; cursor: pointer; }
@@ -25556,7 +25575,7 @@ the layout bug this section fixes.
 | **Every link, in order** | The panel lists the same links as the desktop nav (the screenshot showed one link). Active page marked with `aria-current="page"` |
 | **Stacking** | Use the z-index tokens from "CSS Variable Reference" (`--z-raised` 10 header, `--z-dropdown` 100, `--z-overlay` 300 scrim, `--z-drawer` 350, `--z-modal` 400, `--z-banner` 450, `--z-toast` 500); no magic numbers such as `9999`. Scrim and drawer must sit above `<main>` and the hero in the same stacking context |
 | **Dimensions** | `height: 100dvh`, `width: min(280px, 85vw)`, `overflow-y: auto`, `padding-bottom: env(safe-area-inset-bottom)`. RTL: slides from the left (`[dir="rtl"]`) |
-| **While open** | Page behind does not scroll (`body:has(.nav-checkbox:checked) { overflow: hidden }`); the scrim dims the whole viewport; Esc and a scrim tap close it |
+| **While open** | Page behind does not scroll (`body:has(.nav-checkbox:checked) { overflow: hidden }`); the scrim dims the whole viewport; a scrim tap closes it (no JavaScript needed) and Esc closes it when the `app.js` enhancement is present |
 | **Fixed elements** | The drawer, scrim, modal, toast, banner and popover are the ONLY `position: fixed` elements; header, nav and footer scroll with the page |
 
 **Mobile Responsive Rules:**
