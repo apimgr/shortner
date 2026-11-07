@@ -2277,41 +2277,41 @@ server:
 
 | PART | Line | Topic | When to Read |
 |------|------|-------|--------------|
-| 0 | ~2411 | AI Assistant Rules | **ALWAYS READ FIRST**, **AI Behavior Rules**, **Host System Safety Rule**, **Translation Rule** |
-| 1 | ~4216 | Critical Rules | **ALWAYS READ FIRST** |
-| 2 | ~5479 | License & Attribution | License requirements |
-| 3 | ~5813 | Project Structure | Setting up new project, **CI/CD badge detection** |
-| 4 | ~6680 | OS-Specific Paths | Path handling |
-| 5 | ~6876 | Configuration | Config file work, **Path Security**, **Privileged Ports**, **Escalation** |
-| 6 | ~8684 | Application Modes | Mode handling, debug endpoints |
-| 7 | ~9325 | Binary Requirements | Binary building, **Display detection**, **TERM=dumb**, **NO_COLOR** |
-| 8 | ~9964 | Server Binary CLI | CLI flags/commands, **NO_COLOR Support**, **--color/--lang flags**, **Resource Owner Tokens** |
-| 9 | ~12964 | Error Handling & Caching | Error/cache patterns |
-| 10 | ~13380 | Database | Database work |
-| 11 | ~13786 | Security & Logging | Security features, **Context Detection** |
-| 12 | ~15861 | Server Configuration | Server settings, **Allowlist**, **Blocklists**, **GeoIP** |
-| 13 | ~17292 | Health & Versioning | Health endpoints |
-| 14 | ~18000 | API Structure | REST/GraphQL/Route Compliance, **Non-Interactive Text Output** |
-| 15 | ~19751 | SSL/TLS & Let's Encrypt | SSL certificates |
-| 16 | ~20709 | Web Frontend | Frontend/UI, **Sitemap**, **Site Verification**, **Branding/SEO** |
-| 17 | ~27596 | Email & Notifications | Email/SMTP, **SMTP Auto-Detection** |
-| 18 | ~28167 | Scheduler | Background tasks, **NO external schedulers**, **Backup tasks** |
-| 19 | ~28594 | GeoIP | GeoIP features, **Country blocking (deny/allow)** |
-| 20 | ~28747 | Metrics | Prometheus metrics, **INTERNAL only** |
-| 21 | ~30248 | Backup & Restore | Backup features, **Compliance encryption** |
-| 22 | ~30754 | Update Command | Update feature |
-| 23 | ~31368 | Privilege Escalation & Service | Service/privilege work |
-| 24 | ~31982 | Service Support | Systemd/runit/rc.d/launchd templates |
-| 25 | ~32295 | Makefile | Local dev/tests/debug only, **NOT used in CI/CD** |
-| 26 | ~33118 | Docker | Docker/containers, **NEVER copy/symlink binaries** |
-| 27 | ~34087 | CI/CD Workflows | GitHub/GitLab/Gitea Actions |
-| 28 | ~37445 | Testing & Development | Testing/dev workflow, **Host Safety in tests**, **AI Docker Compose Rules**, **Content Negotiation Testing** |
-| 29 | ~39209 | ReadTheDocs Documentation | Documentation |
-| 30 | ~40003 | I18N & A11Y | Internationalization, **Translation parity (both binaries)**, **--lang flag** |
-| 31 | ~41429 | Overlay Networks (Tor & I2P) | Tor (required) + I2P eepsite (opt-in) |
-| 32 | ~43575 | Client | Client **REQUIRED** — CLI/TUI/GUI, **Resource Owner Tokens**, **Smart Context**, **First-Run Wizard** |
-| 33 | ~46859 | IDEA.md Reference | **Examples only** - NEVER modify |
-| FINAL | ~47096 | Compliance Checklist | Final verification, **AI Quick Reference Rules**, **Console/Banner Checklist**, **I18N Checklist**, **Host Safety Checklist** |
+| 0 | ~2406 | AI Assistant Rules | **ALWAYS READ FIRST**, **AI Behavior Rules**, **Host System Safety Rule**, **Translation Rule** |
+| 1 | ~4224 | Critical Rules | **ALWAYS READ FIRST** |
+| 2 | ~5487 | License & Attribution | License requirements |
+| 3 | ~5821 | Project Structure | Setting up new project, **CI/CD badge detection** |
+| 4 | ~6690 | OS-Specific Paths | Path handling |
+| 5 | ~6886 | Configuration | Config file work, **Path Security**, **Privileged Ports**, **Escalation** |
+| 6 | ~8718 | Application Modes | Mode handling, debug endpoints |
+| 7 | ~9379 | Binary Requirements | Binary building, **Display detection**, **TERM=dumb**, **NO_COLOR** |
+| 8 | ~10018 | Server Binary CLI | CLI flags/commands, **NO_COLOR Support**, **--color/--lang flags**, **Resource Owner Tokens** |
+| 9 | ~13108 | Error Handling & Caching | Error/cache patterns |
+| 10 | ~13533 | Database | Database work |
+| 11 | ~13940 | Security & Logging | Security features, **Context Detection** |
+| 12 | ~16077 | Server Configuration | Server settings, **Allowlist**, **Blocklists**, **GeoIP** |
+| 13 | ~17526 | Health & Versioning | Health endpoints |
+| 14 | ~18236 | API Structure | REST/GraphQL/Route Compliance, **Non-Interactive Text Output** |
+| 15 | ~19998 | SSL/TLS & Let's Encrypt | SSL certificates |
+| 16 | ~20956 | Web Frontend | Frontend/UI, **Sitemap**, **Site Verification**, **Branding/SEO** |
+| 17 | ~28050 | Email & Notifications | Email/SMTP, **SMTP Auto-Detection** |
+| 18 | ~28702 | Scheduler | Background tasks, **NO external schedulers**, **Backup tasks** |
+| 19 | ~29143 | GeoIP | GeoIP features, **Country blocking (deny/allow)** |
+| 20 | ~29296 | Metrics | Prometheus metrics, **INTERNAL only** |
+| 21 | ~30824 | Backup & Restore | Backup features, **Compliance encryption** |
+| 22 | ~31381 | Update Command | Update feature |
+| 23 | ~32011 | Privilege Escalation & Service | Service/privilege work |
+| 24 | ~32625 | Service Support | Systemd/runit/rc.d/launchd templates |
+| 25 | ~32940 | Makefile | Local dev/tests/debug only, **NOT used in CI/CD** |
+| 26 | ~33763 | Docker | Docker/containers, **NEVER copy/symlink binaries** |
+| 27 | ~34732 | CI/CD Workflows | GitHub/GitLab/Gitea Actions |
+| 28 | ~38095 | Testing & Development | Testing/dev workflow, **Host Safety in tests**, **AI Docker Compose Rules**, **Content Negotiation Testing** |
+| 29 | ~39859 | ReadTheDocs Documentation | Documentation |
+| 30 | ~40653 | I18N & A11Y | Internationalization, **Translation parity (both binaries)**, **--lang flag** |
+| 31 | ~42094 | Overlay Networks (Tor & I2P) | Tor (required) + I2P eepsite (opt-in) |
+| 32 | ~44684 | Client | Client **REQUIRED** — CLI/TUI/GUI, **Resource Owner Tokens**, **Smart Context**, **First-Run Wizard** |
+| 33 | ~47817 | IDEA.md Reference | **Examples only** - NEVER modify |
+| FINAL | ~48054 | Compliance Checklist | Final verification, **AI Quick Reference Rules**, **Console/Banner Checklist**, **I18N Checklist**, **Host Safety Checklist** |
 
 ### How to Read This File
 
@@ -7746,6 +7746,7 @@ func (req *CreateResourceRequest) Parse() (*Resource, error) {
 | `TERM` | Terminal type; `TERM=dumb` disables ALL ANSI escapes and forces CLI mode (see PART 7) |
 | `DOMAIN` | FQDN override (highest priority for hostname resolution) |
 | `MODE` | `production` (default; shortcut `prod`) · `development` (shortcuts `dev`, `devel`) · `debug` (explicit opt-in only — see MODE vs DEBUG in PART 6) |
+| `DEBUG` | Truthy value turns the debug flag on (`--debug` wins; precedence and the `/debug/*` endpoints are defined in PART 6 → Debug Flag). Independent of `MODE`: `MODE=debug` only defaults the flag on |
 | `DATABASE_DRIVER` | `sqlite` (+ `sqlite2`, `sqlite3`), `libsql` (+ `turso`) |
 | `DATABASE_URL` | Database connection string |
 | `SMTP_HOST` | SMTP server hostname (if set, skips autodetect) |
@@ -12002,6 +12003,59 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 
 Token-management routes get no unversioned alias (they are data-shaped, see "Unversioned API aliases") and are never exposed as MCP tools.
 
+#### Tokens Page Layout (`/server/preferences/tokens`)
+
+**The page is a stack of cards, one concern per card, in this order. The same markup serves phones, tablets and desktops (CSS only, no JavaScript required).**
+
+| # | Card | Contents |
+|---|------|----------|
+| 0 | **Page header** | `<h1>Owner tokens</h1>` once; above it the back link `← Preferences` (one translation key). No second "Owner tokens" heading |
+| 1 | **Restore** (only when there is no owner cookie) | Label "Primary token", one text field with a paste hint, one primary button "Restore identity". Nothing else on the page is shown without a cookie |
+| 2 | **Primary token** | Title, status badge (Active), the masked value in `.copy-value` (single-line scroll, never wraps), help text ("Full access to your pastes. Keep it private."), actions: **Reveal**, **Copy** (once revealed), **Rotate** (confirmation popover) |
+| 3 | **Linked tokens** | Heading with the count. One card per token: name (`<h3>`), status badge (Active / Expired / Revoked), masked value, a `<dl>` with Created, Last used and Expires, and a footer toolbar: **Reveal**, **Rotate**, **Edit** (a `<details>` holding the rename + expiry form with one Save button), **Revoke** (danger, confirmation popover). Empty state: "No linked tokens yet" with the hint "Create one per app, for example your MCP client" |
+| 4 | **Create linked token** | **Name** (label, help "For example: MCP client") and **Expiry** (ONE `<select>`: Never, 7 days, 30 days, 90 days, 1 year, Custom date). When "Custom date" is chosen a labeled **Expires on** date input is used (rendered inside a `<details>` so it works without JavaScript). ONE primary button "Create token" |
+| 5 | **This browser** | "Saved in this browser" with a **Forget saved token** button (danger-ghost, confirmation popover) and the sentence that pastes are not deleted |
+
+**Layout by viewport:**
+
+```
+PHONE (<768)              TABLET (768-1023)             DESKTOP (>=1024)
++--------------------+    +------------------------+    +-----------------------------------+
+| header             |    | header                 |    | header                            |
+| < Preferences      |    | < Preferences          |    | < Preferences                     |
+| Owner tokens       |    | Owner tokens           |    | Owner tokens                      |
+| +----------------+ |    | +--------------------+ |    | +---------------+ +-----------+ |
+| | Primary token  | |    | | Primary token      | |    | | Primary token | | Linked    | |
+| | tok_****47F5   | |    | | tok_****47F5       | |    | | tok_****47F5  | | tokens    | |
+| | [Reveal][Rot.] | |    | | [Reveal]  [Rotate] | |    | | [Reveal][Rot.]| | +-------+ | |
+| +----------------+ |    | +--------------------+ |    | +---------------+ | | Mcp   | | |
+| | Linked tokens  | |    | | Linked tokens      | |    | | Create token  | | | ****  | | |
+| | +------------+ | |    | | +--------+ +-----+ | |    | | Name  [____]  | | | [..]  | | |
+| | | Mcp Active | | |    | | | Mcp    | | CI  | | |    | | Expiry [v]    | | +-------+ | |
+| | | tok_****mc | | |    | | | tok_** | | ... | | |    | | [Create token]| |           | |
+| | | [Reveal]   | | |    | | +--------+ +-----+ | |    | +---------------+ +-----------+ |
+| | | [Rotate]   | | |    | +--------------------+ |    | | This browser  |               |
+| | | [Edit    v]| | |    | | Create token       | |    | +---------------+               |
+| | | [Revoke]   | | |    | | Name [__] Expiry[v]| |    +-----------------------------------+
+| | +------------+ | |    | | [Create token]     | |
+| +----------------+ |    | +--------------------+ |
+| | Create token   | |    | | This browser       | |
+| | Name [_______] | |    | +--------------------+ |
+| | Expiry [Never v]|     +------------------------+
+| | [Create token] | |
+| +----------------+ |
+| | This browser   | |
++--------------------+
+```
+
+| Viewport | Rules |
+|----------|-------|
+| **Phone** | One column, cards full width, buttons full width and stacked, Revoke visually separate from Reveal/Rotate |
+| **Tablet** | One column up to `40rem` centered; linked-token cards in a 2-column grid when there are two or more; Name and Expiry on one row |
+| **Desktop** | Two columns: left (Primary token, Create linked token, This browser), right (Linked tokens), both `minmax(0, 1fr)`; nothing pinned or sticky |
+
+**Behavior rules:** each action is its own small `POST` form with its own CSRF token (above); after any action the `303` redirect returns to `#token-{id}` (or `#primary`) so the page does not jump; Reveal re-renders only that card with the full value in `.copy-value` plus a Copy button and the note "Shown once, on this page load"; a toast confirms Rotate, Create, Rename and Revoke; the masked value uses `.copy-value`, never wraps and never widens the page (see "Layout Integrity & Polish Contract").
+
 **Config (`server.yml`):**
 ```yaml
 server:
@@ -15817,7 +15871,7 @@ When GDPR/CCPA (right to erasure) conflicts with HIPAA/SOC2 (retention requireme
 | `/server/privacy` | GET | Privacy policy |
 | `/server/dpo` | GET | Data Protection Officer contact (GDPR) |
 
-**DPO contact source:** `server.contact.dpo.email` (with optional `server.contact.dpo.name`), part of the Contact Configuration tree (PART 12). When `dpo.email` is empty the page shows `server.contact.general.email`; when that is empty too it renders only a link to the contact form (`/server/contact`). It never invents an address and never shows the admin address. The JSON mirror is `GET /api/{api_version}/server/dpo` (`name`, `email`, `privacy_url`).
+**DPO contact source:** `server.contact.dpo.email` (with optional `server.contact.dpo.name`), part of the Contact Configuration tree (PART 12). When `dpo.email` is empty the page shows `server.contact.general.email`; when that is empty too it renders only a link to the contact form (`/server/contact`). It never invents an address and never shows the admin address. The JSON mirror is `GET /api/{api_version}/server/dpo` (`name`, `email`, `privacy_url`) and follows the same fallback chain for `email`; when no address resolves it still answers `200` with `email` = `""` (and `name` = `""` when unset), never `404`; `privacy_url` is always `/server/privacy`. The HTML page shows the DPO name when set, the address as a `mailto:` link when one resolves, and always links to `/server/privacy` and `/server/contact`.
 
 **Compliance is configured entirely in `server.yml`. Consent state is stored client-side (cookies, so the server can read it per-request) — there is no server-side user consent table. Operators run `{project_name} --maintenance compliance report` for a compliance summary.**
 
@@ -16605,7 +16659,8 @@ server:
     # Tracking/Site ID (format depends on type)
     id: ""
     # Self-hosted URL (required for: matomo, piwik, owa, umami)
-    # Not used for: google, fathom, plausible, simple, cloudflare
+    # Optional for: fathom (Fathom Lite), plausible (self-hosted)
+    # Not used for: google, simple, cloudflare
     url: ""
 ```
 
@@ -16757,101 +16812,124 @@ server:
 - **Tor and I2P:** tracking is never rendered for requests served through the onion or I2P address — provider scripts are clearnet endpoints and calling them leaks the request off Tor — and `/server/tracking.js` returns `404` there.
 
 ```go
-// TrackingScript returns the tracker markup. Inline script bodies are not emitted into pages: they are served from /server/tracking.js (see "Tracking and CSP")
-func TrackingScript() template.HTML {
-    cfg := config.Get().Server.Tracking
-    if cfg.Type == "" || cfg.Type == "none" {
-        return ""
-    }
+// tracker is what one provider contributes: external tags for the page and an
+// optional JavaScript body that is served from /server/tracking.js - a body is
+// NEVER written inline into HTML (see "Tracking and CSP").
+type tracker struct {
+    tags string
+    body string
+}
 
+// jsString quotes a config value as a JavaScript string literal; config text is
+// never concatenated raw into JavaScript.
+func jsString(v string) string {
+    b, _ := json.Marshal(v)
+    return string(b)
+}
+
+// trackerFor maps the server.tracking config to its tags and script body.
+func trackerFor(cfg TrackingConfig) (tracker, bool) {
+    id := html.EscapeString(cfg.ID)
+    base := strings.TrimSuffix(cfg.URL, "/")
     switch cfg.Type {
     case "google":
         if strings.HasPrefix(cfg.ID, "G-") {
             // GA4
-            return template.HTML(fmt.Sprintf(`
-<script async src="https://www.googletagmanager.com/gtag/js?id=%s"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', '%s');
-</script>`, cfg.ID, cfg.ID))
+            return tracker{
+                tags: `<script async src="https://www.googletagmanager.com/gtag/js?id=` + url.QueryEscape(cfg.ID) + `"></script>`,
+                body: "window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}" +
+                    "gtag('js',new Date());gtag('config'," + jsString(cfg.ID) + ");",
+            }, true
         }
         // Universal Analytics (legacy)
-        return template.HTML(fmt.Sprintf(`
-<script async src="https://www.google-analytics.com/analytics.js"></script>
-<script>
-  window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
-  ga('create', '%s', 'auto');
-  ga('send', 'pageview');
-</script>`, cfg.ID))
+        return tracker{
+            tags: `<script async src="https://www.google-analytics.com/analytics.js"></script>`,
+            body: "window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;" +
+                "ga('create'," + jsString(cfg.ID) + ",'auto');ga('send','pageview');",
+        }, true
 
     case "matomo", "piwik":
-        return template.HTML(fmt.Sprintf(`
-<script>
-  var _paq = window._paq = window._paq || [];
-  _paq.push(['trackPageView']);
-  _paq.push(['enableLinkTracking']);
-  (function() {
-    var u="%s/";
-    _paq.push(['setTrackerUrl', u+'matomo.php']);
-    _paq.push(['setSiteId', '%s']);
-    var d=document, g=d.createElement('script'), s=d.getElementsByTagName('script')[0];
-    g.async=true; g.src=u+'matomo.js'; s.parentNode.insertBefore(g,s);
-  })();
-</script>`, strings.TrimSuffix(cfg.URL, "/"), cfg.ID))
+        return tracker{body: "var _paq=window._paq=window._paq||[];_paq.push(['trackPageView']);" +
+            "_paq.push(['enableLinkTracking']);_paq.push(['setTrackerUrl'," + jsString(base+"/matomo.php") + "]);" +
+            "_paq.push(['setSiteId'," + jsString(cfg.ID) + "]);var g=document.createElement('script');" +
+            "g.async=true;g.src=" + jsString(base+"/matomo.js") + ";document.head.appendChild(g);"}, true
 
     case "owa":
-        return template.HTML(fmt.Sprintf(`
-<script>
-  var owa_baseUrl = '%s/';
-  var owa_cmds = owa_cmds || [];
-  owa_cmds.push(['setSiteId', '%s']);
-  owa_cmds.push(['trackPageView']);
-  owa_cmds.push(['trackClicks']);
-  (function() {
-    var _owa = document.createElement('script'); _owa.type = 'text/javascript'; _owa.async = true;
-    _owa.src = owa_baseUrl + 'modules/base/js/owa.tracker-combined-min.js';
-    var _owa_s = document.getElementsByTagName('script')[0]; _owa_s.parentNode.insertBefore(_owa, _owa_s);
-  })();
-</script>`, strings.TrimSuffix(cfg.URL, "/"), cfg.ID))
+        return tracker{body: "var owa_baseUrl=" + jsString(base+"/") + ";var owa_cmds=window.owa_cmds=window.owa_cmds||[];" +
+            "owa_cmds.push(['setSiteId'," + jsString(cfg.ID) + "]);owa_cmds.push(['trackPageView']);owa_cmds.push(['trackClicks']);" +
+            "var o=document.createElement('script');o.async=true;" +
+            "o.src=owa_baseUrl+'modules/base/js/owa.tracker-combined-min.js';document.head.appendChild(o);"}, true
 
     case "fathom":
-        scriptURL := "https://cdn.usefathom.com/script.js"
+        src := "https://cdn.usefathom.com/script.js"
         if cfg.URL != "" {
             // Self-hosted Fathom Lite
-            scriptURL = strings.TrimSuffix(cfg.URL, "/") + "/tracker.js"
+            src = base + "/tracker.js"
         }
-        return template.HTML(fmt.Sprintf(`
-<script src="%s" data-site="%s" defer></script>`, scriptURL, cfg.ID))
+        return tracker{tags: `<script src="` + html.EscapeString(src) + `" data-site="` + id + `" defer></script>`}, true
 
     case "plausible":
-        domain := cfg.ID
-        scriptURL := "https://plausible.io/js/script.js"
+        src := "https://plausible.io/js/script.js"
         if cfg.URL != "" {
-            scriptURL = strings.TrimSuffix(cfg.URL, "/") + "/js/script.js"
+            src = base + "/js/script.js"
         }
-        return template.HTML(fmt.Sprintf(`
-<script defer data-domain="%s" src="%s"></script>`, domain, scriptURL))
+        return tracker{tags: `<script defer data-domain="` + id + `" src="` + html.EscapeString(src) + `"></script>`}, true
 
     case "umami":
-        return template.HTML(fmt.Sprintf(`
-<script defer src="%s/script.js" data-website-id="%s"></script>`,
-            strings.TrimSuffix(cfg.URL, "/"), cfg.ID))
+        return tracker{tags: `<script defer src="` + html.EscapeString(base) + `/script.js" data-website-id="` + id + `"></script>`}, true
 
     case "simple":
-        return template.HTML(`
-<script async defer src="https://scripts.simpleanalyticscdn.com/latest.js"></script>
-<noscript><img src="https://queue.simpleanalyticscdn.com/noscript.gif" alt="" referrerpolicy="no-referrer-when-downgrade" /></noscript>`)
+        // Needs scripts.simpleanalyticscdn.com in script-src and queue.simpleanalyticscdn.com in img-src
+        // (the <noscript> pixel is TrackingNoscript(), rendered in <body>)
+        return tracker{tags: `<script async defer src="https://scripts.simpleanalyticscdn.com/latest.js"></script>`}, true
 
     case "cloudflare":
-        return template.HTML(fmt.Sprintf(`
-<script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "%s"}'></script>`, cfg.ID))
+        return tracker{tags: `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "` + id + `"}'></script>`}, true
 
+    case "", "none":
+        return tracker{}, false
     default:
         log.Warnf("unknown tracking type: %s", cfg.Type)
+        return tracker{}, false
+    }
+}
+
+// TrackingScript returns the page markup: external tags only, plus the
+// same-origin /server/tracking.js tag when the provider has a script body.
+// The caller renders it only when tracking is configured AND consent is given.
+func TrackingScript() template.HTML {
+    t, ok := trackerFor(config.Get().Server.Tracking)
+    if !ok {
         return ""
     }
+    out := t.tags
+    if t.body != "" {
+        out += `<script async src="/server/tracking.js"></script>`
+    }
+    return template.HTML(out)
+}
+
+// TrackingScriptBody is what GET /server/tracking.js serves (Content-Type
+// application/javascript, Cache-Control: no-cache). The handler answers 404 when
+// this is empty, tracking is disabled, consent is missing, or the request came
+// through the onion or I2P address.
+func TrackingScriptBody() string {
+    t, ok := trackerFor(config.Get().Server.Tracking)
+    if !ok {
+        return ""
+    }
+    return t.body
+}
+
+// TrackingNoscript returns the <noscript> pixel for providers that have one
+// (only "simple"). It is NOT valid <head> content: render it as the first child
+// of <body>, under the same consent / non-overlay conditions as TrackingScript().
+func TrackingNoscript() template.HTML {
+    cfg := config.Get().Server.Tracking
+    if cfg.Type != "simple" {
+        return ""
+    }
+    return template.HTML(`<noscript><img src="https://queue.simpleanalyticscdn.com/noscript.gif" alt="" referrerpolicy="no-referrer-when-downgrade" /></noscript>`)
 }
 ```
 
@@ -16860,6 +16938,9 @@ func TrackingScript() template.HTML {
 ```html
 <!-- In base template <head> section -->
 {{ trackingScript }}
+
+<!-- First child of <body> (the simple provider's <noscript> pixel is invalid in <head>) -->
+{{ trackingNoscript }}
 ```
 
 ### Analytics Tracking Configuration (config file)
@@ -21512,6 +21593,37 @@ footer p {
 }
 ```
 
+### Layout Integrity & Polish Contract (REQUIRED)
+
+**Every page must look finished — polished, professional, intuitive — on phones, tablets and desktops, in both themes and both text directions. "It renders" is not the bar.**
+
+| Rule | Detail |
+|------|--------|
+| **No horizontal overflow, ever** | At every viewport from 320 px up, `document.documentElement.scrollWidth <= window.innerWidth` with NO `overflow-x` backstop applied. A page wider than the screen makes mobile browsers shrink the whole layout (content at ~60% width with a dead strip beside it). Typical causes, all banned: negative-offset off-canvas boxes, fixed pixel widths, `100vw` widths (use `100%`), images without `max-width: 100%`, tables outside a scroll wrapper, unwrapped long strings (see "Long Strings"). `body { overflow-x: clip }` may exist as a last-resort backstop only |
+| **Content fills the viewport width correctly** | The `.container` rules above apply on every page: phones use the full width minus `1rem` padding; a content column is centered, never stuck left with dead space on the right |
+| **Fixed/overlay containment** | See "Drawer containment" in the header / navigation section ("Mobile Menu Behavior"). Overlays are direct children of `<body>`; no `transform`, `filter`, `backdrop-filter`, `contain` or `will-change` on an ancestor of a `position: fixed` element |
+| **Dynamic viewport** | `100dvh` / `min-height: 100dvh`, never bare `100vh` (mobile browser bars); `env(safe-area-inset-*)` padding on anything touching a screen edge (drawer, toast, banner, bottom actions) |
+| **Spacing scale** | Only `--space-*` tokens (4, 8, 12, 16, 24, 32, 48 px). Label to control `--space-1`, control to control `--space-4`, card to card `--space-6`. A page is never a bare stream of headings, text and controls: group content in `.section-card` blocks |
+| **Page header pattern** | Exactly one `<h1>` per page (the page title); an optional back link above it written `← {parent title}` (arrow icon + one full translated string); one `<h2>` per card. A heading is never repeated at a lower level (an "Owner tokens" `<h1>` followed by an "Owner tokens" `<h2>` is a defect) |
+| **No UI string concatenation** | Every visible label is ONE translation key holding the whole phrase (`nav.back_to_preferences` = "Back to Preferences"). Never join fragments ("Back" + "Preferences" rendered "Back Preferences"; this also breaks RTL and other languages) |
+| **No empty or unlabeled controls** | A `<select>` always has options and a visible selected default; an input always has a visible `<label>`; a button always has visible text or an `aria-label` plus tooltip. Two controls never share a label (a duplicated "Expiry" with a blank select is a defect) |
+| **Readable measure** | Prose max `72ch`; single-purpose form and card columns max `40rem` on desktop, centered |
+| **Typography** | Base 16 px, line-height 1.5, a heading scale via CSS variables, `0.875rem` monospace for tokens and code, `font-size >= 16px` on inputs (iOS zoom) |
+| **Contrast and focus** | Text 4.5:1 and UI parts 3:1 in BOTH themes; visible `:focus-visible` ring; `prefers-reduced-motion` honored |
+| **Opaque surfaces** | Modals, drawers, dropdowns and popovers have solid backgrounds; page content never shows through |
+
+**Review matrix (REQUIRED for every new or changed page, and automated where possible):**
+
+| Axis | Values |
+|------|--------|
+| **Viewports (CSS px)** | 320x640, 375x812, 390x844, 768x1024 (tablet portrait), 820x1180, 1024x768 (tablet landscape), 1280x800, 1440x900, 1920x1080 |
+| **Themes / direction** | dark, light, auto; LTR and RTL (Arabic) |
+| **Stress content** | 200% text zoom, the longest realistic values (62-char `.onion`, 64-char token, 64-char name, long translations), 0 / 1 / 25 list items |
+| **States** | empty, loading, error, success flash, disabled, JavaScript off |
+| **Pass criteria** | No horizontal scroll; nothing clipped or overlapping; every target >= 44x44 px; no empty or unlabeled control; no heading repeated; screenshot looks intentional at every viewport |
+
+Automated layout tests (headless browser at the viewports above) assert: `scrollWidth <= innerWidth`; no element's bounding box extends past the viewport; every `<select>` has options; every form control has a label; the open nav drawer covers the full viewport height and lists every nav link.
+
 ---
 
 ## Semantic HTML Elements
@@ -22195,7 +22307,9 @@ Use CSS custom properties for repeated or long strings. Never hardcode them inli
   --z-dropdown: 100;
   --z-sticky:   200;
   --z-overlay:  300;
+  --z-drawer:   350;
   --z-modal:    400;
+  --z-banner:   450;
   --z-toast:    500;
   --z-tooltip:  600;
 
@@ -22435,6 +22549,21 @@ fetch('/api/save', { method: 'POST', body: data })
 .btn-ghost     { background: transparent;            color: var(--color-text); border-color: var(--color-border); }
 .btn[disabled], .btn[aria-busy="true"] { opacity: 0.6; cursor: not-allowed; }
 ```
+
+### Form Layout & Action Rows
+
+**Forms are laid out the same way everywhere, so every screen feels familiar and none feels cramped.**
+
+| Rule | Detail |
+|------|--------|
+| **One field, one label, one control** | The `<label>` sits ABOVE its control, always visible (a placeholder is never the label). Help text goes below in muted style; an error goes below with an icon and `aria-describedby` |
+| **Phone layout** | Single column; every control `width: 100%`, `min-height: 2.75rem`, `font-size >= 16px` |
+| **Tablet and desktop** | Short related fields pair on one row (Name + Expiry) using `grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr))`; never more than two columns inside a card; long fields (text areas, tokens) span the full row |
+| **Optional extras** | A rarely used extra (for example a custom date) is a second, clearly labeled input revealed in a `<details>` or via `:has()` — never a second `<select>` and never a blank control |
+| **Action row** | `.actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }`. Phones: the primary button is full width on top, secondary actions full width below. >= 768 px: inline, in `inline-end` order Cancel (secondary) then the primary button last |
+| **Hierarchy** | Exactly ONE primary button per form or card. Secondary is outlined; ghost for low emphasis; destructive actions use `.btn-danger`, are separated from other buttons by at least `--space-4` (own row, a "Danger zone" block, or the item's own footer), and confirm through a native popover |
+| **Per-item actions** | A list item's actions live in the card footer toolbar: at most three visible buttons with text labels, any more inside a `<details class="menu">`. Icon-only is allowed only for universally understood icons (copy, close) and always has an `aria-label` and tooltip |
+| **Feedback** | Success and failure use the toast/flash patterns below; after a POST the redirect lands on the same card (`#anchor`) so the page does not jump to the top |
 
 ### Toggle Switches
 
@@ -22681,7 +22810,7 @@ function deleteItem(itemId) {
   position: fixed;
   top: 1rem;
   right: 1rem;
-  z-index: 9999;
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -23774,7 +23903,7 @@ Preferences aren't tied to identity — any two guests who set the same `theme`/
 | 3 | **Full URL** | `{origin}/server/preferences/import?{canonical query}`; `{origin}` is resolved per request by the URL-resolution rules (PART 8 → "Resolution Order"), never a cached value |
 | 4 | **Short code** | `base64url` (RFC 4648 §5 URL-safe alphabet) of the UTF-8 canonical query, **no padding**. Decoders MUST accept padded and unpadded input |
 | 5 | **Import input** | The request's own query parameters AND an optional `code` parameter. Resolve `code` as: trim whitespace → if it contains `?`, discard everything up to and including the FIRST `?` (a pasted full URL) → if the rest contains `=`, it is a plain query string → otherwise base64url-decode it → parse as a query string. Any decode/parse failure yields an empty set, never an error. **Direct request parameters win over `code` values, key by key** |
-| 6 | **Limits** | `code` longer than 2048 characters is ignored; at most 32 parameters are considered (extras dropped); each value at most 64 characters |
+| 6 | **Limits** | `code` longer than 2048 characters is discarded whole before decoding, exactly like a decode failure (rule 5: empty set, no error, `303`/`200` as usual); because `code` is a control field (rule 1) it is NEVER reported in `ignored`, and the visitor's other submitted values still apply. At most 32 parameters are considered (extras dropped); each value at most 64 characters |
 | 7 | **Validation** | `theme`: exactly `dark`, `light` or `auto`. `lang`: case-insensitive match against the supported tags, canonicalized to the supported tag; an unsupported regional tag falls back to its base language (`fr-CA` → `fr`) if that is supported, otherwise dropped. `{project_name}_pref_{key}`: `{key}` matches `^[a-z][a-z0-9_]{0,63}$` and the value is in that key's documented enum; a key without an enum accepts `^[A-Za-z0-9_.\-]{1,64}$`. Anything invalid is dropped (reported in `ignored`) — an imported value is still untrusted input |
 | 8 | **Apply** | Each valid value sets its cookie with `Path=/`, `Max-Age=31536000`, `SameSite=Lax`, not HttpOnly (JS reads them), no `Domain`, and `Secure` whenever the resolved request scheme is `https` (resolved behind reverse proxies exactly as in rule 3, not from the raw socket). Import is **additive**: preferences absent from the input keep their current cookie — import never resets or deletes anything |
 | 9 | **Web response** | `303 See Other` with `Cache-Control: no-store`, no body, for import AND save — including when nothing validated (an untrusted link is never grounds for a `4xx` error page) |
@@ -25265,12 +25394,13 @@ pushes links flush right against the header edge with no centering, which is
 the layout bug this section fixes.
 
 ```html
+<!-- Menu state checkbox, drawer panel and scrim are children of <body>, NOT of <header>
+     (a fixed panel inside a header with transform/backdrop-filter is clipped to the header). -->
+<input type="checkbox" id="nav-toggle" class="nav-checkbox" hidden>
+
 <!-- Header bar: single row — brand | centered links | profile/preferences | theme toggle -->
 <header class="header">
   <a href="/" class="site-brand">{project_name}</a>
-
-  <!-- Hidden checkbox controls mobile menu state - NO JavaScript -->
-  <input type="checkbox" id="nav-toggle" class="nav-checkbox" hidden>
 
   <!-- Desktop: inline links, centered | Mobile: hamburger only -->
   <nav class="nav-links">
@@ -25280,14 +25410,6 @@ the layout bug this section fixes.
 
   <!-- Mobile: hamburger toggle (checkbox label) -->
   <label for="nav-toggle" class="nav-toggle" aria-label="Toggle navigation">☰</label>
-
-  <!-- Slide-in panel for mobile (links only — actions below stay in header) -->
-  <div class="nav-panel">
-    <label for="nav-toggle" class="nav-close" aria-label="Close menu">✕</label>
-    <a href="/">Home</a>
-    <!-- App-specific sections (project-defined) -->
-  </div>
-  <label for="nav-toggle" class="nav-overlay"></label>
 
   <!-- Actions: profile/preferences zone, then theme toggle (always visible, far right) -->
   <div class="header-actions">
@@ -25323,6 +25445,14 @@ the layout bug this section fixes.
     </form>
   </div>
 </header>
+
+<!-- Slide-in panel for mobile: SAME links as .nav-links, solid background, after </header> -->
+<div class="nav-panel" id="nav-panel">
+  <label for="nav-toggle" class="nav-close" aria-label="Close menu">✕</label>
+  <a href="/" aria-current="page">Home</a>
+  <!-- App-specific sections (project-defined) -->
+</div>
+<label for="nav-toggle" class="nav-overlay"></label>
 ```
 
 ```css
@@ -25352,9 +25482,8 @@ the layout bug this section fixes.
 ```
 
 **Mobile Menu Behavior:**
-- Menu slides in from RIGHT edge
-- Slides LEFT to open (right-to-left)
-- Slides RIGHT to close (left-to-right)
+- Menu slides in from the inline-end edge (right in LTR, left in RTL)
+- Slides in to open, back out to close
 - Overlay dims background, click to close
 - Theme toggle stays in header (NOT in menu) - keeps menu clean
 
@@ -25373,15 +25502,21 @@ the layout bug this section fixes.
 /* Slide-in panel (mobile) */
 .nav-panel {
   position: fixed;
-  top: 0;
-  /* Hidden off-screen right */
-  right: -280px;
-  width: 280px;
-  height: 100vh;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: min(280px, 85vw);
+  height: 100dvh;
+  overflow-y: auto;
+  padding-bottom: env(safe-area-inset-bottom);
+  /* Opaque - page content must never show through */
   background: var(--color-bg);
-  transition: right 0.3s ease;
-  z-index: 1001;
+  /* Hidden with transform + visibility, NEVER a negative offset (it widens the page) */
+  transform: translateX(100%);
+  visibility: hidden;
+  transition: transform 0.3s ease, visibility 0s linear 0.3s;
+  z-index: var(--z-drawer);
 }
+[dir="rtl"] .nav-panel { transform: translateX(-100%); }
 
 /* Overlay (hidden by default) */
 .nav-overlay {
@@ -25389,14 +25524,15 @@ the layout bug this section fixes.
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
-  z-index: 1000;
+  z-index: var(--z-overlay);
   cursor: pointer;
 }
 
 /* When checkbox is checked: show menu and overlay */
 .nav-checkbox:checked ~ .nav-panel {
-  /* Slide in from right */
-  right: 0;
+  transform: none;
+  visibility: visible;
+  transition: transform 0.3s ease;
 }
 
 .nav-checkbox:checked ~ .nav-overlay {
@@ -25410,16 +25546,29 @@ the layout bug this section fixes.
 }
 ```
 
+**Drawer containment (NON-NEGOTIABLE — a phone screenshot of a shipped site showed every one of these failures):**
+
+| Rule | Why / how |
+|------|-----------|
+| **Never hide off-canvas with a negative offset** (`right: -280px`, `left: -100%`) | The box still extends the scrollable width, so the page becomes wider than the screen and mobile browsers shrink the whole layout (content at ~60% width, dead space on the right). Hide with `transform: translateX(100%)` + `visibility: hidden` (and `inert` when JS is present), never with a negative position |
+| **The drawer and its scrim are children of `<body>`**, siblings after `<main>`, not descendants of `<header>` | A `position: fixed` element inside an ancestor that has `transform`, `filter`, `backdrop-filter`, `perspective`, `contain` or `will-change` is positioned against that ancestor, not the viewport: the drawer collapses to header size, clips ("Cairnb…") and renders under page content. The header MUST NOT use those properties on any ancestor of the panel; apply a frosted-glass effect to a `::before` pseudo-element of the header instead |
+| **Opaque panel** | The drawer background is a solid theme color. Hero text or pills showing through the menu is a bug |
+| **Every link, in order** | The panel lists the same links as the desktop nav (the screenshot showed one link). Active page marked with `aria-current="page"` |
+| **Stacking** | Use the z-index tokens from "CSS Variable Reference" (`--z-raised` 10 header, `--z-dropdown` 100, `--z-overlay` 300 scrim, `--z-drawer` 350, `--z-modal` 400, `--z-banner` 450, `--z-toast` 500); no magic numbers such as `9999`. Scrim and drawer must sit above `<main>` and the hero in the same stacking context |
+| **Dimensions** | `height: 100dvh`, `width: min(280px, 85vw)`, `overflow-y: auto`, `padding-bottom: env(safe-area-inset-bottom)`. RTL: slides from the left (`[dir="rtl"]`) |
+| **While open** | Page behind does not scroll (`body:has(.nav-checkbox:checked) { overflow: hidden }`); the scrim dims the whole viewport; Esc and a scrim tap close it |
+| **Fixed elements** | The drawer, scrim, modal, toast, banner and popover are the ONLY `position: fixed` elements; header, nav and footer scroll with the page |
+
 **Mobile Responsive Rules:**
 - Links live in the single header row: inline links (desktop) or hamburger (mobile) — no separate nav row
 - Profile/preferences and theme toggle ALWAYS in header actions (never in the mobile slide-in menu)
-- Menu slides from right edge
+- Menu slides from the inline-end edge (right in LTR, left in RTL)
 - Touch-friendly: minimum 44x44px tap targets
 - Overlay closes menu on tap (CSS label toggles checkbox - no JS)
 
 **No Fixed/Pinned Elements :**
 - Header, nav, footer all scroll with page
-- NOTHING pinned/fixed to viewport
+- No pinned page chrome; the only fixed elements are overlays (drawer, scrim, modal, toast, banner, popover)
 - User scrolls down → header/nav scroll away
 - User scrolls to bottom → footer appears
 
@@ -27107,7 +27256,7 @@ initCCPA();
   /* Purple/magenta - or var(--accent-color) */
   background: #7c5295;
   color: #ffffff;
-  z-index: 9999;
+  z-index: var(--z-banner);
 }
 
 /* Base: Mobile styles - stacked, centered */
@@ -27258,7 +27407,7 @@ func trackingScript(r *http.Request) template.HTML {
         // Return nothing - no tracking
         return ""
     }
-    return generateTrackingScript()
+    return TrackingScript()
 }
 ```
 
@@ -27910,7 +28059,7 @@ When `server.mcp.enabled` is `false`, both routes return `404` and no link to th
 | `#limits` | Behavior and limits | `POST` only; no sessions; the same rate limits and audit as the API; `Origin` validated; the supported MCP protocol versions |
 | `#troubleshooting` | Troubleshooting | A table of `400` (protocol-version or header mismatch), `401` (missing, invalid or expired token — `WWW-Authenticate: Bearer`), `403` (bad `Origin` or insufficient scope), `404` (MCP disabled), `405` (GET or DELETE; the endpoint is POST-only) with the fix for each |
 
-**Project expansion (required content):** the project appends its own section, `#project`, after the base sections. The text comes from IDEA.md `## Business logic` and is stored as Markdown in `pages.help.mcp` (editable in the admin panel's Pages → Help editor where an admin panel exists). It MUST use the project's real tool names and real data — example prompts a user can paste into an assistant, per-tool tips and limits, and documentation of any MCP resources or prompts the project exposes. It never repeats or contradicts the base sections, and generic placeholder text is forbidden (same rule as `/server/help`).
+**Project expansion (required content):** the project appends its own section, `#project`, after the base sections. The text comes from IDEA.md `## Business logic` and is stored as Markdown in `pages.help.mcp` (canonical storage is `server.yml` `pages.help.mcp`, edited there by the operator and applied on config reload; a project that has an admin panel also exposes it in Pages → Help. API projects have no admin panel or web editor, so `server.yml` is the only editing path). It MUST use the project's real tool names and real data — example prompts a user can paste into an assistant, per-tool tips and limits, and documentation of any MCP resources or prompts the project exposes. It never repeats or contradicts the base sections, and generic placeholder text is forbidden (same rule as `/server/help`).
 
 **JSON body (`GET /api/{api_version}/server/help/mcp`, envelope `{ "ok": true, "data": ... }`; field names are fixed):**
 ```json
@@ -40699,6 +40848,16 @@ make test
 | `de` | German | `ltr` | one, other |
 | `ja` | Japanese | `ltr` | other (no plural forms) |
 
+**The table above is the REQUIRED MINIMUM, not the exhaustive list.** A project may support more languages; it never supports fewer. Rules for any language beyond the table:
+
+| Rule | Detail |
+|------|--------|
+| **Supported = has a complete locale file** | A language is supported if and only if a locale file with exactly the keys of `en.json` is embedded in the binary (the build-time key check applies to it). No locale file = not supported, anywhere |
+| **One registry** | The supported set comes from ONE registry (code, native name, direction, CLDR plural categories) that is checked at build time against the embedded locale files: registry entries, locale files and the runtime default list MUST be the same set. No separate hardcoded language list in config defaults, the language selector, `Accept-Language` matching or `isSupported` |
+| **Defaults** | The runtime default enabled languages are every embedded locale (the minimum seven plus any extra); an operator may narrow the list but never below the seven |
+| **Documentation** | README, `--help` and the language selector list only supported languages, derived from or verified against the registry; the stated count MUST equal the number of locale files. Claiming a language with no locale file (for example a README listing Korean without `ko.json`) is a defect |
+| **Adding a language** | Add the locale file, the registry entry (direction + plural categories) and the table row above in the project's docs in one change; the build fails if any of the three is missing |
+
 ### Language Selection via Query Parameter
 
 **`?lang=` sets the language and persists it via cookie.** No URL path prefixes (avoids route conflicts).
@@ -49834,41 +49993,41 @@ When stuck:
 
 | PART | Line | Topic | When to Read |
 |------|------|-------|--------------|
-| 0 | ~2411 | AI Assistant Rules | **ALWAYS READ FIRST**, **AI Behavior Rules**, **Host System Safety Rule**, **Translation Rule** |
-| 1 | ~4216 | Critical Rules | **ALWAYS READ FIRST** |
-| 2 | ~5479 | License & Attribution | License requirements |
-| 3 | ~5813 | Project Structure | Setting up new project, **CI/CD badge detection** |
-| 4 | ~6680 | OS-Specific Paths | Path handling |
-| 5 | ~6876 | Configuration | Config file work, **Path Security**, **Privileged Ports**, **Escalation** |
-| 6 | ~8684 | Application Modes | Mode handling, debug endpoints |
-| 7 | ~9325 | Binary Requirements | Binary building, **Display detection**, **TERM=dumb**, **NO_COLOR** |
-| 8 | ~9964 | Server Binary CLI | CLI flags/commands, **NO_COLOR Support**, **--color/--lang flags**, **Resource Owner Tokens** |
-| 9 | ~12964 | Error Handling & Caching | Error/cache patterns |
-| 10 | ~13380 | Database | Database work |
-| 11 | ~13786 | Security & Logging | Security features, **Context Detection** |
-| 12 | ~15861 | Server Configuration | Server settings, **Allowlist**, **Blocklists**, **GeoIP** |
-| 13 | ~17292 | Health & Versioning | Health endpoints |
-| 14 | ~18000 | API Structure | REST/GraphQL/Route Compliance, **Non-Interactive Text Output** |
-| 15 | ~19751 | SSL/TLS & Let's Encrypt | SSL certificates |
-| 16 | ~20709 | Web Frontend | Frontend/UI, **Sitemap**, **Site Verification**, **Branding/SEO** |
-| 17 | ~27596 | Email & Notifications | Email/SMTP, **SMTP Auto-Detection** |
-| 18 | ~28167 | Scheduler | Background tasks, **NO external schedulers**, **Backup tasks** |
-| 19 | ~28594 | GeoIP | GeoIP features, **Country blocking (deny/allow)** |
-| 20 | ~28747 | Metrics | Prometheus metrics, **INTERNAL only** |
-| 21 | ~30248 | Backup & Restore | Backup features, **Compliance encryption** |
-| 22 | ~30754 | Update Command | Update feature |
-| 23 | ~31368 | Privilege Escalation & Service | Service/privilege work |
-| 24 | ~31982 | Service Support | Systemd/runit/rc.d/launchd templates |
-| 25 | ~32295 | Makefile | Local dev/tests/debug only, **NOT used in CI/CD** |
-| 26 | ~33118 | Docker | Docker/containers, **NEVER copy/symlink binaries** |
-| 27 | ~34087 | CI/CD Workflows | GitHub/GitLab/Gitea Actions |
-| 28 | ~37445 | Testing & Development | Testing/dev workflow, **Host Safety in tests**, **AI Docker Compose Rules**, **Content Negotiation Testing** |
-| 29 | ~39209 | ReadTheDocs Documentation | Documentation |
-| 30 | ~40003 | I18N & A11Y | Internationalization, **Translation parity (both binaries)**, **--lang flag** |
-| 31 | ~41429 | Overlay Networks (Tor & I2P) | Tor (required) + I2P eepsite (opt-in) |
-| 32 | ~43575 | Client | Client **REQUIRED** — CLI/TUI/GUI, **Resource Owner Tokens**, **Smart Context**, **First-Run Wizard** |
-| 33 | ~46859 | IDEA.md Reference | **Examples only** - NEVER modify |
-| FINAL | ~47096 | Compliance Checklist | Final verification, **AI Quick Reference Rules**, **Console/Banner Checklist**, **I18N Checklist**, **Host Safety Checklist** |
+| 0 | ~2406 | AI Assistant Rules | **ALWAYS READ FIRST**, **AI Behavior Rules**, **Host System Safety Rule**, **Translation Rule** |
+| 1 | ~4224 | Critical Rules | **ALWAYS READ FIRST** |
+| 2 | ~5487 | License & Attribution | License requirements |
+| 3 | ~5821 | Project Structure | Setting up new project, **CI/CD badge detection** |
+| 4 | ~6690 | OS-Specific Paths | Path handling |
+| 5 | ~6886 | Configuration | Config file work, **Path Security**, **Privileged Ports**, **Escalation** |
+| 6 | ~8718 | Application Modes | Mode handling, debug endpoints |
+| 7 | ~9379 | Binary Requirements | Binary building, **Display detection**, **TERM=dumb**, **NO_COLOR** |
+| 8 | ~10018 | Server Binary CLI | CLI flags/commands, **NO_COLOR Support**, **--color/--lang flags**, **Resource Owner Tokens** |
+| 9 | ~13108 | Error Handling & Caching | Error/cache patterns |
+| 10 | ~13533 | Database | Database work |
+| 11 | ~13940 | Security & Logging | Security features, **Context Detection** |
+| 12 | ~16077 | Server Configuration | Server settings, **Allowlist**, **Blocklists**, **GeoIP** |
+| 13 | ~17526 | Health & Versioning | Health endpoints |
+| 14 | ~18236 | API Structure | REST/GraphQL/Route Compliance, **Non-Interactive Text Output** |
+| 15 | ~19998 | SSL/TLS & Let's Encrypt | SSL certificates |
+| 16 | ~20956 | Web Frontend | Frontend/UI, **Sitemap**, **Site Verification**, **Branding/SEO** |
+| 17 | ~28050 | Email & Notifications | Email/SMTP, **SMTP Auto-Detection** |
+| 18 | ~28702 | Scheduler | Background tasks, **NO external schedulers**, **Backup tasks** |
+| 19 | ~29143 | GeoIP | GeoIP features, **Country blocking (deny/allow)** |
+| 20 | ~29296 | Metrics | Prometheus metrics, **INTERNAL only** |
+| 21 | ~30824 | Backup & Restore | Backup features, **Compliance encryption** |
+| 22 | ~31381 | Update Command | Update feature |
+| 23 | ~32011 | Privilege Escalation & Service | Service/privilege work |
+| 24 | ~32625 | Service Support | Systemd/runit/rc.d/launchd templates |
+| 25 | ~32940 | Makefile | Local dev/tests/debug only, **NOT used in CI/CD** |
+| 26 | ~33763 | Docker | Docker/containers, **NEVER copy/symlink binaries** |
+| 27 | ~34732 | CI/CD Workflows | GitHub/GitLab/Gitea Actions |
+| 28 | ~38095 | Testing & Development | Testing/dev workflow, **Host Safety in tests**, **AI Docker Compose Rules**, **Content Negotiation Testing** |
+| 29 | ~39859 | ReadTheDocs Documentation | Documentation |
+| 30 | ~40653 | I18N & A11Y | Internationalization, **Translation parity (both binaries)**, **--lang flag** |
+| 31 | ~42094 | Overlay Networks (Tor & I2P) | Tor (required) + I2P eepsite (opt-in) |
+| 32 | ~44684 | Client | Client **REQUIRED** — CLI/TUI/GUI, **Resource Owner Tokens**, **Smart Context**, **First-Run Wizard** |
+| 33 | ~47817 | IDEA.md Reference | **Examples only** - NEVER modify |
+| FINAL | ~48054 | Compliance Checklist | Final verification, **AI Quick Reference Rules**, **Console/Banner Checklist**, **I18N Checklist**, **Host Safety Checklist** |
 
 ### How to Read This File
 
