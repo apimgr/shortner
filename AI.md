@@ -41923,7 +41923,7 @@ $GO_DOCKER casjaysdev/go:latest go test -run "TestKeyConsistency|TestLocalesFS" 
 # Validates:
 # - All language files have identical message-key sets to en.json (plural categories per "Plural key parity")
 # - No empty string values
-# - All interpolation variables ({var}) match across languages
+# - All interpolation variables ({var}) match across languages ({count} is optional per plural category)
 # - All plural categories required by the language are present
 # - No orphaned keys (keys in other languages not in en.json)
 ```
@@ -41986,7 +41986,7 @@ func FormatNumber(n float64, lang string) string {
 
 **Use CLDR plural categories:** `zero`, `one`, `two`, `few`, `many`, `other`
 
-**Plural key parity (exception to exact key parity):** key parity with `en.json` is measured on MESSAGE keys. A plural message (an object under `plurals`, for example `plurals.items`) counts as ONE key whatever categories it holds. Inside it, each language provides exactly the CLDR categories that language needs (always `other`): English `one`, `other`; Arabic `zero`, `one`, `two`, `few`, `many`, `other`; Italian `one`, `many`, `other`; Chinese or Japanese `other` only. A language never needs to copy English's categories and never omits one it requires. `zero` is additionally allowed in any language as an optional explicit zero-count text ("No items"). Any other category the language does not use is an orphan and fails the build. Placeholders (`{count}`) must still match across every category and language.
+**Plural key parity (exception to exact key parity):** key parity with `en.json` is measured on MESSAGE keys. A plural message (an object under `plurals`, for example `plurals.items`) counts as ONE key whatever categories it holds. Inside it, each language provides exactly the CLDR categories that language needs (always `other`): English `one`, `other`; Arabic `zero`, `one`, `two`, `few`, `many`, `other`; Italian `one`, `many`, `other`; Chinese or Japanese `other` only. A language never needs to copy English's categories and never omits one it requires. `zero` is additionally allowed in any language as an optional explicit zero-count text ("No items"). Any other category the language does not use is an orphan and fails the build. Placeholder parity inside a plural message: `{count}` is optional in every category (an explicit zero or singular text such as "No items" may omit it); every OTHER placeholder (`{name}`, ...) must appear, spelled identically, in every category of that message and in every language's version of it.
 
 | Language | Categories Used |
 |----------|-----------------|
