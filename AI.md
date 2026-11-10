@@ -17745,7 +17745,9 @@ type I2PInfo struct {
     Provider string `json:"provider"`
 }
 
-// ChecksInfo - component health (ok/error only - no details)
+// ChecksInfo - component health (ok/degraded/error - no details)
+// Dataset/dependency checks (GeoIP, blocklists, data files) are registered dynamically
+// and emitted as sibling keys after the core checks - see "Dataset & Dependency Checks"
 type ChecksInfo struct {
     // PART 10: "ok" or "error"
     Database  string `json:"database"`
@@ -17801,7 +17803,33 @@ type StatsInfo struct {
 | `checks.cache` | `checkCache()` | 10 |
 | `checks.scheduler` | `checkScheduler()` | 18 |
 | `checks.tor` | `checkTor()` | 31 |
+| `checks.geoip_*`, `checks.blocklist_*`, `checks.data_*` | health registry (dataset checks) | see "Dataset & Dependency Checks" |
 | `stats.*` | `statsCollector.*` | - |
+
+### Dataset & Dependency Checks
+
+**Every data set or external dependency the app loads, downloads, or reads at runtime is a health check.** A feature that silently runs on a missing, empty, or stale data set is a broken feature that reports "healthy" — health MUST say so.
+
+| Kind | Check key | Covers |
+|------|-----------|--------|
+| **GeoIP** | `geoip_{database}` (e.g. `geoip_country`, `geoip_city`, `geoip_asn`) | One check per GeoIP database file the app loads |
+| **Blocklists** | `blocklist_{id}` | One check per blocklist (IP, domain, user-agent, ...) the app loads or fetches |
+| **Data files** | `data_{id}` | One check per JSON (or other structured) data file — both embedded files (`src/data`, loaded via `embed`) and external files (downloaded, updated, or operator-supplied) |
+| **Other dependencies** | `{kind}_{id}` | Anything else the app loads and cannot run correctly without (certificates, lookup tables, rule sets, templates fetched at runtime) |
+
+| Rule | Detail |
+|------|--------|
+| **Registry, not hand-coding** | Each data set registers itself once at load time: `health.Register(key, critical, fn)`. `buildHealthResponse()` iterates the registry — adding a data set MUST NOT require editing the health handler |
+| **Values** | `ok` = loaded, parsed, non-empty, and within its maximum age · `degraded` = loaded but stale (update failing, past its max age) or running on the last known good copy · `error` = missing, empty, or unparseable with no usable copy |
+| **Disabled features** | A data set whose feature is disabled is OMITTED from `checks` (never reported as `ok` or `error`) |
+| **Aggregation** | `error` on `database` or `disk` → `unhealthy`. A dataset check at `degraded` or `error` → `degraded`, unless it was registered `critical` (the app cannot do its core job without it) → `unhealthy` |
+| **Stable keys** | `{kind}_{id}` is a stable snake_case identifier — NEVER a file path, URL, or filename (public-safe; see Security) |
+| **Order** | Core checks first (`database`, `cache`, `disk`, `scheduler`), then `tor`, `i2p`, then dataset checks in registration order. JSON emits keys in exactly this order (custom marshaller — never an unordered map) |
+| **Cost** | `/server/healthz` reads CACHED results. The scheduler re-runs dataset checks at most every 60 seconds and after every data-set reload/update; a request NEVER triggers a disk scan, parse, or network fetch |
+| **Freshness** | Each data set declares a `max_age` (e.g. 7 days for GeoIP, per-list for blocklists); the check compares last successful load/update against it |
+| **Public-safe** | `ok` / `degraded` / `error` only — no paths, URLs, sizes, record counts, versions, or error text |
+
+**Frontend labels:** the Component Status table shows one row per check. Labels come from i18n keys `health.check.{key}`; a key with no translation falls back to a humanized form of the key (`blocklist_ads` → `Blocklist: ads`). Dataset rows follow the core rows, grouped under their kind.
 
 #### Frontend Display Order
 
@@ -17828,16 +17856,28 @@ type StatsInfo struct {
 | Version | `<code>` | No | `<code>1.0.0</code>` |
 | Go version | `<code>` | No | `<code>{{.GoVersion}}</code>` |
 | Build commit | `<code>` | Optional | `<code>abc1234</code>` |
-| Build date | `<time>` | No | `<time datetime="2024-01-10">Jan 10, 2024</time>` |
-| Uptime | plain text | No | `2 days 5 hours` |
+| Build date | `<time>` | No | `<time datetime="2024-01-10">January 10, 2024</time>` |
+| Uptime | plain text | No | `2 days 5 hours` (via `format.Duration()`) |
 | Mode | `.badge` | No | `<span class="badge badge-production">Production</span>` (class is badge-{mode}: badge-production / badge-development / badge-debug) |
-| Timestamp | `<time>` | No | `<time datetime="...">Jan 15, 2024 10:30 AM</time>` |
+| Timestamp | `<time>` | No | `<time datetime="...">January 15, 2024 at 10:30:00 UTC</time>` |
 | Tor address | `.code-block` | **Yes** | 56-char v3 onion, copy button, horizontal scroll |
-| Feature enabled | `.feature-enabled` | No | `<li class="feature-enabled">🌍 GeoIP</li>` |
+| Feature enabled (one per line) | `.feature-enabled` | No | `<li class="feature-enabled">🌍 GeoIP</li>` |
 | Feature disabled | `.feature-disabled` | No | Muted, strikethrough |
 | Check ok | `.status.status-ok` | No | `<span class="status status-ok">✅ OK</span>` |
 | Check error | `.status.status-error` | No | `<span class="status status-error">❌ Error</span>` |
 | Stat number | large text | No | Formatted with commas: `1,234,567` |
+
+#### Frontend Human-Readable Rules
+
+| Rule | Detail |
+|------|--------|
+| **Applies to** | `/server/healthz` and `/healthz` in HTML AND text (curl). The API routes (`/api/**`) and JSON keep machine values |
+| **Uptime** | `format.Duration()` → `3 days 10 hours` (never `3d 10h 37m`) |
+| **Timestamps** | `timestamp` and `build.date` render as `%B %d, %Y at %H:%M:%S %Z` (`November 10, 2026 at 22:24:04 UTC`); HTML keeps the ISO value in `<time datetime="...">` |
+| **Build commit** | the short hash is shown as-is (it is an identifier, not a value to format) |
+| **Counts** | thousands separators (`22,087`) |
+| **Features** | ONE per line / one `<li>` each; address on the same entry (HTML: nested copy block) |
+| **Checks & stats** | check status words and stat labels are translated; `ok` renders as `✅ OK` / `ok` per format |
 
 ### Security: Public Info Only
 
@@ -17963,6 +18003,10 @@ type StatsInfo struct {
             <tr><td>💾 Cache</td><td><span class="status status-ok">✅ OK</span></td></tr>
             <tr><td>💿 Disk</td><td><span class="status status-ok">✅ OK</span></td></tr>
             <tr><td>⏰ Scheduler</td><td><span class="status status-ok">✅ OK</span></td></tr>
+            <!-- Dataset & dependency rows (see "Dataset & Dependency Checks"): one row per registered check, grouped after the core rows -->
+            <tr><td>🌍 GeoIP country</td><td><span class="status status-ok">✅ OK</span></td></tr>
+            <tr><td>🛡️ Blocklist: ads</td><td><span class="status status-ok">✅ OK</span></td></tr>
+            <tr><td>📄 Data: countries</td><td><span class="status status-warning">⚠️ Degraded</span></td></tr>
           </tbody>
         </table>
       </div>
@@ -17987,7 +18031,7 @@ type StatsInfo struct {
 
     <!-- Last Updated -->
     <footer class="health-footer">
-      <p>Last checked: <time datetime="2024-01-15T10:30:00Z">Jan 15, 2024 10:30 AM</time></p>
+      <p>Last checked: <time datetime="2024-01-15T10:30:00Z">January 15, 2024 at 10:30:00 UTC</time></p>
       <p class="auto-refresh">Auto-refreshing in <span id="countdown">30</span>s</p>
     </footer>
   </main>
@@ -18143,7 +18187,54 @@ These rules apply to the health payload in every format and on every health rout
 - NOT OK to include internal-only, secret, private-network, filesystem, credential, or operator-only detail
 - If in doubt, leave it out
 
-#### Plain Text (Accept: text/plain)
+#### Plain Text — Frontend (`/server/healthz`, `/healthz`)
+
+**Frontend text is a user-facing surface: every value is human-readable (see "Human-Readable Values (Frontend)") and every feature is ONE line.** curl and other CLI clients hitting the frontend route get this layout.
+
+```
+My Application - The best app ever
+
+Status:    Healthy
+Version:   1.0.0
+Build:     abc1234 (January 10, 2024 at 10:00:00 UTC)
+Go:       go1.xx.x
+Uptime:    2 days 5 hours
+Mode:      production
+Checked:   January 15, 2024 at 10:30:00 UTC
+
+Features
+  Tor:     healthy - abc123xyz456abcdef789xyz456abcdef789xyz456abcdef789xyz.onion
+  I2P:     disabled
+  GeoIP:   enabled
+
+Checks
+  Database:           ok
+  Cache:              ok
+  Disk:               ok
+  Scheduler:          ok
+  Tor:                ok
+  GeoIP country:      ok
+  Blocklist: ads:     ok
+  Data: countries:    degraded
+
+Statistics
+  Total requests:      1,234,567
+  Requests (24 hours): 45,678
+  Active connections:  42
+```
+
+| Rule | Detail |
+|------|--------|
+| **One feature per line** | `{Label}: {status}` plus ` - {hostname}` when the feature has an address. Never one line per sub-field (`enabled`/`running`/`status`/`hostname` are NOT separate lines) |
+| **Status words** | `healthy`, `starting`, `disabled`, `error: {short message}` (from `features.*.status`); a boolean feature shows `enabled` / `disabled` |
+| **Durations** | `format.Duration()` — `2 days 5 hours`, never `2d 5h 30m` or raw seconds |
+| **Timestamps** | `%B %d, %Y at %H:%M:%S %Z` — never ISO 8601, never `Z`-suffixed machine form |
+| **Counts** | thousands separators (`1,234,567`) |
+| **Labels** | translated (i18n keys), aligned in columns |
+
+#### Plain Text — API (`/api/{api_version}/server/healthz`, `.txt`, `Accept: text/plain` on API routes)
+
+**Machine surface: raw values (ISO 8601 timestamps, compact uptime), dot notation, ONE feature per line.** Feature lines are `features.{name}: {status}` followed by an optional hostname and optional `key=value` pairs (`provider=i2pd state=running`); a boolean feature is `enabled` / `disabled`.
 
 **Fields in canonical order, flattened with dot notation. References template PARTS.**
 
@@ -18167,24 +18258,20 @@ uptime: 2d 5h 30m
 mode: production
 timestamp: 2024-01-15T10:30:00Z
 
-# 5. Features - NON-NEGOTIABLE only (show actual status)
-features.tor.enabled: true
-features.tor.running: true
-features.tor.status: healthy
-features.tor.hostname: abc123xyz456abcdef789xyz456abcdef789xyz456abcdef789xyz.onion
-features.i2p.enabled: false
-features.i2p.running: false
-features.i2p.status: disabled
-features.i2p.state: disabled
-features.i2p.hostname:
-features.i2p.provider: none
-features.geoip: true
+# 5. Features - NON-NEGOTIABLE only (show actual status), ONE line per feature
+features.tor: healthy abc123xyz456abcdef789xyz456abcdef789xyz456abcdef789xyz.onion
+features.i2p: healthy abc123def456ghi789jkl012mno345pqr678stu901vwx234yz.b32.i2p provider=i2pd state=running
+features.geoip: enabled
+
 # 6. Checks
 checks.database: ok
 checks.cache: ok
 checks.disk: ok
 checks.scheduler: ok
 checks.tor: ok
+checks.geoip_country: ok
+checks.blocklist_ads: ok
+checks.data_countries: degraded
 
 # 7. Stats
 stats.requests_total: 1234567
@@ -18228,7 +18315,7 @@ Same underlying health response as `/server/healthz`, but formatted using the st
 | `features.i2p.state` | Full lifecycle: `disabled`, `no_provider`, `starting`, `building`, `running`, `error` (the same values as CLI `--status`, PART 31.2) |
 | `features.i2p.hostname` | `.b32.i2p` address (if running) |
 | `features.i2p.provider` | i2pd, sam, or none |
-| `checks.*` | Service health (ok, degraded, error) |
+| `checks.*` | Service health (ok, degraded, error), including dataset checks (`geoip_*`, `blocklist_*`, `data_*`) |
 | `stats.requests_total` | Total requests served |
 | `stats.requests_24h` | Requests in last 24 hours |
 | `stats.active_connections` | Current active connections |
