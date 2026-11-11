@@ -79,7 +79,7 @@ AI reads AI.md for the first time
 │   │   ├─► 3. Create IDEA.md if it doesn't exist
 │   │   │   - If a long-form/project-specific `CLAUDE.md` or `.claude/CLAUDE.md` already exists, MIGRATE its valid project description, project variables, and business logic into IDEA.md first
 │   │   │   - Do NOT copy loader-only instructions, duplicated AI.md rules, or stale implementation text into IDEA.md
-│   │   │   - On creation, write `internal_name: <project_name>` to `## Project variables` and warn the user it is stable
+│   │   │   - On creation, write `internal_name: <project_name>` and `internal_org: <project_org>` to `## Project variables` and warn the user both are stable
 │   │   │
 │   │   └─► 4. Create or update IDEA.md `## Project variables`:
 │   │       - project_name  → actual project name (lowercase)
@@ -48104,6 +48104,7 @@ project_org:     {project_org}
 internal_org:    {project_org}
 # STABLE — equals project_name on first install; change only on an explicit rename or fork reset
 internal_name:   {project_name}
+internal_org:    {project_org}
 app_name:        {project_name}
 official_site:   https://{fqdn}
 maintainer_name: {maintainer_name — defaults to {project_org} if unset}
@@ -48155,6 +48156,7 @@ project_name:    jokes-api
 project_org:     casjay
 internal_org:    casjay
 internal_name:   jokes-api
+internal_org:    casjay
 app_name:        Jokes API
 official_site:   https://jokes.example.com
 maintainer_name: Jane Doe
@@ -48208,6 +48210,7 @@ project_name:    linkshort
 project_org:     casjay
 internal_org:    casjay
 internal_name:   linkshort
+internal_org:    casjay
 app_name:        LinkShort
 official_site:   https://short.example.com
 maintainer_name: Jane Doe
@@ -48261,6 +48264,7 @@ project_name:    weather-api
 project_org:     casjay
 internal_org:    casjay
 internal_name:   weather-api
+internal_org:    casjay
 app_name:        Weather API
 official_site:   https://weather.example.com
 maintainer_name: Jane Doe
