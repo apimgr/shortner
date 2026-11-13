@@ -21387,22 +21387,52 @@ This is OPTIONAL and only applies to apps where public short paths are a core fe
 ```go
 var reservedNames = []string{
     // System routes
-    "api", "server", "static", "assets", "healthz", "metrics",
-    "webhook", "webhooks",
+    "api", "server", "static", "assets", "healthz", "health", "status", "metrics", "version",
+    "webhook", "webhooks", "internal", "private", "public", "well-known", "cgi-bin", "tmp", "temp",
+    "backup", "backups", "debug", "test", "dev", "staging", "null", "undefined", "nil", "true",
+    "false", "default", "index", "home", "main",
+
+    // Privileged and administrative names
+    "admin", "administrator", "administration", "root", "superuser", "sysadmin", "sysop", "system",
+    "sys", "operator", "owner", "staff", "moderator", "mod", "manager", "management", "manage",
+    "console", "panel", "cpanel", "backend", "config", "configuration", "wp-admin", "wp-login",
+    "phpmyadmin", "adminer", "webmaster", "postmaster", "hostmaster", "abuse", "noreply",
+    "no-reply", "bot", "bots", "anonymous", "guest", "everyone", "nobody", "me", "self", "www",
+    "mail", "ftp", "smtp", "imap", "pop", "ns", "ns1", "ns2", "localhost",
+
+    // Account and auth routes
+    "login", "logout", "register", "signup", "signin", "signout", "auth", "oauth", "callback",
+    "account", "accounts", "profile", "settings", "dashboard", "user", "users", "org", "orgs",
+    "organization", "organizations", "team", "teams", "group", "groups", "password", "reset",
+    "verify", "invite", "invites", "preferences",
 
     // Common paths
-    "search", "explore", "discover", "trending",
-    "help", "support", "docs", "documentation",
-    "about", "contact", "terms", "privacy", "legal", "security",
+    "search", "explore", "discover", "trending", "help", "support", "docs", "documentation",
+    "about", "contact", "terms", "privacy", "legal", "security", "info", "new", "edit", "delete",
+    "create", "update", "all", "download", "downloads", "upload", "billing", "sales", "hello",
 
     // Technical
-    "graphql", "mcp", "swagger", "rest", "rpc", "ws", "websocket",
-    "cdn", "media", "uploads", "files", "images",
-    ".well-known", "robots.txt", "sitemap.xml", "feed.xml", "rss.xml", "favicon.ico",
+    "graphql", "mcp", "swagger", "rest", "rpc", "ws", "websocket", "cdn", "media", "uploads",
+    "files", "images", "css", "js", "fonts", "img",
+
+    // Conventional web files and feeds
+    ".well-known", "robots.txt", "sitemap.xml", "feed.xml", "rss.xml", "atom.xml", "favicon.ico",
+    "manifest.json", "humans.txt", "security.txt", "llms.txt", "ads.txt", "feed", "rss", "atom",
+    "sitemap", "robots", "favicon", "manifest", "browserconfig.xml", "sw.js", "service-worker.js",
 
     // Project-specific (add yours in IDEA.md)
 }
 ```
+
+**Reserved-name matching (applies to EVERY name a user, org, project or admin can choose):** the check runs on usernames, org and team slugs, project resource slugs, vanity routes and short codes or aliases (a link shortener's `/{code}` included), not only on registration. A candidate is reserved when, after trimming, lowercasing, Unicode NFKC normalization and removing one leading `@`:
+
+- it equals a name in the list above, or
+- it begins with `.` or `_`, or
+- it ends with a file extension (`.xml`, `.txt`, `.json`, `.ico`, `.html`, `.htm`, `.php`, `.js`, `.css`, `.map`, `.webmanifest`, `.png`, `.jpg`, `.svg`, `.zip`), or
+- it is `{reserved}` followed by digits (`admin1`, `root2`) for the names under "Privileged and administrative names".
+
+The reserved list is checked BEFORE collision lookups, never loosened by configuration, and may only be extended by `IDEA.md`. Reserved names return the same validation error as a taken name (no hint about which rule matched). Tests cover the list, case variants, Unicode lookalikes normalized by NFKC, the extension rule and the digit-suffix rule.
+
 
 **Resolution Logic:**
 
