@@ -17900,7 +17900,7 @@ type StatsInfo struct {
 
 ### /server/healthz Response Formats
 
-**Follows standard content negotiation (PART 14). Browser gets HTML, CLI gets text, API gets JSON.**
+**Follows standard content negotiation (PART 14). The frontend routes (`/server/healthz`, `/healthz`) use the frontend rules, `/api/{api_version}/server/healthz` uses the API rules, and all three render from one shared health result: browsers get HTML, curl/wget and `Accept: text/plain` get formatted text, and `Accept: application/json` gets JSON (the API default).**
 
 **Optional root alias:** if `server.healthz.root.enabled: true`, `/healthz` MUST serve these exact same responses by mounting the same handler as `/server/healthz`. No redirect, no forked logic, no separate formatter path.
 
@@ -18282,10 +18282,11 @@ stats.active_connections: 42
 ### /api/{api_version}/server/healthz (JSON default)
 
 Same underlying health response as `/server/healthz`, but formatted using the standard `/api/**` response rules from PART 14:
-- default: JSON
 - `.txt`: text
+- `Accept: application/json`: JSON (beats non-interactive detection)
 - `Accept: text/plain`: text
-- non-interactive API clients: text
+- non-interactive API clients without an explicit `Accept`: text
+- default: JSON
 
 ### Health Response Fields
 
@@ -18852,7 +18853,7 @@ tail -c 2 file.txt | od -An -tx1
 |----------|---------|---------|----------|------------|
 | `/` (public pages) | HTML | HTML | Text | HTML |
 | `/api/{api_version}/*` | JSON | JSON | Text | JSON |
-| `/server/healthz` | HTML | HTML | Text | HTML (standard frontend rules — no special healthz rules, see PART 13) |
+| `/server/healthz`, `/healthz` | HTML | HTML | Text | JSON (`Accept: application/json`) |
 | `*.txt` extension | Text | Text | Text | Text |
 
 ### Smart Content Negotiation
@@ -18862,6 +18863,7 @@ tail -c 2 file.txt | od -An -tx1
 - Our client → JSON (renders own TUI/GUI)
 - Text browsers (lynx, w3m) → HTML without JavaScript (`renderNoJSHTML()`)
 - HTTP tools (curl, wget) → Formatted text (`HTML2TextConverter()`)
+- Accept: application/json → JSON (same data as the API route)
 - Accept: text/plain → Formatted text
 
 **Frontend routes do NOT need `.txt` extension - smart detection handles it.**
@@ -18875,8 +18877,9 @@ tail -c 2 file.txt | od -An -tx1
 | Condition | Response Format |
 |-----------|-----------------|
 | Default (browser, API client) | JSON |
-| Non-interactive client detected | Plain text (raw data) |
+| Non-interactive client detected (no explicit `Accept` header) | Plain text (raw data) |
 | `.txt` extension (e.g., `/api/{api_version}/joke.txt`) | Plain text (raw data) |
+| `Accept: application/json` header (beats non-interactive detection) | JSON |
 | `Accept: text/plain` header | Plain text (raw data) |
 
 **API routes return raw data as plain text (NOT HTML2TextConverter) because there's no HTML to convert.**
@@ -18897,18 +18900,23 @@ func getAPIResponseFormat(r *http.Request) string {
         return "text"
     }
 
-    // 2. Check Accept header
+    // 2. Explicit JSON request beats non-interactive client detection
     accept := r.Header.Get("Accept")
+    if strings.Contains(accept, "application/json") {
+        return "json"
+    }
+
+    // 3. Explicit plain-text request
     if strings.Contains(accept, "text/plain") {
         return "text"
     }
 
-    // 3. Check if non-interactive client (uses same detection as frontend)
+    // 4. Check if non-interactive client (uses same detection as frontend)
     if isNonInteractiveClient(r) {
         return "text"
     }
 
-    // 4. Default to JSON
+    // 5. Default to JSON
     return "json"
 }
 ```
@@ -18941,7 +18949,7 @@ func getAPIResponseFormat(r *http.Request) string {
 
 **API with `.txt` extension:**
 - `curl -q -LSsf https://api.example.com/api/{api_version}/joke/random.txt` → Just the joke text
-- `curl -q -LSsf https://api.example.com/api/{api_version}/server/healthz.txt` → "OK" or "ERROR: ..."
+- `curl -q -LSsf https://api.example.com/api/{api_version}/server/healthz.txt` → the flat `key: value` health text (`status: healthy`, `checks.*`; see "Plain Text — API" under "/server/healthz Response Formats")
 - Scripts that need plain output without JSON parsing
 
 **Frontend with smart detection:**
@@ -18962,19 +18970,23 @@ func getAPIResponseFormat(r *http.Request) string {
 | Priority | Method | Example | Returns |
 |----------|--------|---------|---------|
 | **1** | `.txt` extension | `/api/{api_version}/joke.txt` | Plain text (ALWAYS) |
-| **2** | `Accept: text/plain` header | `Accept: text/plain` | Plain text |
-| **3** | Non-interactive client detected (HTTP tools: curl, wget) | `curl /api/{api_version}/joke` | Plain text |
-| **4** | Default (browsers, API clients, `Accept: application/json`) | `/api/{api_version}/joke` | JSON |
+| **2** | `Accept: application/json` header | `Accept: application/json` | JSON (an explicit header beats client detection) |
+| **3** | `Accept: text/plain` header | `Accept: text/plain` | Plain text |
+| **4** | Non-interactive client detected (HTTP tools: curl, wget, httpie, empty UA) | `curl /api/{api_version}/joke` with no explicit `Accept` | Plain text |
+| **5** | Default (browsers, API clients) | `/api/{api_version}/joke` | JSON |
 
 **For frontend routes (`/**`), response format is determined in this order (the MCP aliases are API-class and never use it — see "MCP Endpoint"):**
 
 | Priority | Method | Example | Returns |
 |----------|--------|---------|---------|
-| **1** | `Accept: text/html` header | `Accept: text/html` | HTML |
-| **2** | `Accept: text/plain` header | `Accept: text/plain` | Plain text |
-| **3** | User-Agent (browser detection) | Browser visit | HTML |
-| **4** | CLI/curl (no browser UA) | `curl /joke` | Plain text |
-| **5** | Default | Any request | HTML |
+| **1** | `Accept: application/json` header | `Accept: application/json` | JSON (the same data the API route returns) |
+| **2** | `Accept: text/html` header | `Accept: text/html` | HTML |
+| **3** | `Accept: text/plain` header | `Accept: text/plain` | Plain text |
+| **4** | User-Agent (browser detection) | Browser visit | HTML |
+| **5** | CLI/curl (no browser UA) | `curl /joke` | Plain text |
+| **6** | Default | Any request | HTML |
+
+**Health endpoints (`/server/healthz`, `/healthz`) are ordinary frontend routes:** `Accept: application/json` returns the bare health JSON, byte-identical to `/api/{api_version}/server/healthz`. There is no healthz-specific negotiation.
 
 **Summary:**
 - API routes: Support .txt extension + Accept headers + smart defaults
@@ -18993,9 +19005,11 @@ func detectResponseFormat(r *http.Request) string {
         return "application/json"
     }
 
-    // Frontend routes: explicit Accept header wins (text/html, then text/plain)
+    // Frontend routes: explicit Accept header wins (application/json, then text/html, then text/plain)
     accept := r.Header.Get("Accept")
     switch {
+    case strings.Contains(accept, "application/json"):
+        return "application/json"
     case strings.Contains(accept, "text/html"):
         return "text/html"
     case strings.Contains(accept, "text/plain"):
