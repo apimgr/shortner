@@ -18633,7 +18633,7 @@ Plain text, no color. The first line is always `{project_name} {project_version}
 | **Versioning** | All canonical API routes MUST be versioned; the only exceptions are listed in "Unversioned API Exceptions" below | `/api/items` | `/api/{api_version}/items` |
 | **Plural nouns** | All resource names MUST be plural | `/api/{api_version}/item` | `/api/{api_version}/items` |
 | **Lowercase** | All routes MUST be lowercase | `/api/{api_version}/Items` | `/api/{api_version}/items` |
-| **Hyphens** | Multi-word routes use hyphens | `/api/{api_version}/api_keys` | `/api/{api_version}/api-keys` |
+| **Hyphens** | Multi-word routes use hyphens | `/api/{api_version}/saved_searches` | `/api/{api_version}/saved-searches` |
 | **No trailing slash** | Routes MUST NOT end with `/` (see PART 16 URL Normalization) | `/api/{api_version}/items/` | `/api/{api_version}/items` |
 | **No verbs** | Routes are nouns, not actions | `/api/{api_version}/getItems` | `GET /api/{api_version}/items` |
 
@@ -18763,7 +18763,7 @@ Before adding ANY route, verify:
 
 - [ ] Is it versioned? (`/api/{api_version}/...`, unless it is listed in "Unversioned API Exceptions")
 - [ ] Is the resource name plural? (`users`, not `user`)
-- [ ] Is it lowercase with hyphens? (`api-keys`, not `API_Keys`)
+- [ ] Is it lowercase with hyphens? (`saved-searches`, not `Saved_Searches`)
 - [ ] Does the route follow scope rules? (`/server/`, `/api/{api_version}/*`)
 - [ ] If user-facing: does frontend route exist and work?
 - [ ] If system-only: documented as API-only?
@@ -49333,7 +49333,7 @@ make docker
 - [ ] ALL canonical API routes are versioned (`/api/{api_version}/...`); only the paths in "Unversioned API Exceptions" are not
 - [ ] ALL resource names are plural (`users`, not `user`)
 - [ ] ALL routes are lowercase
-- [ ] Multi-word routes use hyphens (`api-keys`, not `api_keys`)
+- [ ] Multi-word routes use hyphens (`saved-searches`, not `saved_searches`)
 - [ ] No trailing slashes on routes
 - [ ] No verbs in routes (use HTTP methods)
 - [ ] Every API route has corresponding frontend route
