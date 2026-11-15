@@ -15,6 +15,7 @@ import (
 type SecurityReport struct {
 	TrackingID   string
 	ReceivedAt   time.Time
+	UpdatedAt    time.Time
 	Severity     string
 	Component    string
 	Status       string
@@ -23,6 +24,13 @@ type SecurityReport struct {
 	LastViewedAt time.Time
 	DisclosureAt time.Time
 	Comments     string
+}
+
+// SecurityReportUpdate contains operator supplied fields for one report.
+type SecurityReportUpdate struct {
+	Status       *string
+	Comments     *string
+	DisclosureAt *time.Time
 }
 
 const (
@@ -62,9 +70,9 @@ func InsertSecurityReport(ctx context.Context, sqlDB *sql.DB, rep SecurityReport
 	defer cancel()
 
 	_, err := sqlDB.ExecContext(ctx,
-		`INSERT INTO security_reports (tracking_id, received_at, severity, component, status, sealed, closed_at, last_viewed_at, disclosure_at, comments)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		rep.TrackingID, rep.ReceivedAt.Unix(), rep.Severity, rep.Component, StatusReceived, rep.Sealed,
+		`INSERT INTO security_reports (tracking_id, received_at, updated_at, severity, component, status, sealed, closed_at, last_viewed_at, disclosure_at, comments)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		rep.TrackingID, rep.ReceivedAt.Unix(), rep.ReceivedAt.Unix(), rep.Severity, rep.Component, StatusReceived, rep.Sealed,
 		unixOrZero(rep.ClosedAt), unixOrZero(rep.LastViewedAt), unixOrZero(rep.DisclosureAt), rep.Comments)
 	if err != nil {
 		return HandleQueryError(err)
@@ -79,22 +87,110 @@ func GetSecurityReport(ctx context.Context, sqlDB *sql.DB, trackingID string) (*
 	defer cancel()
 
 	var (
-		rep                                    SecurityReport
-		received, closed, viewed, disclosureAt int64
+		rep                                             SecurityReport
+		received, updated, closed, viewed, disclosureAt int64
 	)
 	err := sqlDB.QueryRowContext(ctx,
-		`SELECT tracking_id, received_at, severity, component, status, sealed, closed_at, last_viewed_at, disclosure_at, comments
+		`SELECT tracking_id, received_at, updated_at, severity, component, status, sealed, closed_at, last_viewed_at, disclosure_at, comments
 		   FROM security_reports WHERE tracking_id = ?`, trackingID).
-		Scan(&rep.TrackingID, &received, &rep.Severity, &rep.Component, &rep.Status, &rep.Sealed,
+		Scan(&rep.TrackingID, &received, &updated, &rep.Severity, &rep.Component, &rep.Status, &rep.Sealed,
 			&closed, &viewed, &disclosureAt, &rep.Comments)
 	if err != nil {
 		return nil, HandleQueryError(err)
 	}
 	rep.ReceivedAt = time.Unix(received, 0).UTC()
+	rep.UpdatedAt = time.Unix(updated, 0).UTC()
 	rep.ClosedAt = timeFromUnixOrZero(closed)
 	rep.LastViewedAt = timeFromUnixOrZero(viewed)
 	rep.DisclosureAt = timeFromUnixOrZero(disclosureAt)
 	return &rep, nil
+}
+
+// ListSecurityReports returns triage metadata only, optionally filtered by status.
+func ListSecurityReports(ctx context.Context, sqlDB *sql.DB, status string) ([]SecurityReport, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	query := `SELECT tracking_id, received_at, updated_at, severity, component, status FROM security_reports`
+	args := []any{}
+	if status != "" {
+		query += ` WHERE status = ?`
+		args = append(args, status)
+	}
+	query += ` ORDER BY received_at DESC, tracking_id`
+	rows, err := sqlDB.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, HandleQueryError(err)
+	}
+	defer rows.Close()
+	var reports []SecurityReport
+	for rows.Next() {
+		var rep SecurityReport
+		var received, updated int64
+		if err := rows.Scan(&rep.TrackingID, &received, &updated, &rep.Severity, &rep.Component, &rep.Status); err != nil {
+			return nil, HandleQueryError(err)
+		}
+		rep.ReceivedAt, rep.UpdatedAt = time.Unix(received, 0).UTC(), time.Unix(updated, 0).UTC()
+		reports = append(reports, rep)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, HandleQueryError(err)
+	}
+	return reports, nil
+}
+
+// UpdateSecurityReport applies metadata changes while enforcing forward-only transitions.
+func UpdateSecurityReport(ctx context.Context, sqlDB *sql.DB, trackingID string, update SecurityReportUpdate, now time.Time) (*SecurityReport, string, error) {
+	current, err := GetSecurityReport(ctx, sqlDB, trackingID)
+	if err != nil {
+		return nil, "", err
+	}
+	newStatus := current.Status
+	if update.Status != nil {
+		if !IsSecurityReportStatus(*update.Status) {
+			return nil, "", fmt.Errorf("db: invalid security report status %q", *update.Status)
+		}
+		if !securityStatusForward(current.Status, *update.Status) {
+			return nil, "", fmt.Errorf("db: security report status cannot move from %q to %q", current.Status, *update.Status)
+		}
+		newStatus = *update.Status
+	}
+	comments := current.Comments
+	if update.Comments != nil {
+		if len([]rune(*update.Comments)) > 2000 {
+			return nil, "", fmt.Errorf("db: security report comment exceeds 2000 characters")
+		}
+		comments = *update.Comments
+	}
+	disclosure := current.DisclosureAt
+	if update.DisclosureAt != nil {
+		disclosure = update.DisclosureAt.UTC()
+	}
+	closed := current.ClosedAt
+	if newStatus == StatusDisclosed || newStatus == StatusWontFix {
+		if closed.IsZero() {
+			closed = now.UTC()
+		}
+	}
+	_, err = sqlDB.ExecContext(ctx, `UPDATE security_reports SET status=?, comments=?, disclosure_at=?, closed_at=?, updated_at=? WHERE tracking_id=?`, newStatus, comments, unixOrZero(disclosure), unixOrZero(closed), unixOrZero(now), trackingID)
+	if err != nil {
+		return nil, "", HandleQueryError(err)
+	}
+	updated, err := GetSecurityReport(ctx, sqlDB, trackingID)
+	return updated, current.Status, err
+}
+
+func securityStatusForward(old, next string) bool {
+	if old == next {
+		return true
+	}
+	if old == StatusDisclosed || old == StatusWontFix {
+		return false
+	}
+	if next == StatusWontFix {
+		return true
+	}
+	rank := map[string]int{StatusReceived: 0, StatusTriaged: 1, StatusConfirmed: 2, StatusPatching: 3, StatusDisclosed: 4}
+	return rank[next] > rank[old]
 }
 
 // TryTouchSecurityReportView atomically claims a one-shot status-page view.

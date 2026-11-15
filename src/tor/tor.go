@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cretz/bine/control"
 	bine "github.com/cretz/bine/tor"
 	"github.com/pires/go-proxyproto"
 
@@ -197,6 +198,29 @@ func (s *Service) Healthy() bool {
 	}
 	_, err := s.tor.Control.GetInfo("version")
 	return err == nil
+}
+
+// CircuitEstablished reports Tor's own circuit state from the control
+// protocol's status/circuit-established key, not a process or control-port
+// liveness probe.
+func (s *Service) CircuitEstablished() bool {
+	if s == nil || s.tor == nil || s.tor.Control == nil {
+		return false
+	}
+	values, err := s.tor.Control.GetInfo("status/circuit-established")
+	return circuitEstablished(values, err)
+}
+
+func circuitEstablished(values []*control.KeyVal, err error) bool {
+	if err != nil {
+		return false
+	}
+	for _, value := range values {
+		if value != nil && value.Key == "status/circuit-established" {
+			return value.Val == "1"
+		}
+	}
+	return false
 }
 
 // Close stops the Tor process and releases the backend listener.

@@ -1,0 +1,20 @@
+{{define "pwa"}}
+<section id="pwa-install-banner" class="pwa-banner" role="region" aria-labelledby="pwa-install-title" hidden>
+  <div>
+    <h2 id="pwa-install-title">{{t .Base.Lang "pwa.install_title"}}</h2>
+    <p>{{t .Base.Lang "pwa.install_description"}}</p>
+    <p id="pwa-ios-help" hidden>{{t .Base.Lang "pwa.ios_install_help"}}</p>
+  </div>
+  <div class="pwa-banner-actions">
+    <button type="button" data-action="install-app">{{t .Base.Lang "pwa.install"}}</button>
+    <button type="button" data-action="dismiss-install">{{t .Base.Lang "common.dismiss"}}</button>
+  </div>
+</section>
+<section id="pwa-update-banner" class="pwa-banner" role="status" aria-live="polite" hidden>
+  <p>{{t .Base.Lang "pwa.update_available"}}</p>
+  <div class="pwa-banner-actions">
+    <button type="button" data-action="update-app">{{t .Base.Lang "pwa.update_now"}}</button>
+    <button type="button" data-action="dismiss-update">{{t .Base.Lang "common.dismiss"}}</button>
+  </div>
+</section>
+{{end}}

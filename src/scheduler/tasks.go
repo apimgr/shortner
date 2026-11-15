@@ -4,7 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
+	"strings"
+	"sync"
 	"time"
+
+	"github.com/shirou/gopsutil/v3/disk"
 
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/certmgr"
@@ -33,10 +38,16 @@ var pendingBuiltins = []builtinDef{
 
 // Deps are the runtime dependencies real (non-pending) built-in tasks need.
 type Deps struct {
-	DB *sql.DB
+	DB     *sql.DB
+	Tokens config.Tokens
 	// Logs are rotated by log_rotation, per AI.md PART 18 "log_rotation" ->
 	// "Applies each log's rotate/keep/compress policy from server.logs".
-	Logs []*applog.Logger
+	Logs                    []*applog.Logger
+	DiskPaths               []string
+	DiskLowThresholdPercent float64
+	DiskLowRepeat           time.Duration
+	DiskLowEnabled          bool
+	DiskCheckInterval       string
 	// TLSEnabled/ConfigDir/FQDN/DevTLD feed ssl_renewal's proactive-renewal
 	// check (AI.md PART 15 "NeedsRenewal" window, called from PART 18).
 	TLSEnabled bool
@@ -59,6 +70,7 @@ type Deps struct {
 	// method is inert on a nil receiver, which is exactly PART 17's
 	// "no SMTP = no email, ever" behaviour.
 	Notifier *notify.Notifier
+	Logger   *applog.Logger
 	// Tor and I2P feed tor_health and i2p_health (AI.md PART 18, PART 31).
 	// Nil means that overlay network is not configured at all, in which
 	// case the task registers and honestly skips.
@@ -84,8 +96,9 @@ func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
 	}
 
 	tasks := []TaskDef{
-		{ID: "token_cleanup", Name: "Token Cleanup", Run: tokenCleanupTask(deps.DB)},
+		{ID: "token_cleanup", Name: "Token Cleanup", Run: tokenCleanupTask(deps.DB, deps.Tokens)},
 		{ID: "log_rotation", Name: "Log Rotation", Run: logRotationTask(deps.Logs)},
+		{ID: "disk_check", Name: "Disk Space Check", Run: diskCheckTask(deps)},
 		{ID: "healthcheck_self", Name: "Self Health Check", Run: healthcheckSelfTask(deps.DB)},
 		{ID: "ssl_renewal", Name: "SSL Certificate Renewal", Run: sslRenewalTask(deps)},
 		{ID: "geoip_update", Name: "GeoIP Database Update", Run: geoipUpdateTask(deps)},
@@ -103,6 +116,13 @@ func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
 		s := get(tasks[i].ID)
 		tasks[i].Schedule = s.Schedule
 		tasks[i].Enabled = s.Enabled
+		if tasks[i].ID == "disk_check" && tasks[i].Schedule == "" {
+			interval := deps.DiskCheckInterval
+			if interval == "" {
+				interval = "5m"
+			}
+			tasks[i].Schedule, tasks[i].Enabled = "@every "+interval, true
+		}
 	}
 	return tasks
 }
@@ -119,15 +139,16 @@ func pendingTask(reason string) TaskFunc {
 	}
 }
 
-// tokenCleanupTask removes expired API tokens, per AI.md PART 18
-// "token_cleanup".
-func tokenCleanupTask(sqlDB *sql.DB) TaskFunc {
+// tokenCleanupTask preserves owner-visible expired linked tokens, per AI.md
+// PART 8, and purges idle owners without resources when configured.
+func tokenCleanupTask(sqlDB *sql.DB, tokens config.Tokens) TaskFunc {
 	return func(ctx context.Context) error {
-		removed, err := db.CleanupExpiredTokens(ctx, sqlDB)
-		if err != nil {
+		if _, err := db.CleanupExpiredTokens(ctx, sqlDB); err != nil {
 			return fmt.Errorf("token_cleanup: %w", err)
 		}
-		_ = removed
+		if _, err := db.PurgeIdleOwners(ctx, sqlDB, tokens.IdlePurgeDays); err != nil {
+			return fmt.Errorf("token_cleanup idle owners: %w", err)
+		}
 		return nil
 	}
 }
@@ -141,7 +162,7 @@ func logRotationTask(logs []*applog.Logger) TaskFunc {
 			if l == nil {
 				continue
 			}
-			if err := l.Rotate(); err != nil && firstErr == nil {
+			if err := l.RotateIfDue(time.Now()); err != nil && firstErr == nil {
 				firstErr = err
 			}
 		}
@@ -229,4 +250,100 @@ func geoipUpdateTask(deps Deps) TaskFunc {
 		deps.GeoIP.Reload()
 		return nil
 	}
+}
+
+type diskWarning struct {
+	last   time.Time
+	warned bool
+}
+
+var diskWarnings = struct {
+	sync.Mutex
+	volumes map[string]diskWarning
+}{volumes: make(map[string]diskWarning)}
+
+func diskCheckTask(deps Deps) TaskFunc {
+	return func(ctx context.Context) error {
+		if len(deps.DiskPaths) == 0 {
+			return nil
+		}
+		threshold := deps.DiskLowThresholdPercent
+		if threshold <= 0 || threshold > 100 {
+			threshold = 85
+		}
+		repeat := deps.DiskLowRepeat
+		if repeat <= 0 {
+			repeat = 24 * time.Hour
+		}
+		now := time.Now().UTC()
+		seen := make(map[string]bool)
+		for _, path := range deps.DiskPaths {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+			usage, err := disk.UsageWithContext(ctx, path)
+			if err != nil {
+				return fmt.Errorf("disk_check %s: %w", path, err)
+			}
+			volume := volumeKey(path)
+			if seen[volume] {
+				continue
+			}
+			seen[volume] = true
+			diskWarnings.Lock()
+			state := diskWarnings.volumes[volume]
+			if usage.UsedPercent >= threshold {
+				shouldWarn := !state.warned || now.Sub(state.last) >= repeat
+				if shouldWarn {
+					state.warned, state.last = true, now
+					diskWarnings.volumes[volume] = state
+					diskWarnings.Unlock()
+					if deps.Logger != nil {
+						_ = deps.Logger.WriteLine(applog.LevelWarn, fmt.Sprintf("disk space low: path=%q used_percent=%.2f free_bytes=%d\n", path, usage.UsedPercent, usage.Free))
+					}
+					if deps.DiskLowEnabled {
+						_ = deps.Notifier.Send(notify.EventDiskLow, map[string]string{"path": path, "used_percent": fmt.Sprintf("%.2f", usage.UsedPercent), "free_bytes": fmt.Sprint(usage.Free)})
+					}
+				} else {
+					diskWarnings.volumes[volume] = state
+					diskWarnings.Unlock()
+				}
+			} else if state.warned && usage.UsedPercent <= threshold-5 {
+				delete(diskWarnings.volumes, volume)
+				diskWarnings.Unlock()
+				if deps.Logger != nil {
+					_ = deps.Logger.WriteLine(applog.LevelInfo, fmt.Sprintf("disk space recovered: path=%q used_percent=%.2f free_bytes=%d\n", path, usage.UsedPercent, usage.Free))
+				}
+			} else {
+				diskWarnings.Unlock()
+			}
+		}
+		return nil
+	}
+}
+
+func volumeKey(path string) string {
+	clean := filepath.Clean(path)
+	partitions, err := disk.Partitions(false)
+	if err != nil {
+		return clean
+	}
+	bestMount, device := "", ""
+	for _, partition := range partitions {
+		mount := filepath.Clean(partition.Mountpoint)
+		rel, err := filepath.Rel(mount, clean)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && len(mount) > len(bestMount) {
+			bestMount, device = mount, partition.Device
+		}
+	}
+	if device != "" {
+		return device
+	}
+	resolved, err := filepath.EvalSymlinks(clean)
+	if err == nil {
+		return filepath.Clean(resolved)
+	}
+	return clean
 }

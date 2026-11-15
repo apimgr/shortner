@@ -258,7 +258,17 @@ func decodeResponse(resp *http.Response, out any) error {
 	if out == nil || len(data) == 0 {
 		return nil
 	}
-	if err := json.Unmarshal(data, out); err != nil {
+	// The API's canonical success envelope wraps resources in `data`; accept
+	// direct payloads as well for endpoints whose specification defines one.
+	payload := data
+	var envelope struct {
+		OK   *bool           `json:"ok"`
+		Data json.RawMessage `json:"data"`
+	}
+	if json.Unmarshal(data, &envelope) == nil && envelope.OK != nil && *envelope.OK && len(envelope.Data) > 0 && string(envelope.Data) != "null" {
+		payload = envelope.Data
+	}
+	if err := json.Unmarshal(payload, out); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 // click_count."
 type Link struct {
 	ID             int64
+	OwnerID        string
 	ShortCode      string
 	DestinationURL string
 	CreatedAt      time.Time
@@ -43,12 +43,20 @@ const maxShortCodeAttempts = 10
 // keyspace)"). Query has a 10s timeout per AI.md PART 10 "Query
 // Timeouts" (INSERT tier).
 func CreateLinkAutoCode(ctx context.Context, sqlDB *sql.DB, destinationURL string, expiresAt *time.Time) (*Link, error) {
+	ownerID, err := CreateOwner(ctx, sqlDB)
+	if err != nil {
+		return nil, err
+	}
+	return CreateLinkAutoCodeOwned(ctx, sqlDB, ownerID, destinationURL, expiresAt)
+}
+
+func CreateLinkAutoCodeOwned(ctx context.Context, sqlDB *sql.DB, ownerID, destinationURL string, expiresAt *time.Time) (*Link, error) {
 	for attempt := 0; attempt < maxShortCodeAttempts; attempt++ {
 		code, err := security.GenerateShortCode()
 		if err != nil {
 			return nil, err
 		}
-		link, err := insertLink(ctx, sqlDB, code, destinationURL, expiresAt)
+		link, err := insertLink(ctx, sqlDB, ownerID, code, destinationURL, expiresAt)
 		if err == nil {
 			return link, nil
 		}
@@ -65,7 +73,15 @@ func CreateLinkAutoCode(ctx context.Context, sqlDB *sql.DB, destinationURL strin
 // responsibility (see security.ValidateSlugFormat / IsReservedSlug) —
 // this function only enforces the DB-level uniqueness constraint.
 func CreateLinkCustomSlug(ctx context.Context, sqlDB *sql.DB, slug, destinationURL string, expiresAt *time.Time) (*Link, error) {
-	link, err := insertLink(ctx, sqlDB, slug, destinationURL, expiresAt)
+	ownerID, err := CreateOwner(ctx, sqlDB)
+	if err != nil {
+		return nil, err
+	}
+	return CreateLinkCustomSlugOwned(ctx, sqlDB, ownerID, slug, destinationURL, expiresAt)
+}
+
+func CreateLinkCustomSlugOwned(ctx context.Context, sqlDB *sql.DB, ownerID, slug, destinationURL string, expiresAt *time.Time) (*Link, error) {
+	link, err := insertLink(ctx, sqlDB, ownerID, slug, destinationURL, expiresAt)
 	if err != nil {
 		if isUniqueConstraintError(err) {
 			return nil, fmt.Errorf("db: create link: %w", ErrSlugTaken)
@@ -79,7 +95,7 @@ func CreateLinkCustomSlug(ctx context.Context, sqlDB *sql.DB, slug, destinationU
 // link's short_code.
 var ErrSlugTaken = fmt.Errorf("slug already in use")
 
-func insertLink(ctx context.Context, sqlDB *sql.DB, code, destinationURL string, expiresAt *time.Time) (*Link, error) {
+func insertLink(ctx context.Context, sqlDB *sql.DB, ownerID, code, destinationURL string, expiresAt *time.Time) (*Link, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -89,8 +105,8 @@ func insertLink(ctx context.Context, sqlDB *sql.DB, code, destinationURL string,
 	}
 
 	res, err := sqlDB.ExecContext(ctx,
-		`INSERT INTO links (short_code, destination_url, expires_at) VALUES (?, ?, ?)`,
-		code, destinationURL, expires)
+		`INSERT INTO links (short_code, destination_url, expires_at, owner_id) VALUES (?, ?, ?, ?)`,
+		code, destinationURL, expires, ownerID)
 	if err != nil {
 		return nil, HandleQueryError(err)
 	}
@@ -109,7 +125,7 @@ func GetLinkByShortCode(ctx context.Context, sqlDB *sql.DB, code string) (*Link,
 	defer cancel()
 
 	row := sqlDB.QueryRowContext(ctx,
-		`SELECT id, short_code, destination_url, created_at, expires_at, click_count
+		`SELECT id, short_code, destination_url, created_at, expires_at, click_count, owner_id
 		 FROM links WHERE short_code = ?`, code)
 	return scanLink(row)
 }
@@ -121,7 +137,7 @@ func GetLinkByID(ctx context.Context, sqlDB *sql.DB, id int64) (*Link, error) {
 	defer cancel()
 
 	row := sqlDB.QueryRowContext(ctx,
-		`SELECT id, short_code, destination_url, created_at, expires_at, click_count
+		`SELECT id, short_code, destination_url, created_at, expires_at, click_count, owner_id
 		 FROM links WHERE id = ?`, id)
 	return scanLink(row)
 }
@@ -131,7 +147,7 @@ func scanLink(row *sql.Row) (*Link, error) {
 	var createdAt int64
 	var expiresAt sql.NullInt64
 
-	if err := row.Scan(&l.ID, &l.ShortCode, &l.DestinationURL, &createdAt, &expiresAt, &l.ClickCount); err != nil {
+	if err := row.Scan(&l.ID, &l.ShortCode, &l.DestinationURL, &createdAt, &expiresAt, &l.ClickCount, &l.OwnerID); err != nil {
 		return nil, HandleQueryError(err)
 	}
 
@@ -181,11 +197,6 @@ func DeleteLink(ctx context.Context, sqlDB *sql.DB, id int64) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM clicks WHERE link_id = ?`, id); err != nil {
 			return HandleQueryError(err)
 		}
-		if _, err := tx.ExecContext(ctx,
-			`DELETE FROM api_tokens WHERE resource_type = 'link' AND resource_id = ?`,
-			strconv.FormatInt(id, 10)); err != nil {
-			return HandleQueryError(err)
-		}
 		res, err := tx.ExecContext(ctx, `DELETE FROM links WHERE id = ?`, id)
 		return checkRowsAffected(res, err)
 	})
@@ -217,7 +228,7 @@ func ListLinks(ctx context.Context, sqlDB *sql.DB, limit, offset int) ([]Link, i
 	}
 
 	rows, err := sqlDB.QueryContext(ctx,
-		`SELECT id, short_code, destination_url, created_at, expires_at, click_count
+		`SELECT id, short_code, destination_url, created_at, expires_at, click_count, owner_id
 		 FROM links ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		return nil, 0, HandleQueryError(err)
@@ -229,7 +240,7 @@ func ListLinks(ctx context.Context, sqlDB *sql.DB, limit, offset int) ([]Link, i
 		var l Link
 		var createdAt int64
 		var expiresAt sql.NullInt64
-		if err := rows.Scan(&l.ID, &l.ShortCode, &l.DestinationURL, &createdAt, &expiresAt, &l.ClickCount); err != nil {
+		if err := rows.Scan(&l.ID, &l.ShortCode, &l.DestinationURL, &createdAt, &expiresAt, &l.ClickCount, &l.OwnerID); err != nil {
 			return nil, 0, HandleQueryError(err)
 		}
 		l.CreatedAt = time.Unix(createdAt, 0).UTC()

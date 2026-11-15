@@ -34,6 +34,8 @@ e2e_port="${E2E_PORT:-64123}"
 temp_dir=""
 keep_artifacts=0
 
+# ShellCheck does not follow the EXIT trap when deciding whether functions run.
+# shellcheck disable=SC2329
 __cleanup() {
   docker rm -f "$runner_name" >/dev/null 2>&1 || true
   docker rm -f "$browser_name" >/dev/null 2>&1 || true
@@ -44,6 +46,10 @@ __cleanup() {
     else
       rm -rf -- "$temp_dir"
     fi
+  fi
+  if [ -n "${bin_dir:-}" ] && [ -d "$bin_dir" ] && \
+    [[ "$bin_dir" == "${TMPDIR:-/tmp}/$project_org/${project_name}-binaries-"* ]]; then
+    rm -rf -- "$bin_dir"
   fi
 }
 trap __cleanup EXIT
@@ -69,12 +75,17 @@ docker run -d --rm \
   --network "$network_name" \
   --shm-size=1g \
   "$browser_image" >/dev/null
+browser_ip="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$browser_name")"
+if [ -z "$browser_ip" ]; then
+  printf 'could not resolve the browser container IP on the private network\n' >&2
+  exit 1
+fi
 
 # Bounded wait for the DevTools endpoint; never an open-ended sleep.
 browser_ready=0
 for _ in $(seq 1 60); do
   if docker run --rm --network "$network_name" "$docker_test_image" \
-    sh -c "wget -q -O- http://$browser_name:9222/json/version >/dev/null 2>&1"; then
+    sh -c "wget -q -O- http://$browser_ip:9222/json/version >/dev/null 2>&1"; then
     browser_ready=1
     break
   fi
@@ -96,6 +107,7 @@ docker run --rm \
   --network "$network_name" \
   --memory="${DOCKER_MEM:-4g}" --cpus="${DOCKER_CPUS:-2}" \
   -v "$project_dir:/app" \
+  -v "$bin_dir:/e2e-binaries" \
   -v "$go_cache:/usr/local/share/go/pkg/mod" \
   -v "$go_build_cache:/usr/local/share/go/cache" \
   -v "$temp_dir:/artifacts" \
@@ -103,8 +115,8 @@ docker run --rm \
   -e CGO_ENABLED=0 \
   -e GOFLAGS=-buildvcs=false \
   -e TMPDIR=/artifacts \
-  -e E2E_BIN="/app/binaries/$project_name" \
-  -e E2E_CDP_URL="ws://$browser_name:9222/" \
+  -e E2E_BIN="/e2e-binaries/$project_name" \
+  -e E2E_CDP_URL="ws://$browser_ip:9222/" \
   -e E2E_SELF_HOST="$runner_name" \
   -e E2E_PORT="$e2e_port" \
   -e E2E_ORG="$project_org" \

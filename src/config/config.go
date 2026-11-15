@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -21,6 +24,8 @@ type Config struct {
 
 // Server holds the top-level `server:` block of server.yml.
 type Server struct {
+	// Mode is the persisted operational mode, overridden by MODE and --mode.
+	Mode string `yaml:"mode"`
 	// Token is the global operator token (tok_ prefix). Auto-generated on
 	// first run if empty. See AI.md PART 11 "API Token Model".
 	Token   string `yaml:"token"`
@@ -57,6 +62,50 @@ type Server struct {
 	I18N           I18N           `yaml:"i18n"`
 	Tor            Tor            `yaml:"tor"`
 	I2P            I2P            `yaml:"i2p"`
+	Tokens         Tokens         `yaml:"tokens"`
+}
+
+type Tokens struct {
+	MaxLinked     int    `yaml:"max_linked"`
+	CookieMaxAge  string `yaml:"cookie_max_age"`
+	IdlePurgeDays int    `yaml:"idle_purge_days"`
+}
+
+func (c Tokens) CookieMaxAgeSeconds() int {
+	v := strings.TrimSpace(c.CookieMaxAge)
+	if v == "" {
+		return 365 * 24 * 60 * 60
+	}
+	if strings.HasSuffix(v, "d") {
+		days, err := strconv.Atoi(strings.TrimSuffix(v, "d"))
+		if err == nil && days > 0 {
+			return days * 24 * 60 * 60
+		}
+	}
+	if strings.HasSuffix(v, "y") {
+		years, err := strconv.Atoi(strings.TrimSuffix(v, "y"))
+		if err == nil && years > 0 {
+			return years * 365 * 24 * 60 * 60
+		}
+	}
+	if d, err := time.ParseDuration(v); err == nil && d > 0 {
+		return int(d.Seconds())
+	}
+	return 365 * 24 * 60 * 60
+}
+
+func (c Tokens) cookieMaxAgeValid() bool {
+	v := strings.TrimSpace(c.CookieMaxAge)
+	if strings.HasSuffix(v, "d") {
+		days, err := strconv.Atoi(strings.TrimSuffix(v, "d"))
+		return err == nil && days > 0
+	}
+	if strings.HasSuffix(v, "y") {
+		years, err := strconv.Atoi(strings.TrimSuffix(v, "y"))
+		return err == nil && years > 0
+	}
+	d, err := time.ParseDuration(v)
+	return err == nil && d > 0
 }
 
 // Update holds `server.update`, per AI.md PART 22 "Update Configuration".
@@ -65,6 +114,8 @@ type Server struct {
 // the single source of truth for the channel, and there is no separate
 // CLI-side state.
 type Update struct {
+	// CLIMinVersion is the minimum accepted CLI version returned by autodiscover.
+	CLIMinVersion string `yaml:"cli_min_version"`
 	// Branch is the release channel: stable | beta | daily.
 	Branch string `yaml:"branch"`
 	// AutoInstall lets the update_check task run the full `--update yes`
@@ -306,17 +357,42 @@ type CSRF struct {
 // Remote image fetching/scaling is not implemented yet (see TODO.AI.md) —
 // only the static local/URL fields are wired.
 type Branding struct {
-	SiteName string `yaml:"site_name"`
-	Tagline  string `yaml:"tagline"`
-	LogoURL  string `yaml:"logo_url"`
+	Title       string `yaml:"title"`
+	SiteName    string `yaml:"site_name"`
+	Tagline     string `yaml:"tagline"`
+	Description string `yaml:"description"`
+	Favicon     string `yaml:"favicon"`
+	Logo        string `yaml:"logo"`
+	LogoURL     string `yaml:"logo_url"`
 }
 
 // SEO holds `server.seo`, per AI.md PART 16 "SEO Meta Tags". Site-
 // verification meta tags are not implemented yet (see TODO.AI.md).
 type SEO struct {
-	Description string  `yaml:"description"`
-	Keywords    string  `yaml:"keywords"`
-	Sitemap     Sitemap `yaml:"sitemap"`
+	Description   string          `yaml:"description"`
+	Keywords      []string        `yaml:"keywords"`
+	Author        string          `yaml:"author"`
+	OGImage       string          `yaml:"og_image"`
+	TwitterHandle string          `yaml:"twitter_handle"`
+	Verification  SEOVerification `yaml:"verification"`
+	Sitemap       Sitemap         `yaml:"sitemap"`
+	Feed          Feed            `yaml:"feed"`
+}
+
+type SEOVerification struct {
+	Google    string             `yaml:"google"`
+	Bing      string             `yaml:"bing"`
+	Yandex    string             `yaml:"yandex"`
+	Baidu     string             `yaml:"baidu"`
+	Pinterest string             `yaml:"pinterest"`
+	Facebook  string             `yaml:"facebook"`
+	Custom    []SEOCustomMetaTag `yaml:"custom"`
+}
+
+type SEOCustomMetaTag struct {
+	Name     string `yaml:"name"`
+	Property string `yaml:"property"`
+	Content  string `yaml:"content"`
 }
 
 // Sitemap controls the public sitemap endpoint, per AI.md PART 16.
@@ -324,6 +400,11 @@ type Sitemap struct {
 	Enabled       bool `yaml:"enabled"`
 	MaxURLs       int  `yaml:"max_urls"`
 	IncludeImages bool `yaml:"include_images"`
+}
+
+type Feed struct {
+	MaxItems int    `yaml:"max_items"`
+	Title    string `yaml:"title"`
 }
 
 // Contact holds `server.contact`, per AI.md PART 16 "/server/contact" ->
@@ -497,15 +578,19 @@ type WebFooter struct {
 // WebAnnouncements holds `web.announcements`, per AI.md PART 16
 // "Announcements".
 type WebAnnouncements struct {
-	Items []Announcement `yaml:"items"`
+	Enabled  bool           `yaml:"enabled"`
+	Messages []Announcement `yaml:"messages"`
 }
 
 // Announcement is one operator-configured announcement banner entry.
 type Announcement struct {
-	ID      string `yaml:"id"`
-	Message string `yaml:"message"`
-	Level   string `yaml:"level"`
-	Enabled bool   `yaml:"enabled"`
+	ID          string `yaml:"id"`
+	Type        string `yaml:"type"`
+	Title       string `yaml:"title"`
+	Message     string `yaml:"message"`
+	Start       string `yaml:"start"`
+	End         string `yaml:"end"`
+	Dismissible bool   `yaml:"dismissible"`
 }
 
 // Pages holds the top-level `pages:` block of server.yml, per AI.md
@@ -638,6 +723,7 @@ type HealthzRoot struct {
 func Default(dbPath string) *Config {
 	return &Config{
 		Server: Server{
+			Mode:       "production",
 			Listen:     "0.0.0.0",
 			Port:       "8090",
 			BaseURL:    "/",
@@ -697,6 +783,7 @@ func Default(dbPath string) *Config {
 			},
 			SEO: SEO{
 				Sitemap: Sitemap{Enabled: true, MaxURLs: 50000},
+				Feed:    Feed{MaxItems: 50},
 			},
 			Contact: Contact{},
 			GeoIP: GeoIP{
@@ -772,6 +859,7 @@ func Default(dbPath string) *Config {
 			I18N:          DefaultI18N(),
 			Tor:           DefaultTor(),
 			I2P:           DefaultI2P(),
+			Tokens:        Tokens{MaxLinked: 25, CookieMaxAge: "1y", IdlePurgeDays: 0},
 			Privacy: Privacy{
 				Consent: PrivacyConsent{
 					Message: "We use essential cookies to make this site work. " +

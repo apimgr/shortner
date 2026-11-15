@@ -1,8 +1,15 @@
 package main
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/db"
+	"github.com/apimgr/shortner/src/paths"
 )
 
 func TestRunMaintenanceHelp(t *testing.T) {
@@ -16,6 +23,63 @@ func TestRunMaintenanceHelp(t *testing.T) {
 				t.Errorf("output = %q, want maintenance help text", out)
 			}
 		})
+	}
+}
+
+func TestRunTokenMaintenanceListsMaskedAndRevokes(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	dbDir := filepath.Join(root, "data", "db")
+	if err := os.MkdirAll(dbDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(dbDir, "server.db")
+	sqlDB, err := db.Open(dbPath, db.DefaultPool(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerID, err := db.CreateOwner(context.Background(), sqlDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, token, err := db.CreatePrimaryToken(context.Background(), sqlDB, ownerID, make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	logsDir := filepath.Join(root, "logs")
+	if err := os.MkdirAll(logsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	opts := maintenanceOptions{paths: paths.Paths{ConfigFile: filepath.Join(configDir, "server.yml"), DB: dbDir, Logs: logsDir}, args: []string{"list"}}
+	out, stderr, code := captureOutput(t, func() int { return runMaintenance("shortner", "token", opts) })
+	if code != 0 {
+		t.Fatalf("list code = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(out, "prefix\tkind\towner\tname\tcreated\tlast_used\tstatus") || !strings.Contains(out, token.TokenPrefix) {
+		t.Errorf("list output missing token metadata: %q", out)
+	}
+	if strings.Contains(out, raw) {
+		t.Error("list output exposed the raw token")
+	}
+	opts.args = []string{"revoke", token.TokenPrefix}
+	_, stderr, code = captureOutput(t, func() int { return runMaintenance("shortner", "token", opts) })
+	if code != 0 {
+		t.Fatalf("revoke code = %d, stderr = %q", code, stderr)
+	}
+	sqlDB, err = db.Open(dbPath, db.DefaultPool(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+	all, err := db.ListAllTokens(context.Background(), sqlDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 || all[0].Status() != "revoked" {
+		t.Fatalf("tokens after revoke = %#v, want one revoked token", all)
 	}
 }
 
@@ -47,6 +111,24 @@ func TestRunMaintenanceUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestMaintenanceModeRejectsUnknownMode(t *testing.T) {
+	_, stderr, code := captureOutput(t, func() int {
+		return runMaintenance("shortner", "mode", maintenanceOptions{args: []string{"staging"}})
+	})
+	if code != 2 || !strings.Contains(stderr, "mode must be production, development, or debug") {
+		t.Fatalf("mode result = (%d, %q), want usage error", code, stderr)
+	}
+}
+
+func TestMaintenanceSecretRejectsAutomaticKeys(t *testing.T) {
+	_, stderr, code := captureOutput(t, func() int {
+		return runMaintenance("shortner", "secret", maintenanceOptions{args: []string{"rotate", "csrf_token_secret"}})
+	})
+	if code != 2 || !strings.Contains(stderr, "cannot be manually rotated") {
+		t.Fatalf("secret result = (%d, %q), want rejected automatic key", code, stderr)
+	}
+}
+
 func TestRunMaintenanceUpdateIsAnAlias(t *testing.T) {
 	// AI.md PART 22: `--maintenance update [cmd]` accepts the same
 	// subcommands as `--update [cmd]`, so its arguments must reach runUpdate.
@@ -57,6 +139,46 @@ func TestRunMaintenanceUpdateIsAnAlias(t *testing.T) {
 	}
 	if !strings.Contains(out, "Update management") {
 		t.Errorf("output = %q, want the --update help text", out)
+	}
+}
+
+func TestBackupDeleteRequiresKnownFileAndConfirmation(t *testing.T) {
+	root := t.TempDir()
+	backupDir := filepath.Join(root, "backup")
+	configDir := filepath.Join(root, "config")
+	logsDir := filepath.Join(root, "logs")
+	for _, dir := range []string{backupDir, configDir, logsDir} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	name := "shortner_backup_2026-08-21_123456.tar.gz"
+	file := filepath.Join(backupDir, name)
+	if err := os.WriteFile(file, []byte("archive"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := paths.Paths{Backup: backupDir}
+	listed, _, listCode := captureOutput(t, func() int { return runBackupList("shortner", p) })
+	if listCode != 0 || !strings.Contains(listed, name) {
+		t.Fatalf("runBackupList() = (%d, %q), want filename", listCode, listed)
+	}
+	cfg := config.Default(filepath.Join(root, "db", "server.db"))
+	cfg.Server.Token = "operator-token"
+	configPath := filepath.Join(configDir, "server.yml")
+	if err := config.Save(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	oldLine, oldPassword := promptLine, promptPassword
+	t.Cleanup(func() { promptLine, promptPassword = oldLine, oldPassword })
+	promptLine = func(string) (string, error) { return "DELETE " + name, nil }
+	promptPassword = func(string) (string, error) { return "operator-token", nil }
+	p.Config, p.ConfigFile, p.DB, p.Logs = configDir, configPath, filepath.Join(root, "db"), logsDir
+	_, stderr, code := captureOutput(t, func() int { return runBackupDelete("shortner", p, name) })
+	if code != 0 {
+		t.Fatalf("runBackupDelete() = %d, stderr=%q", code, stderr)
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("backup still exists or stat failed: %v", err)
 	}
 }
 
@@ -83,7 +205,7 @@ func TestMaintenanceReadDepsCoversEveryHelpCommand(t *testing.T) {
 	// backup and restore are implemented (AI.md PART 21) and update is an
 	// alias for --update (AI.md PART 22), so all three dispatch directly
 	// rather than through maintenanceReadDeps.
-	implemented := map[string]bool{"backup": true, "restore": true, "update": true, "pgp": true}
+	implemented := map[string]bool{"backup": true, "restore": true, "update": true, "pgp": true, "token": true, "mode": true, "setup": true, "secret": true}
 	for _, cmd := range []string{"backup", "restore", "update", "mode", "setup", "pgp", "secret", "token", "data", "compliance"} {
 		if implemented[cmd] {
 			continue

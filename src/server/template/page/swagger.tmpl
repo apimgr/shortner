@@ -1,0 +1,22 @@
+{{define "content"}}<article class="swagger-docs">
+<link rel="stylesheet" href="{{asset "/static/css/swagger-docs.css" .Base.AssetStamp}}">
+<h1>REST API documentation</h1>
+<p>OpenAPI JSON: <a href="{{.Endpoint}}">{{.Endpoint}}</a></p>
+<section aria-labelledby="openapi-title" data-openapi-url="{{.Endpoint}}">
+<h2 id="openapi-title">Generated OpenAPI document</h2>
+<p id="openapi-status" role="status" aria-live="polite">The document is available from the JSON link above.</p>
+<pre id="openapi-document" tabindex="0" aria-label="OpenAPI JSON"></pre>
+</section>
+<h2>API operations</h2>
+<ul>
+<li><code>GET /api/{api_version}/links</code> — list links</li>
+<li><code>POST /api/{api_version}/links</code> — create a link</li>
+<li><code>GET /api/{api_version}/links/{slug}</code> — retrieve a link</li>
+<li><code>PATCH /api/{api_version}/links/{slug}</code> — update a link</li>
+<li><code>DELETE /api/{api_version}/links/{slug}</code> — delete a link</li>
+<li><code>GET /api/{api_version}/links/{slug}/stats</code> — retrieve link statistics</li>
+<li><code>GET /api/{api_version}/server/healthz</code> — retrieve service health</li>
+</ul>
+<p>Use the JSON specification with your preferred OpenAPI client or SDK generator.</p>
+<script src="{{asset "/static/js/swagger-docs.js" .Base.AssetStamp}}" defer></script>
+</article>{{end}}

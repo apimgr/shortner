@@ -118,7 +118,8 @@ var createStatements = []string{
 		destination_url TEXT NOT NULL,
 		created_at      INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
 		expires_at      INTEGER,
-		click_count     INTEGER NOT NULL DEFAULT 0
+		click_count     INTEGER NOT NULL DEFAULT 0,
+		owner_id        TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_links_short_code ON links(short_code)`,
 	`CREATE INDEX IF NOT EXISTS idx_links_expires_at ON links(expires_at)`,
@@ -136,28 +137,43 @@ var createStatements = []string{
 	`CREATE INDEX IF NOT EXISTS idx_clicks_link_id ON clicks(link_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_clicks_timestamp ON clicks(timestamp)`,
 
+	`CREATE TABLE IF NOT EXISTS owners (
+		id TEXT PRIMARY KEY,
+		created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+		last_seen_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+	)`,
 	`CREATE TABLE IF NOT EXISTS api_tokens (
-		id             INTEGER PRIMARY KEY AUTOINCREMENT,
-		token_hash     TEXT NOT NULL UNIQUE,
-		token_prefix   TEXT NOT NULL,
-		resource_type  TEXT NOT NULL,
-		resource_id    TEXT NOT NULL,
-		created_at     INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-		expires_at     INTEGER,
-		last_used_at   INTEGER,
-		revoked_at     INTEGER,
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		owner_id TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
+		kind TEXT NOT NULL CHECK (kind IN ('primary', 'linked')),
+		name TEXT,
+		token_hash TEXT NOT NULL UNIQUE,
+		token_prefix TEXT NOT NULL,
+		token_enc TEXT NOT NULL,
+		created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+		rotated_at INTEGER,
+		expires_at INTEGER,
+		last_used_at INTEGER,
+		revoked_at INTEGER,
 		revoked_reason TEXT
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_api_tokens_hash     ON api_tokens(token_hash)`,
 	`CREATE INDEX IF NOT EXISTS idx_api_tokens_prefix   ON api_tokens(token_prefix)`,
-	`CREATE INDEX IF NOT EXISTS idx_api_tokens_resource ON api_tokens(resource_type, resource_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_api_tokens_owner ON api_tokens(owner_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_api_tokens_active   ON api_tokens(revoked_at) WHERE revoked_at IS NULL`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_api_tokens_primary ON api_tokens(owner_id) WHERE kind = 'primary' AND revoked_at IS NULL`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_api_tokens_linked_name ON api_tokens(owner_id, name) WHERE kind = 'linked' AND name IS NOT NULL`,
 
 	`CREATE TABLE IF NOT EXISTS app_secrets (
 		name       TEXT PRIMARY KEY,
 		value      TEXT NOT NULL,
 		created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
 		rotated_at INTEGER
+	)`,
+	`CREATE TABLE IF NOT EXISTS app_secret_grace (
+		name TEXT PRIMARY KEY,
+		value TEXT NOT NULL,
+		expires_at INTEGER NOT NULL
 	)`,
 
 	// Scheduler task state and history, per AI.md PART 18 "Scheduler
@@ -194,6 +210,7 @@ var createStatements = []string{
 	`CREATE TABLE IF NOT EXISTS security_reports (
 		tracking_id TEXT PRIMARY KEY,
 		received_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+		updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
 		severity    TEXT NOT NULL,
 		component   TEXT NOT NULL,
 		status      TEXT NOT NULL DEFAULT 'received',
@@ -214,11 +231,16 @@ var schemaUpdates = []string{
 	`ALTER TABLE security_reports ADD COLUMN last_viewed_at INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE security_reports ADD COLUMN disclosure_at INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE security_reports ADD COLUMN comments TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE security_reports ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`,
+	`UPDATE security_reports SET updated_at = received_at WHERE updated_at = 0`,
 }
 
 // EnsureSchema creates tables and applies schema updates. Safe to run on
 // every startup (idempotent), per AI.md PART 10 "EnsureSchema".
 func EnsureSchema(ctx context.Context, sqlDB *sql.DB) error {
+	if err := migrateLegacyOwnerSchema(ctx, sqlDB); err != nil {
+		return err
+	}
 	for _, stmt := range createStatements {
 		if _, err := sqlDB.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("db: create table: %w", err)
@@ -230,6 +252,242 @@ func EnsureSchema(ctx context.Context, sqlDB *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+func migrateLegacyOwnerSchema(ctx context.Context, sqlDB *sql.DB) error {
+	if _, err := sqlDB.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS owners (
+		id TEXT PRIMARY KEY,
+		created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+		last_seen_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+	)`); err != nil {
+		return fmt.Errorf("db: create owner table: %w", err)
+	}
+	if !tableExists(ctx, sqlDB, "api_tokens") {
+		return nil
+	}
+	if !columnExists(ctx, sqlDB, "api_tokens", "resource_type") {
+		if !columnExists(ctx, sqlDB, "api_tokens", "owner_id") {
+			return fmt.Errorf("db: api_tokens table has an unsupported schema")
+		}
+		if !columnExists(ctx, sqlDB, "links", "owner_id") {
+			if _, err := sqlDB.ExecContext(ctx, `ALTER TABLE links ADD COLUMN owner_id TEXT REFERENCES owners(id) ON DELETE CASCADE`); err != nil {
+				return fmt.Errorf("db: add links owner id: %w", err)
+			}
+		}
+		return backfillLinkOwners(ctx, sqlDB)
+	}
+	tx, err := sqlDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("db: begin owner migration: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `ALTER TABLE api_tokens RENAME TO api_tokens_legacy`); err != nil {
+		return fmt.Errorf("db: rename legacy token table: %w", err)
+	}
+	if !columnExistsTx(ctx, tx, "links", "owner_id") {
+		if _, err = tx.ExecContext(ctx, `ALTER TABLE links ADD COLUMN owner_id TEXT REFERENCES owners(id) ON DELETE CASCADE`); err != nil {
+			return fmt.Errorf("db: add links owner id: %w", err)
+		}
+	}
+	if _, err = tx.ExecContext(ctx, `CREATE TABLE api_tokens (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		owner_id TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
+		kind TEXT NOT NULL CHECK (kind IN ('primary', 'linked')),
+		name TEXT,
+		token_hash TEXT NOT NULL UNIQUE,
+		token_prefix TEXT NOT NULL,
+		token_enc TEXT NOT NULL,
+		created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+		rotated_at INTEGER,
+		expires_at INTEGER,
+		last_used_at INTEGER,
+		revoked_at INTEGER,
+		revoked_reason TEXT
+	)`); err != nil {
+		return fmt.Errorf("db: create migrated token table: %w", err)
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id, token_hash, token_prefix, resource_type, resource_id, created_at, expires_at, last_used_at, revoked_at, revoked_reason FROM api_tokens_legacy ORDER BY id`)
+	if err != nil {
+		return fmt.Errorf("db: read legacy tokens: %w", err)
+	}
+	type legacyToken struct {
+		id                                     int64
+		hash, prefix, resourceType, resourceID string
+		created                                int64
+		expires, lastUsed, revoked             sql.NullInt64
+		reason                                 sql.NullString
+	}
+	var tokens []legacyToken
+	for rows.Next() {
+		var item legacyToken
+		if err := rows.Scan(&item.id, &item.hash, &item.prefix, &item.resourceType, &item.resourceID, &item.created, &item.expires, &item.lastUsed, &item.revoked, &item.reason); err != nil {
+			rows.Close()
+			return fmt.Errorf("db: scan legacy token: %w", err)
+		}
+		tokens = append(tokens, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("db: iterate legacy tokens: %w", err)
+	}
+	rows.Close()
+	ownerByLink := map[string]string{}
+	for _, token := range tokens {
+		ownerID := fmt.Sprintf("legacy-token-%d", token.id)
+		if token.resourceType == "link" {
+			ownerID = ownerByLink[token.resourceID]
+			if ownerID == "" {
+				ownerID = "legacy-link-" + token.resourceID
+				ownerByLink[token.resourceID] = ownerID
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO owners(id) VALUES (?)`, ownerID); err != nil {
+			return fmt.Errorf("db: migrate legacy owner: %w", err)
+		}
+		kind := "primary"
+		var activePrimary int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM api_tokens WHERE owner_id = ? AND kind = 'primary' AND revoked_at IS NULL`, ownerID).Scan(&activePrimary); err != nil {
+			return err
+		}
+		if activePrimary > 0 {
+			kind = "linked"
+		}
+		var expiry any
+		if token.expires.Valid {
+			expiry = token.expires.Int64
+		}
+		var lastUsed any
+		if token.lastUsed.Valid {
+			lastUsed = token.lastUsed.Int64
+		}
+		var revoked any
+		if token.revoked.Valid {
+			revoked = token.revoked.Int64
+		}
+		var reason any
+		if token.reason.Valid {
+			reason = token.reason.String
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO api_tokens(id, owner_id, kind, token_hash, token_prefix, token_enc, created_at, expires_at, last_used_at, revoked_at, revoked_reason) VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?)`, token.id, ownerID, kind, token.hash, token.prefix, token.created, expiry, lastUsed, revoked, reason); err != nil {
+			return fmt.Errorf("db: migrate legacy token: %w", err)
+		}
+	}
+	for linkID, ownerID := range ownerByLink {
+		if _, err := tx.ExecContext(ctx, `UPDATE links SET owner_id = ? WHERE id = ?`, ownerID, linkID); err != nil {
+			return fmt.Errorf("db: assign legacy link owner: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DROP TABLE api_tokens_legacy`); err != nil {
+		return fmt.Errorf("db: drop legacy token table: %w", err)
+	}
+	if err := fillUnownedLinks(ctx, tx); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_api_tokens_owner ON api_tokens(owner_id)`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash)`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_api_tokens_prefix ON api_tokens(token_prefix)`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_api_tokens_active ON api_tokens(revoked_at) WHERE revoked_at IS NULL`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_api_tokens_primary ON api_tokens(owner_id) WHERE kind = 'primary' AND revoked_at IS NULL`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_api_tokens_linked_name ON api_tokens(owner_id, name) WHERE kind = 'linked' AND name IS NOT NULL`); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("db: commit owner migration: %w", err)
+	}
+	return nil
+}
+
+func backfillLinkOwners(ctx context.Context, sqlDB *sql.DB) error {
+	tx, err := sqlDB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := fillUnownedLinks(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func fillUnownedLinks(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM links WHERE owner_id IS NULL OR owner_id = ''`)
+	if err != nil {
+		return fmt.Errorf("db: find unowned links: %w", err)
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, id := range ids {
+		ownerID := fmt.Sprintf("legacy-link-%d", id)
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO owners(id) VALUES (?)`, ownerID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE links SET owner_id = ? WHERE id = ?`, ownerID, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func tableExists(ctx context.Context, db *sql.DB, table string) bool {
+	var count int
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count)
+	return count > 0
+}
+
+func columnExists(ctx context.Context, db *sql.DB, table, column string) bool {
+	rows, err := db.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var def any
+		if rows.Scan(&cid, &name, &typ, &notnull, &def, &pk) == nil && name == column {
+			return true
+		}
+	}
+	return false
+}
+
+func columnExistsTx(ctx context.Context, tx *sql.Tx, table, column string) bool {
+	rows, err := tx.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var def any
+		if rows.Scan(&cid, &name, &typ, &notnull, &def, &pk) == nil && name == column {
+			return true
+		}
+	}
+	return false
 }
 
 // isColumnExistsError reports whether err is SQLite's "duplicate column"

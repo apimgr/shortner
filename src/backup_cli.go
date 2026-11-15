@@ -156,6 +156,58 @@ func runBackupCreate(binaryName string, p paths.Paths, name string, includeSSL, 
 	return 0
 }
 
+func runBackupList(binaryName string, p paths.Paths) int {
+	files, err := backup.List(p.Backup, paths.ProjectName)
+	if err != nil {
+		return maintenanceError(binaryName, err)
+	}
+	fmt.Println("filename\tdate\tsize\tkind")
+	for _, file := range files {
+		fmt.Printf("%s\t%s\t%d\t%s\n", file.Name, file.Date.UTC().Format("2006-01-02 15:04:05Z"), file.Size, file.Kind)
+	}
+	return 0
+}
+
+func runBackupDelete(binaryName string, p paths.Paths, name string) int {
+	if name == "" || filepath.Base(name) != name {
+		fmt.Fprintf(os.Stderr, "%s: --maintenance backup delete requires a backup filename\n", binaryName)
+		return 2
+	}
+	env, err := newBackupEnv(p)
+	if err != nil {
+		return maintenanceError(binaryName, err)
+	}
+	if err := authorizeMaintenance(binaryName, env.cfg.Server.Token); err != nil {
+		return maintenanceError(binaryName, err)
+	}
+	files, err := backup.List(p.Backup, paths.ProjectName)
+	if err != nil {
+		return maintenanceError(binaryName, err)
+	}
+	var target *backup.File
+	for i := range files {
+		if files[i].Name == name {
+			target = &files[i]
+			break
+		}
+	}
+	if target == nil {
+		fmt.Fprintf(os.Stderr, "%s: backup %q was not found\n", binaryName, name)
+		return 1
+	}
+	answer, err := promptLine("Type DELETE " + name + " to confirm: ")
+	if err != nil || strings.TrimSpace(answer) != "DELETE "+name {
+		fmt.Fprintln(os.Stderr, "Backup deletion cancelled.")
+		return 1
+	}
+	if err := os.Remove(target.Path); err != nil {
+		return maintenanceError(binaryName, err)
+	}
+	backup.AuditDeleted(env.audit, *target, "operator-requested deletion")
+	fmt.Printf("Deleted backup %s\n", name)
+	return 0
+}
+
 // applyRetention runs the retention sweep and audits what it deleted.
 func applyRetention(env *backupEnv, p paths.Paths) []backup.File {
 	deps := scheduler.BackupDeps{

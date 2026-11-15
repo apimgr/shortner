@@ -48,7 +48,7 @@ type securityReportStatusPageData struct {
 func (fd *frontendDeps) securityReportStatusHandler(w http.ResponseWriter, r *http.Request) {
 	trackingID := strings.TrimSpace(chi.URLParam(r, "tracking_id"))
 	token := strings.TrimSpace(r.URL.Query().Get("token"))
-	if trackingID == "" || !security.ValidReportToken(fd.installSecret, trackingID, token) {
+	if trackingID == "" || !security.ValidReportTokenWithPrevious(fd.installSecret, fd.previousInstallSecret, trackingID, token) {
 		sendError(w, r, apperr.New(apperr.CodeNotFound))
 		return
 	}

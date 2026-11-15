@@ -11,13 +11,17 @@ and protocol surfaces it exposes, and the ones it deliberately does not.
 | GeoIP database | Available, local lookups only |
 | SMTP email notifications | Available, auto-detected |
 | GitHub Releases (self-update) | Available |
+| CLI update discovery and binary downloads | Available when CLI builds are colocated with the server binary |
 | Reverse proxies | Supported |
 | `robots.txt`, `security.txt`, `llms.txt` | Served |
+| Atom and RSS feeds | Served at `/feed.xml` and `/rss.xml` |
 | WebFinger, OpenID configuration, app association, MTA-STS | Present but disabled by default |
 | Browser reporting (CSP, NEL) | Available |
 | Webhooks, federation, OAuth/OIDC provider, machine identity | **None. Not implemented.** |
-| Swagger / OpenAPI / GraphQL | **None. Not implemented.** |
-| Tor hidden service, I2P eepsite | **None. Not implemented.** |
+| Swagger / OpenAPI / GraphQL | Available at `/server/docs/swagger`, `/server/docs/graphql`, `/api/swagger`, and `/api/graphql` |
+| Tor v3 hidden service | Available when a Tor binary is detected |
+| I2P eepsite | Available when explicitly enabled and an i2pd or SAM provider is available |
+| PGP key management | Available through the maintenance CLI |
 
 ## Metrics
 
@@ -92,12 +96,11 @@ The Loki service replays a bounded in-memory ring buffer of recent log
 lines, sized by `server.metrics.loki.max_entries` and
 `server.metrics.loki.max_age`.
 
-!!! note
-    Business metrics — total links, links created in 24 hours, links
-    clicked in 24 hours, active API tokens — are defined but not yet
-    populated. Cache metrics are inert because the cache is not wired into
-    the request path. Tor and I2P metrics do not exist, since neither
-    feature is implemented.
+Business gauges cover total links, links created and clicked in 24 hours,
+and active API tokens. Tor circuit and request gauges are collected when
+Tor is configured. Cache metrics are exposed by the instrumentation
+wrapper, but the cache is not yet used in the request path; I2P metrics are
+not defined by the current AI.md contract.
 
 ## GeoIP
 
@@ -233,8 +236,9 @@ selecting from the `stable`, `beta`, or `daily` channel. The downloaded
 artifact's SHA-256 is verified against the release's `sha256.txt` before
 anything is replaced. See [CLI Reference](cli.md#update).
 
-This is the only outbound network call the server makes on its own besides
-the GeoIP database download and ACME certificate issuance.
+Other outbound connections include GeoIP database downloads, ACME
+issuance, GitHub release checks, Tor bootstrap, and configured SMTP
+delivery.
 
 ## Reverse Proxies
 
@@ -326,7 +330,7 @@ no OAuth or OIDC flow is implemented. The endpoint exists so an operator
 who fronts the domain with a real identity provider can publish metadata
 at the expected path.
 
-## Integrations That Do Not Exist
+## Integrations Not Yet Implemented
 
 Stated explicitly so they are not assumed:
 
@@ -337,12 +341,38 @@ Stated explicitly so they are not assumed:
 - **No OAuth or OIDC**, as provider or as client. There are no user
   accounts to authenticate.
 - **No machine or agent identity framework** beyond bearer tokens.
-- **No Swagger UI, OpenAPI document, or GraphQL endpoint.**
-  [API Reference](api.md) is the API documentation.
-- **No Tor hidden service and no I2P eepsite.** The configuration and
-  health fields exist and honestly report both as disabled.
+- **OpenAPI and GraphQL** are available through the API documentation pages
+  and the versioned and current-version API endpoints. GraphQL is read-only.
+- **MCP endpoint and help page** are required by AI.md but are not
+  implemented yet.
 - **No cache backend in the request path.** The Valkey and Redis settings
   are accepted, and the production compose file even starts a Valkey
   sidecar, but nothing reads from or writes to it yet.
 - **No third-party analytics and no telemetry**, by design and
   permanently.
+
+## Progressive Web App
+
+The server serves an embedded manifest at /manifest.json, a root-scoped
+service worker at /sw.js, and an offline fallback at /offline.html.
+Service workers require HTTPS in browsers. The install prompt, iOS install
+instructions, user-confirmed update prompt, and online/offline indicator
+enhance the pages. The worker caches version-stamped static assets and
+previously visited HTML pages; API responses are network-only. Background
+Sync and geolocation are not implemented: the product-specific offline
+actions, replay/privacy rules, and location use case are undefined in the
+current API template.
+
+## Tor and I2P
+
+Tor support is enabled automatically when a Tor executable is available.
+The server manages a v3 hidden service and serves it over HTTP on the
+dedicated `.onion` address. Install Tor separately; the built-in manager
+does not turn the service into a Tor relay or exit node.
+
+I2P support is opt-in (`server.i2p.enabled: true`). The server can use a
+managed `i2pd` process or an external SAMv3 bridge. Its `.b32.i2p` address
+is served over HTTP. I2P is disabled by default.
+
+Both overlays have health checks and scheduler tasks. Metrics for overlay
+state remain unpopulated.

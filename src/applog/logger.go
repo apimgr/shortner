@@ -1,12 +1,129 @@
 package applog
 
 import (
+	"compress/gzip"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+type rotationPolicy struct {
+	never        bool
+	period       string
+	maxBytes     int64
+	keepCount    int
+	keepDuration time.Duration
+	keepForever  bool
+	compress     bool
+}
+
+func defaultRotationPolicy(path string) rotationPolicy {
+	base := filepath.Base(path)
+	if base == "access.log" {
+		return rotationPolicy{period: "monthly"}
+	}
+	if base == "audit.log" {
+		return rotationPolicy{period: "daily"}
+	}
+	return rotationPolicy{period: "weekly", maxBytes: 50 * 1024 * 1024}
+}
+
+func parseRotationPolicy(rotate, keep string, compress bool) (rotationPolicy, error) {
+	policy := rotationPolicy{compress: compress}
+	if rotate == "" {
+		return policy, fmt.Errorf("applog: empty rotation policy")
+	}
+	for _, part := range strings.Split(rotate, ",") {
+		switch part {
+		case "never", "daily", "weekly", "monthly", "yearly":
+			if part == "never" {
+				policy.never = true
+			} else {
+				policy.period = part
+			}
+		default:
+			var size int64
+			var unit int64
+			if strings.HasSuffix(part, "MB") {
+				unit = 1024 * 1024
+				part = strings.TrimSuffix(part, "MB")
+			}
+			if strings.HasSuffix(part, "GB") {
+				unit = 1024 * 1024 * 1024
+				part = strings.TrimSuffix(part, "GB")
+			}
+			value, err := strconv.ParseInt(part, 10, 64)
+			if unit == 0 || err != nil || value <= 0 {
+				return policy, fmt.Errorf("applog: invalid rotation rule %q", part)
+			}
+			size = value * unit
+			policy.maxBytes = size
+		}
+	}
+	if policy.never && (policy.period != "" || policy.maxBytes > 0) {
+		return policy, fmt.Errorf("applog: never cannot be combined with other rotation rules")
+	}
+	if keep == "" || keep == "none" {
+		return policy, nil
+	}
+	if keep == "forever" {
+		policy.keepForever = true
+		return policy, nil
+	}
+	for _, suffix := range []string{"d", "w", "m"} {
+		if strings.HasSuffix(keep, suffix) {
+			n, err := strconv.Atoi(strings.TrimSuffix(keep, suffix))
+			if err != nil || n < 1 {
+				return policy, fmt.Errorf("applog: invalid retention %q", keep)
+			}
+			switch suffix {
+			case "d":
+				policy.keepDuration = time.Duration(n) * 24 * time.Hour
+			case "w":
+				policy.keepDuration = time.Duration(n) * 7 * 24 * time.Hour
+			case "m":
+				policy.keepDuration = time.Duration(n) * 30 * 24 * time.Hour
+			}
+			return policy, nil
+		}
+	}
+	n, err := strconv.Atoi(keep)
+	if err != nil || n < 1 {
+		return policy, fmt.Errorf("applog: invalid retention %q", keep)
+	}
+	policy.keepCount = n
+	return policy, nil
+}
+
+func (p rotationPolicy) due(info os.FileInfo, now time.Time) bool {
+	if info.Size() == 0 {
+		return false
+	}
+	if p.maxBytes > 0 && info.Size() >= p.maxBytes {
+		return true
+	}
+	modified := info.ModTime().UTC()
+	switch p.period {
+	case "daily":
+		return modified.YearDay() != now.YearDay() || modified.Year() != now.Year()
+	case "weekly":
+		y1, w1 := modified.ISOWeek()
+		y2, w2 := now.ISOWeek()
+		return y1 != y2 || w1 != w2
+	case "monthly":
+		return modified.Month() != now.Month() || modified.Year() != now.Year()
+	case "yearly":
+		return modified.Year() != now.Year()
+	}
+	return false
+}
 
 // ringCap bounds the in-memory recent-lines buffer used to serve the
 // AI.md PART 20 `loki` metrics service without re-reading the log file.
@@ -59,11 +176,12 @@ func (l Level) String() string {
 // "Log Output Rules": "All log FILES MUST use raw text only ... Plain
 // ASCII text only." It is safe for concurrent use.
 type Logger struct {
-	mu    sync.Mutex
-	file  *os.File
-	path  string
-	level Level
-	ring  []RingEntry
+	mu       sync.Mutex
+	file     *os.File
+	path     string
+	level    Level
+	ring     []RingEntry
+	rotation rotationPolicy
 }
 
 // Open opens (creating if necessary) the log file at path in append mode
@@ -74,7 +192,7 @@ func Open(path string, minLevel Level) (*Logger, error) {
 	if err != nil {
 		return nil, fmt.Errorf("applog: open %s: %w", path, err)
 	}
-	return &Logger{file: f, path: path, level: minLevel}, nil
+	return &Logger{file: f, path: path, level: minLevel, rotation: defaultRotationPolicy(path)}, nil
 }
 
 // WriteLine appends a single pre-formatted line (which must already end
@@ -126,6 +244,156 @@ func (l *Logger) Recent(maxEntries int, maxAge time.Duration) []RingEntry {
 	return out
 }
 
+// SetRotationPolicy configures the policy used by RotateIfDue. The accepted
+// values follow PART 11: rotate is never/daily/weekly/monthly/yearly, a size
+// such as 50MB, or a comma-separated time and size policy; keep is none, N,
+// Nd, Nw, Nm, or forever.
+func (l *Logger) SetRotationPolicy(rotate, keep string, compress bool) error {
+	policy, err := parseRotationPolicy(rotate, keep, compress)
+	if err != nil {
+		return err
+	}
+	l.mu.Lock()
+	l.rotation = policy
+	l.mu.Unlock()
+	return nil
+}
+
+// RotateIfDue performs scheduled time/size rotation and applies retention.
+func (l *Logger) RotateIfDue(now time.Time) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.rotation.never {
+		return nil
+	}
+	info, err := l.file.Stat()
+	if err != nil {
+		return fmt.Errorf("applog: stat %s: %w", l.path, err)
+	}
+	if !l.rotation.due(info, now.UTC()) {
+		return nil
+	}
+	if err := l.rotateLocked(now.UTC()); err != nil {
+		return err
+	}
+	return l.pruneLocked(now.UTC())
+}
+
+func (l *Logger) rotateLocked(now time.Time) error {
+	if err := l.file.Sync(); err != nil {
+		return fmt.Errorf("applog: sync %s: %w", l.path, err)
+	}
+	if err := l.file.Close(); err != nil {
+		return fmt.Errorf("applog: close %s: %w", l.path, err)
+	}
+	archive := fmt.Sprintf("%s.%s", l.path, now.Format("2006-01-02"))
+	if _, err := os.Stat(archive); err == nil {
+		archive = fmt.Sprintf("%s.%s", archive, now.Format("150405.000000000"))
+	}
+	if err := os.Rename(l.path, archive); err != nil {
+		file, reopenErr := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, logFilePerm)
+		if reopenErr == nil {
+			l.file = file
+		}
+		return fmt.Errorf("applog: archive %s: %w", l.path, err)
+	}
+	file, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, logFilePerm)
+	if err != nil {
+		_ = os.Rename(archive, l.path)
+		file, reopenErr := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, logFilePerm)
+		if reopenErr == nil {
+			l.file = file
+		}
+		return fmt.Errorf("applog: reopen %s: %w", l.path, err)
+	}
+	l.file = file
+	if l.rotation.keepCount == 0 && l.rotation.keepDuration == 0 && !l.rotation.keepForever {
+		if err := os.Remove(archive); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("applog: remove unretained archive %s: %w", archive, err)
+		}
+		return nil
+	}
+	if l.rotation.compress {
+		if err := compressLog(archive); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (l *Logger) pruneLocked(now time.Time) error {
+	matches, err := filepath.Glob(l.path + ".*")
+	if err != nil {
+		return err
+	}
+	archives := make([]os.FileInfo, 0, len(matches))
+	for _, path := range matches {
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() || !isLogArchive(l.path, path) {
+			continue
+		}
+		archives = append(archives, info)
+	}
+	sort.Slice(archives, func(i, j int) bool { return archives[i].ModTime().After(archives[j].ModTime()) })
+	for i, info := range archives {
+		path := filepath.Join(filepath.Dir(l.path), info.Name())
+		remove := l.rotation.keepCount > 0 && i >= l.rotation.keepCount
+		if l.rotation.keepDuration > 0 && now.Sub(info.ModTime()) > l.rotation.keepDuration {
+			remove = true
+		}
+		if !l.rotation.keepForever && l.rotation.keepCount == 0 && l.rotation.keepDuration == 0 {
+			remove = true
+		}
+		if remove {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("applog: prune %s: %w", path, err)
+			}
+		}
+	}
+	return nil
+}
+
+func isLogArchive(activePath, candidate string) bool {
+	name := strings.TrimPrefix(candidate, activePath+".")
+	name = strings.TrimSuffix(name, ".gz")
+	if len(name) < len("2006-01-02") {
+		return false
+	}
+	if _, err := time.Parse("2006-01-02", name[:len("2006-01-02")]); err != nil {
+		return false
+	}
+	if len(name) == len("2006-01-02") {
+		return true
+	}
+	return name[len("2006-01-02")] == '.'
+}
+
+func compressLog(path string) error {
+	input, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("applog: open archive %s: %w", path, err)
+	}
+	defer input.Close()
+	outputPath := path + ".gz"
+	output, err := os.OpenFile(outputPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, logFilePerm)
+	if err != nil {
+		return fmt.Errorf("applog: create compressed archive %s: %w", outputPath, err)
+	}
+	writer := gzip.NewWriter(output)
+	_, copyErr := io.Copy(writer, input)
+	closeErr := writer.Close()
+	fileErr := output.Close()
+	if copyErr != nil || closeErr != nil || fileErr != nil {
+		_ = os.Remove(outputPath)
+		return fmt.Errorf("applog: compress %s: %w", path, errors.Join(copyErr, closeErr, fileErr))
+	}
+	if err := os.Remove(path); err != nil {
+		_ = os.Remove(outputPath)
+		return fmt.Errorf("applog: remove uncompressed archive %s: %w", path, err)
+	}
+	return nil
+}
+
 // Close closes the underlying file.
 func (l *Logger) Close() error {
 	l.mu.Lock()
@@ -133,12 +401,8 @@ func (l *Logger) Close() error {
 	return l.file.Close()
 }
 
-// Rotate closes the current file and reopens path fresh, without
-// renaming or compressing the prior contents. Time/size-triggered
-// scheduled rotation (AI.md PART 11 "Rotation Options") requires the
-// scheduler defined in AI.md PART 18, which does not exist yet — callers
-// that need scheduled rotation must invoke this manually until then
-// (tracked in TODO.AI.md).
+// Rotate closes and reopens the active path without archiving its contents.
+// Scheduled rotation uses RotateIfDue, which applies the configured policy.
 func (l *Logger) Rotate() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()

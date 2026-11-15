@@ -19,6 +19,9 @@ func TestUpdateDefaults(t *testing.T) {
 	if u.DeferDays != 0 {
 		t.Errorf("defer_days = %d, want 0", u.DeferDays)
 	}
+	if u.CLIMinVersion != "" {
+		t.Errorf("cli_min_version = %q, want empty", u.CLIMinVersion)
+	}
 }
 
 func TestValidateUpdateBranch(t *testing.T) {

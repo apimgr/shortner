@@ -1,21 +1,33 @@
 # API Reference
 
-The REST API is the source of truth for the application; the web interface
-consumes the same logic. Every API endpoint sends
-`Access-Control-Allow-Origin: *`.
+The REST API is the primary interface; the web interface uses the same
+server-side operations. CORS follows
+`server.cors.allowed_origins`: the default `*` permits public origins, while
+an explicit origin list is echoed per request and may be paired with
+credentials. Requests without an `Origin` header do not receive CORS
+headers.
 
 The version prefix is `/api/{api_version}`, which is `/api/v1` by default
 and is configurable via `server.api_version`.
 
-!!! note
-    There is no Swagger UI, no OpenAPI document, and no GraphQL endpoint.
-    This page is the API reference.
+Interactive API pages are available at `/server/docs/swagger` and
+`/server/docs/graphql`. OpenAPI JSON is served directly from
+`/api/{api_version}/server/swagger` (also `/api/swagger`). The read-only
+GraphQL endpoint accepts POST requests at `/api/{api_version}/server/graphql`
+(also `/api/graphql`).
+
+GraphQL exposes `link(slug: String!)`, paginated `links(limit, offset)`, and
+`linkStats(slug: String!)` queries. It is query-only; use REST for create,
+update, and delete operations. Its remaining route and schema coverage is
+tracked in the project backlog.
 
 ## Authentication
 
-Most endpoints need no credentials. Editing or deleting a link requires
-either that link's `owner_token` — returned once, when the link is
-created — or the operator token from `server.yml`.
+Most endpoints need no credentials. Editing or deleting a link requires a
+valid primary or linked token for its owner, or the operator token from
+`server.yml`. A newly created anonymous owner receives a primary
+`owner_token`; later resources created with that token belong to the same
+owner and do not return another token.
 
 A token may be supplied through any of the following, checked in order,
 first found wins:
@@ -30,22 +42,23 @@ first found wins:
 8. `Token: {token}`
 9. `?token={token}` in the query string
 
-Tokens are stored as SHA-256 hashes; the raw value is never written to the
-database or to a log. A lost `owner_token` cannot be recovered — there is
-no account it belongs to.
+Tokens are looked up by SHA-256 hash. An encrypted copy is retained for the
+owner's explicit reveal action. Raw tokens are never included in list
+responses or logs. API routes accept credentials from headers only; owner
+cookies are used only by web forms.
 
 ## Content Negotiation
 
 Every endpoint can answer in JSON, plain text, or (for browser-facing
 routes) HTML. The format is chosen in this order:
 
-1. **Path suffix** — a `.json` suffix forces JSON, a `.txt` suffix forces
-   plain text.
-2. **`Accept` header** — `application/json`, `text/plain`, or `text/html`.
-3. **User-Agent** — recognized command-line HTTP clients (`curl`, `wget`,
-   `httpie`, `python-requests`, `go-http-client`) and an empty User-Agent
-   get plain text. Anything else gets HTML on frontend routes and JSON on
-   API routes.
+1. **API `.txt` suffix** forces plain text. There is no `.json` API suffix;
+   JSON is the default.
+2. **`Accept` header** — explicit `application/json` selects JSON and
+   `text/plain` selects text.
+3. **User-Agent** — recognized non-interactive clients (`curl`, `wget`,
+   `httpie`, `python-requests`, `go-http-client`, and `shortner-cli`) and an
+   empty User-Agent get text. Other API clients get JSON.
 
 So `curl` gets readable text without any flags, and a browser gets a page,
 from the same URL.
@@ -61,25 +74,20 @@ Successful API responses wrap their payload:
 }
 ```
 
-Errors use a matching shape:
+Errors use the same flat envelope:
 
 ```json
 {
   "ok": false,
-  "error": {
-    "code": "validation_failed",
-    "message": "Human-readable message",
-    "details": {
-      "field": "url",
-      "rule": "format"
-    }
-  }
+  "error": "VALIDATION_FAILED",
+  "message": "Human-readable message"
 }
 ```
 
-Two documented exceptions: the health endpoints return their object
-directly, without the envelope, and the link list endpoint returns a
-`data` array alongside a `pagination` object.
+Health endpoints return their object directly, without the envelope. The
+link list endpoint returns a `data` array alongside a `pagination` object.
+Text API responses use `OK: {message}` / `ERROR: {code}: {message}` and end
+with one newline; health text keeps its dedicated flat `key: value` format.
 
 ## Links
 
@@ -123,8 +131,9 @@ Response:
 }
 ```
 
-**`owner_token` is returned exactly once, here.** Save it. It is the only
-way to edit or delete this link later, and there is no recovery path.
+`owner_token` is present only when the request created a new anonymous
+owner. Save it to restore that owner's browser identity. It remains
+viewable, masked by default, on `/server/preferences/tokens`.
 
 ### Get a link
 
@@ -175,7 +184,7 @@ GET /api/v1/links?page=1&limit=250
 PATCH /api/v1/links/{slug}
 ```
 
-Requires the link's `owner_token` or the operator token.
+Requires a valid token belonging to the link's owner or the operator token.
 
 ```json
 {
@@ -201,7 +210,7 @@ Both fields are optional; send only what changes.
 DELETE /api/v1/links/{slug}
 ```
 
-Requires the link's `owner_token` or the operator token.
+Requires a valid token belonging to the link's owner or the operator token.
 
 ```json
 {
@@ -394,12 +403,34 @@ Server-rendered HTML. Every one of these works with JavaScript disabled.
 | `GET /server/security/policy` | Coordinated disclosure policy |
 | `GET /server/security/thanks` | Researcher acknowledgments |
 | `GET /server/healthz` | Health page |
+| `GET /server/preferences` | Cookie-only interface preferences |
+| `GET /server/preferences/tokens` | Owner-token management page |
+| `GET /api/{api_version}/server/preferences/tokens` | Masked token list (primary Bearer token required) |
+| `POST /api/{api_version}/server/preferences/tokens` | Create a linked token |
+| `POST /api/{api_version}/server/preferences/tokens/primary/reveal` | Reveal primary token |
+| `POST /api/{api_version}/server/preferences/tokens/primary/rotate` | Rotate primary token |
+| `POST /api/{api_version}/server/preferences/tokens/{id}/reveal` | Reveal linked token |
+| `POST /api/{api_version}/server/preferences/tokens/{id}/rotate` | Rotate linked token |
+| `PATCH /api/{api_version}/server/preferences/tokens/{id}` | Rename linked token or change expiry |
+| `DELETE /api/{api_version}/server/preferences/tokens/{id}` | Revoke linked token |
+| `GET /api/{api_version}/server/security/policy` | Coordinated disclosure policy data |
+| `GET /api/{api_version}/server/dpo` | Public DPO contact data |
+| `GET /api/{api_version}/server/auth/check` | Validate a Bearer token and return its kind |
+| `GET /server/security/report/{tracking_id}` | Researcher report status (requires the one-time status token) |
 | `POST /server/consent` | Cookie consent choice |
 | `POST /server/theme` | Theme preference |
+| `POST /announcements/dismiss` | Dismiss a configured announcement without JavaScript |
 | `GET /static/*` | Embedded CSS, JS, and images |
-| `GET /favicon.ico` | Embedded default favicon |
+| `GET /manifest.json` | PWA manifest |
+| `GET /sw.js` | Build-stamped service worker |
+| `GET /offline.html` | Offline fallback page |
+| `GET /favicon.ico` | Embedded default favicon (the page head may use a configured HTTPS or same-origin branding icon) |
 | `GET /sitemap.xml` | Public-page sitemap or sitemap index |
 | `GET /sitemap-{part}.xml` | A numbered sitemap page when the URL limit is exceeded |
+| `GET /feed.xml` | Atom 1.0 feed of recent public links |
+| `GET /rss.xml` | RSS 2.0 feed of the same links |
+| `GET /api/autodiscover` | Server and available CLI update metadata |
+| `GET /cli/binaries/{project}-cli-{os}-{arch}` | Download a colocated CLI build |
 
 Two routes are conditional: `/server/ccpa` exists only when
 `server.privacy.data.sold` is true, and `/server/dpo` only when compliance

@@ -15,6 +15,26 @@ import (
 // Go runtime, and database-connection-pool metrics.
 const collectInterval = 15 * time.Second
 
+// StartTorCollector samples PART 20 Tor process state until ctx is
+// canceled. The source must expose an actual circuit-established signal;
+// process/control-port health is not used as a substitute.
+func (m *Metrics) StartTorCollector(ctx context.Context, source TorMetricsSource) {
+	collect := func() { m.UpdateTorMetrics(source) }
+	collect()
+	go func() {
+		ticker := time.NewTicker(collectInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				collect()
+			}
+		}
+	}()
+}
+
 // StartCollector runs a ticker-driven goroutine until ctx is canceled,
 // updating system_* (if includeSystem), go_* (if includeRuntime), and
 // db_connections_* metrics, per AI.md PART 20 "System Metrics" / "Go
@@ -33,6 +53,7 @@ func (m *Metrics) StartCollector(ctx context.Context, dataDir string, sqlDB *sql
 		collect := func() {
 			if sqlDB != nil {
 				m.UpdateConnectionMetrics(sqlDB.Stats())
+				m.collectBusinessMetrics(ctx, sqlDB)
 			}
 			if includeSystem {
 				m.collectSystem(dataDir)
@@ -51,6 +72,35 @@ func (m *Metrics) StartCollector(ctx context.Context, dataDir string, sqlDB *sql
 			}
 		}
 	}()
+}
+
+// collectBusinessMetrics samples shortner-specific counts from the existing
+// links, clicks, and api_tokens tables. A failed query leaves the prior
+// values intact rather than publishing a partial snapshot.
+func (m *Metrics) collectBusinessMetrics(parent context.Context, sqlDB *sql.DB) {
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+	defer cancel()
+	cutoff := time.Now().Add(-24 * time.Hour).Unix()
+	var linksTotal, linksCreated, linksClicked, tokensActive int64
+	queries := []struct {
+		dest  *int64
+		query string
+		args  []any
+	}{
+		{&linksTotal, `SELECT COUNT(*) FROM links`, nil},
+		{&linksCreated, `SELECT COUNT(*) FROM links WHERE created_at >= ?`, []any{cutoff}},
+		{&linksClicked, `SELECT COUNT(*) FROM clicks WHERE timestamp >= ?`, []any{cutoff}},
+		{&tokensActive, `SELECT COUNT(*) FROM api_tokens WHERE kind IN ('primary', 'linked') AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`, []any{time.Now().Unix()}},
+	}
+	for _, item := range queries {
+		if err := sqlDB.QueryRowContext(ctx, item.query, item.args...).Scan(item.dest); err != nil {
+			return
+		}
+	}
+	m.LinksTotal.Set(float64(linksTotal))
+	m.LinksCreated24h.Set(float64(linksCreated))
+	m.LinksClicked24h.Set(float64(linksClicked))
+	m.APITokensActive.Set(float64(tokensActive))
 }
 
 func (m *Metrics) collectSystem(dataDir string) {

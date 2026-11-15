@@ -6,6 +6,10 @@ import (
 	"time"
 )
 
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
 // SchedulerTask mirrors the scheduler_tasks table, per AI.md PART 18
 // "Scheduler State (Persistent)".
 type SchedulerTask struct {

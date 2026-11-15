@@ -22,7 +22,7 @@ func testLinkDeps(t *testing.T) (*linkDeps, *sql.DB) {
 	if err := db.EnsureSchema(context.Background(), sqlDB); err != nil {
 		t.Fatalf("EnsureSchema: %v", err)
 	}
-	return &linkDeps{sqlDB: sqlDB, resolver: NewProxyResolver(nil)}, sqlDB
+	return &linkDeps{sqlDB: sqlDB, tokenKey: make([]byte, 32), resolver: NewProxyResolver(nil)}, sqlDB
 }
 
 func newChiRequest(method, target string, body []byte, slug string) *http.Request {
@@ -340,8 +340,8 @@ func TestUpdateLinkHandler_Unauthorized(t *testing.T) {
 
 	ld.updateLinkHandler(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", rec.Code)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
 	}
 }
 
@@ -420,8 +420,8 @@ func TestDeleteLinkHandler_Unauthorized(t *testing.T) {
 	rec := httptest.NewRecorder()
 	ld.deleteLinkHandler(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", rec.Code)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
 	}
 }
 
@@ -594,10 +594,14 @@ func TestCorsAPIMiddleware(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/links", nil)
 	rec := httptest.NewRecorder()
+	rec.Header().Set("Access-Control-Allow-Credentials", "true")
 	handler.ServeHTTP(rec, req)
 
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
 		t.Errorf("Access-Control-Allow-Origin = %q, want *", got)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Errorf("Access-Control-Allow-Credentials = %q, want absent on wildcard API CORS", got)
 	}
 
 	optReq := httptest.NewRequest(http.MethodOptions, "/api/v1/links", nil)

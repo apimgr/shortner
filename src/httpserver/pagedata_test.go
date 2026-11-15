@@ -1,6 +1,8 @@
 package httpserver
 
 import (
+	"context"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -116,5 +118,34 @@ func TestOverlayTime(t *testing.T) {
 	}
 	if got := overlayTime(base, false); got.Location() != time.Local {
 		t.Fatalf("clearnet time location = %v, want Local", got.Location())
+	}
+}
+
+func TestPageRobotsFailsClosed(t *testing.T) {
+	for path, want := range map[string]string{
+		"/":                          "index,follow",
+		"/list":                      "index,follow",
+		"/server/about":              "index,follow",
+		"/server/preferences":        "noindex,nofollow",
+		"/server/preferences/tokens": "noindex,nofollow",
+		"/server/healthz":            "noindex,nofollow",
+		"/server/security/report/id": "noindex,nofollow",
+		"/abc123/stats":              "index,follow",
+	} {
+		if got := pageRobots(path); got != want {
+			t.Errorf("pageRobots(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
+
+func TestPageAssetURLBlocksRemoteAssetsOnOverlay(t *testing.T) {
+	resolver := NewProxyResolver(nil)
+	req := httptest.NewRequest("GET", "http://example.onion/", nil)
+	req = req.WithContext(context.WithValue(req.Context(), overlayCtxKey{}, OverlayTor))
+	if got := pageAssetURL(req, resolver, "https://images.example/logo.png", true); got != "" {
+		t.Fatalf("remote overlay asset = %q, want omitted", got)
+	}
+	if got := pageAssetURL(req, resolver, "/static/logo.png", true); got != "http://example.onion/static/logo.png" {
+		t.Fatalf("same-origin overlay asset = %q, want overlay URL", got)
 	}
 }

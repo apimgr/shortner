@@ -109,6 +109,22 @@ server:
 `api_version` must not contain `/`, `?`, or `#`; an invalid value falls
 back to `v1`. It determines the API path prefix, `/api/v1` by default.
 
+### Owner tokens
+
+```yaml
+server:
+  tokens:
+    max_linked: 25
+    cookie_max_age: 1y
+    idle_purge_days: 0
+```
+
+The primary owner token is issued when a new anonymous owner is created.
+Linked tokens can be named and given an expiry from the owner-token page.
+The primary-token cookie is HttpOnly, Secure, SameSite=Strict, and its
+configured lifetime slides forward on valid use. `idle_purge_days: 0`
+disables idle purging; owners with links are never purged.
+
 ### Database
 
 ```yaml
@@ -247,12 +263,30 @@ HTTP-01 and TLS-ALPN-01 challenges.
 ```yaml
 server:
   branding:
+    title: ""
     site_name: ""
     tagline: ""
+    description: ""
+    favicon: ""
+    logo: ""
     logo_url: ""
   seo:
     description: ""
-    keywords: ""
+    keywords: []
+    author: ""
+    og_image: ""
+    twitter_handle: ""
+    verification:
+      google: ""
+      bing: ""
+      yandex: ""
+      baidu: ""
+      pinterest: ""
+      facebook: ""
+      custom: []
+    feed:
+      max_items: 50
+      title: ""
     sitemap:
       enabled: true
       max_urls: 50000
@@ -280,13 +314,29 @@ maximum of 50,000 URLs per sitemap page is always enforced. `include_images`
 currently has no effect because this product does not associate image assets
 with links.
 
+Public HTML pages emit route-specific robots directives, canonical URLs,
+Open Graph and Twitter metadata, and JSON-LD. SEO verification values are
+validated before rendering; invalid entries are omitted with a startup
+warning. Same-origin image paths are expanded to request-specific absolute
+URLs. Remote image URLs are used only over HTTPS and are omitted on Tor and
+I2P requests to avoid disclosing overlay visitors to third parties.
+
+Atom 1.0 and RSS 2.0 feeds are always available at `/feed.xml` and
+`/rss.xml`. Both contain the same newest public, unexpired links.
+`feed.max_items` is clamped to 1–200 during validation; `feed.title`
+defaults to the site name.
+
 The `admin` address is internal only and is never rendered on a page. The
 `security` address feeds `/.well-known/security.txt`; when empty it
 resolves to `security@` at the detected FQDN. The `dpo` block drives the
 `/server/dpo` page, which is only routed when compliance settings or a DPO
 name require it.
 
-Static page content is Markdown under `pages:`:
+Static page content fields render as Markdown. Raw HTML is disabled, output
+is sanitized through an allow-list, and external links receive
+`rel="noopener noreferrer nofollow ugc"`.
+
+Static page content is configured under `pages:`:
 
 ```yaml
 pages:
@@ -390,8 +440,8 @@ Twelve built-in tasks are registered:
 | `update_check` | daily | Active |
 | `blocklist_update` | daily | Registered; skips — the subsystem is not built |
 | `cve_update` | daily | Registered; skips — the subsystem is not built |
-| `tor_health` | every 10 minutes | Registered; skips — Tor is not implemented |
-| `i2p_health` | every 10 minutes | Disabled; I2P is not implemented |
+| `tor_health` | every 10 minutes | Active when Tor is available; otherwise reports unavailable |
+| `i2p_health` | every 10 minutes | Registered only when I2P is enabled |
 
 Tasks that cannot do real work skip with a logged reason rather than
 pretending to succeed. See [CLI Reference](cli.md#scheduler) for the
@@ -476,12 +526,15 @@ server:
     branch: "stable"
     auto_install: false
     defer_days: 0
+    cli_min_version: ""
 ```
 
 Valid branches are `stable`, `beta`, and `daily`. With `auto_install`
 off — the default — the `update_check` task only notifies. `defer_days`
 (0–365) makes the scheduled check ignore releases younger than that many
 days; an explicit `shortner --update` bypasses the defer window.
+`cli_min_version` is returned by `/api/autodiscover` and is empty by
+default, so no minimum CLI version is enforced.
 
 ## Security
 
@@ -538,7 +591,17 @@ server:
         scheduler_error: true
         update_available: false
         update_installed: true
+    disk_low:
+      enabled: true
+      threshold_percent: 85
+      check_interval: 5m
+      repeat: 24h
 ```
+
+`disk_low` checks the filesystems containing the data, log, and backup
+directories every five minutes. It logs and emails when a volume first
+crosses the threshold, repeats at most once per configured interval, and
+logs recovery after usage falls five percentage points below the threshold.
 
 `email.enabled` is set automatically from whether a working SMTP server
 was found — it is not a manual toggle. With `host` empty, the server
@@ -599,13 +662,30 @@ set explicitly.
 
 `web.permissions_policy` holds a map of 25 browser features, all locked
 down by default. `web.robots` controls the generated `robots.txt`.
-`web.announcements.items` and `web.footer.custom_html` control page
-chrome; a footer value of a single space disables the footer, while an
-empty string keeps the default branding.
+`web.announcements.enabled` and `web.announcements.messages` control
+server-rendered site banners. Messages with an active RFC 3339 `start` and
+`end` window appear in configuration order; visitors can dismiss entries
+marked `dismissible: true` without JavaScript. A single-space value for
+`web.footer.custom_html` disables the footer, while an empty string keeps
+the default branding.
 
-!!! note
-    Configured announcements are stored and validated but are not yet
-    rendered as a banner in the web interface.
+```yaml
+web:
+  announcements:
+    enabled: true
+    messages:
+      - id: maintenance-2026-11
+        type: warning
+        title: Scheduled maintenance
+        message: Service will be unavailable during the maintenance window.
+        start: "2026-11-20T02:00:00Z"
+        end: "2026-11-20T04:00:00Z"
+        dismissible: true
+```
+
+Supported types are `info`, `warning`, `error`, and `success`. Dismissal is
+stored in the `dismissed_announcements` browser cookie keyed by the message
+ID; changing an ID shows the notice again.
 
 ## Well-Known and Discovery
 

@@ -15,8 +15,17 @@ import (
 // Notifications holds `server.notifications`, per AI.md PART 17
 // "Configuration".
 type Notifications struct {
-	WebUI NotificationsWebUI `yaml:"webui"`
-	Email EmailNotifications `yaml:"email"`
+	WebUI   NotificationsWebUI  `yaml:"webui"`
+	Email   EmailNotifications  `yaml:"email"`
+	DiskLow DiskLowNotification `yaml:"disk_low"`
+}
+
+// DiskLowNotification controls the PART 17 disk-space warning cadence.
+type DiskLowNotification struct {
+	Enabled          bool    `yaml:"enabled"`
+	ThresholdPercent float64 `yaml:"threshold_percent"`
+	CheckInterval    string  `yaml:"check_interval"`
+	Repeat           string  `yaml:"repeat"`
 }
 
 // NotificationsWebUI holds `server.notifications.webui` — the visitor-
@@ -82,6 +91,7 @@ type EmailEvents struct {
 	SchedulerError   bool `yaml:"scheduler_error"`
 	UpdateAvailable  bool `yaml:"update_available"`
 	UpdateInstalled  bool `yaml:"update_installed"`
+	DiskLow          bool `yaml:"disk_low"`
 }
 
 // TLS mode values accepted by `server.notifications.email.smtp.tls`.
@@ -128,6 +138,7 @@ func DefaultNotifications() Notifications {
 				UpdateInstalled:  true,
 			},
 		},
+		DiskLow: DiskLowNotification{Enabled: true, ThresholdPercent: 85, CheckInterval: "5m", Repeat: "24h"},
 	}
 }
 

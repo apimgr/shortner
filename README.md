@@ -6,9 +6,9 @@
 ## About
 
 Shortner is a self-hosted URL shortener with an API and web UI. Anyone can
-create a short link with no account required; each link gets a one-time
-owner token for managing it later, and every click is recorded with the
-originating IP anonymized for privacy-respecting analytics.
+create a short link with no account required; links belong to an anonymous
+owner with a persistent primary token, and every click is recorded with
+the originating IP anonymized for privacy-respecting analytics.
 
 ## Official Site
 
@@ -18,14 +18,24 @@ https://shortner.example.com
 
 - Anonymous link creation — no account required
 - Owner tokens for managing links after creation
+- Linked tokens for integrations, with browser restore and management at
+  `/server/preferences/tokens`
 - Custom slugs and link expiration (expired links return `410 Gone`)
 - Click analytics with IP anonymization
 - Bot-exclusion for click analytics
 - Server-side rendered web UI — works fully without JavaScript
-- REST API mirrors every web UI feature
+- HTTPS service worker with cached static assets and an offline fallback
+- REST API for link creation, listing, management, analytics, and health; several Web UI pages still lack their specified API mirrors
 - Local GeoIP enrichment for click analytics and country-based controls
 - Tor v3 hidden service when a Tor binary is available; optional I2P eepsite
 - Single static server binary; overlay networking uses optional system runtimes
+- Companion `shortner-cli` with command-line and terminal interfaces
+
+## Documentation
+
+The operator and developer guides are in [`docs/`](docs/index.md), including
+the [API reference](docs/api.md), [configuration guide](docs/configuration.md),
+[security model](docs/security.md), and [translation guide](docs/translating.md).
 
 ## Production
 
@@ -86,12 +96,13 @@ docker compose up -d
 
 This starts `shortner` (port `172.17.0.1:64580`) plus a `shortner-cache`
 (Valkey) sidecar. Config and data persist in `./volumes/config` and
-`./volumes/data`. Override `PORT`, `TZ`, or `CACHE_URL` via environment
-variables in `docker-compose.yml`.
+`./volumes/data`. `PORT` and `TZ` are configurable through the compose
+environment. The Valkey service is currently not connected to the server;
+`CACHE_URL` is present in compose but is not consumed by the Go config.
 
 ## Client
 
-`shortner-cli` is the companion CLI/TUI client for managing links and
+`shortner-cli` is the companion CLI/TUI/GUI client for managing links and
 server settings from the command line.
 
 ```bash
@@ -144,7 +155,7 @@ over environment variables, which win over the built-in defaults.
 
 ## API
 
-The REST API is the source of truth; the web UI consumes it. Successful
+The server provides a REST API and server-rendered web interface. Successful
 JSON responses use the `{"ok": true, "data": {…}}` envelope, errors use
 `{"ok": false, "error": …, "message": …}`, and the health endpoints return
 their health object directly.

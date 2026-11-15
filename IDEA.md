@@ -1,8 +1,9 @@
 ## Project description
 
 A self-hosted URL shortening service with an API and web interface. Anyone can shorten a
-URL anonymously (rate-limited); each created link gets a resource owner token for later
-management. Every link has a full click-analytics page, with anonymized IPs, so link
+URL anonymously (rate-limited); created links belong to a persistent anonymous owner
+whose primary token can be restored and managed. Owners may create linked tokens for
+integrations. Every link has a full click-analytics page, with anonymized IPs, so link
 owners can see traffic without exposing visitor identity.
 
 ## Project variables
@@ -25,7 +26,7 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
 - Target users: individuals/small teams self-hosting a shortener; developers integrating
   via API + Bearer token; anyone wanting basic click analytics without a full account
   system.
-- Non-goals: no user accounts, no passwords, no sessions, no per-user/per-tenant custom
+- Non-goals: no user accounts, no passwords, no login sessions, no per-user/per-tenant custom
   domains (single fixed domain: `official_site` — there is no owner entity to scope a
   custom domain to), no team/multi-tenant features, no destination-URL content
   moderation beyond operator manual takedown (see "Security decisions & exceptions").
@@ -33,27 +34,29 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
 ### Roles & permissions
 - **Anonymous (public)**: may create a link (subject to write rate limits), resolve/
   redirect any link, and view any link's click-stats page — all without authentication.
-- **Resource owner** (holds that link's `owner_token`, issued once at creation, per
-  PART 11's API Token Model): may update destination/expiration or delete that link
-  only. There are no accounts — the token itself is the sole credential; losing it means
-  losing management access to that link, with no account-recovery path.
+- **Resource owner** (holds a primary or linked owner token): may update destination/
+  expiration or delete any link belonging to that anonymous owner. The primary token
+  also manages linked tokens and can restore browser access. There are no accounts or
+  passwords; the token is the owner's credential.
 - **Operator** (holds `server.token` from `server.yml`): global access — may moderate/
-  delete any link and revoke any resource owner token
+  delete any link and revoke an owner's primary token, which revokes all its tokens
   (`--maintenance token revoke <prefix>` / `token list`, PART 8/11).
 - No other roles exist; no admin web UI (PART 16 public-nav rule — nav is app-focused
   only).
 
 ### Data model & sensitivity
 - Link: id, short_code (or custom slug), destination_url, created_at, expires_at,
-  click_count. Tier 2/3 (PART 11) — destination_url and click_count are shown on the
-  link's public stats page; no owner-identifying data is stored since there are no
-  accounts.
+  click_count, owner_id. Tier 2/3 (PART 11) — destination_url and click_count are shown
+  on the link's public stats page; owner_id identifies an anonymous owner, not a person.
 - Click: id, link_id, timestamp, ip (anonymized — IPv4: last octet zeroed; IPv6: last 80
   bits zeroed — before any write; the raw IP is never persisted), user_agent, referrer,
   country/region (GeoIP, derived from the already-anonymized IP where possible).
-- `api_tokens` (PART 11): `SHA-256(owner_token)`, `resource_type="link"`, `resource_id`,
-  `revoked_at`, `expires_at`, `last_used_at` — the raw token is shown once at creation
-  and never stored or retrievable again.
+- `owners` (PART 8): random owner id, created and last-seen timestamps. Owners with
+  resources are never idle-purged.
+- `api_tokens` (PART 8): owner id, primary/linked kind, optional linked-token name,
+  SHA-256 token hash, masked prefix, encrypted copy for explicit reveal, creation,
+  rotation, expiry, last-used, and revocation timestamps. Raw tokens never appear in
+  logs or list responses.
 - No Tier 1 data is ever collected: no passwords, no accounts, no raw visitor IPs after
   anonymization.
 

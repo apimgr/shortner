@@ -51,6 +51,109 @@
       });
   }
 
+  function registerServiceWorker() {
+    var installBanner = document.getElementById("pwa-install-banner");
+    var updateBanner = document.getElementById("pwa-update-banner");
+    var installButton = installBanner && installBanner.querySelector('[data-action="install-app"]');
+    var offlineIndicator = document.getElementById("offline-indicator");
+    var installPrompt = null;
+    var waitingWorker = null;
+    var installDismissed = false;
+    function updateOnlineState() {
+      if (offlineIndicator) offlineIndicator.hidden = navigator.onLine;
+    }
+    updateOnlineState();
+    window.addEventListener("online", updateOnlineState);
+    window.addEventListener("offline", updateOnlineState);
+    window.addEventListener("beforeinstallprompt", function (event) {
+      event.preventDefault();
+      installPrompt = event;
+      if (installButton) installButton.hidden = false;
+      if (installBanner && !installDismissed && !window.matchMedia("(display-mode: standalone)").matches) installBanner.hidden = false;
+    });
+    window.addEventListener("appinstalled", function () {
+      installPrompt = null;
+      if (installBanner) installBanner.hidden = true;
+    });
+    if (!installBanner || window.location.protocol !== "https:" || !("serviceWorker" in navigator)) {
+      return;
+    }
+    var iosHelp = document.getElementById("pwa-ios-help");
+    if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !navigator.standalone && !window.matchMedia("(display-mode: standalone)").matches && iosHelp) {
+      iosHelp.hidden = false;
+      installBanner.hidden = false;
+      if (installButton) installButton.hidden = true;
+    } else if (installButton) {
+      installButton.hidden = true;
+    }
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("/sw.js", { scope: "/" }).then(function (registration) {
+        window.setInterval(function () {
+          registration.update().catch(function () {});
+        }, 60 * 60 * 1000);
+        registration.addEventListener("updatefound", function () {
+          var worker = registration.installing;
+          if (!worker) return;
+          worker.addEventListener("statechange", function () {
+            if (worker.state === "installed" && navigator.serviceWorker.controller) {
+              waitingWorker = worker;
+              if (updateBanner) updateBanner.hidden = false;
+            }
+          });
+        });
+      }).catch(function () {
+        /* The web app remains fully usable when offline support is unavailable. */
+      });
+    });
+    navigator.serviceWorker.addEventListener("controllerchange", function () {
+      var stamp = document.querySelector('meta[name="build-stamp"]');
+      var current = stamp ? stamp.content : "unknown";
+      if (sessionStorage.getItem("shortner_sw_reloaded_stamp") === current) return;
+      sessionStorage.setItem("shortner_sw_reloaded_stamp", current);
+      window.location.reload();
+    });
+    document.addEventListener("click", function (event) {
+      var action = event.target.closest("[data-action]");
+      if (!action) return;
+      switch (action.getAttribute("data-action")) {
+        case "install-app":
+          if (installPrompt) {
+            installPrompt.prompt();
+            installPrompt.userChoice.then(function () { installPrompt = null; });
+          }
+          break;
+        case "dismiss-install":
+          installDismissed = true;
+          if (installBanner) installBanner.hidden = true;
+          break;
+        case "update-app":
+          if (waitingWorker) waitingWorker.postMessage({ action: "skipWaiting" });
+          break;
+        case "dismiss-update":
+          if (updateBanner) updateBanner.hidden = true;
+          break;
+      }
+    });
+  }
+
+  function enhanceAnnouncementDismissal() {
+    document.querySelectorAll(".site-banner-dismiss").forEach(function (form) {
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        var id = new FormData(form).get("id");
+        if (!id) return;
+        var cookie = document.cookie.match(/(?:^|;\s*)dismissed_announcements=([^;]*)/);
+        var ids = cookie ? decodeURIComponent(cookie[1]).split(",").filter(Boolean) : [];
+        if (ids.indexOf(id) === -1) ids.push(id);
+        var secure = window.location.protocol === "https:" ? "; Secure" : "";
+        document.cookie = "dismissed_announcements=" + encodeURIComponent(ids.join(",")) +
+          "; path=/; max-age=31536000; samesite=lax" + secure;
+        var banner = form.closest(".site-banner");
+        if (banner) banner.remove();
+      });
+    });
+  }
+
   // Announces a message to assistive technology through the polite live
   // region rendered by every page layout. Screen readers read the new
   // text without moving focus; sighted users are unaffected.
@@ -65,20 +168,120 @@
     }, 50);
   }
 
-  function showToast(message, kind) {
+  var toastCounter = 0;
+  var toastQueue = [];
+  var activeToasts = new Map();
+  var maxVisibleToasts = 5;
+
+  function toastDuration(kind) {
+    if (kind === "error") return 0;
+    if (kind === "warning") return 5000;
     var container = document.getElementById("toast-container");
-    if (!container) {
+    var configured = Number(container && container.getAttribute("data-duration"));
+    return Number.isFinite(configured) && configured >= 0 ? configured * 1000 : 3000;
+  }
+
+  function renderToast(item) {
+    var container = document.getElementById("toast-container");
+    if (!container) return;
+    var toast = document.createElement("div");
+    toast.className = "toast toast-" + item.kind;
+    toast.setAttribute("role", item.kind === "error" || item.kind === "warning" ? "alert" : "status");
+    toast.setAttribute("aria-live", "polite");
+    toast.setAttribute("data-toast-id", item.id);
+    var icon = document.createElement("span");
+    icon.className = "toast-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = { success: "✓", error: "×", warning: "⚠", info: "ℹ" }[item.kind] || "ℹ";
+    var text = document.createElement("span");
+    text.className = "toast-message";
+    text.textContent = item.message;
+    var close = document.createElement("button");
+    close.className = "toast-close";
+    close.type = "button";
+    close.setAttribute("aria-label", container.getAttribute("data-dismiss-label") || t("a11y.dismiss", "Dismiss"));
+    close.textContent = "×";
+    toast.appendChild(icon);
+    toast.appendChild(text);
+    toast.appendChild(close);
+    var progress = document.createElement("div");
+    progress.className = "toast-progress";
+    toast.appendChild(progress);
+    container.insertBefore(toast, container.firstChild);
+    item.element = toast;
+    item.remaining = item.duration;
+    item.startedAt = Date.now();
+    activeToasts.set(item.id, item);
+    if (item.duration > 0) {
+      progress.style.animationDuration = item.duration + "ms";
+      item.timer = window.setTimeout(function () { dismissToast(item.id); }, item.duration);
+    } else {
+      progress.hidden = true;
+    }
+    toast.addEventListener("mouseenter", function () {
+      if (!item.timer) return;
+      window.clearTimeout(item.timer);
+      item.timer = null;
+      item.remaining = Math.max(0, item.remaining - (Date.now() - item.startedAt));
+      progress.style.animationPlayState = "paused";
+    });
+    toast.addEventListener("mouseleave", function () {
+      if (item.duration <= 0 || item.timer) return;
+      item.startedAt = Date.now();
+      progress.style.animationDelay = "-" + Math.max(0, item.duration - item.remaining) + "ms";
+      progress.style.animationPlayState = "running";
+      item.timer = window.setTimeout(function () { dismissToast(item.id); }, item.remaining);
+    });
+    toast.addEventListener("click", function (event) {
+      event.preventDefault();
+      dismissToast(item.id);
+    });
+  }
+
+  function showToast(message, kind, duration) {
+    var container = document.getElementById("toast-container");
+    if (!container) return null;
+    var type = ["success", "error", "warning", "info"].indexOf(kind) >= 0 ? kind : "info";
+    var item = { id: "toast-" + (++toastCounter), message: String(message), kind: type,
+      duration: Number.isFinite(duration) ? Math.max(0, duration) : toastDuration(type) };
+    if (activeToasts.size >= maxVisibleToasts) toastQueue.push(item);
+    else renderToast(item);
+    return item.id;
+  }
+
+  function dismissToast(id) {
+    var item = activeToasts.get(id);
+    if (!item) {
+      var queued = toastQueue.findIndex(function (candidate) { return candidate.id === id; });
+      if (queued >= 0) toastQueue.splice(queued, 1);
       return;
     }
-    var toast = document.createElement("div");
-    toast.className = "toast" + (kind ? " toast-" + kind : "");
-    toast.setAttribute("role", "status");
-    toast.textContent = message;
-    container.appendChild(toast);
-    window.setTimeout(function () {
-      toast.remove();
-    }, 4000);
+    if (item.timer) window.clearTimeout(item.timer);
+    item.element.remove();
+    activeToasts.delete(id);
+    if (toastQueue.length > 0) renderToast(toastQueue.shift());
   }
+
+  function dismissAllToasts() {
+    activeToasts.forEach(function (item) {
+      if (item.timer) window.clearTimeout(item.timer);
+      item.element.remove();
+    });
+    activeToasts.clear();
+    toastQueue = [];
+  }
+
+  window.showToast = showToast;
+  window.dismissToast = dismissToast;
+  window.dismissAllToasts = dismissAllToasts;
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") {
+      var container = document.getElementById("toast-container");
+      var topToast = container && container.firstElementChild;
+      if (topToast) dismissToast(topToast.getAttribute("data-toast-id"));
+    }
+  });
 
   function copyToClipboard(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -199,12 +402,15 @@
     }
   });
 
+  enhanceAnnouncementDismissal();
+
   // The cookie-consent banner is rendered server-side only when the request
   // carries no cookie_consent cookie (AI.md PART 16 "Server-side behavior":
   // no display:none, no reveal script), so there is nothing for JS to show
   // or hide here — its forms POST to /server/consent and work without JS.
   document.addEventListener("DOMContentLoaded", function () {
     loadLocale();
+    registerServiceWorker();
 
     // After a successful link creation (server-rendered success card),
     // offer a one-click copy of the new short URL.

@@ -27,6 +27,9 @@ __cleanup() {
   if [ -n "$temp_dir" ] && [ -d "$temp_dir" ]; then
     rm -rf -- "$temp_dir"
   fi
+  if [ -n "$bin_dir" ] && [ -d "$bin_dir" ]; then
+    rm -rf -- "$bin_dir"
+  fi
 }
 trap __cleanup EXIT
 

@@ -108,6 +108,7 @@ nav:
     - CLI Reference: cli.md
     - Security: security.md
     - Integrations: integrations.md
+    - Translating: translating.md
   - Development:
     - Contributing: development.md
 

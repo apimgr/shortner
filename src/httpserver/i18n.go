@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/apimgr/shortner/src/apperr"
@@ -99,6 +100,13 @@ func tf(r *http.Request, key string, args map[string]string) string {
 // AI.md PART 30 "Template Usage": {{t .Base.Lang "key"}},
 // {{tf .Base.Lang "key" "token" value}}, and {{tp .Base.Lang "key" count}}.
 var templateFuncs = map[string]any{
+	"asset": func(path, stamp string) string {
+		separator := "?"
+		if strings.Contains(path, "?") {
+			separator = "&"
+		}
+		return path + separator + "v=" + url.QueryEscape(stamp)
+	},
 	"t": func(lang, key string) string {
 		return i18n.Translate(lang, key)
 	},

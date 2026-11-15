@@ -11,16 +11,16 @@ import (
 	"github.com/apimgr/shortner/src/geoip"
 )
 
-func TestBuiltinTasksRegistersAllTwelve(t *testing.T) {
+func TestBuiltinTasksRegistersAllThirteen(t *testing.T) {
 	cfg := config.Default("").Server.Scheduler
 	tasks := BuiltinTasks(cfg, Deps{})
-	if len(tasks) != 12 {
-		t.Fatalf("len(BuiltinTasks()) = %d, want 12 (AI.md PART 18 'Built-in Tasks (Required)')", len(tasks))
+	if len(tasks) != 13 {
+		t.Fatalf("len(BuiltinTasks()) = %d, want 13 (AI.md PART 18 'Built-in Tasks (Required)')", len(tasks))
 	}
 	want := map[string]bool{
 		"ssl_renewal": true, "geoip_update": true, "blocklist_update": true,
 		"cve_update": true, "update_check": true, "token_cleanup": true,
-		"log_rotation": true, "backup_daily": true, "backup_hourly": true,
+		"log_rotation": true, "disk_check": true, "backup_daily": true, "backup_hourly": true,
 		"healthcheck_self": true, "tor_health": true, "i2p_health": true,
 	}
 	for _, task := range tasks {
@@ -50,11 +50,23 @@ func TestTokenCleanupTask(t *testing.T) {
 	sqlDB := openTestDB(t)
 	ctx := context.Background()
 	past := time.Now().Add(-time.Hour)
-	if _, _, err := db.CreateResourceToken(ctx, sqlDB, "link", "expired", &past); err != nil {
-		t.Fatalf("CreateResourceToken() error = %v", err)
+	ownerID, err := db.CreateOwner(ctx, sqlDB)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := tokenCleanupTask(sqlDB)(ctx); err != nil {
+	_, token, err := db.CreateLinkedToken(ctx, sqlDB, ownerID, "expired", &past, 25, make([]byte, 32))
+	if err != nil {
+		t.Fatalf("CreateLinkedToken() error = %v", err)
+	}
+	if err := tokenCleanupTask(sqlDB, config.Tokens{})(ctx); err != nil {
 		t.Errorf("tokenCleanupTask() error = %v", err)
+	}
+	listed, err := db.ListOwnerTokens(ctx, sqlDB, ownerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].ID != token.ID || listed[0].Status() != "expired" {
+		t.Errorf("expired linked token should remain visible: %#v", listed)
 	}
 }
 

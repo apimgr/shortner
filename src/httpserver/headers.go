@@ -218,7 +218,7 @@ func (hd *headerDeps) buildCSP(r *http.Request) (string, string) {
 	// upgrade-insecure-requests eliminates mixed content on TLS sites, but
 	// must never be sent to an overlay client, whose origin is http:// by
 	// protocol design (AI.md PART 31).
-	if !hd.resolver.IsOverlay(r) {
+	if requestIsTLS(r) && !hd.resolver.IsOverlay(r) {
 		parts = append(parts, "upgrade-insecure-requests")
 	}
 

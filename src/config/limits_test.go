@@ -63,6 +63,7 @@ func TestParseSize(t *testing.T) {
 
 func TestValidateReplacesInvalidValues(t *testing.T) {
 	cfg := Default("/db")
+	cfg.Server.Mode = "staging"
 	cfg.Server.Port = "not-a-port"
 	cfg.Server.Limits.MaxBodySize = "bogus"
 	cfg.Server.Limits.ReadTimeout = "bogus"
@@ -80,6 +81,9 @@ func TestValidateReplacesInvalidValues(t *testing.T) {
 	def := Default("/db")
 	if cfg.Server.Port != def.Server.Port {
 		t.Errorf("Port = %q, want default %q", cfg.Server.Port, def.Server.Port)
+	}
+	if cfg.Server.Mode != def.Server.Mode {
+		t.Errorf("Mode = %q, want default %q", cfg.Server.Mode, def.Server.Mode)
 	}
 	if cfg.Server.Limits.MaxBodySize != def.Server.Limits.MaxBodySize {
 		t.Errorf("MaxBodySize = %q, want default %q", cfg.Server.Limits.MaxBodySize, def.Server.Limits.MaxBodySize)
@@ -119,5 +123,25 @@ func TestValidateAcceptsCacheTypeNone(t *testing.T) {
 	}
 	if cfg.Server.Cache.Type != "none" {
 		t.Errorf("Cache.Type = %q, want unchanged \"none\"", cfg.Server.Cache.Type)
+	}
+}
+
+func TestValidateSEOVerification(t *testing.T) {
+	cfg := Default("/db")
+	cfg.Server.SEO.Verification.Google = "valid_Code-123"
+	cfg.Server.SEO.Verification.Bing = "not-hex"
+	cfg.Server.SEO.Verification.Custom = []SEOCustomMetaTag{
+		{Name: "valid_tag", Content: "code"},
+		{Name: "bad tag", Content: "code"},
+	}
+	warnings := Validate(cfg)
+	if len(warnings) != 2 {
+		t.Fatalf("Validate() warnings = %v, want invalid provider and custom tag warnings", warnings)
+	}
+	if cfg.Server.SEO.Verification.Google != "valid_Code-123" || cfg.Server.SEO.Verification.Bing != "" {
+		t.Errorf("provider values = %+v, want valid Google retained and Bing omitted", cfg.Server.SEO.Verification)
+	}
+	if len(cfg.Server.SEO.Verification.Custom) != 1 || cfg.Server.SEO.Verification.Custom[0].Name != "valid_tag" {
+		t.Errorf("custom verification tags = %+v, want only valid entry", cfg.Server.SEO.Verification.Custom)
 	}
 }

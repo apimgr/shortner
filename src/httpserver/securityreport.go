@@ -70,7 +70,7 @@ func (fd *frontendDeps) securityMode(r *http.Request) bool {
 	if id == "" {
 		return false
 	}
-	if security.ValidSecurityID(fd.installSecret, id, time.Now()) {
+	if security.ValidSecurityIDWithPrevious(fd.installSecret, fd.previousInstallSecret, id, time.Now()) {
 		return true
 	}
 	// The supplied id is logged deliberately: it is already invalid, so it

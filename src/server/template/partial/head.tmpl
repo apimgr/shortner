@@ -3,10 +3,47 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Base.Title}} · {{.Base.SiteName}}</title>
 <meta name="description" content="{{.Base.Description}}">
+{{if .Base.Keywords}}<meta name="keywords" content="{{.Base.Keywords}}">{{end}}
+{{if .Base.Author}}<meta name="author" content="{{.Base.Author}}">{{end}}
+<meta name="robots" content="{{.Base.Robots}}">
+<link rel="canonical" href="{{.Base.CanonicalURL}}">
+<meta property="og:title" content="{{.Base.Title}}">
+<meta property="og:description" content="{{.Base.Description}}">
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{.Base.CanonicalURL}}">
+<meta property="og:site_name" content="{{.Base.SiteName}}">
+{{if .Base.OGImage}}<meta property="og:image" content="{{.Base.OGImage}}"><meta name="twitter:image" content="{{.Base.OGImage}}">{{end}}
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{.Base.Title}}">
+<meta name="twitter:description" content="{{.Base.Description}}">
+{{if .Base.TwitterHandle}}<meta name="twitter:site" content="{{.Base.TwitterHandle}}">{{end}}
+<script type="application/ld+json">{{.Base.StructuredData}}</script>
+{{with .Base.Verification}}
+{{if .Google}}<meta name="google-site-verification" content="{{.Google}}">{{end}}
+{{if .Bing}}<meta name="msvalidate.01" content="{{.Bing}}">{{end}}
+{{if .Yandex}}<meta name="yandex-verification" content="{{.Yandex}}">{{end}}
+{{if .Baidu}}<meta name="baidu-site-verification" content="{{.Baidu}}">{{end}}
+{{if .Pinterest}}<meta name="p:domain_verify" content="{{.Pinterest}}">{{end}}
+{{if .Facebook}}<meta property="fb:domain_verification" content="{{.Facebook}}">{{end}}
+{{range .Custom}}{{if .Name}}<meta name="{{.Name}}" content="{{.Content}}">{{else}}<meta property="{{.Property}}" content="{{.Content}}">{{end}}{{end}}
+{{end}}
 <meta name="color-scheme" content="dark light">
+<meta name="build-stamp" content="{{.Base.AssetStamp}}">
+<link rel="icon" type="image/png" sizes="16x16" href="{{asset "/static/icons/favicon-16.png" .Base.AssetStamp}}">
+<link rel="icon" type="image/png" sizes="32x32" href="{{asset "/static/icons/favicon-32.png" .Base.AssetStamp}}">
+<link rel="icon" type="image/png" sizes="48x48" href="{{asset "/static/icons/favicon-48.png" .Base.AssetStamp}}">
 <link rel="icon" href="/favicon.ico">
-<link rel="stylesheet" href="/static/css/common.css">
-<link rel="stylesheet" href="/static/css/components.css">
-<link rel="stylesheet" href="/static/css/public.css">
+{{if .Base.FaviconURL}}<link rel="icon" href="{{.Base.FaviconURL}}">{{end}}
+<link rel="apple-touch-icon" sizes="180x180" href="{{asset "/static/icons/icon-180.png" .Base.AssetStamp}}">
+<link rel="apple-touch-startup-image" href="{{asset "/static/splash/iphone-1179x2556.png" .Base.AssetStamp}}" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)">
+<link rel="apple-touch-startup-image" href="{{asset "/static/splash/iphone-1284x2778.png" .Base.AssetStamp}}" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#282a36">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="{{.Base.SiteName}}">
+<link rel="stylesheet" href="{{asset "/static/css/common.css" .Base.AssetStamp}}">
+<link rel="stylesheet" href="{{asset "/static/css/components.css" .Base.AssetStamp}}">
+<link rel="stylesheet" href="{{asset "/static/css/public.css" .Base.AssetStamp}}">
 </head>
 {{end}}

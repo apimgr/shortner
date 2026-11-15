@@ -4,13 +4,14 @@
 package httpserver
 
 import (
+	"html/template"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/apimgr/shortner/src/apperr"
+	"github.com/apimgr/shortner/src/common/sanitize"
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/security"
 )
@@ -71,11 +72,8 @@ func (fd *frontendDeps) securityHandler(w http.ResponseWriter, r *http.Request) 
 
 // securityPolicyPageData is bound to page/security_policy.tmpl.
 type securityPolicyPageData struct {
-	Base PageData
-	// Paragraphs is the policy body split on blank lines. Splitting here
-	// rather than in the template keeps the rendered text escaped: the
-	// operator-supplied policy is never treated as HTML.
-	Paragraphs []string
+	Base   PageData
+	Policy template.HTML
 }
 
 // securityPolicyHandler renders the coordinated-disclosure policy.
@@ -84,15 +82,9 @@ func (fd *frontendDeps) securityPolicyHandler(w http.ResponseWriter, r *http.Req
 	if policy == "" {
 		policy = defaultDisclosurePolicy
 	}
-	var paragraphs []string
-	for _, p := range strings.Split(policy, "\n\n") {
-		if trimmed := strings.TrimSpace(p); trimmed != "" {
-			paragraphs = append(paragraphs, trimmed)
-		}
-	}
 	data := securityPolicyPageData{
-		Base:       fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security.disclosure_policy_title"), fd.cfg.Server.SEO.Description),
-		Paragraphs: paragraphs,
+		Base:   fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security.disclosure_policy_title"), fd.cfg.Server.SEO.Description),
+		Policy: sanitize.RenderMarkdown(policy, r.Host),
 	}
 	_ = renderPage(w, http.StatusOK, "security_policy", data)
 }

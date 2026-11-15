@@ -6,7 +6,7 @@
 {{if .Base.CCPAEnabled}}- <a href="/server/ccpa" class="policy-link">{{t .Base.Lang "ccpa.do_not_sell"}}</a>{{end}}
 </span>
 <div class="cookie-buttons">
-<button type="button" class="btn-preferences" data-action="open-consent-preferences">{{.Base.ConsentPreferencesText}}</button>
+<a href="/server/preferences" class="btn-preferences" data-action="open-consent-preferences">{{.Base.ConsentPreferencesText}}</a>
 <form method="POST" action="/server/consent">
 <input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
 <input type="hidden" name="decision" value="decline">

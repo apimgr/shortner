@@ -20,7 +20,7 @@ func testFrontendDeps(t *testing.T) (*frontendDeps, *linkDeps) {
 	t.Helper()
 	ld, _ := testLinkDeps(t)
 	cfg := config.Default(":memory:")
-	fd := &frontendDeps{cfg: cfg, version: "test", buildDate: "2026-01-01", ld: ld}
+	fd := &frontendDeps{cfg: cfg, version: "test", buildDate: "2026-01-01", ld: ld, resolver: NewProxyResolver(nil)}
 	return fd, ld
 }
 
@@ -40,6 +40,10 @@ func htmlRequest(method, target string, form url.Values) *http.Request {
 
 func TestHomeHandler_GETRendersForm(t *testing.T) {
 	fd, _ := testFrontendDeps(t)
+	fd.cfg.Server.Branding.Title = "Shortner Test"
+	fd.cfg.Server.SEO.Description = "A configured description"
+	fd.cfg.Server.SEO.Keywords = []string{"short links", "privacy"}
+	fd.cfg.Server.SEO.Verification.Google = "abc_123"
 	rec := httptest.NewRecorder()
 	fd.homeHandler(rec, htmlRequest(http.MethodGet, "/", nil))
 	if rec.Code != http.StatusOK {
@@ -47,6 +51,11 @@ func TestHomeHandler_GETRendersForm(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "create-link-form") {
 		t.Errorf("expected the create-link form in body, got: %s", rec.Body.String())
+	}
+	for _, want := range []string{"Shortner Test", `name="robots" content="index,follow"`, `name="keywords" content="short links, privacy"`, `google-site-verification" content="abc_123"`, `property="og:site_name" content="Shortner Test"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("page metadata missing %q", want)
+		}
 	}
 }
 

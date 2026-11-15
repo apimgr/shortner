@@ -6,7 +6,10 @@
 // TODO.AI.md.
 package httpserver
 
-import "context"
+import (
+	"context"
+	"net/http"
+)
 
 // ctxKey is an unexported type for context values set by this package's
 // middleware, avoiding collisions with keys set elsewhere.
@@ -18,7 +21,15 @@ const (
 	ctxKeyOperator
 	ctxKeyGPCOptOut
 	ctxKeyLang
+	ctxKeyOriginalPath
 )
+
+func originalRequestPath(r *http.Request) string {
+	if p, ok := r.Context().Value(ctxKeyOriginalPath).(string); ok {
+		return p
+	}
+	return r.URL.Path
+}
 
 // RequestIDFromContext returns the request ID attached by RequestIDMiddleware,
 // or "" if none is present.

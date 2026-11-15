@@ -1,0 +1,64 @@
+package graphql
+
+import "github.com/graphql-go/graphql"
+
+// The executable schema is built directly from the Go API types and
+// resolver contract so field names and types cannot drift from implementation.
+var linkType = graphql.NewObject(graphql.ObjectConfig{
+	Name:        "Link",
+	Description: "A publicly readable shortened link.",
+	Fields: graphql.Fields{
+		"shortCode":      &graphql.Field{Type: graphql.NewNonNull(graphql.String), Description: "The short URL path code."},
+		"shortURL":       &graphql.Field{Type: graphql.NewNonNull(graphql.String), Description: "The absolute short URL, using the request origin."},
+		"destinationURL": &graphql.Field{Type: graphql.NewNonNull(graphql.String), Description: "The destination URL."},
+		"createdAt":      &graphql.Field{Type: graphql.NewNonNull(graphql.String), Description: "Creation timestamp in RFC 3339 UTC format."},
+		"expiresAt":      &graphql.Field{Type: graphql.String, Description: "Expiration timestamp in RFC 3339 UTC format, or null."},
+		"clickCount":     &graphql.Field{Type: graphql.NewNonNull(graphql.Int), Description: "Total recorded clicks."},
+	},
+})
+
+var linkStatsType = graphql.NewObject(graphql.ObjectConfig{
+	Name:        "LinkStats",
+	Description: "Public click analytics for a short link.",
+	Fields: graphql.Fields{
+		"shortCode":   &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+		"totalClicks": &graphql.Field{Type: graphql.NewNonNull(graphql.Int)},
+		"referrers":   &graphql.Field{Type: graphql.NewNonNull(graphql.NewList(graphql.NewNonNull(referrerType)))},
+		"timeSeries":  &graphql.Field{Type: graphql.NewNonNull(graphql.NewList(graphql.NewNonNull(dayCountType)))},
+		"recent":      &graphql.Field{Type: graphql.NewNonNull(graphql.NewList(graphql.NewNonNull(clickInfoType)))},
+	},
+})
+
+var referrerType = graphql.NewObject(graphql.ObjectConfig{Name: "ReferrerCount", Fields: graphql.Fields{
+	"name":  &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+	"count": &graphql.Field{Type: graphql.NewNonNull(graphql.Int)},
+}})
+
+var dayCountType = graphql.NewObject(graphql.ObjectConfig{Name: "DayCount", Fields: graphql.Fields{
+	"date":  &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+	"count": &graphql.Field{Type: graphql.NewNonNull(graphql.Int)},
+}})
+
+var clickInfoType = graphql.NewObject(graphql.ObjectConfig{Name: "ClickInfo", Fields: graphql.Fields{
+	"timestamp": &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+	"ip":        &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+	"referrer":  &graphql.Field{Type: graphql.String},
+	"country":   &graphql.Field{Type: graphql.String},
+	"region":    &graphql.Field{Type: graphql.String},
+}})
+
+// Schema is generated from the same public Link fields used by the resolver.
+func Schema() (graphql.Schema, error) {
+	query := graphql.NewObject(graphql.ObjectConfig{Name: "Query", Description: "Read-only queries corresponding to public link and analytics reads.", Fields: graphql.Fields{
+		"link": &graphql.Field{Type: linkType, Description: "Read one link by its short code.", Args: graphql.FieldConfigArgument{"slug": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)}}, Resolve: func(p graphql.ResolveParams) (any, error) {
+			return p.Context.Value(resolverKey{}).(Resolver).Link(p.Args["slug"].(string))
+		}},
+		"links": &graphql.Field{Type: graphql.NewList(graphql.NewNonNull(linkType)), Description: "List links ordered by the REST API's default ordering.", Args: graphql.FieldConfigArgument{"limit": &graphql.ArgumentConfig{Type: graphql.Int, DefaultValue: 50}, "offset": &graphql.ArgumentConfig{Type: graphql.Int, DefaultValue: 0}}, Resolve: func(p graphql.ResolveParams) (any, error) {
+			return p.Context.Value(resolverKey{}).(Resolver).Links(p.Args["limit"].(int), p.Args["offset"].(int))
+		}},
+		"linkStats": &graphql.Field{Type: linkStatsType, Description: "Read click statistics for a link.", Args: graphql.FieldConfigArgument{"slug": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)}}, Resolve: func(p graphql.ResolveParams) (any, error) {
+			return p.Context.Value(resolverKey{}).(Resolver).LinkStats(p.Args["slug"].(string))
+		}},
+	}})
+	return graphql.NewSchema(graphql.SchemaConfig{Query: query})
+}

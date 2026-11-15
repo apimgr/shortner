@@ -16,6 +16,14 @@
   color: var(--color-fg);
 }
 
+.brand img {
+  width: 2rem;
+  height: 2rem;
+  margin-inline-end: 0.5rem;
+  object-fit: contain;
+  vertical-align: middle;
+}
+
 main.container {
   padding-top: 1.5rem;
   padding-bottom: 3rem;
@@ -164,6 +172,52 @@ article pre {
 
 .stats-page h1 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.offline-indicator,
+.pwa-banner {
+  max-width: 70rem;
+  margin: 0.75rem auto;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  background: var(--surface-color);
+  overflow-wrap: anywhere;
+}
+
+.offline-indicator:not([hidden]) {
+  display: block;
+}
+
+.pwa-banner:not([hidden]) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.pwa-banner h2,
+.pwa-banner p {
+  margin: 0.25rem 0;
+}
+
+.pwa-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+@media (max-width: 40rem) {
+  .offline-indicator,
+  .pwa-banner {
+    margin: 0.5rem;
+  }
+
+  .pwa-banner-actions,
+  .pwa-banner-actions button {
+    width: 100%;
+  }
 }
 
 @media (min-width: 768px) {

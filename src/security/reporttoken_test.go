@@ -74,6 +74,17 @@ func TestValidReportToken(t *testing.T) {
 	}
 }
 
+func TestValidReportTokenWithPreviousSecret(t *testing.T) {
+	const id = "sec_abcdef0123456789"
+	old := ReportToken("old", id)
+	if !ValidReportTokenWithPrevious("new", "old", id, old) {
+		t.Fatal("retained previous secret was rejected")
+	}
+	if ValidReportTokenWithPrevious("new", "", id, old) {
+		t.Fatal("unretained previous secret was accepted")
+	}
+}
+
 func TestReportTokenExpired(t *testing.T) {
 	now := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
 	tests := []struct {

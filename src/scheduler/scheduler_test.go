@@ -167,7 +167,7 @@ func TestNewInvalidTimezoneFallsBackToUTC(t *testing.T) {
 	}
 }
 
-func TestStartRejectsInvalidSchedule(t *testing.T) {
+func TestRegisterRejectsInvalidSchedule(t *testing.T) {
 	sqlDB := openTestDB(t)
 	sched, err := New(sqlDB, testLogger(t), "UTC", "1h")
 	if err != nil {
@@ -177,11 +177,8 @@ func TestStartRejectsInvalidSchedule(t *testing.T) {
 	if err := sched.Register(ctx, TaskDef{
 		ID: "bad_schedule", Name: "Bad Schedule", Schedule: "not a cron expr",
 		Run: func(ctx context.Context) error { return nil },
-	}); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
-	if err := sched.Start(ctx); err == nil {
-		t.Error("Start() with invalid cron expression expected error, got nil")
+	}); err == nil {
+		t.Fatal("Register() with invalid cron expression expected error, got nil")
 	}
 }
 

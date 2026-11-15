@@ -164,6 +164,8 @@ is queued and nothing is retried. See
 
 ```
 shortner --maintenance backup [file]
+shortner --maintenance backup list
+shortner --maintenance backup delete {filename}
 shortner --maintenance restore {file}
 ```
 
@@ -200,15 +202,64 @@ Restore authorization depends on who is running it:
 !!! note
     Restore does not currently stop and restart a running server, and does
     not snapshot the existing state first. Stop the service before
-    restoring. The `backup list` and `backup delete` subcommands are not
-    implemented, and the encryption hint is not shown at the restore
-    prompt.
+    restoring. Backup deletion requires operator authorization and typed
+    confirmation. The encryption hint is not shown at the restore prompt.
+
+## PGP Key Management
+
+The `pgp` maintenance command manages the project security-report keypair:
+
+```text
+shortner --maintenance pgp generate
+shortner --maintenance pgp rotate
+shortner --maintenance pgp publish
+shortner --maintenance pgp export public [PATH]
+shortner --maintenance pgp export private PATH
+shortner --maintenance pgp import FILE
+shortner --maintenance pgp delete
+```
+
+The private key is encrypted at rest. Private-key export requires operator
+authorization, writes files with mode `0600`, and is rate-limited.
+
+## Mode, Setup, and Secret Rotation
+
+Persist an operational mode with `--maintenance mode`. Root/Administrator
+can run the command directly. The service account must enter the configured
+operator token; unrelated users are denied. The server must be restarted
+for a mode change to take effect.
+
+```text
+shortner --maintenance mode production
+shortner --maintenance mode development
+shortner --maintenance mode debug
+shortner --maintenance setup
+shortner --maintenance secret rotate installation_secret
+shortner --maintenance secret rotate encryption_key
+```
+
+`setup` allows first-run initialization when the database has no links.
+Once resources exist, it is root-only and requires confirmation before
+resetting `server.yml` to defaults. Manual secret rotation requires operator
+authorization and a typed `ROTATE <name>` confirmation. The installation
+secret rotation re-seals the PGP private key and keeps the previous secret
+for seven days to validate in-flight security links. Encryption-key rotation
+re-seals stored token copies and security-report bodies and retains the old
+key for the specified 30-day grace period. Neither secret value is printed.
 
 ## Not Yet Implemented
 
-These `--maintenance` subcommands are specified but not built:
+These `--maintenance` actions are specified but not built:
 
-`mode`, `setup`, `pgp`, `secret`, `token`, `data`, `compliance`.
+`data` and `compliance`.
+
+Owner tokens can be listed without revealing their raw values, or revoked
+by prefix:
+
+```text
+shortner --maintenance token list
+shortner --maintenance token revoke <prefix>
+```
 
 ## Signals
 
@@ -341,14 +392,19 @@ The layout is responsive across seven terminal-size breakpoints and
 redraws on resize, so a phone-sized SSH session stays usable. Terminals
 without UTF-8 get an ASCII symbol set automatically.
 
-!!! note "Not implemented in the client"
-    A native GUI is specified but not built: every Go GUI toolkit needs
-    cgo, which conflicts with the project's `CGO_ENABLED=0` rule, so the
-    GUI stays behind a `gui` build tag and the shipped binary falls back
-    to the feature-identical terminal interface. The client also
-    implements the full auto-update flow, but the server does not yet
-    publish `/api/autodiscover` or host client binaries — until it does,
-    `--update` reports that no update service is available.
+!!! note "Optional native GUI"
+    Native GUI support is built with `-tags gui` on Linux, macOS, and
+    Windows using the pure-Go `gogpu/ui` toolkit. BSD builds use the TUI.
+    The GUI currently supports setup, link creation, and public link
+    listing. Other client commands remain available through the CLI/TUI;
+    GUI parity and its keyboard/accessibility contract remain open in
+    `TODO.AI.md` pending clarification of AI.md's requirements.
+
+The server publishes `/api/autodiscover` and serves colocated client
+binaries from `/cli/binaries/{project}-cli-{os}-{arch}`. The discovery
+response advertises only binaries present beside the server executable;
+an empty list means there is no downloadable client build for that
+platform.
 
 ### Client Exit Codes
 

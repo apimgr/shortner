@@ -60,7 +60,7 @@ func get(t *testing.T, client *http.Client, path string) (*http.Response, string
 func TestTier1ServerSideRendering(t *testing.T) {
 	client := newClient(t)
 
-	for _, path := range []string{"/", "/server", "/server/about", "/server/healthz", "/list"} {
+	for _, path := range []string{"/", "/server/about", "/server/healthz", "/list"} {
 		resp, body := get(t, client, path)
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("GET %s = %d, want 200", path, resp.StatusCode)
@@ -72,6 +72,10 @@ func TestTier1ServerSideRendering(t *testing.T) {
 		if strings.Contains(body, "{{") {
 			t.Errorf("GET %s leaked an unrendered template action", path)
 		}
+	}
+	serverResp, _ := get(t, client, "/server")
+	if serverResp.StatusCode != http.StatusMovedPermanently || serverResp.Header.Get("Location") != "/server/about" {
+		t.Errorf("GET /server = %d Location %q, want 301 /server/about", serverResp.StatusCode, serverResp.Header.Get("Location"))
 	}
 
 	_, body := get(t, client, "/")

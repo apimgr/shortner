@@ -10,9 +10,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 )
@@ -132,8 +134,8 @@ func waitForHealth(url string, timeout time.Duration) error {
 }
 
 // browserContext returns a chromedp context attached to the remote browser
-// plus a collector of every console error and uncaught exception seen on
-// the page, which Tier 3 asserts is empty.
+// plus a collector of console errors, uncaught exceptions, and failed
+// network requests, which Tier 3 asserts is empty.
 func browserContext(t *testing.T) (context.Context, *consoleErrors) {
 	t.Helper()
 
@@ -157,21 +159,35 @@ func browserContext(t *testing.T) (context.Context, *consoleErrors) {
 			if e.ExceptionDetails != nil {
 				errs.add(e.ExceptionDetails.Error())
 			}
+		case *network.EventLoadingFailed:
+			errs.add(fmt.Sprintf("request %s failed: %s", e.RequestID, e.ErrorText))
+		case *network.EventResponseReceived:
+			if e.Response.Status >= http.StatusBadRequest {
+				errs.add(fmt.Sprintf("request %s returned HTTP %d: %s", e.RequestID, e.Response.Status, e.Response.URL))
+			}
 		}
 	})
+	if err := chromedp.Run(timeoutCtx, network.Enable()); err != nil {
+		errs.add("enable network monitoring: " + err.Error())
+	}
 	return timeoutCtx, errs
 }
 
 // consoleErrors collects browser console errors seen during a test.
 type consoleErrors struct {
+	mu       sync.Mutex
 	messages []string
 }
 
 func (c *consoleErrors) add(msg string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.messages = append(c.messages, msg)
 }
 
 func (c *consoleErrors) list() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.messages
 }
 

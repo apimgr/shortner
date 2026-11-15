@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -78,6 +79,26 @@ func ParseSize(s string, def int64) (int64, error) {
 func Validate(cfg *Config) []string {
 	var warnings []string
 	defaults := Default("")
+	diskLow := &cfg.Server.Notifications.DiskLow
+	defaultDiskLow := defaults.Server.Notifications.DiskLow
+	if diskLow.ThresholdPercent <= 0 || diskLow.ThresholdPercent > 100 {
+		warnings = append(warnings, "invalid server.notifications.disk_low.threshold_percent, using default 85")
+		diskLow.ThresholdPercent = defaultDiskLow.ThresholdPercent
+	}
+	if d, err := ParseDuration(diskLow.CheckInterval, 0); err != nil || d <= 0 {
+		warnings = append(warnings, "invalid server.notifications.disk_low.check_interval, using default 5m")
+		diskLow.CheckInterval = defaultDiskLow.CheckInterval
+	}
+	if d, err := ParseDuration(diskLow.Repeat, 0); err != nil || d <= 0 {
+		warnings = append(warnings, "invalid server.notifications.disk_low.repeat, using default 24h")
+		diskLow.Repeat = defaultDiskLow.Repeat
+	}
+	switch strings.ToLower(strings.TrimSpace(cfg.Server.Mode)) {
+	case "production", "prod", "development", "dev", "devel", "debug":
+	default:
+		warnings = append(warnings, fmt.Sprintf("invalid server.mode %q, using default %q", cfg.Server.Mode, defaults.Server.Mode))
+		cfg.Server.Mode = defaults.Server.Mode
+	}
 
 	if _, err := strconv.Atoi(cfg.Server.Port); err != nil || !validPort(cfg.Server.Port) {
 		warnings = append(warnings, fmt.Sprintf("invalid server.port %q, using default %q", cfg.Server.Port, defaults.Server.Port))
@@ -127,6 +148,20 @@ func Validate(cfg *Config) []string {
 		warnings = append(warnings, fmt.Sprintf("invalid server.rate_limit.global_burst %d, using default %d", cfg.Server.RateLimit.GlobalBurst, defaults.Server.RateLimit.GlobalBurst))
 		cfg.Server.RateLimit.GlobalBurst = defaults.Server.RateLimit.GlobalBurst
 	}
+	if cfg.Server.Tokens.MaxLinked <= 0 {
+		warnings = append(warnings, "invalid server.tokens.max_linked, using default 25")
+		cfg.Server.Tokens.MaxLinked = defaults.Server.Tokens.MaxLinked
+	}
+	if cfg.Server.Tokens.CookieMaxAge == "" {
+		cfg.Server.Tokens.CookieMaxAge = defaults.Server.Tokens.CookieMaxAge
+	} else if !cfg.Server.Tokens.cookieMaxAgeValid() {
+		warnings = append(warnings, fmt.Sprintf("invalid server.tokens.cookie_max_age %q, using default %q", cfg.Server.Tokens.CookieMaxAge, defaults.Server.Tokens.CookieMaxAge))
+		cfg.Server.Tokens.CookieMaxAge = defaults.Server.Tokens.CookieMaxAge
+	}
+	if cfg.Server.Tokens.IdlePurgeDays < 0 {
+		warnings = append(warnings, "invalid server.tokens.idle_purge_days, using default 0")
+		cfg.Server.Tokens.IdlePurgeDays = 0
+	}
 
 	switch cfg.Server.Cache.Type {
 	case "", "none", "memory", "valkey", "redis":
@@ -151,11 +186,110 @@ func Validate(cfg *Config) []string {
 	warnings = append(warnings, validateSecurity(cfg, defaults)...)
 	warnings = append(warnings, validateNotifications(cfg, defaults)...)
 	warnings = append(warnings, validateWebHeaders(cfg, defaults)...)
+	warnings = append(warnings, validateAnnouncements(cfg)...)
 	warnings = append(warnings, validateI18N(cfg.Server.I18N)...)
 	warnings = append(warnings, validateTor(cfg.Server.Tor)...)
 	warnings = append(warnings, validateI2P(cfg.Server.I2P)...)
+	warnings = append(warnings, validateSEO(&cfg.Server.SEO)...)
+	if cfg.Server.SEO.Feed.MaxItems < 1 || cfg.Server.SEO.Feed.MaxItems > 200 {
+		warnings = append(warnings, fmt.Sprintf("invalid server.seo.feed.max_items %d, using default %d", cfg.Server.SEO.Feed.MaxItems, defaults.Server.SEO.Feed.MaxItems))
+		cfg.Server.SEO.Feed.MaxItems = defaults.Server.SEO.Feed.MaxItems
+	}
 
 	return warnings
+}
+
+func validateSEO(seo *SEO) []string {
+	var warnings []string
+	providers := []struct {
+		name, pattern string
+		max           int
+		value         *string
+	}{
+		{"google", `^[a-zA-Z0-9_-]+$`, 43, &seo.Verification.Google},
+		{"bing", `^[A-F0-9]+$`, 32, &seo.Verification.Bing},
+		{"yandex", `^[a-f0-9]+$`, 32, &seo.Verification.Yandex},
+		{"baidu", `^[a-zA-Z0-9]+$`, 32, &seo.Verification.Baidu},
+		{"pinterest", `^[a-f0-9]+$`, 32, &seo.Verification.Pinterest},
+		{"facebook", `^[a-z0-9]+$`, 64, &seo.Verification.Facebook},
+	}
+	for _, provider := range providers {
+		value := strings.TrimSpace(*provider.value)
+		if value != "" && (len(value) > provider.max || !regexp.MustCompile(provider.pattern).MatchString(value)) {
+			warnings = append(warnings, fmt.Sprintf("invalid server.seo.verification.%s; omitting verification tag", provider.name))
+			*provider.value = ""
+		} else {
+			*provider.value = value
+		}
+	}
+	namePattern := regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+	validCustom := seo.Verification.Custom[:0]
+	for _, tag := range seo.Verification.Custom {
+		name, property, content := strings.TrimSpace(tag.Name), strings.TrimSpace(tag.Property), strings.TrimSpace(tag.Content)
+		if (name == "") == (property == "") || content == "" || len([]rune(content)) > 256 || (name != "" && (len(name) > 256 || !namePattern.MatchString(name))) || (property != "" && (len(property) > 256 || !namePattern.MatchString(property))) {
+			warnings = append(warnings, "invalid server.seo.verification.custom entry; omitting verification tag")
+			continue
+		}
+		tag.Name, tag.Property, tag.Content = name, property, content
+		validCustom = append(validCustom, tag)
+	}
+	seo.Verification.Custom = validCustom
+	return warnings
+}
+
+func validateAnnouncements(cfg *Config) []string {
+	var warnings []string
+	seen := make(map[string]struct{}, len(cfg.Web.Announcements.Messages))
+	valid := make([]Announcement, 0, len(cfg.Web.Announcements.Messages))
+	for _, item := range cfg.Web.Announcements.Messages {
+		problem := ""
+		if !validAnnouncementConfigID(item.ID) {
+			problem = "id must contain 1-100 letters, digits, hyphens, or underscores"
+		} else if item.Message == "" {
+			problem = "message must not be empty"
+		} else if item.Type != "info" && item.Type != "warning" && item.Type != "error" && item.Type != "success" {
+			problem = "type must be info, warning, error, or success"
+		} else if _, ok := seen[item.ID]; ok {
+			problem = "id must be unique"
+		}
+		if problem == "" && item.Start != "" {
+			if _, err := time.Parse(time.RFC3339, item.Start); err != nil {
+				problem = "start must be RFC 3339"
+			}
+		}
+		if problem == "" && item.End != "" {
+			if _, err := time.Parse(time.RFC3339, item.End); err != nil {
+				problem = "end must be RFC 3339"
+			}
+		}
+		if problem == "" && item.Start != "" && item.End != "" {
+			start, _ := time.Parse(time.RFC3339, item.Start)
+			end, _ := time.Parse(time.RFC3339, item.End)
+			if !start.Before(end) {
+				problem = "start must be earlier than end"
+			}
+		}
+		if problem != "" {
+			warnings = append(warnings, fmt.Sprintf("invalid web.announcements.messages entry %q: %s, entry ignored", item.ID, problem))
+			continue
+		}
+		seen[item.ID] = struct{}{}
+		valid = append(valid, item)
+	}
+	cfg.Web.Announcements.Messages = valid
+	return warnings
+}
+
+func validAnnouncementConfigID(id string) bool {
+	if len(id) == 0 || len(id) > 100 {
+		return false
+	}
+	for _, r := range id {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' && r != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 // validateSecurity applies the Config Validation Rule to

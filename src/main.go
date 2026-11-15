@@ -135,14 +135,6 @@ func run(args []string) int {
 	// 16+ territory.
 	_ = color.Enabled(forceColor)
 
-	mode.FromEnv()
-	if *modeFlag != "" {
-		mode.SetAppMode(*modeFlag)
-	}
-	if flagWasSet(fs, "debug") {
-		mode.SetDebugEnabled(*debugFlag)
-	}
-
 	// Container detection combines the explicit CONTAINER env var with the
 	// broader file/env/cgroup heuristics in src/common/pidfile (PART 7),
 	// reused here instead of reimplemented.
@@ -242,6 +234,20 @@ func run(args []string) int {
 	for _, warning := range config.Validate(cfg) {
 		fmt.Fprintln(os.Stderr, binaryName+": warning: "+warning)
 	}
+	effectiveMode := cfg.Server.Mode
+	if envMode := os.Getenv("MODE"); envMode != "" {
+		effectiveMode = envMode
+	}
+	if *modeFlag != "" {
+		effectiveMode = *modeFlag
+	}
+	mode.SetAppMode(effectiveMode)
+	if debugEnv, set := os.LookupEnv("DEBUG"); set {
+		mode.SetDebugEnabled(config.IsTruthy(debugEnv))
+	}
+	if flagWasSet(fs, "debug") {
+		mode.SetDebugEnabled(*debugFlag)
+	}
 
 	// The config file's default language now participates in AI.md PART
 	// 30's priority chain; an explicit --lang still wins over it.
@@ -323,6 +329,10 @@ func run(args []string) int {
 		return 1
 	}
 	defer accessLog.Close()
+	if err := accessLog.SetRotationPolicy("monthly", "none", false); err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
 
 	schedulerLog, err := applog.Open(filepath.Join(p.Logs, "scheduler.log"), applog.LevelInfo)
 	if err != nil {
@@ -330,6 +340,10 @@ func run(args []string) int {
 		return 1
 	}
 	defer schedulerLog.Close()
+	if err := schedulerLog.SetRotationPolicy("weekly,50MB", "none", false); err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
 
 	// Audit log (AI.md PART 11 "Audit Log Format"), consumed by the PART 21
 	// backup events.
@@ -348,6 +362,7 @@ func run(args []string) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": warning: "+err.Error())
 	}
+	previousInstallSecret, _ := db.GetGraceSecret(context.Background(), sqlDB, db.SecretInstallation)
 
 	// GeoIP (AI.md PART 19): opens whatever MMDB files already exist in
 	// cfg.Server.GeoIP.Dir (none on a genuinely first run) and, if enabled,
@@ -386,6 +401,9 @@ func run(args []string) int {
 		fmt.Println(line)
 		_ = accessLog.WriteLine(applog.LevelInfo, line)
 	})
+	if appMetrics != nil {
+		appMetrics.StartTorCollector(context.Background(), torManager)
+	}
 
 	sched, err := newBuiltinScheduler(cfg, sqlDB, schedulerLog, accessLog, p, fqdnHost, geoManager, auditLog, notifier, torManager, i2pManager)
 	if err != nil {
@@ -429,12 +447,13 @@ func run(args []string) int {
 		GeoIP:     geoManager,
 		Metrics:   appMetrics,
 
-		ConfigDir:     p.Config,
-		AuditLog:      auditLog,
-		InstallSecret: installSecret,
-		Notifier:      notifier,
-		Tor:           torManager,
-		I2P:           i2pManager,
+		ConfigDir:             p.Config,
+		AuditLog:              auditLog,
+		InstallSecret:         installSecret,
+		PreviousInstallSecret: previousInstallSecret,
+		Notifier:              notifier,
+		Tor:                   torManager,
+		I2P:                   i2pManager,
 	})
 	overlays.set(srv)
 	// Started in the background: bringing Tor to the point where it has a
@@ -545,8 +564,18 @@ func newBuiltinScheduler(cfg *config.Config, sqlDB *sql.DB, schedulerLog, access
 	}
 
 	deps := scheduler.Deps{
-		DB:         sqlDB,
-		Logs:       []*applog.Logger{schedulerLog, accessLog},
+		DB:                      sqlDB,
+		Tokens:                  cfg.Server.Tokens,
+		Logs:                    []*applog.Logger{schedulerLog, accessLog},
+		DiskPaths:               []string{p.Data, p.Logs, p.Backup},
+		DiskLowEnabled:          cfg.Server.Notifications.DiskLow.Enabled,
+		DiskLowThresholdPercent: cfg.Server.Notifications.DiskLow.ThresholdPercent,
+		DiskCheckInterval:       cfg.Server.Notifications.DiskLow.CheckInterval,
+		DiskLowRepeat: func() time.Duration {
+			d, _ := config.ParseDuration(cfg.Server.Notifications.DiskLow.Repeat, 24*time.Hour)
+			return d
+		}(),
+		Logger:     schedulerLog,
 		TLSEnabled: cfg.Server.TLS.Enabled,
 		ConfigDir:  p.Config,
 		FQDN:       host,

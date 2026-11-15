@@ -11,14 +11,14 @@ import (
 
 // httpToolUserAgents are substrings identifying non-interactive HTTP
 // clients, per AI.md PART 14's "non-interactive API clients: text" rule.
-var httpToolUserAgents = []string{"curl", "wget", "httpie", "python-requests", "go-http-client"}
+var httpToolUserAgents = []string{"curl", "wget", "httpie", "python-requests", "go-http-client", "shortner-cli"}
 
 // wantsText reports whether req should receive the text/plain rendering
 // of a response instead of the JSON default: a ".txt" path suffix, an
 // explicit "Accept: text/plain", or a recognized non-interactive HTTP
 // client (curl/wget/etc., or an empty User-Agent).
 func wantsText(req *http.Request) bool {
-	if strings.HasSuffix(req.URL.Path, ".txt") {
+	if strings.HasSuffix(originalRequestPath(req), ".txt") {
 		return true
 	}
 	// An explicit Accept always beats User-Agent sniffing, per AI.md PART
@@ -66,9 +66,9 @@ const (
 // Accept header containing "text/html") gets HTML.
 func detectClientType(req *http.Request) clientType {
 	switch {
-	case strings.HasSuffix(req.URL.Path, ".json"):
+	case strings.HasSuffix(originalRequestPath(req), ".json"):
 		return clientJSON
-	case strings.HasSuffix(req.URL.Path, ".txt"):
+	case strings.HasSuffix(originalRequestPath(req), ".txt"):
 		return clientText
 	}
 

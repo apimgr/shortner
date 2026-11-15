@@ -216,6 +216,18 @@ func (m *Manager) Healthy() bool {
 	return service.Healthy()
 }
 
+// CircuitEstablished reports the actual Tor circuit state for PART 20
+// metrics and the operator status response.
+func (m *Manager) CircuitEstablished() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.Lock()
+	service := m.service
+	m.mu.Unlock()
+	return service.CircuitEstablished()
+}
+
 // Err returns the most recent start/restart failure's message, or an empty
 // string when the last attempt succeeded (or none has run yet).
 func (m *Manager) Err() string {

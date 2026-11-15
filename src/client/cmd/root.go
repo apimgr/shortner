@@ -298,8 +298,14 @@ func (r *runner) runInteractive(ctx context.Context) int {
 		fmt.Fprintf(r.io.Err, "Run '%s --help' for usage.\n", r.binaryName)
 		return ExitUsage
 	case "gui":
-		// The GUI front end lives behind the `gui` build tag (AI.md PART 32
-		// "GUI Mode"); the default CGO-free build falls back to the TUI.
+		if !clientconfig.ValidateServerURL(r.cfg.Server.Primary) {
+			if code := r.runSetup(ctx); code != ExitOK {
+				return code
+			}
+		}
+		if code, handled := runGUI(r); handled {
+			return code
+		}
 		fallthrough
 	default:
 		if !clientconfig.ValidateServerURL(r.cfg.Server.Primary) {
@@ -327,10 +333,19 @@ func (r *runner) displayMode() string {
 		}
 		return "tui"
 	default:
-		if !env.IsTerminal {
+		if env.IsSSH || env.IsMosh {
+			if env.IsTerminal {
+				return "tui"
+			}
 			return "plain"
 		}
-		return "tui"
+		if env.HasDisplay {
+			return "gui"
+		}
+		if env.IsTerminal {
+			return "tui"
+		}
+		return "plain"
 	}
 }
 

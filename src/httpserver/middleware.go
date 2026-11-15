@@ -15,6 +15,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/hex"
 	"net"
 	"net/http"
@@ -29,6 +30,7 @@ import (
 	"github.com/apimgr/shortner/src/apperr"
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/geoip"
 	"github.com/apimgr/shortner/src/metrics"
 	"github.com/apimgr/shortner/src/notify"
@@ -38,6 +40,7 @@ import (
 // deps bundles the shared state every middleware needs, built once by
 // New() and closed over by each middleware function.
 type deps struct {
+	sqlDB       *sql.DB
 	resolver    *ProxyResolver
 	rateLimiter *RateLimiter
 	stats       *Stats
@@ -125,6 +128,7 @@ var repeatedSlashes = regexp.MustCompile(`/{2,}`)
 func urlNormalizeMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
+		originalPath := p
 		if strings.Contains(p, "//") {
 			cleaned := repeatedSlashes.ReplaceAllString(p, "/")
 			if cleaned != "/" && strings.HasSuffix(p, "/") && !strings.HasSuffix(cleaned, "/") {
@@ -152,8 +156,14 @@ func urlNormalizeMiddleware(next http.Handler) http.Handler {
 			}
 			p = trimmed
 		}
+		if strings.HasSuffix(p, ".txt") && p != "/robots.txt" && p != "/llms.txt" && !strings.HasPrefix(p, "/static/") && !strings.HasPrefix(p, "/.well-known/") {
+			p = strings.TrimSuffix(p, ".txt")
+		}
 
 		r.URL.Path = p
+		if originalPath != p {
+			r = r.WithContext(context.WithValue(r.Context(), ctxKeyOriginalPath, originalPath))
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -467,18 +477,22 @@ func (d *deps) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := ExtractToken(r)
 		isOperator := token != "" && security.CompareServerToken(token, d.operatorTok)
+		var ownerToken *db.APIToken
+		if token != "" && !isOperator && d.sqlDB != nil {
+			ownerToken, _ = db.LookupTokenByRaw(r.Context(), d.sqlDB, token)
+		}
 		if d.metrics != nil && token != "" {
-			// AI.md PART 20 "Required: Authentication Metrics". Only the
-			// operator (server) token is verifiable at this outer layer —
-			// per-resource link tokens are checked further down the route
-			// tree and are out of scope for this project-wide gauge.
 			status := "failed"
-			if isOperator {
+			if isOperator || ownerToken != nil {
 				status = "success"
 			}
 			d.metrics.AuthAttemptsTotal.WithLabelValues("api_token", status).Inc()
 		}
 		ctx := context.WithValue(r.Context(), ctxKeyOperator, isOperator)
+		if ownerToken != nil {
+			ctx = context.WithValue(ctx, authOwnerContextKey{}, ownerToken.OwnerID)
+			ctx = context.WithValue(ctx, authTokenContextKey{}, ownerToken)
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -583,6 +597,9 @@ func (d *deps) loggingMiddleware(next http.Handler) http.Handler {
 			d.metrics.HTTPRequestsTotal.WithLabelValues(r.Method, path, status).Inc()
 			d.metrics.HTTPRequestDuration.WithLabelValues(r.Method, path).Observe(time.Since(start).Seconds())
 			d.metrics.HTTPResponseSizeBytes.WithLabelValues(r.Method, path).Observe(float64(rec.size))
+			if d.resolver != nil && d.resolver.OverlayOf(r) == OverlayTor {
+				d.metrics.RecordTorRequest()
+			}
 		}
 
 		if d.access != nil {

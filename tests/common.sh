@@ -28,7 +28,10 @@ internal_name="$project_name"
 
 # Toolchain and runtime images (AI.md PART 28 / global execution hierarchy).
 go_image="${SHORTNER_GO_IMAGE:-casjaysdev/go:latest}"
+# These shared values are consumed by scripts that source common.sh.
+# shellcheck disable=SC2034
 docker_test_image="${SHORTNER_DOCKER_TEST_IMAGE:-alpine:latest}"
+# shellcheck disable=SC2034
 incus_test_image="${SHORTNER_INCUS_TEST_IMAGE:-images:debian/trixie}"
 
 # Persistent Go caches on the host, same paths the Makefile uses so a test
@@ -36,12 +39,14 @@ incus_test_image="${SHORTNER_INCUS_TEST_IMAGE:-images:debian/trixie}"
 go_cache="${SHORTNER_GO_CACHE:-$HOME/go/pkg/mod}"
 go_build_cache="${SHORTNER_GO_BUILD:-$HOME/.cache/go-build/$project_name}"
 
-# Build output directory (Makefile BINDIR).
-bin_dir="$project_dir/binaries"
+# Build output directory is created per run under the project-scoped OS
+# temp root; compiled artifacts never live in the repository.
+bin_dir=""
 
 # Counters, color, __pass/__fail/__skip, __assert_* and __print_summary live in a
 # dependency-free file so the in-container suite can source the same code.
 # shellcheck source=tests/assert.sh
+# shellcheck disable=SC1091
 . "$project_dir/tests/assert.sh"
 
 # Emits 8 random lowercase alphanumerics, used for unique container names.
@@ -80,7 +85,8 @@ __has_client_main() {
   return 0
 }
 
-# Builds the linux binaries used by the container suites into binaries/.
+# Builds the Linux binaries used by the container suites in a temporary
+# directory under the project-scoped OS temp root.
 # Runs inside casjaysdev/go:latest with CGO disabled, mirroring the
 # Makefile's GO_DOCKER recipe. Never builds on the host.
 __build_binaries() {
@@ -95,7 +101,8 @@ __build_binaries() {
   ldflags="$ldflags -X 'github.com/$project_org/$project_name/src/common/version.BuildEpoch=$epoch'"
   ldflags="$ldflags -X 'github.com/$project_org/$project_name/src/common/version.OfficialSite=$site'"
 
-  mkdir -p "$bin_dir" "$go_cache" "$go_build_cache"
+  mkdir -p "${TMPDIR:-/tmp}/$project_org" "$go_cache" "$go_build_cache"
+  bin_dir="$(mktemp -d "${TMPDIR:-/tmp}/$project_org/${project_name}-binaries-XXXXXX")"
 
   local build_cmd
   build_cmd="GOOS=linux GOARCH=${TEST_GOARCH:-amd64} go build -buildvcs=false -trimpath -ldflags \"$ldflags\" -o $bin_dir/$project_name ./src"
@@ -108,6 +115,7 @@ __build_binaries() {
     --name "$project_name-build-$(__random_suffix)" \
     --memory="${DOCKER_MEM:-4g}" --cpus="${DOCKER_CPUS:-2}" \
     -v "$project_dir:/app" \
+    -v "$bin_dir:$bin_dir" \
     -v "$go_cache:/usr/local/share/go/pkg/mod" \
     -v "$go_build_cache:/usr/local/share/go/cache" \
     -w /app \

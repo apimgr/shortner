@@ -6,8 +6,10 @@
 package httpserver
 
 import (
+	"encoding/json"
 	"html/template"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -33,21 +35,35 @@ const footerTimeLayout = "January 02, 2006 at 15:04:05 MST"
 type PageData struct {
 	Title          string
 	Description    string
+	Keywords       string
+	Author         string
+	CanonicalURL   string
+	Robots         string
+	OGImage        string
+	TwitterHandle  string
+	LogoURL        string
+	FaviconURL     string
+	StructuredData template.JS
+	Verification   config.SEOVerification
 	SiteName       string
 	Tagline        string
 	ProjectOrg     string
 	ProjectVersion string
+	AssetStamp     string
 	BuildDate      string
 	// BuildDateTime is BuildDate rendered in the user-facing footer format
 	// (AI.md PART 16: `%B %d, %Y at %H:%M:%S %Z`); BuildDate itself stays
 	// machine-readable for any non-display use.
-	BuildDateTime  string
-	RepoURL        string
-	CurrentYear    int
-	Theme          string
-	CurrentPath    string
-	CSRFToken      string
-	CSRFCookieName string
+	BuildDateTime          string
+	RepoURL                string
+	CurrentYear            int
+	Theme                  string
+	CurrentPath            string
+	CSRFToken              string
+	CSRFCookieName         string
+	OwnerTokenCookieExists bool
+	ToastPosition          string
+	ToastDuration          int
 
 	// Lang, Dir, and AvailableLanguages drive AI.md PART 30: the active
 	// language of every {{t .Base.Lang ...}} call, the <html dir> attribute
@@ -89,6 +105,15 @@ type PageData struct {
 	CookiePreferencesDescription string
 	CookieAnalyticsDescription   string
 	CCPAEnabled                  bool
+	Announcements                []announcementView
+}
+
+type announcementView struct {
+	ID          string
+	Type        string
+	Title       string
+	Message     string
+	Dismissible bool
 }
 
 // frontendDeps bundles what every frontend page handler needs, built once
@@ -105,10 +130,11 @@ type frontendDeps struct {
 	// URLs the pages display, installSecret derives the rotating
 	// {security_id} the contact form validates, and audit records
 	// security.security_id_invalid.
-	resolver      *ProxyResolver
-	installSecret string
-	audit         *applog.AuditLogger
-	configDir     string
+	resolver              *ProxyResolver
+	installSecret         string
+	previousInstallSecret string
+	audit                 *applog.AuditLogger
+	configDir             string
 	// notifier sends the AI.md PART 17 email events the frontend raises.
 	// Nil-safe: every notify.Notifier method is inert on a nil receiver.
 	notifier *notify.Notifier
@@ -122,9 +148,28 @@ type frontendDeps struct {
 // requestTheme in theme.go and AI.md PART 16 "Theme Detection Flow".
 func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, description string) PageData {
 	cfg := fd.cfg
-	overlay := fd.resolver.IsOverlay(r)
-	onionAddress := fd.resolver.overlayHost(OverlayTor)
-	i2pAddress := fd.resolver.overlayHost(OverlayI2P)
+	resolver := fd.resolver
+	if resolver == nil {
+		resolver = NewProxyResolver(nil)
+	}
+	overlay := resolver.IsOverlay(r)
+	siteName := firstNonEmpty(cfg.Server.Branding.Title, cfg.Server.Branding.SiteName, projectInfo.Name)
+	tagline := cfg.Server.Branding.Tagline
+	if tagline == "" {
+		tagline = projectInfo.Tagline
+	}
+	description = firstNonEmpty(cfg.Server.SEO.Description, cfg.Server.Branding.Description, description)
+	canonical := resolver.BuildURL(r, r.URL.Path)
+	robots := pageRobots(r.URL.Path)
+	ogImage := pageAssetURL(r, resolver, cfg.Server.SEO.OGImage, overlay)
+	logoURL := configuredBrandAssetURL(r, resolver, cfg.Server.Branding.Logo, "/branding/logo", overlay, false)
+	if logoURL == "" {
+		logoURL = configuredBrandAssetURL(r, resolver, cfg.Server.Branding.LogoURL, "/branding/logo", overlay, true)
+	}
+	faviconURL := configuredBrandAssetURL(r, resolver, cfg.Server.Branding.Favicon, "/branding/favicon", overlay, false)
+	seoData, _ := json.Marshal(map[string]string{"@context": "https://schema.org", "@type": "WebSite", "name": siteName, "description": description, "url": canonical})
+	onionAddress := resolver.overlayHost(OverlayTor)
+	i2pAddress := resolver.overlayHost(OverlayI2P)
 	// Variables are expanded BEFORE sanitizing so the sanitizer validates
 	// the markup that actually renders, never a pre-substitution shape.
 	footerHTML, _ := sanitize.ValidateFooterHTML(expandFooterVariables(cfg.Web.Footer.CustomHTML, footerVariables{
@@ -143,6 +188,7 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 	}
 
 	lang := langFromContext(r)
+	announcements := activeAnnouncements(cfg.Web.Announcements, r, time.Now())
 
 	currentPath := r.URL.Path
 	if r.URL.RawQuery != "" {
@@ -150,20 +196,34 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 	}
 
 	return PageData{
-		Title:          title,
-		Description:    description,
-		SiteName:       projectInfo.Name,
-		Tagline:        projectInfo.Tagline,
-		ProjectOrg:     "apimgr",
-		ProjectVersion: fd.version,
-		BuildDate:      fd.buildDate,
-		BuildDateTime:  footerBuildDateTime(fd.buildDate, overlay),
-		RepoURL:        footerRepoURL,
-		CurrentYear:    overlayTime(time.Now(), overlay).Year(),
-		Theme:          requestTheme(r, cfg),
-		CurrentPath:    currentPath,
-		CSRFToken:      csrfToken,
-		CSRFCookieName: cookieName,
+		Title:                  title,
+		Description:            description,
+		Keywords:               strings.Join(cfg.Server.SEO.Keywords, ", "),
+		Author:                 cfg.Server.SEO.Author,
+		CanonicalURL:           canonical,
+		Robots:                 robots,
+		OGImage:                ogImage,
+		TwitterHandle:          cfg.Server.SEO.TwitterHandle,
+		LogoURL:                logoURL,
+		FaviconURL:             faviconURL,
+		StructuredData:         template.JS(seoData),
+		Verification:           cfg.Server.SEO.Verification,
+		SiteName:               siteName,
+		Tagline:                tagline,
+		ProjectOrg:             "apimgr",
+		ProjectVersion:         fd.version,
+		AssetStamp:             assetStamp(fd.version, fd.commitID),
+		BuildDate:              fd.buildDate,
+		BuildDateTime:          footerBuildDateTime(fd.buildDate, overlay),
+		RepoURL:                footerRepoURL,
+		CurrentYear:            overlayTime(time.Now(), overlay).Year(),
+		Theme:                  requestTheme(r, cfg),
+		CurrentPath:            currentPath,
+		CSRFToken:              csrfToken,
+		CSRFCookieName:         cookieName,
+		OwnerTokenCookieExists: rCookieValue(r, ownerTokenCookieName) != "",
+		ToastPosition:          cfg.Server.Notifications.WebUI.Position,
+		ToastDuration:          cfg.Server.Notifications.WebUI.Duration,
 
 		Lang:               lang,
 		Dir:                i18n.Direction(lang),
@@ -173,7 +233,7 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 		FooterCustomHTML: template.HTML(footerHTML),
 		TorOnionAddress:  onionAddress,
 		I2PAddress:       i2pAddress,
-		IsTorRequest:     fd.resolver.OverlayOf(r) == OverlayTor,
+		IsTorRequest:     resolver.OverlayOf(r) == OverlayTor,
 
 		HasConsentCookie:             hasConsentCookie(r),
 		ConsentMessage:               defaultString(cfg.Server.Privacy.GetConsentMessage(), i18n.Translate(lang, "cookie_consent.message")),
@@ -186,7 +246,101 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 		CookiePreferencesDescription: defaultString(cfg.Server.Privacy.Cookies.Preferences.Description, i18n.Translate(lang, "cookie_consent.preference_description")),
 		CookieAnalyticsDescription:   defaultString(cfg.Server.Privacy.Cookies.Analytics.Description, i18n.Translate(lang, "cookie_consent.analytics_description")),
 		CCPAEnabled:                  cfg.Server.Privacy.Data.Sold,
+		Announcements:                announcements,
 	}
+}
+
+func pageAssetURL(r *http.Request, resolver *ProxyResolver, raw string, overlay bool) string {
+	value := strings.TrimSpace(raw)
+	if value == "" || strings.ContainsAny(value, "\\\r\n\t") {
+		return ""
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return ""
+	}
+	if parsed.Scheme == "" && strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "//") {
+		return resolver.BuildURL(r, value)
+	}
+	if overlay || parsed.Scheme != "https" || parsed.Host == "" {
+		return ""
+	}
+	return parsed.String()
+}
+
+func configuredBrandAssetURL(r *http.Request, resolver *ProxyResolver, raw, localRoute string, overlay, allowRootURL bool) string {
+	value := strings.TrimSpace(raw)
+	if value == "" || strings.ContainsAny(value, "\\\r\n\t") {
+		return ""
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return ""
+	}
+	if parsed.Scheme != "" {
+		return pageAssetURL(r, resolver, value, overlay)
+	}
+	if allowRootURL && strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "//") {
+		return pageAssetURL(r, resolver, value, overlay)
+	}
+	return resolver.BuildURL(r, localRoute)
+}
+
+func activeAnnouncements(configured config.WebAnnouncements, r *http.Request, now time.Time) []announcementView {
+	if !configured.Enabled {
+		return nil
+	}
+	dismissed := map[string]struct{}{}
+	if cookie, err := r.Cookie("dismissed_announcements"); err == nil {
+		value, decodeErr := url.PathUnescape(cookie.Value)
+		if decodeErr != nil {
+			value = cookie.Value
+		}
+		for _, id := range strings.Split(value, ",") {
+			if id != "" {
+				dismissed[id] = struct{}{}
+			}
+		}
+	}
+	var active []announcementView
+	for _, item := range configured.Messages {
+		if !validAnnouncementID(item.ID) || item.Message == "" {
+			continue
+		}
+		if _, ok := dismissed[item.ID]; ok {
+			continue
+		}
+		if item.Start != "" {
+			start, err := time.Parse(time.RFC3339, item.Start)
+			if err != nil || now.Before(start) {
+				continue
+			}
+		}
+		if item.End != "" {
+			end, err := time.Parse(time.RFC3339, item.End)
+			if err != nil || !now.Before(end) {
+				continue
+			}
+		}
+		typ := item.Type
+		if typ != "info" && typ != "warning" && typ != "error" && typ != "success" {
+			typ = "info"
+		}
+		active = append(active, announcementView{ID: item.ID, Type: typ, Title: item.Title, Message: item.Message, Dismissible: item.Dismissible})
+	}
+	return active
+}
+
+func validAnnouncementID(id string) bool {
+	if len(id) == 0 || len(id) > 100 {
+		return false
+	}
+	for _, r := range id {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' && r != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 // footerBuildDateTime renders the embedded build timestamp (RFC 3339 UTC,
@@ -261,6 +415,27 @@ func defaultString(v, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func pageRobots(path string) string {
+	switch path {
+	case "/", "/list", "/server/about", "/server/privacy", "/server/contact", "/server/help", "/server/terms", "/server/security", "/server/security/policy", "/server/security/thanks", "/server/dpo", "/server/docs/swagger", "/server/docs/graphql", "/server/ccpa":
+		return "index,follow"
+	default:
+		if strings.Count(path, "/") == 2 && strings.HasSuffix(path, "/stats") && !strings.HasPrefix(path, "/server/") {
+			return "index,follow"
+		}
+		return "noindex,nofollow"
+	}
 }
 
 // requestCSRFToken returns the csrf_token cookie value carried by r, or ""

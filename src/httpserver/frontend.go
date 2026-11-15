@@ -25,7 +25,6 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -54,6 +53,8 @@ func (fd *frontendDeps) registerFrontendRoutes(r chi.Router, hd *healthDeps, ld 
 	r.Get("/server/about", fd.aboutHandler)
 	r.Get("/server/privacy", fd.privacyHandler)
 	r.Get("/server/help", fd.helpHandler)
+	r.Get("/server/docs/swagger", fd.swaggerPage)
+	r.Get("/server/docs/graphql", fd.graphqlPage)
 	r.Get("/server/terms", fd.termsHandler)
 	r.Get("/server/contact", fd.contactHandler)
 	r.Post("/server/contact", fd.contactHandler)
@@ -62,13 +63,64 @@ func (fd *frontendDeps) registerFrontendRoutes(r chi.Router, hd *healthDeps, ld 
 	r.Get("/server/security", fd.securityHandler)
 	r.Get("/server/security/policy", fd.securityPolicyHandler)
 	r.Get("/server/security/thanks", fd.securityThanksHandler)
+	r.Get("/server/security/report/{tracking_id}", fd.securityReportStatusHandler)
 	r.Get("/server/dpo", fd.dpoHandler)
 	r.Post("/server/theme", fd.themeHandler)
+	r.Post("/announcements/dismiss", fd.dismissAnnouncementHandler)
 
 	r.Get("/server/healthz", fd.healthzHTMLHandler(hd))
 	r.Get("/list", fd.listHTMLHandler(ld))
 	r.Get("/{slug}", ld.resolveHandler)
 	r.Get("/{slug}/stats", fd.statsHTMLHandler(ld))
+}
+
+func (fd *frontendDeps) dismissAnnouncementHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	id := r.FormValue("id")
+	valid := false
+	for _, item := range fd.cfg.Web.Announcements.Messages {
+		if validAnnouncementID(id) && item.ID == id && item.Dismissible {
+			valid = true
+			break
+		}
+	}
+	if !fd.cfg.Web.Announcements.Enabled || !valid {
+		http.Error(w, "announcement not found", http.StatusNotFound)
+		return
+	}
+	ids := []string{}
+	if cookie, err := r.Cookie("dismissed_announcements"); err == nil {
+		value, decodeErr := url.PathUnescape(cookie.Value)
+		if decodeErr != nil {
+			value = cookie.Value
+		}
+		ids = strings.Split(value, ",")
+	}
+	for _, existing := range ids {
+		if existing == id {
+			fd.redirectAfterAnnouncementDismiss(w, r)
+			return
+		}
+	}
+	ids = append(ids, id)
+	http.SetCookie(w, &http.Cookie{
+		Name: "dismissed_announcements", Value: strings.Join(ids, ","), Path: "/",
+		MaxAge: 365 * 24 * 60 * 60, Secure: requestIsHTTPS(r),
+		SameSite: http.SameSiteLaxMode,
+	})
+	fd.redirectAfterAnnouncementDismiss(w, r)
+}
+
+func (fd *frontendDeps) redirectAfterAnnouncementDismiss(w http.ResponseWriter, r *http.Request) {
+	returnTo := r.FormValue("return_to")
+	parsed, err := url.ParseRequestURI(returnTo)
+	if err != nil || !strings.HasPrefix(returnTo, "/") || strings.HasPrefix(returnTo, "//") || parsed.IsAbs() || parsed.Host != "" {
+		returnTo = "/"
+	}
+	http.Redirect(w, r, returnTo, http.StatusSeeOther)
 }
 
 // homeLinkResult is the just-created link's data shown on the home page's
@@ -97,7 +149,7 @@ func (fd *frontendDeps) homeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // homePost handles the server-rendered POST / form submission, reusing the
-// same validation and db.CreateLink*/CreateResourceToken calls as
+// same validation and owner-scoped db.CreateLink* calls as
 // createLinkHandler in links.go (PART 14) instead of duplicating that
 // business logic.
 func (fd *frontendDeps) homePost(w http.ResponseWriter, r *http.Request) {
@@ -116,8 +168,12 @@ func (fd *frontendDeps) homePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	ownerID, ownerToken, err := fd.ld.ownerForCreate(r, true)
+	if err != nil {
+		fd.homeError(w, r, t(r, "errors.link_create_failed"), destInput, slugInput, http.StatusInternalServerError)
+		return
+	}
 	var link *db.Link
-	var err error
 
 	if slugInput != "" {
 		if !security.ValidateSlugFormat(slugInput) {
@@ -128,29 +184,29 @@ func (fd *frontendDeps) homePost(w http.ResponseWriter, r *http.Request) {
 			fd.homeError(w, r, t(r, "errors.slug_reserved"), destInput, slugInput, http.StatusConflict)
 			return
 		}
-		link, err = db.CreateLinkCustomSlug(ctx, fd.ld.sqlDB, slugInput, destination, nil)
+		link, err = db.CreateLinkCustomSlugOwned(ctx, fd.ld.sqlDB, ownerID, slugInput, destination, nil)
 		if errors.Is(err, db.ErrSlugTaken) {
 			fd.homeError(w, r, t(r, "errors.slug_in_use"), destInput, slugInput, http.StatusConflict)
 			return
 		}
 	} else {
-		link, err = db.CreateLinkAutoCode(ctx, fd.ld.sqlDB, destination, nil)
+		link, err = db.CreateLinkAutoCodeOwned(ctx, fd.ld.sqlDB, ownerID, destination, nil)
 	}
 	if err != nil {
 		fd.homeError(w, r, t(r, "errors.link_create_failed"), destInput, slugInput, http.StatusInternalServerError)
 		return
 	}
 
-	raw, _, err := db.CreateResourceToken(ctx, fd.ld.sqlDB, "link", strconv.FormatInt(link.ID, 10), nil)
-	if err != nil {
-		fd.homeError(w, r, t(r, "errors.link_create_failed"), destInput, slugInput, http.StatusInternalServerError)
-		return
+	if ownerToken != "" {
+		setOwnerTokenCookie(w, r, fd.cfg, fd.resolver, ownerToken)
+	} else if cookie, err := r.Cookie(ownerTokenCookieName); err == nil {
+		setOwnerTokenCookie(w, r, fd.cfg, fd.resolver, cookie.Value)
 	}
 
 	shortURL := fd.ld.resolver.BuildURL(r, "/"+link.ShortCode)
 	data := homePageData{
 		Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "home.title"), fd.cfg.Server.SEO.Description),
-		Link: &homeLinkResult{ShortURL: shortURL, OwnerToken: raw},
+		Link: &homeLinkResult{ShortURL: shortURL, OwnerToken: ownerToken},
 	}
 	_ = renderPage(w, http.StatusCreated, "home", data)
 }
@@ -177,7 +233,7 @@ type aboutPageData struct {
 func (fd *frontendDeps) aboutHandler(w http.ResponseWriter, r *http.Request) {
 	data := aboutPageData{
 		Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "about.title"), fd.cfg.Server.SEO.Description),
-		AboutContent: template.HTML(sanitize.SanitizeFooterHTML(fd.cfg.Pages.About.Content)),
+		AboutContent: sanitize.RenderMarkdown(fd.cfg.Pages.About.Content, r.Host),
 	}
 	_ = renderPage(w, http.StatusOK, "about", data)
 }
@@ -191,7 +247,7 @@ type helpPageData struct {
 func (fd *frontendDeps) helpHandler(w http.ResponseWriter, r *http.Request) {
 	data := helpPageData{
 		Base:        fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "help.title"), fd.cfg.Server.SEO.Description),
-		HelpContent: template.HTML(sanitize.SanitizeFooterHTML(fd.cfg.Pages.Help.Content)),
+		HelpContent: sanitize.RenderMarkdown(fd.cfg.Pages.Help.Content, r.Host),
 	}
 	_ = renderPage(w, http.StatusOK, "help", data)
 }
@@ -206,7 +262,7 @@ func (fd *frontendDeps) termsHandler(w http.ResponseWriter, r *http.Request) {
 	custom := fd.cfg.Pages.Terms.Content
 	var content template.HTML
 	if custom != "" {
-		content = template.HTML(sanitize.SanitizeFooterHTML(custom))
+		content = sanitize.RenderMarkdown(custom, r.Host)
 	}
 	data := termsPageData{
 		Base:    fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "terms.title"), fd.cfg.Server.SEO.Description),
@@ -222,9 +278,9 @@ type privacyPageData struct {
 	Base    PageData
 	Content template.HTML
 
-	DataCollection string
-	DataUsage      string
-	DataSecurity   string
+	DataCollection template.HTML
+	DataUsage      template.HTML
+	DataSecurity   template.HTML
 
 	CookieEssentialEnabled       bool
 	CookieEssentialDescription   string
@@ -243,16 +299,16 @@ func (fd *frontendDeps) privacyHandler(w http.ResponseWriter, r *http.Request) {
 	custom := fd.cfg.Pages.Privacy.Content
 	var content template.HTML
 	if custom != "" {
-		content = template.HTML(sanitize.SanitizeFooterHTML(custom))
+		content = sanitize.RenderMarkdown(custom, r.Host)
 	}
 
 	data := privacyPageData{
 		Base:    fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "privacy.title"), fd.cfg.Server.SEO.Description),
 		Content: content,
 
-		DataCollection: priv.Content.DataCollection,
-		DataUsage:      priv.GetDataUsageContent(),
-		DataSecurity:   priv.Content.DataSecurity,
+		DataCollection: sanitize.RenderMarkdown(priv.Content.DataCollection, r.Host),
+		DataUsage:      sanitize.RenderMarkdown(priv.GetDataUsageContent(), r.Host),
+		DataSecurity:   sanitize.RenderMarkdown(priv.Content.DataSecurity, r.Host),
 
 		CookieEssentialEnabled:       priv.Cookies.Essential.Enabled,
 		CookieEssentialDescription:   priv.Cookies.Essential.Description,

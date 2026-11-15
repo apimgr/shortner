@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -30,16 +32,89 @@ type sitemapDeps struct {
 	resolver  *ProxyResolver
 	startTime time.Time
 	sqlDB     *sql.DB
+	configDir string
 }
 
 // registerSitemapRoutes mounts the embedded favicon and sitemap index pages.
 func (sd *sitemapDeps) registerSitemapRoutes(r chi.Router) {
 	r.Get("/favicon.ico", faviconHandler)
 	r.Head("/favicon.ico", faviconHandler)
+	r.Get("/branding/favicon", sd.brandingAssetHandler("favicon"))
+	r.Head("/branding/favicon", sd.brandingAssetHandler("favicon"))
+	r.Get("/branding/logo", sd.brandingAssetHandler("logo"))
+	r.Head("/branding/logo", sd.brandingAssetHandler("logo"))
+	sd.registerFeedRoutes(r)
 	r.Get("/sitemap.xml", sd.sitemapHandler)
 	r.Head("/sitemap.xml", sd.sitemapHandler)
 	r.Get("/sitemap-{part:[0-9]+}.xml", sd.sitemapPartHandler)
 	r.Head("/sitemap-{part:[0-9]+}.xml", sd.sitemapPartHandler)
+}
+
+func (sd *sitemapDeps) brandingAssetHandler(kind string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		value := sd.cfg.Server.Branding.Favicon
+		if kind == "logo" {
+			value = sd.cfg.Server.Branding.Logo
+			if value == "" {
+				value = sd.cfg.Server.Branding.LogoURL
+			}
+		}
+		path, err := configuredBrandingPath(sd.configDir, value)
+		if err != nil {
+			sendError(w, r, apperr.New(apperr.CodeNotFound))
+			return
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			sendError(w, r, apperr.New(apperr.CodeNotFound))
+			return
+		}
+		defer file.Close()
+		info, err := file.Stat()
+		if err != nil || !info.Mode().IsRegular() || info.Size() > 5<<20 {
+			sendError(w, r, apperr.New(apperr.CodeNotFound))
+			return
+		}
+		contentType := mimeTypeForBranding(path)
+		if contentType == "" {
+			sendError(w, r, apperr.New(apperr.CodeNotFound))
+			return
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		http.ServeContent(w, r, filepath.Base(path), info.ModTime(), file)
+	}
+}
+
+func configuredBrandingPath(configDir, value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", os.ErrNotExist
+	}
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value), nil
+	}
+	if configDir == "" || !filepath.IsLocal(value) {
+		return "", os.ErrNotExist
+	}
+	return filepath.Join(configDir, filepath.Clean(value)), nil
+}
+
+func mimeTypeForBranding(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".ico":
+		return "image/x-icon"
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".webp":
+		return "image/webp"
+	case ".gif":
+		return "image/gif"
+	default:
+		return ""
+	}
 }
 
 // faviconHandler serves the embedded default icon from the binary.

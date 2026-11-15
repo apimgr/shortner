@@ -21,6 +21,7 @@ set -eo pipefail
 
 suite_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=tests/assert.sh
+# shellcheck disable=SC1091
 . "$suite_dir/assert.sh"
 
 bin="${SUITE_BIN:-/usr/local/bin/shortner}"
@@ -70,7 +71,7 @@ __status_of() {
 
 # __header_of {name} — echoes a response header from the last request.
 __header_of() {
-  printf '%s\n' "$last_headers" | tr -d '\r' | awk -v key="$(printf '%s' "$1" | tr 'A-Z' 'a-z')" '
+  printf '%s\n' "$last_headers" | tr -d '\r' | awk -v key="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" '
     { split($0, kv, ":"); k = tolower(kv[1]) }
     k == key { sub(/^[^:]*:[[:space:]]*/, ""); print; exit }
   '
@@ -104,10 +105,9 @@ __json_get() {
 # ---------------------------------------------------------------------------
 
 __start_server() {
-  "$bin" --config "$config_file" --address "$host" --port "$port" >>"$log_file" 2>&1 &
+  "$bin" --config "$root/config" --address "$host" --port "$port" >>"$log_file" 2>&1 &
   server_pid=$!
-  local i
-  for i in $(seq 1 80); do
+  for _ in $(seq 1 80); do
     if [ "$(__status_of "$base_url/api/healthz")" = "200" ]; then
       return 0
     fi
@@ -126,8 +126,7 @@ __start_server() {
 __stop_server() {
   if [ -n "$server_pid" ] && kill -0 "$server_pid" 2>/dev/null; then
     kill -TERM "$server_pid" 2>/dev/null || true
-    local i
-    for i in $(seq 1 40); do
+    for _ in $(seq 1 40); do
       kill -0 "$server_pid" 2>/dev/null || break
       sleep 0.25
     done
@@ -157,6 +156,36 @@ __relax_config() {
     ' "$config_file" >"$tmp"
     mv "$tmp" "$config_file"
   done
+
+  tmp="$root/.server.yml.gdpr"
+  awk '
+    /^[[:space:]]*compliance:[[:space:]]*$/ { in_compliance = 1; print; next }
+    in_compliance && /^[[:space:]]*gdpr:/ {
+      match($0, /^[[:space:]]*/)
+      printf "%sgdpr: true\n", substr($0, 1, RLENGTH)
+      in_compliance = 0
+      found = 1
+      next
+    }
+    { print }
+    END { if (!found) exit 1 }
+  ' "$config_file" >"$tmp" && mv "$tmp" "$config_file"
+
+  tmp="$root/.server.yml.privacy"
+  awk '
+    /^[[:space:]]*privacy:[[:space:]]*$/ { in_privacy = 1; print; next }
+    in_privacy && /^[[:space:]]*data:[[:space:]]*$/ { in_data = 1; print; next }
+    in_data && /^[[:space:]]*sold:/ {
+      match($0, /^[[:space:]]*/)
+      printf "%ssold: true\n", substr($0, 1, RLENGTH)
+      found = 1
+      in_privacy = 0
+      in_data = 0
+      next
+    }
+    { print }
+    END { if (!found) exit 1 }
+  ' "$config_file" >"$tmp" && mv "$tmp" "$config_file"
 }
 
 # ---------------------------------------------------------------------------
@@ -228,10 +257,7 @@ __test_first_run() {
     return 0
   fi
 
-  operator_token="$(awk '/^[[:space:]]{2}token:[[:space:]]*/ { sub(/^[[:space:]]*token:[[:space:]]*/, ""); gsub(/["'"'"']/, ""); print; exit }' "$config_file")"
-  if [ -z "$operator_token" ]; then
-    operator_token="$(awk '/^[[:space:]]*token:[[:space:]]*[^[:space:]]/ { sub(/^[[:space:]]*token:[[:space:]]*/, ""); gsub(/["'"'"']/, ""); print; exit }' "$config_file")"
-  fi
+  operator_token="$(awk '/^[[:space:]]*token:[[:space:]]*[^[:space:]]/ { sub(/^[[:space:]]*token:[[:space:]]*/, ""); gsub(/["'"'"']/, ""); print; exit }' "$config_file")"
   __assert_nonempty "server.token generated in server.yml" "$operator_token"
 }
 
@@ -242,7 +268,7 @@ __test_health_endpoints() {
 
   __request "$api_url/server/healthz" -H 'Accept: application/json'
   __assert_status "GET /api/$api/server/healthz returns 200" 200
-  __assert_eq "API health status is ok" "ok" "$(__json_get '.status // .data.status')"
+  __assert_eq "API health status is healthy" "healthy" "$(__json_get '.status // .data.status')"
 
   __request "$base_url/server/healthz" -H 'Accept: text/plain'
   __assert_status "GET /server/healthz returns 200" 200
@@ -272,14 +298,13 @@ __test_content_negotiation() {
   __request "$api_url/server/healthz" -H 'User-Agent: curl/8.0.0'
   __assert_not_contains "API + curl UA defaults to plain text" '"ok":' "$last_body"
 
-  # .txt path suffix — supported by the handlers (wantsText) but not yet by
-  # the router, so it 404s today. Reported, never silently passed.
+  # The health handler supports a plain-text .txt representation.
   local txt_status
   txt_status="$(__status_of "$base_url/server/healthz.txt")"
   if [ "$txt_status" = "200" ]; then
     __pass "GET /server/healthz.txt returns 200"
   else
-    __skip "GET /server/healthz.txt" "path-suffix routing not implemented yet (HTTP $txt_status) — TODO.AI.md PART 13/14"
+    __fail "GET /server/healthz.txt returned HTTP $txt_status"
   fi
 }
 
@@ -303,7 +328,10 @@ __test_wellknown() {
 __test_frontend_pages() {
   __section "Frontend pages (PART 16)"
   local page
-  for page in / /server /server/about /server/privacy /server/terms /server/help /server/contact /server/security /server/security/policy /server/dpo /list; do
+  __request "$base_url/server" -H 'Accept: text/html' -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64)'
+  __assert_status "GET /server redirects to the about page" 301
+  __assert_contains "/server redirect targets /server/about" "/server/about" "$last_headers"
+  for page in / /server/about /server/privacy /server/terms /server/help /server/docs/swagger /server/docs/graphql /server/contact /server/security /server/security/policy /server/security/thanks /server/dpo /server/ccpa /server/preferences /server/preferences/tokens /list; do
     __request "$base_url$page" -H 'Accept: text/html' -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64)'
     if [ "$last_status" = "200" ]; then
       __assert_contains "GET $page renders HTML" "<!DOCTYPE" "$last_body"
@@ -428,13 +456,13 @@ __test_authorization() {
   __request -X PATCH "$api_url/links/$code" \
     -H 'Content-Type: application/json' -H 'Accept: application/json' \
     -d '{"url":"https://example.com/hijacked"}'
-  __assert_status "PATCH without a token is forbidden" 403
+  __assert_status "PATCH without a token hides link existence" 404
 
   __request -X PATCH "$api_url/links/$code" \
     -H 'Content-Type: application/json' -H 'Accept: application/json' \
     -H 'Authorization: Bearer not-a-real-token' \
     -d '{"url":"https://example.com/hijacked"}'
-  __assert_status "PATCH with a bogus token is forbidden" 403
+  __assert_status "PATCH with a bogus token hides link existence" 404
 
   __request -X PATCH "$api_url/links/$code" \
     -H 'Content-Type: application/json' -H 'Accept: application/json' \
@@ -527,8 +555,8 @@ __test_cli() {
 
 __test_rate_limit() {
   __section "Rate limiting (PART 12)"
-  local i status saw_429=0
-  for i in $(seq 1 40); do
+  local status saw_429=0
+  for _ in $(seq 1 40); do
     status="$(__status_of -X POST "$api_url/links" \
       -H 'Content-Type: application/json' -H 'Accept: application/json' \
       -d '{"url":"https://example.com/flood"}')"

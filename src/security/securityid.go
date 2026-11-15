@@ -43,6 +43,19 @@ func securityIDForWindow(installationSecret string, window int64) string {
 // researcher who loaded security.txt at second 47:59:59 must not be
 // rejected. Comparison is constant-time.
 func ValidSecurityID(installationSecret, id string, at time.Time) bool {
+	return ValidSecurityIDWithPrevious(installationSecret, "", id, at)
+}
+
+// ValidSecurityIDWithPrevious accepts the current key and a still-retained
+// previous key during the explicit rotation grace interval.
+func ValidSecurityIDWithPrevious(installationSecret, previousSecret, id string, at time.Time) bool {
+	if validSecurityIDForSecret(installationSecret, id, at) {
+		return true
+	}
+	return previousSecret != "" && validSecurityIDForSecret(previousSecret, id, at)
+}
+
+func validSecurityIDForSecret(installationSecret, id string, at time.Time) bool {
 	if installationSecret == "" || len(id) != securityIDLength {
 		return false
 	}

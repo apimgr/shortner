@@ -23,10 +23,14 @@ set -eo pipefail
 container_name="test-$internal_name-$(__random_suffix)"
 temp_dir=""
 
+# shellcheck disable=SC2329
 __cleanup() {
   incus delete --force "$container_name" >/dev/null 2>&1 || true
   if [ -n "$temp_dir" ] && [ -d "$temp_dir" ]; then
     rm -rf -- "$temp_dir"
+  fi
+  if [ -n "$bin_dir" ] && [ -d "$bin_dir" ]; then
+    rm -rf -- "$bin_dir"
   fi
 }
 trap __cleanup EXIT

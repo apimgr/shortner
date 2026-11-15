@@ -186,8 +186,13 @@ func TestBuildCSPOmitsUpgradeInsecureOnOverlay(t *testing.T) {
 	req2 := httptest.NewRequest("GET", "/", nil)
 	req2.Host = "example.com"
 	_, value2 := hd.buildCSP(req2)
-	if !strings.Contains(value2, "upgrade-insecure-requests") {
-		t.Errorf("CSP value missing upgrade-insecure-requests for a clearnet host: %q", value2)
+	if strings.Contains(value2, "upgrade-insecure-requests") {
+		t.Errorf("HTTP CSP value contains upgrade-insecure-requests: %q", value2)
+	}
+	req2.TLS = &tls.ConnectionState{}
+	_, value3 := hd.buildCSP(req2)
+	if !strings.Contains(value3, "upgrade-insecure-requests") {
+		t.Errorf("TLS CSP value missing upgrade-insecure-requests for a clearnet host: %q", value3)
 	}
 }
 

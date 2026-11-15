@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/pgp"
 	"github.com/apimgr/shortner/src/security"
 )
 
@@ -31,14 +32,27 @@ func (fd *frontendDeps) notifySecurityReport(r *http.Request, trackingID string,
 
 // notifyMaintainerSecurityReport implements step 4. AI.md requires a
 // PGP-encrypted email to the `security` contact role, "falls back to
-// AES-encrypted attachment + warning if no PGP key is configured" — and
-// this project has no PGP keypair path yet, so the fallback is what is
-// sent: the same AES-256-GCM sealed blob stored in the database, armored
-// inline, plus the mandated warning. The vulnerability text itself is
-// never placed in the plaintext body.
+// AES-encrypted attachment + warning if no PGP key is configured. The
+// vulnerability text is never included in the plaintext body.
 func (fd *frontendDeps) notifyMaintainerSecurityReport(trackingID string, f securityReportForm) {
 	to := strings.TrimSpace(fd.cfg.Server.Contact.Security.Email)
 	if to == "" {
+		return
+	}
+	if armored, err := pgp.NewStore(fd.configDir).ReadPublicKey(); err == nil {
+		recipients, err := pgp.ParsePublic(armored)
+		if err != nil {
+			return
+		}
+		plaintext, err := json.Marshal(f)
+		if err != nil {
+			return
+		}
+		message, err := pgp.EncryptArmored(recipients, plaintext)
+		if err != nil {
+			return
+		}
+		_ = fd.notifier.SendRaw([]string{to}, fmt.Sprintf("[SECURITY] %s report %s", f.Severity, trackingID), message)
 		return
 	}
 
@@ -96,10 +110,7 @@ func wrapColumns(s string, width int) string {
 
 // notifyResearcherSecurityReport implements step 5: the acknowledgment
 // carrying the tracking id and the researcher status-page URL. AI.md
-// specifies a PGP-encrypted body using the researcher's submitted pubkey;
-// with no PGP path in this project the acknowledgment is sent in plain
-// text and deliberately contains no vulnerability content — only the
-// tracking id the researcher already knows from the success page.
+// specifies a PGP-encrypted body when the researcher supplied a public key.
 func (fd *frontendDeps) notifyResearcherSecurityReport(r *http.Request, trackingID string, f securityReportForm) {
 	to := strings.TrimSpace(f.Email)
 	if to == "" {
@@ -120,9 +131,16 @@ func (fd *frontendDeps) notifyResearcherSecurityReport(r *http.Request, tracking
 		b.WriteString("You did not supply a PGP public key, so this acknowledgment is\n")
 		b.WriteString("unencrypted. It deliberately contains no details of your report.\n")
 	} else {
-		b.WriteString("This server has no PGP keypair configured, so it could not encrypt\n")
-		b.WriteString("this acknowledgment to the key you supplied. It deliberately\n")
-		b.WriteString("contains no details of your report.\n")
+		recipients, err := pgp.ParsePublic(f.ResearcherGPG)
+		if err != nil {
+			return
+		}
+		message, err := pgp.EncryptArmored(recipients, []byte(b.String()))
+		if err != nil {
+			return
+		}
+		b.Reset()
+		b.WriteString(message)
 	}
 
 	_ = fd.notifier.SendRaw([]string{to},

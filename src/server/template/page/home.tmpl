@@ -1,5 +1,5 @@
 {{define "content"}}<section class="home-hero">
-<img src="/favicon.ico" alt="" class="home-logo" width="96" height="96">
+<img src="{{if .Base.LogoURL}}{{.Base.LogoURL}}{{else if .Base.FaviconURL}}{{.Base.FaviconURL}}{{else}}/favicon.ico{{end}}" alt="" class="home-logo" width="96" height="96">
 <h1>{{.Base.SiteName}}</h1>
 <p class="tagline">{{.Base.Tagline}}</p>
 

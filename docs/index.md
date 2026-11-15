@@ -24,11 +24,10 @@ generates its own operator token, and starts serving.
 ## Design Principles
 
 **No accounts.** There is no registration, no login, and no password
-reset. Anyone can create a link. Whoever holds the `owner_token` returned
-when a link is created may edit or delete that link — and only that link.
-The operator token in `server.yml` grants global authority. A lost
-`owner_token` is unrecoverable by design; there is no account to recover
-it to.
+reset. Anyone can create a link. Links belong to an anonymous owner with a
+primary token; linked tokens can be made for integrations. The primary
+token can be restored on a new browser and rotated without changing link
+ownership. The operator token in `server.yml` grants global authority.
 
 **Privacy by default.** Client IP addresses are anonymized *before* they
 are written — the last octet of an IPv4 address and the last 80 bits of an
@@ -78,6 +77,7 @@ or [Configuration](configuration.md) for the full settings reference.
 | [CLI Reference](cli.md) | Server binary flags and subcommands |
 | [Security](security.md) | Threat model, headers, vulnerability reporting, privacy |
 | [Integrations](integrations.md) | Metrics, GeoIP, SMTP, reverse proxies, well-known files |
+| [Translating](translating.md) | Locale catalog format, placeholders, validation, and contribution workflow |
 | [Development](development.md) | Building, testing, contributing |
 
 ## Project Status
@@ -87,15 +87,19 @@ suite: configuration, path resolution, the link API and web interface, the
 HTTP security layer, the scheduler, GeoIP, metrics, email notifications,
 backup and restore, the self-updater, service installation, and CI/CD.
 
-Some features described by the project specification are not yet built and
-are **not** documented here as if they were. The most visible gaps:
-
-- The client binary `shortner-cli` has no native GUI; it falls back to
-  its terminal interface. See [CLI Reference](cli.md).
-- The server does not publish `/api/autodiscover` or host client
-  binaries, so the client's `--update` has nothing to talk to yet.
-- There are no Swagger or GraphQL documentation endpoints.
-- Configuration is not hot-reloadable; changes require a restart.
+The implementation is being aligned with `AI.md`. The server includes
+server-rendered Swagger and GraphQL documentation pages, an OpenAPI JSON
+endpoint, a read-only GraphQL endpoint, and API mirrors for several server
+pages. Their route and schema coverage is still being completed against the
+full API contract. Other remaining work includes additional server-page API
+mirrors, MCP, notification surfaces, and cache metrics. The server also
+publishes CLI update metadata and serves colocated client binaries. The PWA includes install and update prompts, offline
+status and fallback, a versioned cache, and its required icon assets.
+Background Sync and geolocation need product-specific behavior defined in
+the parent API template before they can be implemented safely. The optional
+native GUI uses the pure-Go `gogpu/ui` toolkit on Linux, macOS, and Windows;
+BSD uses the TUI. See the reference pages and project backlog for current
+behavior.
 
 ## License
 

@@ -33,6 +33,7 @@ import (
 
 	"github.com/apimgr/shortner/src/apperr"
 	"github.com/apimgr/shortner/src/applog"
+	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/geoip"
 	"github.com/apimgr/shortner/src/security"
@@ -41,6 +42,8 @@ import (
 // linkDeps bundles what the link handlers need.
 type linkDeps struct {
 	sqlDB    *sql.DB
+	tokenKey []byte
+	cfg      *config.Config
 	resolver *ProxyResolver
 	// log records non-fatal failures that must not break a redirect, such
 	// as a click that could not be persisted (AI.md PART 9 "Error
@@ -69,7 +72,7 @@ type LinkResponse struct {
 // a one-time owner_token."
 type CreateLinkResponse struct {
 	LinkResponse
-	OwnerToken string `json:"owner_token"`
+	OwnerToken string `json:"owner_token,omitempty"`
 }
 
 func toLinkResponse(l *db.Link, shortURL string) LinkResponse {
@@ -152,6 +155,7 @@ func (ld *linkDeps) registerLinkAPIRoutes(apiGroup chi.Router) {
 func corsAPIMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
+		h.Del("Access-Control-Allow-Credentials")
 		h.Set("Access-Control-Allow-Origin", "*")
 		h.Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key, API-Key, X-Auth-Token, X-Access-Token, X-Token, Token")
@@ -198,8 +202,12 @@ func (ld *linkDeps) createLinkHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	ownerID, ownerToken, err := ld.ownerForCreate(r, false)
+	if err != nil {
+		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
+		return
+	}
 	var link *db.Link
-	var err error
 
 	if slug := strings.TrimSpace(req.Slug); slug != "" {
 		if !security.ValidateSlugFormat(slug) {
@@ -212,20 +220,14 @@ func (ld *linkDeps) createLinkHandler(w http.ResponseWriter, r *http.Request) {
 			sendError(w, r, apperr.New(apperr.CodeConflict).WithMessageKey("errors.slug_reserved", "Slug is reserved"))
 			return
 		}
-		link, err = db.CreateLinkCustomSlug(ctx, ld.sqlDB, slug, destination, expiresAt)
+		link, err = db.CreateLinkCustomSlugOwned(ctx, ld.sqlDB, ownerID, slug, destination, expiresAt)
 		if errors.Is(err, db.ErrSlugTaken) {
 			sendError(w, r, apperr.New(apperr.CodeConflict).WithMessageKey("errors.slug_in_use", "Slug already in use"))
 			return
 		}
 	} else {
-		link, err = db.CreateLinkAutoCode(ctx, ld.sqlDB, destination, expiresAt)
+		link, err = db.CreateLinkAutoCodeOwned(ctx, ld.sqlDB, ownerID, destination, expiresAt)
 	}
-	if err != nil {
-		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
-		return
-	}
-
-	raw, _, err := db.CreateResourceToken(ctx, ld.sqlDB, "link", strconv.FormatInt(link.ID, 10), nil)
 	if err != nil {
 		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
 		return
@@ -234,7 +236,7 @@ func (ld *linkDeps) createLinkHandler(w http.ResponseWriter, r *http.Request) {
 	shortURL := ld.resolver.BuildURL(r, "/"+link.ShortCode)
 	resp := CreateLinkResponse{
 		LinkResponse: toLinkResponse(link, shortURL),
-		OwnerToken:   raw,
+		OwnerToken:   ownerToken,
 	}
 
 	if wantsText(r) {
@@ -373,8 +375,8 @@ func (ld *linkDeps) updateLinkHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !ld.authorized(r, link.ID) {
-		sendError(w, r, apperr.New(apperr.CodeForbidden))
+	if !ld.authorized(w, r, link.ID) {
+		sendError(w, r, apperr.New(apperr.CodeNotFound))
 		return
 	}
 
@@ -440,8 +442,8 @@ func (ld *linkDeps) deleteLinkHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !ld.authorized(r, link.ID) {
-		sendError(w, r, apperr.New(apperr.CodeForbidden))
+	if !ld.authorized(w, r, link.ID) {
+		sendError(w, r, apperr.New(apperr.CodeNotFound))
 		return
 	}
 
@@ -461,19 +463,64 @@ func (ld *linkDeps) deleteLinkHandler(w http.ResponseWriter, r *http.Request) {
 // token for linkID, per IDEA.md "Business logic": "that token ... authorizes
 // later edits/deletes on that link only. The operator's global server.token
 // can moderate/delete any link."
-func (ld *linkDeps) authorized(r *http.Request, linkID int64) bool {
+func (ld *linkDeps) authorized(w http.ResponseWriter, r *http.Request, linkID int64) bool {
 	if IsOperator(r.Context()) {
 		return true
 	}
 	token := ExtractToken(r)
+	if token == "" && !strings.HasPrefix(r.URL.Path, "/api/") {
+		if cookie, err := r.Cookie(ownerTokenCookieName); err == nil {
+			token = cookie.Value
+		}
+	}
+	fromCookie := false
 	if token == "" {
 		return false
+	}
+	if !strings.HasPrefix(r.URL.Path, "/api/") {
+		if cookie, err := r.Cookie(ownerTokenCookieName); err == nil && cookie.Value == token {
+			fromCookie = true
+		}
 	}
 	tok, err := db.LookupTokenByRaw(r.Context(), ld.sqlDB, token)
 	if err != nil {
 		return false
 	}
-	return tok.ResourceType == "link" && tok.ResourceID == strconv.FormatInt(linkID, 10)
+	if fromCookie {
+		if tok.Kind != "primary" {
+			return false
+		}
+		if ld.cfg != nil {
+			setOwnerTokenCookie(w, r, ld.cfg, ld.resolver, token)
+		}
+	}
+	link, err := db.GetLinkByID(r.Context(), ld.sqlDB, linkID)
+	return err == nil && tok.OwnerID == link.OwnerID
+}
+
+func (ld *linkDeps) ownerForCreate(r *http.Request, web bool) (string, string, error) {
+	token := ExtractToken(r)
+	if token == "" && web {
+		if cookie, err := r.Cookie(ownerTokenCookieName); err == nil {
+			token = cookie.Value
+		}
+	}
+	if token != "" {
+		if existing, err := db.LookupTokenByRaw(r.Context(), ld.sqlDB, token); err == nil {
+			if !web || existing.Kind == "primary" {
+				return existing.OwnerID, "", nil
+			}
+		}
+	}
+	ownerID, err := db.CreateOwner(r.Context(), ld.sqlDB)
+	if err != nil {
+		return "", "", err
+	}
+	raw, _, err := db.CreatePrimaryToken(r.Context(), ld.sqlDB, ownerID, ld.tokenKey)
+	if err != nil {
+		return "", "", err
+	}
+	return ownerID, raw, nil
 }
 
 // isBotUserAgent defers to the shared classifier in src/security so the

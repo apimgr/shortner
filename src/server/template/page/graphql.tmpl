@@ -1,0 +1,16 @@
+{{define "content"}}<article class="graphql-docs">
+<link rel="stylesheet" href="{{asset "/static/css/graphql-docs.css" .Base.AssetStamp}}">
+<h1>GraphQL explorer</h1>
+<p>Endpoint: <code>{{.Endpoint}}</code>. Queries are read-only.</p>
+<form method="post" action="{{.Endpoint}}" aria-label="GraphQL query" data-graphql-url="{{.Endpoint}}">
+<label for="graphql-query">Query</label>
+<textarea id="graphql-query" name="query" rows="10" required>{{printf "{ links(limit: 10) { shortCode shortURL destinationURL createdAt clickCount } }"}}</textarea>
+<button type="submit">Run query</button>
+</form>
+<p id="graphql-status" role="status" aria-live="polite">Queries can also be submitted as a standard HTML form.</p>
+<pre id="graphql-result" tabindex="0" aria-label="GraphQL response"></pre>
+<h2>Available queries</h2>
+<ul><li><code>link(slug: String!)</code></li><li><code>links(limit: Int, offset: Int)</code></li></ul>
+<p>POST a JSON body containing a <code>query</code> string to the endpoint.</p>
+<script src="{{asset "/static/js/graphql-docs.js" .Base.AssetStamp}}" defer></script>
+</article>{{end}}

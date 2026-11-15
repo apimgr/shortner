@@ -77,10 +77,7 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	case ModeError:
 		return Result{}, fmt.Errorf("cannot run setup without a terminal: pass --server URL, or set %s_SERVER_PRIMARY", "SHORTNER")
 	case ModeGUI:
-		// The native GUI wizard ships behind the `gui` build tag (AI.md
-		// PART 32 forbids Electron or a TUI wrapper); the default CGO-free
-		// build runs the terminal wizard, which is feature-identical.
-		return runTUI(ctx, opts)
+		return runGUISetup(ctx, opts)
 	default:
 		return runTUI(ctx, opts)
 	}

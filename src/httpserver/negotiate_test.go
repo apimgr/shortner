@@ -1,10 +1,57 @@
 package httpserver
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+func TestAPIResponseFormatMiddlewareSupportsTextAndJSON(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/items" {
+			t.Errorf("handler path = %q, want /api/v1/items", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true,"data":{"name":"sample","stats":{"count":2}}}`))
+	})
+	h := urlNormalizeMiddleware(apiResponseFormatMiddleware(handler))
+
+	tests := []struct {
+		name        string
+		path        string
+		accept      string
+		userAgent   string
+		wantType    string
+		wantContent string
+	}{
+		{name: "txt suffix", path: "/api/v1/items.txt", accept: "application/json", userAgent: "Mozilla/5.0", wantType: "text/plain; charset=utf-8", wantContent: "OK: Success\nname: sample\nstats.count: 2\n"},
+		{name: "curl defaults to text", path: "/api/v1/items", userAgent: "curl/8.0", wantType: "text/plain; charset=utf-8", wantContent: "OK: Success\nname: sample\nstats.count: 2\n"},
+		{name: "explicit json wins", path: "/api/v1/items", accept: "application/json", userAgent: "curl/8.0", wantType: "application/json", wantContent: "\"data\""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req.Header.Set("User-Agent", tt.userAgent)
+			if tt.accept != "" {
+				req.Header.Set("Accept", tt.accept)
+			}
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if got := rec.Header().Get("Content-Type"); got != tt.wantType {
+				t.Errorf("Content-Type = %q, want %q", got, tt.wantType)
+			}
+			if !strings.Contains(rec.Body.String(), tt.wantContent) {
+				t.Errorf("body %q does not contain %q", rec.Body.String(), tt.wantContent)
+			}
+			if tt.wantType == "application/json" && !json.Valid(rec.Body.Bytes()) {
+				t.Errorf("JSON body is invalid: %q", rec.Body.String())
+			}
+		})
+	}
+}
 
 func TestWantsText(t *testing.T) {
 	tests := []struct {

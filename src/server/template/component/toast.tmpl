@@ -1,4 +1,4 @@
-{{define "toast-container"}}<div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+{{define "toast-container"}}<div id="toast-container" class="toast-container" data-position="{{.Base.ToastPosition}}" data-duration="{{.Base.ToastDuration}}" data-dismiss-label="{{t .Base.Lang "a11y.dismiss"}}" aria-label="{{t .Base.Lang "a11y.notifications"}}"></div>
 {{end}}
 
 {{define "live-region"}}<div id="live-region" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>

@@ -1,0 +1,38 @@
+{{define "content"}}
+<article class="preferences-page">
+<h1>{{t .Base.Lang "common.preferences"}}</h1>
+<form method="POST" action="/server/preferences">
+<input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
+<input type="hidden" name="consent_form" value="1">
+<input type="hidden" name="redirect" value="{{.Base.CurrentPath}}">
+<section aria-labelledby="preferences-appearance">
+<h2 id="preferences-appearance">{{t .Base.Lang "theme.toggle"}}</h2>
+<fieldset><legend>{{t .Base.Lang "theme.toggle"}}</legend>
+<label><input type="radio" name="theme" value="dark"{{if eq .State.Theme "dark"}} checked{{end}}> {{t .Base.Lang "theme.dark"}}</label>
+<label><input type="radio" name="theme" value="light"{{if eq .State.Theme "light"}} checked{{end}}> {{t .Base.Lang "theme.light"}}</label>
+<label><input type="radio" name="theme" value="auto"{{if eq .State.Theme "auto"}} checked{{end}}> {{t .Base.Lang "theme.auto"}}</label>
+</fieldset></section>
+<section aria-labelledby="preferences-language"><h2 id="preferences-language">{{t .Base.Lang "common.select_language"}}</h2>
+<label for="preferences-lang">{{t .Base.Lang "common.select_language"}}</label>
+<select id="preferences-lang" name="lang"><option value="{{.State.Lang}}" selected>{{.State.Lang}}</option>{{range .Base.AvailableLanguages}}{{if ne .Code $.State.Lang}}<option value="{{.Code}}">{{.NativeName}}</option>{{end}}{{end}}</select></section>
+<section aria-labelledby="preferences-privacy"><h2 id="preferences-privacy">{{t .Base.Lang "privacy.cookie_policy"}}</h2>
+<p><strong>{{t .Base.Lang "cookie_consent.essential"}}</strong> — {{t .Base.Lang "cookie_consent.essential_description"}}</p>
+<input type="hidden" name="consent_preferences" value="off"><label><input type="checkbox" name="consent_preferences" value="on"{{if .Preferences}} checked{{end}}> {{t .Base.Lang "privacy.preference_cookies"}}</label>
+<input type="hidden" name="consent_analytics" value="off"><label><input type="checkbox" name="consent_analytics" value="on"{{if .Analytics}} checked{{end}}> {{t .Base.Lang "privacy.analytics_cookies"}}</label>
+{{if .ShowCCPA}}<input type="hidden" name="ccpa_opt_out" value="off"><label><input type="checkbox" name="ccpa_opt_out" value="on"{{if .CCPA}} checked{{end}}> {{t .Base.Lang "ccpa.do_not_sell"}}</label>{{end}}
+</section>
+<section aria-labelledby="preferences-data"><h2 id="preferences-data">{{t .Base.Lang "privacy.right_access"}}</h2>
+<p><a class="preference-export-value" href="{{.ExportURL}}">{{.ExportURL}}</a> <button type="button" data-copy="{{.ExportURL}}">{{t .Base.Lang "common.copy"}}</button></p>
+<p><code class="preference-export-value">{{.ExportCode}}</code> <button type="button" data-copy="{{.ExportCode}}">{{t .Base.Lang "common.copy"}}</button></p>
+<label for="preferences-code">{{t .Base.Lang "common.paste"}}</label><textarea id="preferences-code" name="code" maxlength="2048"></textarea>
+</section>
+<p><a href="/server/preferences/tokens">{{t .Base.Lang "privacy.manage_tokens"}}</a></p>
+<div class="preferences-actions"><a class="button" href="{{.CancelURL}}">{{t .Base.Lang "common.cancel"}}</a>
+<button type="button" popovertarget="preferences-reset">{{t .Base.Lang "common.reset"}}</button>
+<button type="submit">{{t .Base.Lang "common.save"}}</button></div>
+<div id="preferences-reset" popover><p>{{t .Base.Lang "privacy.forget_me"}}</p><p>{{t .Base.Lang "privacy.forget_warning"}}</p>
+<button type="button" popovertarget="preferences-reset" popovertargetaction="hide">{{t .Base.Lang "common.cancel"}}</button>
+<button type="submit" name="action" value="reset">{{t .Base.Lang "privacy.erase_everything"}}</button></div>
+</form>
+</article>
+{{end}}

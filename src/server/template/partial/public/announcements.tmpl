@@ -1,0 +1,10 @@
+{{define "announcements"}}{{range .Base.Announcements}}<section class="site-banner site-banner-{{.Type}}" role="{{if or (eq .Type "warning") (eq .Type "error")}}alert{{else}}status{{end}}" data-announcement-id="{{.ID}}">
+{{if .Title}}<strong class="site-banner-title">{{.Title}}</strong>{{end}}
+<span class="site-banner-text">{{.Message}}</span>
+{{if .Dismissible}}<form method="post" action="/announcements/dismiss" class="site-banner-dismiss">
+<input type="hidden" name="csrf_token" value="{{$.Base.CSRFToken}}">
+<input type="hidden" name="id" value="{{.ID}}">
+<input type="hidden" name="return_to" value="{{$.Base.CurrentPath}}">
+<button type="submit" class="site-banner-close" aria-label="{{t $.Base.Lang "common.close"}}">&times;</button>
+</form>{{end}}
+</section>{{end}}{{end}}

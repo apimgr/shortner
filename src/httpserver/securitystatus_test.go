@@ -103,6 +103,22 @@ func TestSecurityReportStatusRendersReceivedState(t *testing.T) {
 	}
 }
 
+func TestSecurityReportStatusIsMountedOnFrontendRouter(t *testing.T) {
+	fd := testSecurityFrontendDeps(t)
+	trackingID := seedReport(t, fd)
+	router := chi.NewRouter()
+	fd.registerFrontendRoutes(router, &healthDeps{}, fd.ld)
+	req := httptest.NewRequest(http.MethodGet, "/server/security/report/"+trackingID+"?token="+security.ReportToken(fd.installSecret, trackingID), nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), trackingID) {
+		t.Error("mounted route did not render the report status")
+	}
+}
+
 func TestSecurityReportStatusIsOncePerDay(t *testing.T) {
 	fd := testSecurityFrontendDeps(t)
 	trackingID := seedReport(t, fd)

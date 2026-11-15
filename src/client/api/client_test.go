@@ -119,6 +119,25 @@ func TestCreateLinkSendsRequestAndHeaders(t *testing.T) {
 	}
 }
 
+// TestCreateLinkUnwrapsCanonicalEnvelope verifies resource responses from the
+// server's standard {ok,data} success envelope are decoded into the typed model.
+func TestCreateLinkUnwrapsCanonicalEnvelope(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"ok":true,"data":{"short_code":"wrap01","short_url":"https://sh.rt/wrap01","destination_url":"https://example.com","owner_token":"owner-tok"}}`))
+	}))
+	defer server.Close()
+
+	created, err := newTestClient(t, server).CreateLink(context.Background(), "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("CreateLink: %v", err)
+	}
+	if created.ShortCode != "wrap01" || created.OwnerToken != "owner-tok" {
+		t.Fatalf("CreateLink returned %+v", created)
+	}
+}
+
 // TestCreateLinkWithSlugAndExpiry checks the optional fields are included
 // only when provided.
 func TestCreateLinkWithSlugAndExpiry(t *testing.T) {

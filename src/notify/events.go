@@ -17,6 +17,7 @@ const (
 	EventSSLRenewed       = "ssl_renewed"
 	EventSSLRenewalFailed = "ssl_renewal_failed"
 	EventSchedulerError   = "scheduler_error"
+	EventDiskLow          = "disk_low"
 	EventUpdateAvailable  = "update_available"
 	EventUpdateInstalled  = "update_installed"
 	EventTest             = "test"
@@ -69,6 +70,7 @@ var eventVariables = map[string][]string{
 	EventSSLRenewed:       {"expires_in", "expiry_date", "valid_until"},
 	EventSSLRenewalFailed: {"error", "expires_in", "expiry_date", "next_retry"},
 	EventSchedulerError:   {"task_name", "error", "next_run"},
+	EventDiskLow:          {"path", "used_percent", "free_bytes"},
 	// AI.md PART 17 "Sane Defaults": update_available "Includes current
 	// version, new version, and channel"; update_installed "Includes
 	// previous version and new version".
@@ -124,6 +126,8 @@ func EventEnabled(ev config.EmailEvents, event string) bool {
 	case EventUpdateInstalled:
 		return ev.UpdateInstalled
 	case EventTest:
+		return true
+	case EventDiskLow:
 		return true
 	default:
 		return false

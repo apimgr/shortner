@@ -82,3 +82,14 @@ func TestValidSecurityIDRejectsEmptySecret(t *testing.T) {
 		t.Error("ValidSecurityID(empty secret) = true, want false")
 	}
 }
+
+func TestValidSecurityIDWithPreviousSecret(t *testing.T) {
+	at := time.Unix(securityIDWindow*900, 0).UTC()
+	id := SecurityID("old", at)
+	if !ValidSecurityIDWithPrevious("new", "old", id, at) {
+		t.Fatal("retained previous secret was rejected")
+	}
+	if ValidSecurityIDWithPrevious("new", "", id, at) {
+		t.Fatal("unretained previous secret was accepted")
+	}
+}

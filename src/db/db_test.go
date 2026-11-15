@@ -39,6 +39,45 @@ func TestEnsureSchemaIdempotent(t *testing.T) {
 	}
 }
 
+func TestEnsureSchemaMigratesResourceTokensToOwners(t *testing.T) {
+	sqlDB, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	defer sqlDB.Close()
+	if _, err := sqlDB.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE links (id INTEGER PRIMARY KEY AUTOINCREMENT, short_code TEXT NOT NULL UNIQUE, destination_url TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), expires_at INTEGER, click_count INTEGER NOT NULL DEFAULT 0)`,
+		`CREATE TABLE clicks (id INTEGER PRIMARY KEY AUTOINCREMENT, link_id INTEGER NOT NULL REFERENCES links(id), timestamp INTEGER NOT NULL)`,
+		`CREATE TABLE api_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, token_hash TEXT NOT NULL UNIQUE, token_prefix TEXT NOT NULL, resource_type TEXT NOT NULL, resource_id TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), expires_at INTEGER, last_used_at INTEGER, revoked_at INTEGER, revoked_reason TEXT)`,
+		`INSERT INTO links (id, short_code, destination_url) VALUES (1, 'legacy', 'https://example.com')`,
+		`INSERT INTO api_tokens (id, token_hash, token_prefix, resource_type, resource_id) VALUES (7, 'hash-value', 'tok_prefix', 'link', '1')`,
+	} {
+		if _, err := sqlDB.Exec(statement); err != nil {
+			t.Fatalf("legacy schema/data: %v", err)
+		}
+	}
+	if err := EnsureSchema(context.Background(), sqlDB); err != nil {
+		t.Fatalf("EnsureSchema migration: %v", err)
+	}
+	var linkOwner, tokenOwner, kind, tokenEnc string
+	if err := sqlDB.QueryRow(`SELECT owner_id FROM links WHERE id = 1`).Scan(&linkOwner); err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlDB.QueryRow(`SELECT owner_id, kind, token_enc FROM api_tokens WHERE id = 7`).Scan(&tokenOwner, &kind, &tokenEnc); err != nil {
+		t.Fatal(err)
+	}
+	if linkOwner == "" || tokenOwner != linkOwner || kind != "primary" || tokenEnc != "" {
+		t.Fatalf("migrated link/token state = owner %q / %q, kind %q, ciphertext %q", linkOwner, tokenOwner, kind, tokenEnc)
+	}
+	if err := EnsureSchema(context.Background(), sqlDB); err != nil {
+		t.Fatalf("second EnsureSchema: %v", err)
+	}
+}
+
 func TestWithTransactionCommitsAndRollsBack(t *testing.T) {
 	sqlDB := openTestDB(t)
 	ctx := context.Background()
@@ -180,9 +219,8 @@ func TestLinkCreateGetUpdateDelete(t *testing.T) {
 // TestDeleteLinkWithClicksAndToken covers the case that used to fail with
 // a FOREIGN KEY constraint error: clicks.link_id references links(id) and
 // the connection runs with PRAGMA foreign_keys(1), so a link that has ever
-// been clicked could not be deleted at all. It also asserts that the
-// link's owner token is revoked with it rather than left valid for a
-// resource that no longer exists.
+// been clicked could not be deleted at all. Owner identity survives a
+// resource deletion because it may own other resources.
 func TestDeleteLinkWithClicksAndToken(t *testing.T) {
 	sqlDB := openTestDB(t)
 	ctx := context.Background()
@@ -194,9 +232,14 @@ func TestDeleteLinkWithClicksAndToken(t *testing.T) {
 	if _, err := RecordClick(ctx, sqlDB, link.ID, "203.0.113.42", "agent/1.0", "", "", ""); err != nil {
 		t.Fatalf("RecordClick() error = %v", err)
 	}
-	raw, _, err := CreateResourceToken(ctx, sqlDB, "link", strconv.FormatInt(link.ID, 10), nil)
+	ownerID, err := CreateOwner(ctx, sqlDB)
 	if err != nil {
-		t.Fatalf("CreateResourceToken() error = %v", err)
+		t.Fatalf("CreateOwner() error = %v", err)
+	}
+	key := make([]byte, 32)
+	raw, _, err := CreatePrimaryToken(ctx, sqlDB, ownerID, key)
+	if err != nil {
+		t.Fatalf("CreatePrimaryToken() error = %v", err)
 	}
 
 	if err := DeleteLink(ctx, sqlDB, link.ID); err != nil {
@@ -211,8 +254,8 @@ func TestDeleteLinkWithClicksAndToken(t *testing.T) {
 		t.Errorf("clicks remaining = %d, want 0", clicks)
 	}
 
-	if _, err := LookupTokenByRaw(ctx, sqlDB, raw); err == nil {
-		t.Errorf("LookupTokenByRaw(token for deleted link) error = nil, want not-found")
+	if _, err := LookupTokenByRaw(ctx, sqlDB, raw); err != nil {
+		t.Errorf("LookupTokenByRaw(owner token after resource deletion) error = %v, want nil", err)
 	}
 }
 
@@ -334,16 +377,21 @@ func TestRecordClickAndList(t *testing.T) {
 	}
 }
 
-func TestResourceTokenLifecycle(t *testing.T) {
+func TestOwnerTokenLifecycle(t *testing.T) {
 	sqlDB := openTestDB(t)
 	ctx := context.Background()
 
-	raw, tok, err := CreateResourceToken(ctx, sqlDB, "link", "42", nil)
+	ownerID, err := CreateOwner(ctx, sqlDB)
 	if err != nil {
-		t.Fatalf("CreateResourceToken() error = %v", err)
+		t.Fatalf("CreateOwner() error = %v", err)
+	}
+	key := make([]byte, 32)
+	raw, tok, err := CreatePrimaryToken(ctx, sqlDB, ownerID, key)
+	if err != nil {
+		t.Fatalf("CreatePrimaryToken() error = %v", err)
 	}
 	if raw == "" || tok.ID == 0 {
-		t.Fatalf("CreateResourceToken() returned empty raw or token")
+		t.Fatalf("CreatePrimaryToken() returned empty raw or token")
 	}
 	if !tok.IsActive() {
 		t.Errorf("freshly created token IsActive() = false")
@@ -361,7 +409,7 @@ func TestResourceTokenLifecycle(t *testing.T) {
 		t.Errorf("LookupTokenByRaw(wrong) error = %v, want ErrNotFound", err)
 	}
 
-	if err := TouchTokenLastUsed(ctx, sqlDB, tok.ID); err != nil {
+	if err := TouchTokenLastUsed(ctx, sqlDB, tok.ID, ownerID); err != nil {
 		t.Fatalf("TouchTokenLastUsed() error = %v", err)
 	}
 	touched, err := LookupTokenByRaw(ctx, sqlDB, raw)
@@ -492,5 +540,33 @@ func TestTryTouchSecurityReportViewConsumesIntervalAtomically(t *testing.T) {
 	allowed, err = TryTouchSecurityReportView(ctx, sqlDB, report.TrackingID, now.Add(25*time.Hour), 24*time.Hour)
 	if err != nil || !allowed {
 		t.Fatalf("TryTouchSecurityReportView() after interval = (%t, %v), want (true, nil)", allowed, err)
+	}
+}
+
+func TestSecurityReportOperatorWorkflow(t *testing.T) {
+	sqlDB := openTestDB(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+	report := SecurityReport{TrackingID: "sec_0123456789abcdef", ReceivedAt: now.Add(-time.Hour), Severity: "high", Component: "api", Sealed: "ciphertext"}
+	if err := InsertSecurityReport(ctx, sqlDB, report); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := ListSecurityReports(ctx, sqlDB, StatusReceived)
+	if err != nil || len(listed) != 1 || listed[0].TrackingID != report.TrackingID {
+		t.Fatalf("ListSecurityReports() = (%v, %v)", listed, err)
+	}
+	next := StatusTriaged
+	comment := "We are reviewing this report."
+	disclosure := now.AddDate(0, 1, 0)
+	updated, old, err := UpdateSecurityReport(ctx, sqlDB, report.TrackingID, SecurityReportUpdate{Status: &next, Comments: &comment, DisclosureAt: &disclosure}, now)
+	if err != nil || old != StatusReceived || updated.Status != StatusTriaged || updated.Comments != comment || !updated.UpdatedAt.Equal(now) {
+		t.Fatalf("UpdateSecurityReport() = (%+v, %q, %v)", updated, old, err)
+	}
+	back := StatusReceived
+	if _, _, err := UpdateSecurityReport(ctx, sqlDB, report.TrackingID, SecurityReportUpdate{Status: &back}, now.Add(time.Minute)); err == nil {
+		t.Fatal("backward status transition succeeded")
+	}
+	if updated.Sealed != "ciphertext" {
+		t.Fatal("operator update altered encrypted content")
 	}
 }

@@ -8,7 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apimgr/shortner/src/cache"
 	"github.com/apimgr/shortner/src/config"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	_ "modernc.org/sqlite"
 )
 
 func testConfig() config.Metrics {
@@ -192,6 +195,112 @@ func TestUpdateConnectionMetrics(t *testing.T) {
 	}
 	if !gotOpen || !gotInUse {
 		t.Errorf("expected db_connections_open and db_connections_in_use to be recorded, got open=%v in_use=%v", gotOpen, gotInUse)
+	}
+}
+
+func TestCollectBusinessMetrics(t *testing.T) {
+	sqlDB, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer sqlDB.Close()
+	for _, statement := range []string{
+		`CREATE TABLE links (created_at INTEGER NOT NULL)`,
+		`CREATE TABLE clicks (timestamp INTEGER NOT NULL)`,
+		`CREATE TABLE api_tokens (owner_id TEXT NOT NULL, kind TEXT NOT NULL, token_hash TEXT NOT NULL, revoked_at INTEGER, expires_at INTEGER)`,
+	} {
+		if _, err := sqlDB.Exec(statement); err != nil {
+			t.Fatalf("schema: %v", err)
+		}
+	}
+	now := time.Now().Unix()
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO links (created_at) VALUES (?)`, []any{now}},
+		{`INSERT INTO links (created_at) VALUES (?)`, []any{now - 25*60*60}},
+		{`INSERT INTO clicks (timestamp) VALUES (?)`, []any{now}},
+		{`INSERT INTO clicks (timestamp) VALUES (?)`, []any{now - 25*60*60}},
+		{`INSERT INTO api_tokens (owner_id, kind, token_hash, revoked_at, expires_at) VALUES ('owner-1', 'primary', 'hash-1', NULL, NULL)`, nil},
+		{`INSERT INTO api_tokens (owner_id, kind, token_hash, revoked_at, expires_at) VALUES ('owner-1', 'linked', 'hash-2', NULL, ?)`, []any{now + 3600}},
+		{`INSERT INTO api_tokens (owner_id, kind, token_hash, revoked_at, expires_at) VALUES ('owner-1', 'linked', 'hash-3', NULL, ?)`, []any{now - 1}},
+		{`INSERT INTO api_tokens (owner_id, kind, token_hash, revoked_at, expires_at) VALUES ('owner-1', 'primary', 'hash-4', ?, NULL)`, []any{now}},
+	} {
+		if _, err := sqlDB.Exec(statement.query, statement.args...); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	m := New(testConfig())
+	m.collectBusinessMetrics(context.Background(), sqlDB)
+	for _, check := range []struct {
+		name string
+		got  float64
+		want float64
+	}{
+		{"links total", testutil.ToFloat64(m.LinksTotal), 2},
+		{"links created 24h", testutil.ToFloat64(m.LinksCreated24h), 1},
+		{"links clicked 24h", testutil.ToFloat64(m.LinksClicked24h), 1},
+		{"API tokens active", testutil.ToFloat64(m.APITokensActive), 2},
+	} {
+		if check.got != check.want {
+			t.Errorf("%s = %v, want %v", check.name, check.got, check.want)
+		}
+	}
+}
+
+func TestMetricsCacheRecordsHitsAndMisses(t *testing.T) {
+	m := New(testConfig())
+	wrapped := NewMetricsCache(m, cache.NewMemory(), "items")
+	if _, found := wrapped.Get(context.Background(), "missing"); found {
+		t.Fatal("missing cache key was found")
+	}
+	wrapped.Set(context.Background(), "key", "value", time.Minute)
+	if value, found := wrapped.Get(context.Background(), "key"); !found || value != "value" {
+		t.Fatalf("Get = (%v, %v), want (value, true)", value, found)
+	}
+	if got := testutil.ToFloat64(m.CacheHitsTotal.WithLabelValues("items")); got != 1 {
+		t.Errorf("cache hits = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(m.CacheMissesTotal.WithLabelValues("items")); got != 1 {
+		t.Errorf("cache misses = %v, want 1", got)
+	}
+	m.RecordCacheEviction("items")
+	m.SetCacheSize("items", 1, 5)
+	if got := testutil.ToFloat64(m.CacheEvictionsTotal.WithLabelValues("items")); got != 1 {
+		t.Errorf("cache evictions = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(m.CacheSize.WithLabelValues("items")); got != 1 {
+		t.Errorf("cache size = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(m.CacheBytes.WithLabelValues("items")); got != 5 {
+		t.Errorf("cache bytes = %v, want 5", got)
+	}
+}
+
+type testTorMetricsSource struct {
+	enabled, running, circuit bool
+}
+
+func (s testTorMetricsSource) Enabled() bool            { return s.enabled }
+func (s testTorMetricsSource) Running() bool            { return s.running }
+func (s testTorMetricsSource) CircuitEstablished() bool { return s.circuit }
+
+func TestTorMetrics(t *testing.T) {
+	m := New(testConfig())
+	m.UpdateTorMetrics(testTorMetricsSource{enabled: true, running: true, circuit: true})
+	m.RecordTorRequest()
+	if got := testutil.ToFloat64(m.TorEnabled); got != 1 {
+		t.Errorf("tor enabled = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(m.TorRunning); got != 1 {
+		t.Errorf("tor running = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(m.TorCircuitEstablished); got != 1 {
+		t.Errorf("tor circuit = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(m.TorRequestsTotal); got != 1 {
+		t.Errorf("tor requests = %v, want 1", got)
 	}
 }
 

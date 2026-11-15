@@ -1,6 +1,7 @@
 package tor
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/apimgr/shortner/src/config"
+	"github.com/cretz/bine/control"
 )
 
 // Dirs path helpers must derive every location from the three app
@@ -32,6 +34,26 @@ func TestDirsPaths(t *testing.T) {
 		if c.got != c.want {
 			t.Errorf("%s = %q, want %q", c.name, c.got, c.want)
 		}
+	}
+}
+
+func TestCircuitEstablishedReadsTorControlValue(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		values []*control.KeyVal
+		err    error
+		want   bool
+	}{
+		{name: "established", values: control.KeyVals("status/circuit-established", "1"), want: true},
+		{name: "not established", values: control.KeyVals("status/circuit-established", "0"), want: false},
+		{name: "missing value", values: control.KeyVals("version", "0.4"), want: false},
+		{name: "control error", err: errors.New("control disconnected"), want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := circuitEstablished(tc.values, tc.err); got != tc.want {
+				t.Errorf("circuitEstablished() = %t, want %t", got, tc.want)
+			}
+		})
 	}
 }
 

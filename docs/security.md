@@ -19,7 +19,8 @@ acknowledgments.
 
 Security reports are **sealed with AES-256-GCM before being written** to
 the database, under the key in `server.security.encryption_key`. Report
-bodies are never stored in plaintext.
+bodies are never stored in plaintext. The configured project PGP key is
+used to encrypt the maintainer email; PGP-at-rest storage is not yet wired.
 
 Submitting a report returns a tracking ID and triggers two notifications —
 one to the maintainer and one acknowledging the researcher. Those emails
@@ -28,12 +29,13 @@ unavailable or the send fails, the submission still succeeds and the
 tracking ID is still issued.
 
 !!! note
-    A status page for looking up a report by tracking ID
-    (`/server/security/report/{tracking_id}`) is not implemented. The
-    maintainer notification currently carries an inline AES-armored body
-    rather than a PGP MIME attachment, and there is no CLI for generating
-    or rotating the PGP keypair — `/.well-known/pgp-key.asc` serves a key
-    if one has been placed on disk and returns `404` otherwise.
+    Researchers can view report state at
+    `/server/security/report/{tracking_id}` using the one-shot status token
+    in their acknowledgment email. The page exposes no report body.
+    The maintainer notification currently carries an inline AES-armored
+    body rather than a PGP MIME attachment. PGP key management is available
+    through `shortner --maintenance pgp`; the public key endpoint returns
+    `404` until a key has been generated or imported.
 
 ## The Public Endpoint Safety Principle
 
@@ -57,16 +59,17 @@ There are three roles and no user accounts.
 | Role | Holds | Can do |
 |------|-------|--------|
 | Anonymous | nothing | Create links, resolve links, view any link's stats |
-| Resource owner | that link's `owner_token` | Update or delete **that one link** |
+| Resource owner | the owner's primary or linked token | Manage links belonging to that owner; primary tokens manage linked tokens too |
 | Operator | `server.token` from `server.yml` | Anything, on any link; access metrics |
 
-The `owner_token` is returned exactly once, in the create response. There
-is no account it belongs to and therefore no recovery path — losing it
-means the link can no longer be edited or deleted by anyone but the
-operator.
+The primary `owner_token` is returned when an anonymous owner is created.
+The owner can restore it on another browser and reveal it on the token
+management page. Each owner's links reference the owner identity, so token
+rotation does not change resource ownership.
 
-Tokens are stored as **SHA-256 hashes**. The raw value never reaches the
-database or a log line. Comparisons are constant-time.
+Tokens are looked up by **SHA-256 hash** and an encrypted copy supports the
+explicit reveal action. Raw values never appear in logs or token-list
+responses. The operator token comparison is constant-time.
 
 Configuration and backup passwords use **Argon2id**, not bcrypt. The two
 uses are deliberately different: SHA-256 for high-entropy random tokens
@@ -269,14 +272,14 @@ otherwise.
 
 State these plainly rather than assuming they are covered:
 
-- **Tor hidden service and I2P eepsite support.** Neither is built. The
-  health endpoint reports both as disabled with `provider: none`, and the
-  `tor_health` and `i2p_health` scheduler tasks skip with a logged reason.
 - **IP and domain blocklist feeds** (`blocklist_update`) and **CVE
   database integration** (`cve_update`). Both tasks are registered and
   both skip.
-- **PGP keypair management.** No CLI for generation or rotation.
-- **Security report status lookup** by tracking ID.
+- **Overlay metrics.** Tor and I2P managers are wired, but their metric
+  values are not populated.
+- **Researcher status email.** The status page and operator triage commands
+  are available; email updates remain blocked on the report contact
+  encryption contract documented in `TODO.API.md`.
 
 ## Operational Recommendations
 

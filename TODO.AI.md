@@ -1,28 +1,17 @@
 # TODO.AI.md
 
-AI-owned task list for `shortner`. PART 0-6 bootstrap (directory layout,
-project files, build system, dependencies, config, metadata) is complete.
-Everything below is deferred work, in dependency order.
+Implementation status and remaining work for `shortner`, checked against
+the read-only `AI.md` source of truth. `DONE` entries record completed work;
+open items are either implementable requirements or explicit AI.md contract
+gaps recorded in `/root/Projects/github/apimgr/TODO.API.md`. PART 0-6
+bootstrap is complete.
 
 ## Foundation follow-ups (small, do first)
 
-- `src/paths/` directory name is plural; project convention (global
-  CLAUDE.md, Go section) requires singular directory names (`path/`) to
-  match package naming. Flagged by go-lint during the PART 14-15 review.
-  Renaming requires updating every import site across the tree — deferred
-  as a standalone mechanical rename rather than folded into an unrelated
-  feature commit.
-  Read: global CLAUDE.md "Directory naming is language-specific"
 - Windows admin-token detection in `src/paths/paths_windows.go` is a
   minimal probe (`\\.\PHYSICALDRIVE0` open test) — verify against real
   Windows UAC behavior and harden if needed.
   Read: AI.md PART 4
-- `go.sum`/LICENSE.md third-party attribution section is currently a
-  placeholder — now that `modernc.org/sqlite` and `golang.org/x/crypto`
-  are real dependencies (added for PART 10/11), populate the attribution
-  section with their licenses; still pending an HTTP router if one is
-  added later.
-  Read: AI.md PART 2, 10
 
 ## PART 7: Binary requirements — DONE
 
@@ -112,13 +101,6 @@ Already done, verified rather than reimplemented:
   `src/httpserver/links.go`'s `isBotUserAgent` delegates to it.
 
 Still open under PART 9-11:
-- GPG keypair management (`--maintenance pgp generate|rotate|publish|
-  export|import|delete`) is not implemented: it needs an OpenPGP
-  implementation (not in `go.mod`) and the keyserver publish flow. Today
-  `/.well-known/pgp-key.asc` serves `{config_dir}/security/pgp.pub.asc`
-  when an operator places one there and 404s otherwise, and security.txt
-  emits `Encryption:` only when that file exists.
-  Read: AI.md PART 11 "GPG Keypair Management"
 - DONE: Security-report notification emails (Submission Flow steps 4 and
   5 — maintainer notification and researcher acknowledgment) are sent by
   `src/httpserver/securityreport.go` now that PART 17 exists. AI.md calls
@@ -126,21 +108,24 @@ Still open under PART 9-11:
   affects the submission: the tracking id is still issued and shown
   server-side. The maintainer copy carries the report body as inline
   AES-256-GCM armor rather than a PGP MIME attachment — see the PART 17
-  deferred sub-items below and the GPG keypair item above.
+  deferred sub-items below.
   Read: AI.md PART 11 "Submission Flow", PART 17
-- `/server/security/report/{tracking_id}` researcher status page (one-shot
-  token, triage state machine, maintainer comments) is not implemented —
-  triage state has no writer until the maintainer notification path above
-  exists.
-  Read: AI.md PART 11 "Public Pages"
+- Operator `--maintenance security list|show|update` is implemented,
+  including forward-only status updates and content-free audit events.
+  Researcher contact status notifications remain blocked by the
+  `contact_enc` storage-contract issue recorded in the parent
+  `TODO.API.md`.
+- Security-report database storage still uses AES-256-GCM even when a
+  project PGP key exists; AI.md requires PGP-at-rest in that case. Status
+  email also needs the missing, separately encrypted `contact_enc` field
+  before the server can recover the researcher's address without opening
+  the sealed report body.
 - `src/db` only supports `modernc.org/sqlite`; libsql/Turso remote-DB
   support depends on the full `server.yml` database schema.
   Read: AI.md PART 10, PART 12
-- `src/applog.Logger.Rotate()` is a manual, callable rotation only — the
-  scheduled daily/weekly/size-based rotation and `keep:` retention
-  policies (AI.md PART 11 "Log Rotation" / "Audit Log Retention") need
-  the scheduler PART 18 defines.
-  Read: AI.md PART 11 "Rotation Options"/"Retention Options", PART 18
+- PART 18 scheduler and rotation are implemented, but the configured
+  `server.logs.*` policy schema and integration for all log types (including
+  the separate audit logger) still need to be completed.
 - Apply the Tier 1/2/3 Public Endpoint Safety Principle to every new
   endpoint as it's built.
   Read: AI.md PART 11
@@ -163,13 +148,21 @@ Still open under PART 9-11:
 ## PART 14: API structure — DONE
 
 - Core API routes landed in `src/httpserver/links.go`: `POST
-  /api/{api_version}/links` (create, auto or custom slug, returns a
-  one-time `owner_token`), `GET/PATCH/DELETE
+  /api/{api_version}/links` (create, auto or custom slug, creates or
+  reuses a persistent anonymous owner and returns `owner_token` only for
+  a newly created owner), `GET/PATCH/DELETE
   /api/{api_version}/links/{slug}` (owner/operator-token-gated
   update/delete), `GET /api/{api_version}/links/{slug}/stats`
   (click-analytics sub-resource), plus the public vanity routes `GET
   /{slug}` (redirect, bot-UA-filtered click recording, 410 Gone when
   expired) and `GET /{slug}/stats`.
+- Owner-token model migrated from per-resource tokens to persistent
+  owner/primary/linked tokens in `src/db/`, with legacy database migration,
+  encrypted token recovery, owner-scoped link authorization, the
+  `/server/preferences/tokens` management page, and primary-only API
+  mirrors. Expired linked tokens remain visible and unusable. The AI.md
+  PART 8/PART 18 cleanup contradiction and missing strict-throttle config
+  contract are recorded in the parent `TODO.API.md`.
 - `Access-Control-Allow-Origin: *` (`corsAPIMiddleware`) now covers the
   entire `/api` route group in `src/httpserver/server.go`, closing a gap
   where the pre-existing health routes were not CORS-enabled.
@@ -226,7 +219,7 @@ Still open under PART 9-11:
 ## PART 16: Web frontend — DONE (core)
 
 - Server-rendered pages implemented: home (`/`, create-link form + POST +
-  success state, reuses PART 14's `db.CreateLink*`/`CreateResourceToken`
+  success state, reuses PART 14's owner-scoped `db.CreateLink*` operations
   rather than duplicating), `/server/{about,privacy,contact,help,terms}`,
   `/server` -> 301 -> `/server/about`, `/server/healthz` (HTML variant,
   falls back to JSON/text via `detectClientType`), `/{slug}/stats` (HTML
@@ -241,8 +234,13 @@ Still open under PART 9-11:
 
 ## PART 16 (continued): deferred sub-items
 
-- Full PWA support (manifest.json, service worker, offline.html) — not
-  implemented this pass; only the create-link page itself was required.
+- PWA core is implemented: `/manifest.json`, `/sw.js` with a build-stamped
+  cache, `/offline.html`, stamped static-asset caching, install/update
+  prompts, offline status, required icon sizes including the iOS 180px icon,
+  and configured splash images. Background Sync and geolocation remain
+  unimplemented because AI.md gives generic behavior without a Shortner
+  action, data, or privacy contract; that gap is recorded in the parent
+  `TODO.API.md`.
   Read: AI.md PART 16 "PWA"
 - `sitemap.xml` — implemented (`src/httpserver/sitemap.go`,
   `GET/HEAD /sitemap.xml`): static public pages plus each unexpired public
@@ -251,27 +249,21 @@ Still open under PART 9-11:
   `/sitemap.xml` as an index with numbered sitemap pages. Expired resources,
   management routes, and API endpoints are excluded. Sitemap generation is
   covered by `src/httpserver/sitemap_test.go`.
-- Remote branding/SEO image fetching + site-verification meta tags — not
-  implemented; `head.tmpl` has no dynamic OG/Twitter image logic beyond
-  static config fields already present.
+- Dynamic SEO metadata and site-verification meta tags are implemented in
+  `head.tmpl`. Remote branding/SEO image fetching and resizing remain
+  unimplemented; remote URLs are restricted to HTTPS, and overlay requests
+  suppress external images.
 - `/favicon.ico` — implemented: embedded default icon set generated from
   the Dracula theme palette (`src/server/static/favicon.ico` multi-res
   ICO plus `icons/favicon-{16,32,48}.png`, `icons/apple-touch-icon.png`,
-  `icons/icon-{192,512}.png`), served by `faviconHandler` in
-  `src/httpserver/sitemap.go`, `head.tmpl` updated with the icon
-  `<link>` tags. `server.branding.favicon` (local path or remote URL
-  override) is accepted by config but not yet wired to this handler —
-  the embedded default always serves regardless; remote-fetch/scaling
-  remains a separate deferred item (see the "Remote branding/SEO image
-  fetching" bullet above).
-- `Web.Announcements` (site-banner) — the config struct
-  (`config.WebAnnouncements`/`config.Announcement`) exists and
-  `.site-banner`/`.site-banner-info`/`.site-banner-warning` CSS classes are
-  ready, but no template renders `cfg.Web.Announcements.Items` yet and no
-  handler passes announcement data to `PageData`. Needs wiring: add an
-  `Announcements []config.Announcement` (or similar) field to `PageData`,
-  populate it in `newPageData`, and add a banner partial to
-  `layout/public.tmpl`.
+  `icons/icon-{180,192,512}.png`), served by `faviconHandler` in
+  `src/httpserver/sitemap.go`, with icon `<link>` tags in `head.tmpl`.
+  Configured local branding images are served through `/branding/favicon`
+  and `/branding/logo`; remote HTTPS URLs are used directly where safe.
+  Remote fetch/resize remains deferred (see above).
+- `Web.Announcements` is rendered from `web.announcements.messages` via
+  `PageData` and the public layout partial; active date windows, dismissal
+  cookies, form submission, and configuration validation are implemented.
 - DONE: GeoIP location data on `/{slug}/stats` — `page/stats.tmpl` renders
   "unknown" gracefully when empty, and now gets real values: PART 19's
   `src/geoip` lookup populates `ClickInfo.Country`/`.Region` at click time.
@@ -281,9 +273,12 @@ Still open under PART 9-11:
   (falling back to `.admin.email`) through the PART 17 notifier. The
   relay is best-effort by design: with no working SMTP the message is
   simply not relayed, per PART 17's no-queue rule.
-- `/server/docs/swagger`, `/server/docs/graphql` — confirmed still out of
-  scope per the AI.md `/server` routes table (PART 16); no Swagger/GraphQL
-  doc UI exists.
+- `/server/docs/swagger` and `/server/docs/graphql`, their versioned and
+  unversioned API endpoints, and local documentation assets now exist.
+  Remaining sync work: complete the API route inventory and GraphQL read
+  coverage, generate and embed specs at build time, and complete the
+  interactive UI behavior required by PART 14. The specs must stay synced
+  with implemented handlers.
 - DONE: Home page (`/`) body LAYOUT diffed against the prior Node.js app
   (`github.com/casjaydns/csj.lol`, reference assets formerly at
   `reference/csjlol/`) — `page/home.tmpl` (centered logo, h1 site name,
@@ -297,17 +292,9 @@ Still open under PART 9-11:
   `theme-light` CSS variables throughout, per IDEA.md).
 ## PART 17-22: Features
 
-- Scheduler review item: `src/scheduler/scheduler.go` wraps
-  `github.com/go-co-op/gocron/v2`, an in-process Go library compiled
-  into the binary (not an external cron daemon or systemd timer) — this
-  satisfies the letter of "no external cron", but a go-lint pass flagged
-  it as a forbidden third-party cron dependency. Re-verify against AI.md
-  PART 18 whether an in-process library is acceptable or whether PART 18
-  requires a hand-rolled scheduler with zero cron-shaped dependencies,
-  and act accordingly. Found during the PART 23-24 lint pass; logged
-  here rather than fixed inline since it is unrelated to PART 23-24 and
-  PART 18 is already committed.
-  Read: AI.md PART 18
+- The PART 18 scheduler now uses its internal scheduler loop and cron
+  parser; the obsolete `gocron` dependency and the earlier review item have
+  been removed.
 - DONE: Email & notifications (`src/notify/`, `src/notifications.go`,
   `src/email_cli.go`). `src/notify/template.go` parses AI.md PART 17's
   `Subject: ...` / `---` / body wire format and does `{variable}`
@@ -341,33 +328,34 @@ Still open under PART 9-11:
     renewal. It gets wired when PART 15's deferred
     autocert-to-spec-layout bridging lands.
     Read: AI.md PART 15, PART 17 "ssl_renewed"
-  - The PART 11 maintainer notification carries the report body as
-    inline AES-256-GCM armor rather than a real PGP MIME attachment —
-    OpenPGP is still absent from `go.mod` (see the PART 9-11 GPG keypair
-    item). The email remains "the CC path, never the primary channel".
+  - The PART 11 maintainer notification falls back to inline
+    AES-256-GCM armor when no project PGP public key exists; with a key it
+    sends an OpenPGP-encrypted report. The mailer does not emit a MIME
+    attachment because the spec's current mailer only supports text bodies.
     Read: AI.md PART 11 "Submission Flow", PART 17
-  - Web-UI toast notifications (`server.notifications.webui.*`) are
-    configured and validated but not yet rendered by any template; only
-    the email channel is delivered.
+  - The toast component now supports stacking, typed feedback, dismiss
+    controls, hover-paused timers, keyboard dismissal, localization, and
+    configured position/duration. Remaining PART 16 work is the
+    no-JavaScript flash-message fallback and wiring feedback to every
+    visitor action; current JavaScript invocation is limited to clipboard
+    feedback.
     Read: AI.md PART 17 "Notification Systems"
   Read: AI.md PART 17
 - DONE: Internal scheduler (`src/scheduler/`, `src/db/scheduler.go`,
   `src/scheduler_cli.go`, wired into `src/main.go` startup/shutdown).
-  All 12 AI.md PART 18 "Built-in Tasks (Required)" are registered with
+  All 13 AI.md PART 18 "Built-in Tasks (Required)" are registered with
   their default schedules (config-overridable per task via
-  `server.scheduler.tasks`); 5 have real implementations
-  (`token_cleanup`, `log_rotation`, `healthcheck_self`, `ssl_renewal`,
-  `geoip_update`, plus `update_check` from PART 22 and
-  `backup_daily`/`backup_hourly` from PART 21); the remaining 4
-  (`blocklist_update`, `cve_update`, `tor_health`, `i2p_health`) are
-  honest no-op "skipped" stand-ins until their underlying subsystem lands
-  (PART 9/11, PART 9, PART 31.1, PART 31.2 respectively) — each is wired
-  up to real work as its subsystem's own TODO item below is implemented,
-  not here.
-  `--scheduler list/show/run/enable/disable/history` CLI dispatch
-  implemented in `src/scheduler_cli.go`; startup catch-up window and
-  graceful shutdown (drain running tasks, no forced timeout kill yet —
-  AI.md's 30s force-release is not implemented, tracked separately)
+  `server.scheduler.tasks`); token cleanup (idle-owner purge is active;
+  expired linked-token removal is withheld because PART 8 requires those
+  tokens to remain listed), log rotation, self health, SSL renewal,
+  `geoip_update`, `disk_check`, overlay health, plus `update_check` from
+  PART 22 and `backup_daily`/`backup_hourly` from PART 21). Only
+  `blocklist_update` and `cve_update` remain honest no-op skips because
+  their feed formats and validation contracts are unspecified in AI.md and
+  are recorded in the parent `TODO.API.md`.
+  `--scheduler list/show/run/enable/disable/history` CLI dispatch,
+  startup catch-up, panic recovery, overlap prevention, persisted next-run,
+  and graceful shutdown with the spec's 30-second forced release are
   implemented in `src/scheduler/scheduler.go`.
   Read: AI.md PART 18
 - DONE: GeoIP integration (`src/geoip/geoip.go`) — `Manager` wraps up to 4
@@ -393,7 +381,8 @@ Still open under PART 9-11:
   `geoManager.Close()` registered as a shutdown hook). CC BY 4.0
   attribution (DB-IP HTML link + NRO text notice) added to
   `page/about.tmpl` (reachable from every screen via nav) and
-  `LICENSE.md`'s Third-Party Licenses section.
+  `LICENSE.md`'s Third-Party Licenses section, including the manually
+  classified modernc.org/mathutil BSD-3-Clause license.
   Allowlist bypass of country-blocking is now wired (2026-08-20): PART
   11's `AllowlistLookup` backs `allowlistMiddleware`, which marks the
   request context, and `geoIPMiddleware` short-circuits on
@@ -410,13 +399,9 @@ Still open under PART 9-11:
   `src/httpserver/server.go`, `src/httpserver/middleware.go` (HTTP/rate-
   limit/auth metrics), `src/scheduler/scheduler.go` (task metrics).
   Deferred sub-items (each an open gap, not silently dropped):
-  - Business metrics (`LinksTotal`, `LinksCreated24h`, `LinksClicked24h`,
-    `APITokensActive`) are declared but never populated — needs either a
-    periodic query against `src/db` or hooks in the link-create/click/
-    token code paths.
   - Cache metrics (`Cache*`) are declared but inert — `src/cache` is not
     wired into any request path yet.
-  - Tor/I2P metrics deferred to PART 31.
+  - I2P overlay metrics are still not populated.
   Read: AI.md PART 20
 - Backup & restore — DONE. `src/backup/` (`crypt.go` AES-256-GCM sealed
   under an Argon2id-derived key reusing `src/security`'s existing
@@ -434,8 +419,6 @@ Still open under PART 9-11:
   `server.compliance.enabled`, warn-don't-error validation with the
   spec's exact message/threshold shapes).
   Deferred sub-items (each an open gap, not silently dropped):
-  - `--maintenance backup list` / `delete` subcommands — PART 21 shows
-    them but the flag parser only passes a single positional arg.
   - Backup metadata table in `server.db` (PART 21 "What Is in server.db"
     lists "Backup metadata"); history currently lives only in the audit
     log and the filenames on disk.
@@ -443,17 +426,19 @@ Still open under PART 9-11:
     at the restore prompt.
   - Restore does not yet stop/restart the running server or take a
     pre-restore safety snapshot.
-  - `src/metrics/metrics.go` fails `gofmt -l` (pre-existing, from the
-    PART 20 commit, unrelated to this work) — needs a `gofmt -w` pass.
   Read: AI.md PART 21
-- `--maintenance mode`, `setup` actions (persist app mode, reset config to
-  defaults) — flag surface done in `src/maintenance.go`, actions still
-  "not yet available".
-  Read: AI.md PART 11, 12
-- `--maintenance pgp`, `secret`, `token` actions (PGP key management,
-  stored-secret management, operator token management) — flag surface
-  done in `src/maintenance.go`, actions still "not yet available".
-  Read: AI.md PART 11, 21
+- DONE: `--maintenance mode`, `setup`, and `secret rotate` actions — mode
+  persistence and config precedence, first-run/root setup authorization,
+  token-authorized sensitive operations, PGP private-key re-sealing,
+  old-secret grace storage, and eager re-encryption of stored AES data.
+  Exact grace-key retirement/failure-atomicity contracts are recorded in
+  `/root/Projects/github/apimgr/TODO.API.md` for the API template owner.
+  Read: AI.md PART 11, 12, 21
+- `--maintenance data` and `compliance` operations remain undefined for
+  this product because AI.md does not define their target, format, scope,
+  confirmation, retention, or report contract; the AI.md issue is recorded
+  in the parent `TODO.API.md`.
+  Read: AI.md PART 21
 - DONE: `--update` self-update command (`src/updater/`, `src/update.go`,
   `src/scheduler/update.go`, `--maintenance update` alias in
   `src/maintenance.go`, `server.update.*` in `src/config/`). Implements
@@ -617,8 +602,9 @@ The remaining items below are environment limits, not unbuilt work.
   `src/service.go` + `src/update.go` + `src/email_cli.go` +
   `src/backup_cli.go` + `src/scheduler_cli.go`) rather than from the
   spec's placeholder skeletons, and every TODO.AI.md-deferred item is
-  described as deferred rather than shipped — no Swagger/GraphQL, no
-  DNS-01, no PWA, no hot reload,
+  described as deferred rather than shipped — Swagger/GraphQL are present
+  with route/schema sync still in progress, no DNS-01, PWA core complete
+  with Background Sync/geolocation awaiting a product contract, no hot reload,
   no cache in the request path, unpopulated business metrics, no
   `ssl_renewed` trigger, no backup `list`/`delete`. `mkdocs build
   --strict` verified clean inside `python:alpine` (built in 2.25s, zero
@@ -660,20 +646,12 @@ The remaining items below are environment limits, not unbuilt work.
   to `errors.*` keys. Translating the rest needs a language-carrying
   error type, which PART 30 does not specify.
   Read: AI.md PART 30
-- PART 30 deferred sub-item: email templates are deliberately NOT part of
-  the i18n catalog. PART 17 gives `src/server/template/email/` its own
-  `Subject:`/`---` wire format with `{variable}` substitution and a
-  custom-override directory, and that system is already shipped;
-  multi-language email would need a per-language override directory
-  (`{config_dir}/template/email/{lang}/`) that PART 17 does not define.
-  Read: AI.md PART 30, PART 17
-- PART 30 sub-items with no strings to translate yet, because the feature
-  itself is deferred: PWA install/offline strings (no PWA), Swagger and
-  GraphQL doc-page strings (neither exists), announcements-banner and
-  Web-UI toast strings (rendered nowhere yet), and multi-user
-  roles/moderation/registration strings (this project has no user
-  accounts). No keys were fabricated for any of them; add the keys when
-  the feature lands.
+- PART 30 deferred sub-items: email templates, Swagger/GraphQL documentation
+  pages, and Web UI toast strings are not fully localized. PWA install/update
+  strings have locale keys; offline-sync
+  strings await the Background Sync product contract. No strings are needed
+  for multi-user roles/moderation/registration because this project has no
+  user accounts.
   Read: AI.md PART 30, PART 16
 
 ## PART 31: Overlay networks (Tor & I2P)
@@ -825,28 +803,19 @@ banner row.
   Verified in Docker: `gofmt`, `go build ./...`, `go vet`, and an
   8-platform cross-compile of `./src/client` all pass.
   Read: AI.md PART 32
-- PART 32 deferred sub-item: the native GUI. AI.md forbids Electron and a
-  TUI-in-a-window wrapper, and every real Go GUI toolkit needs cgo, which
-  the project's `CGO_ENABLED=0` rule forbids for the shipped binaries.
-  The GUI therefore stays behind a future `gui` build tag; `setup.Run`
-  and `runInteractive` both fall back to the feature-identical TUI, which
-  is what a headless/SSH session gets anyway.
+- PART 32 native GUI now uses the required pure-Go `gogpu/ui` toolkit behind
+  the `gui` build tag on Linux, macOS, and Windows. BSD remains TUI-only as
+  specified. Current GUI flow supports setup, link creation, and public link
+  listing, with text-field validation, accessible labels/hints, focus traversal,
+  and error dialogs. It still does not provide the CLI's full API command set
+  or native screen-reader adapters. AI.md requires full server functionality
+  without defining the GUI feature inventory or interaction contract, and the
+  selected toolkit does not yet provide native OS accessibility adapters; see
+  the parent `TODO.API.md`. Expand the GUI after the feature contract and
+  toolkit adapter availability are resolved rather than treating the current
+  dashboard as complete.
   Read: AI.md PART 32 "GUI Mode Requirements"
-- PART 32 deferred sub-item: the server side of CLI auto-update does not
-  exist yet. The client implements the full flow, but no handler serves
-  `/api/autodiscover` with a `cli_versions`/`cli_min_version` document and
-  nothing serves `{base}/cli/binaries/{project}-cli-{os}-{arch}` or its
-  checksum. The client degrades gracefully (404 is cached as "no update
-  service" and never blocks a command); the endpoints still need building
-  on the server, together with PART 32's `cli.update_started`,
-  `cli.update_completed`, `cli.update_checksum_invalid`,
-  `cli.update_forced`, and `cli.token_revoked_detected` audit events.
-  Read: AI.md PART 32 "CLI Auto-Update"
-
-## Repo-level (calling session, not this bootstrap)
-
-- `git init` and initial commit — intentionally left to the calling
-  session; this bootstrap pass did not run any git command.
-- shortner: rename plural Go dirs src/metrics and src/paths to singular
-- shortner: Makefile VERSION fallback should be 0.1.0 instead of devel
-- shortner: src/cmd/i18n-validate sits outside the single ./src build target (layout note)
+- PART 32 server auto-update discovery and colocated binary routes are
+  implemented. Audit event reporting still needs the transport and payload
+  contract defined in the parent `TODO.API.md`; do not claim client events
+  are recorded server-side until then.

@@ -19,6 +19,15 @@ import (
 
 const namePrefix = "shortner_"
 
+// TorMetricsSource reports the three Tor states defined by AI.md PART 20.
+// CircuitEstablished must come from Tor's circuit/bootstrap state, not a
+// process-running or control-port health check.
+type TorMetricsSource interface {
+	Enabled() bool
+	Running() bool
+	CircuitEstablished() bool
+}
+
 // vecs holds every metric variable, built by New so tests can construct an
 // isolated registry instead of colliding on prometheus's global
 // DefaultRegisterer across parallel test packages.
@@ -79,6 +88,11 @@ type Metrics struct {
 	LinksCreated24h prometheus.Gauge
 	LinksClicked24h prometheus.Gauge
 	APITokensActive prometheus.Gauge
+
+	TorEnabled            prometheus.Gauge
+	TorRunning            prometheus.Gauge
+	TorCircuitEstablished prometheus.Gauge
+	TorRequestsTotal      prometheus.Counter
 
 	startTime time.Time
 }
@@ -156,6 +170,11 @@ func New(cfg config.Metrics) *Metrics {
 		LinksCreated24h: f.NewGauge(prometheus.GaugeOpts{Name: namePrefix + "links_created_24h", Help: "Links created in the last 24 hours"}),
 		LinksClicked24h: f.NewGauge(prometheus.GaugeOpts{Name: namePrefix + "links_clicked_24h", Help: "Links clicked in the last 24 hours"}),
 		APITokensActive: f.NewGauge(prometheus.GaugeOpts{Name: namePrefix + "api_tokens_active", Help: "Active (non-expired, non-revoked) API/resource tokens"}),
+
+		TorEnabled:            f.NewGauge(prometheus.GaugeOpts{Name: namePrefix + "tor_enabled", Help: "1 if Tor is enabled, 0 otherwise"}),
+		TorRunning:            f.NewGauge(prometheus.GaugeOpts{Name: namePrefix + "tor_running", Help: "1 if the Tor process is running, 0 otherwise"}),
+		TorCircuitEstablished: f.NewGauge(prometheus.GaugeOpts{Name: namePrefix + "tor_circuit_established", Help: "1 if a Tor circuit is established, 0 otherwise"}),
+		TorRequestsTotal:      f.NewCounter(prometheus.CounterOpts{Name: namePrefix + "tor_requests_total", Help: "Total requests via the Tor hidden service"}),
 	}
 	return m
 }
@@ -165,6 +184,39 @@ func New(cfg config.Metrics) *Metrics {
 func (m *Metrics) InitAppInfo(version, commit, buildDate string) {
 	m.AppInfo.WithLabelValues(version, commit, buildDate, runtime.Version()).Set(1)
 	m.AppStartTimestamp.Set(float64(m.startTime.Unix()))
+}
+
+// UpdateTorMetrics refreshes the PART 20 Tor state gauges from the Tor
+// manager. A nil source represents Tor being unavailable and sets all
+// states to zero.
+func (m *Metrics) UpdateTorMetrics(source TorMetricsSource) {
+	if m == nil {
+		return
+	}
+	if source == nil {
+		m.TorEnabled.Set(0)
+		m.TorRunning.Set(0)
+		m.TorCircuitEstablished.Set(0)
+		return
+	}
+	m.TorEnabled.Set(boolMetric(source.Enabled()))
+	m.TorRunning.Set(boolMetric(source.Running()))
+	m.TorCircuitEstablished.Set(boolMetric(source.CircuitEstablished()))
+}
+
+// RecordTorRequest increments the PART 20 hidden-service request counter.
+// The HTTP layer calls it only after classifying a request as Tor traffic.
+func (m *Metrics) RecordTorRequest() {
+	if m != nil {
+		m.TorRequestsTotal.Inc()
+	}
+}
+
+func boolMetric(value bool) float64 {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 // StartUptimeUpdater runs a 1-second-ticker goroutine updating

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -67,6 +69,32 @@ func TestFaviconHandler(t *testing.T) {
 	}
 	if rec.Body.Len() == 0 {
 		t.Error("favicon body is empty")
+	}
+}
+
+func TestBrandingAssetHandlerServesConfiguredImageAndRejectsTraversal(t *testing.T) {
+	configDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(configDir, "branding"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	imagePath := filepath.Join(configDir, "branding", "logo.png")
+	if err := os.WriteFile(imagePath, []byte("png-data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default("")
+	cfg.Server.Branding.Logo = "branding/logo.png"
+	sd := &sitemapDeps{cfg: cfg, configDir: configDir}
+	rec := httptest.NewRecorder()
+	sd.brandingAssetHandler("logo")(rec, httptest.NewRequest(http.MethodGet, "/branding/logo", nil))
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" || rec.Body.String() != "png-data" {
+		t.Fatalf("branding image status/type/body = %d/%q/%q", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+	}
+
+	cfg.Server.Branding.Logo = "../outside.png"
+	rec = httptest.NewRecorder()
+	sd.brandingAssetHandler("logo")(rec, httptest.NewRequest(http.MethodGet, "/branding/logo", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("traversal asset status = %d, want 404", rec.Code)
 	}
 }
 

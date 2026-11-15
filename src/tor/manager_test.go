@@ -21,6 +21,9 @@ func TestManagerNilReceiver(t *testing.T) {
 	if m.Healthy() {
 		t.Error("Healthy() on nil Manager should be false")
 	}
+	if m.CircuitEstablished() {
+		t.Error("CircuitEstablished() on nil Manager should be false")
+	}
 	if got := m.OnionAddress(); got != "" {
 		t.Errorf("OnionAddress() on nil Manager = %q, want empty", got)
 	}
@@ -73,6 +76,9 @@ func TestManagerStartMissingBinary(t *testing.T) {
 	}
 	if m.Healthy() {
 		t.Error("Healthy() should be false with no running service")
+	}
+	if m.CircuitEstablished() {
+		t.Error("CircuitEstablished() should be false with no running service")
 	}
 }
 

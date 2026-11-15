@@ -23,11 +23,12 @@ import (
 // it is never logged and never appears anywhere but the security.txt
 // Contact line, per AI.md PART 11 "Cryptographic Keys".
 type wellKnownDeps struct {
-	cfg           *config.Config
-	resolver      *ProxyResolver
-	dataDir       string
-	configDir     string
-	installSecret string
+	cfg                   *config.Config
+	resolver              *ProxyResolver
+	dataDir               string
+	configDir             string
+	installSecret         string
+	previousInstallSecret string
 }
 
 // wellKnownAllowlist is the complete set of allowlisted `/.well-known`
@@ -329,7 +330,7 @@ func (wd *wellKnownDeps) llmsTxt(r *http.Request) string {
 	apiBase := wd.resolver.BuildURL(r, "/api/"+cfg.Server.APIVersion)
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "# %s\n", defaultString(cfg.Server.Branding.SiteName, "shortner"))
+	fmt.Fprintf(&b, "# %s\n", firstNonEmpty(cfg.Server.Branding.Title, cfg.Server.Branding.SiteName, "shortner"))
 	if desc := strings.TrimSpace(cfg.Server.SEO.Description); desc != "" {
 		fmt.Fprintf(&b, "> %s\n", desc)
 	}

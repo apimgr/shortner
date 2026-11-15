@@ -35,6 +35,19 @@ func ReportToken(installationSecret, trackingID string) string {
 // ValidReportToken reports whether token authorizes trackingID. The
 // comparison is constant-time.
 func ValidReportToken(installationSecret, trackingID, token string) bool {
+	return validReportTokenBase(installationSecret, trackingID, token)
+}
+
+// ValidReportTokenWithPrevious accepts links created before key rotation
+// while the previous installation secret remains within its grace period.
+func ValidReportTokenWithPrevious(installationSecret, previousSecret, trackingID, token string) bool {
+	if validReportTokenBase(installationSecret, trackingID, token) {
+		return true
+	}
+	return previousSecret != "" && validReportTokenBase(previousSecret, trackingID, token)
+}
+
+func validReportTokenBase(installationSecret, trackingID, token string) bool {
 	expected := ReportToken(installationSecret, trackingID)
 	if expected == "" || len(token) != reportTokenLength {
 		return false

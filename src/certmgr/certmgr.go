@@ -146,11 +146,48 @@ func SaveAppManagedCertificate(configDir, fqdn string, certPEM, keyPEM []byte) e
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("certmgr: create %s: %w", dir, err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "fullchain.pem"), certPEM, 0o644); err != nil {
-		return fmt.Errorf("certmgr: write fullchain.pem: %w", err)
+	certTemp, err := writeAtomicTemp(dir, "fullchain.pem", certPEM, 0o644)
+	if err != nil {
+		return fmt.Errorf("certmgr: stage fullchain.pem: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "privkey.pem"), keyPEM, 0o600); err != nil {
-		return fmt.Errorf("certmgr: write privkey.pem: %w", err)
+	defer os.Remove(certTemp)
+	keyTemp, err := writeAtomicTemp(dir, "privkey.pem", keyPEM, 0o600)
+	if err != nil {
+		return fmt.Errorf("certmgr: stage privkey.pem: %w", err)
+	}
+	defer os.Remove(keyTemp)
+	if err := os.Rename(certTemp, filepath.Join(dir, "fullchain.pem")); err != nil {
+		return fmt.Errorf("certmgr: replace fullchain.pem: %w", err)
+	}
+	if err := os.Rename(keyTemp, filepath.Join(dir, "privkey.pem")); err != nil {
+		return fmt.Errorf("certmgr: replace privkey.pem: %w", err)
 	}
 	return nil
+}
+
+func writeAtomicTemp(dir, name string, data []byte, mode os.FileMode) (string, error) {
+	file, err := os.CreateTemp(dir, "."+name+"-*")
+	if err != nil {
+		return "", err
+	}
+	path := file.Name()
+	cleanup := func(cause error) (string, error) {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return "", cause
+	}
+	if err := file.Chmod(mode); err != nil {
+		return cleanup(err)
+	}
+	if _, err := file.Write(data); err != nil {
+		return cleanup(err)
+	}
+	if err := file.Sync(); err != nil {
+		return cleanup(err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+	return path, nil
 }

@@ -21,7 +21,6 @@ import (
 	"github.com/apimgr/shortner/src/geoip"
 	"github.com/apimgr/shortner/src/metrics"
 	"github.com/apimgr/shortner/src/notify"
-	"github.com/apimgr/shortner/src/server"
 )
 
 // Server wraps the chi router and the underlying *http.Server.
@@ -74,7 +73,8 @@ type Options struct {
 	// the rotating {security_id} in security.txt (AI.md PART 11). It is a
 	// Tier 1 value: never logged, never rendered anywhere but as the HMAC
 	// input.
-	InstallSecret string
+	InstallSecret         string
+	PreviousInstallSecret string
 	// Notifier delivers the AI.md PART 17 email events raised from the
 	// HTTP layer: the PART 11 security-report maintainer notification and
 	// researcher acknowledgment, and the PART 16 contact-form relay. Nil
@@ -101,6 +101,7 @@ func New(opts Options) *Server {
 	allowlist := NewAllowlistLookup(cfg.Server.Security.Allowlist)
 	blocks := NewBlockStore(cfg.Server.Security.BlockedIPs, opts.AuditLog)
 	d := &deps{
+		sqlDB:       opts.DB,
 		resolver:    resolver,
 		rateLimiter: NewRateLimiter(cfg.Server.RateLimit),
 		stats:       stats,
@@ -147,48 +148,90 @@ func New(opts Options) *Server {
 		r.Get("/healthz", hd.healthHandler())
 	}
 
-	ld := &linkDeps{sqlDB: opts.DB, resolver: resolver, log: opts.AccessLog, geo: opts.GeoIP}
+	ld := &linkDeps{sqlDB: opts.DB, resolver: resolver, cfg: cfg, log: opts.AccessLog, geo: opts.GeoIP}
+	if tokenKey, err := config.DecodeEncryptionKey(cfg); err == nil {
+		ld.tokenKey = tokenKey
+	}
 
 	rd := newReportDeps(cfg, resolver, opts.AuditLog)
+	fd := &frontendDeps{
+		cfg:                   cfg,
+		version:               opts.Version,
+		commitID:              opts.CommitID,
+		buildDate:             opts.BuildDate,
+		ld:                    ld,
+		resolver:              resolver,
+		installSecret:         opts.InstallSecret,
+		previousInstallSecret: opts.PreviousInstallSecret,
+		audit:                 opts.AuditLog,
+		configDir:             opts.ConfigDir,
+		notifier:              opts.Notifier,
+	}
 
 	r.Route("/api", func(api chi.Router) {
 		api.Use(corsAPIMiddleware)
+		api.Use(apiResponseFormatMiddleware)
 		api.Get("/healthz", hd.healthHandler())
+		registerCLIUpdateRoutes(api, cfg, opts.Version)
+		api.Method(http.MethodGet, "/swagger", openAPIHandler(fd))
+		api.Method(http.MethodPost, "/graphql", graphQLHandler(ld))
 		api.Route("/{api_version}", func(v chi.Router) {
 			v.Get("/server/healthz", hd.healthHandler())
+			v.Method(http.MethodGet, "/server/swagger", openAPIHandler(fd))
+			v.Method(http.MethodPost, "/server/graphql", graphQLHandler(ld))
+			v.Get("/server/preferences", fd.preferenceAPISnapshotHandler)
+			v.Get("/server/auth/check", authCheckHandler)
+			v.Post("/server/preferences", fd.preferenceAPISaveHandler)
+			v.Get("/server/preferences/export", fd.preferenceExportHandler)
+			v.Get("/server/preferences/import", fd.preferenceImportHandler)
+			v.Get("/server/preferences/tokens", fd.tokenAPISnapshotHandler)
+			v.Post("/server/preferences/tokens", fd.tokenAPICreateHandler)
+			v.Post("/server/preferences/tokens/primary/reveal", fd.tokenAPIActionHandler)
+			v.Post("/server/preferences/tokens/primary/rotate", fd.tokenAPIActionHandler)
+			v.Post("/server/preferences/tokens/{id}/reveal", fd.tokenAPIActionHandler)
+			v.Post("/server/preferences/tokens/{id}/rotate", fd.tokenAPIActionHandler)
+			v.Patch("/server/preferences/tokens/{id}", fd.tokenAPIActionHandler)
+			v.Delete("/server/preferences/tokens/{id}", fd.tokenAPIActionHandler)
+			v.Get("/server/security/policy", fd.securityPolicyAPIHandler)
+			v.Get("/server/dpo", fd.dpoAPIHandler)
 			RegisterVersionedMetricsRoutes(v, cfg.Server.Metrics, opts.Metrics, opts.AccessLog)
 			rd.registerReportRoutes(v)
 			ld.registerLinkAPIRoutes(v)
 		})
 	})
+	registerCLIBinaryRoute(r, cfg)
 	RegisterMetricsRoutes(r, cfg.Server.Metrics, opts.Metrics, opts.AccessLog)
 
 	wk := &wellKnownDeps{
-		cfg:           cfg,
-		resolver:      resolver,
-		dataDir:       opts.DataDir,
-		configDir:     opts.ConfigDir,
-		installSecret: opts.InstallSecret,
+		cfg:                   cfg,
+		resolver:              resolver,
+		dataDir:               opts.DataDir,
+		configDir:             opts.ConfigDir,
+		installSecret:         opts.InstallSecret,
+		previousInstallSecret: opts.PreviousInstallSecret,
 	}
 	wk.registerWellKnownRoutes(r)
 
-	(&sitemapDeps{cfg: cfg, resolver: resolver, startTime: opts.StartTime, sqlDB: opts.DB}).registerSitemapRoutes(r)
+	(&sitemapDeps{cfg: cfg, resolver: resolver, startTime: opts.StartTime, sqlDB: opts.DB, configDir: opts.ConfigDir}).registerSitemapRoutes(r)
+	registerPWARoutes(r, opts.Version, opts.CommitID)
 
-	fd := &frontendDeps{
-		cfg:           cfg,
-		version:       opts.Version,
-		commitID:      opts.CommitID,
-		buildDate:     opts.BuildDate,
-		ld:            ld,
-		resolver:      resolver,
-		installSecret: opts.InstallSecret,
-		audit:         opts.AuditLog,
-		configDir:     opts.ConfigDir,
-		notifier:      opts.Notifier,
-	}
 	fd.registerFrontendRoutes(r, hd, ld)
+	r.Get("/server/preferences", fd.preferencesHandler)
+	r.Post("/server/preferences", fd.preferencesHandler)
+	r.Get("/server/preferences/export", fd.preferenceExportHandler)
+	r.Get("/server/preferences/import", fd.preferenceImportHandler)
+	r.Get("/server/preferences/tokens", fd.tokenPageHandler)
+	r.Post("/server/preferences/token/restore", fd.tokenRestoreHandler)
+	r.Post("/server/preferences/token/reveal", fd.tokenPrimaryRevealHandler)
+	r.Post("/server/preferences/token/rotate", fd.tokenPrimaryRotateHandler)
+	r.Post("/server/preferences/token/forget", fd.tokenForgetHandler)
+	r.Post("/server/preferences/tokens", fd.tokenCreateHandler)
+	r.Post("/server/preferences/tokens/{id}/reveal", fd.tokenLinkedRevealHandler)
+	r.Post("/server/preferences/tokens/{id}/rotate", fd.tokenLinkedRotateHandler)
+	r.Post("/server/preferences/tokens/{id}/update", fd.tokenLinkedUpdateHandler)
+	r.Post("/server/preferences/tokens/{id}/revoke", fd.tokenLinkedRevokeHandler)
 
-	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(mustSubFS(server.StaticFS, "static")))))
+	r.Handle("/static/*", staticAssetHandler(assetStamp(opts.Version, opts.CommitID)))
 
 	// AI.md PART 30: the WebUI's JavaScript reads the same embedded locale
 	// files the server renders from, so a dynamic string never disagrees
@@ -220,7 +263,7 @@ func New(opts Options) *Server {
 		resolver:  resolver,
 		httpServer: &http.Server{
 			Addr:         addr,
-			Handler:      limitedHandler,
+			Handler:      buildStampMiddleware(assetStamp(opts.Version, opts.CommitID), limitedHandler),
 			ReadTimeout:  readTimeout,
 			WriteTimeout: writeTimeout,
 			IdleTimeout:  idleTimeout,
