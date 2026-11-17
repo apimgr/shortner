@@ -163,9 +163,9 @@ Still open under PART 9-11:
   mirrors. Expired linked tokens remain visible and unusable. The AI.md
   PART 8/PART 18 cleanup contradiction and missing strict-throttle config
   contract are recorded in the parent `TODO.API.md`.
-- `Access-Control-Allow-Origin: *` (`corsAPIMiddleware`) now covers the
-  entire `/api` route group in `src/httpserver/server.go`, closing a gap
-  where the pre-existing health routes were not CORS-enabled.
+- API routes now use the shared configured CORS middleware, including
+  health routes. Explicit origins, credentials, and wildcard behavior follow
+  the PART 16 CORS rules; route handlers no longer override those headers.
 - GeoIP-based location fields on `StatsResponse.Recent` (`Country`/`Region`)
   are now populated at click time by the PART 19 `src/geoip` lookup — see
   the PART 19 entry below.
@@ -192,29 +192,26 @@ Still open under PART 9-11:
     TLS-ALPN-01 via autocert exist today; no DNS-01 challenge, so wildcard
     certs are not obtainable yet.
     Read: AI.md PART 15 "DNS-01 Provider Configuration"
-  - `credentials_encrypted` (AES-256-GCM at rest for DNS provider
-    credentials) — `src/config.TLS.DNSCredentials` is plaintext YAML for
-    now; this codebase has no AES-256-GCM/secret-encryption primitive yet
-    (`src/security` has Argon2id + SHA-256 only). Needs a new
-    `src/security/encrypt.go` (or similar) before DNS-01 can be built.
-    Read: AI.md PART 15 "Provider Credential Storage"
-  - Autocert-issued certificates are cached in autocert's own opaque
-    `DirCache` format (`{config_dir}/ssl/letsencrypt/autocert-cache/`), not
-    bridged into the certbot-mirroring `{fullchain,privkey}.pem` layout in
-    `AppManagedDir` — `SaveAppManagedCertificate` exists but nothing calls
-    it yet after a fresh autocert issuance.
+  - DNS-01 provider support and the `credentials_encrypted` representation
+    remain unimplemented. The source spec names example fields and links
+    the full lego provider list, but does not define the stored encrypted
+    credential shape, startup/request validation contract, or credential
+    rotation behavior. These AI.md gaps are recorded in the parent
+    `TODO.API.md`; existing `src/security` sealing primitives can be reused.
+    Read: AI.md PART 15 "DNS-01 Provider Configuration" and "Provider
+    Credential Storage"
+  - Autocert-issued certificates are now mirrored into the app-managed
+    `{fullchain,privkey}.pem` layout from `GetCertificate`. The autocert
+    cache remains the source of account state.
     Read: AI.md PART 15 "Certificate Directory Structure"
-  - Daily-03:00-aligned proactive renewal loop — no PART 18 scheduler
-    exists yet to hang this off of; `certmgr.NeedsRenewal` is ready to be
-    called by it once PART 18 lands.
-    Read: AI.md PART 18
-  - Dual HTTP+HTTPS simultaneous-port serving and the full responsive
-    startup-banner integration (showing both `http://` and `https://` URLs,
-    overlay `.onion`/`.i2p` addresses) is not wired — `main.go` currently
-    serves either HTTP or HTTPS on one port, never both.
-    Read: AI.md PART 15 "Port Configuration", PART 8 "Startup Banner"
-  - Tor/I2P overlay network TLS handling (PART 31) not addressed here.
-    Read: AI.md PART 31
+  - The scheduled `ssl_renewal` task currently warns when a certificate is
+    within seven days of expiry; it does not proactively invoke ACME
+    re-issuance or emit `ssl_renewed` after a successful renewal.
+    Read: AI.md PART 15 and PART 18
+  - Dual HTTP+HTTPS listeners, HTTP-01 challenge routing on the HTTP
+    listener, automatic TLS when port 443 is selected, and separate startup
+    URLs are implemented. Validation remains pending for this increment.
+    Read: AI.md PART 8 "Port Configuration", PART 15
 
 ## PART 16: Web frontend — DONE (core)
 
@@ -744,11 +741,6 @@ banner row.
   context (5xx at Error, 4xx at Warn); `apperr` needs a logger dependency
   to do it.
   Read: AI.md PART 9 "Error Logging"
-- `src/httpserver/server.go:90` — `corsAPIMiddleware` forces
-  `Access-Control-Allow-Origin: *` even when the configured CORS
-  middleware set `Access-Control-Allow-Credentials: true`; browsers reject
-  that pair, so credentialed CORS silently breaks. Needs a policy decision
-  on which wins.
   Read: AI.md PART 12, PART 14
 - `statsHandler` is unauthenticated and exposes anonymized IPs and
   referrers — needs an explicit Tier 2/Tier 3 classification decision
@@ -796,17 +788,15 @@ banner row.
   Verified in Docker: `gofmt`, `go build ./...`, `go vet`, and an
   8-platform cross-compile of `./src/client` all pass.
   Read: AI.md PART 32
-- PART 32 native GUI now uses the required pure-Go `gogpu/ui` toolkit behind
-  the `gui` build tag on Linux, macOS, and Windows. BSD remains TUI-only as
-  specified. Current GUI flow supports setup, link creation, and public link
-  listing, with text-field validation, accessible labels/hints, focus traversal,
-  and error dialogs. It still does not provide the CLI's full API command set
-  or native screen-reader adapters. AI.md requires full server functionality
-  without defining the GUI feature inventory or interaction contract, and the
-  selected toolkit does not yet provide native OS accessibility adapters; see
-  the parent `TODO.API.md`. Expand the GUI after the feature contract and
-  toolkit adapter availability are resolved rather than treating the current
-  dashboard as complete.
+- PART 32 native GUI uses the required pure-Go `gogpu/ui` toolkit behind
+  the `gui` build tag on Linux, macOS, and Windows; BSD remains TUI-only.
+  The interactive dashboard supports setup, link create/list/get/update/
+  delete, click statistics, and server health, with validation, accessible
+  labels/hints, and error dialogs. Full GUI parity with CLI configuration
+  and update controls, responsive layout requirements, and native OS screen
+  reader adapters remain outstanding. The GUI feature mapping is recorded
+  in the parent `TODO.API.md`; the toolkit currently lacks native
+  accessibility adapters.
   Read: AI.md PART 32 "GUI Mode Requirements"
 - PART 32 server auto-update discovery and colocated binary routes are
   implemented. Audit event reporting still needs the transport and payload

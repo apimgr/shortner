@@ -106,6 +106,12 @@ server:
   api_version: "v1"
 ```
 
+`server.port` accepts one port or an HTTP,HTTPS pair such as `"80,443"`.
+In dual-port mode the first listener serves HTTP (including ACME HTTP-01
+challenges) and the second serves HTTPS; the startup banner prints both
+URLs. A single port of `443` enables TLS automatically. With a single
+non-443 port, set `server.tls.enabled: true` to serve HTTPS on that port.
+
 `api_version` must not contain `/`, `?`, or `#`; an invalid value falls
 back to `v1`. It determines the API path prefix, `/api/v1` by default.
 
