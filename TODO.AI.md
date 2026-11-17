@@ -418,14 +418,11 @@ Still open under PART 9-11:
   `src/config/config.go`/`limits.go` (`server.backup.*`,
   `server.compliance.enabled`, warn-don't-error validation with the
   spec's exact message/threshold shapes).
-  Deferred sub-items (each an open gap, not silently dropped):
-  - Backup metadata table in `server.db` (PART 21 "What Is in server.db"
-    lists "Backup metadata"); history currently lives only in the audit
-    log and the filenames on disk.
-  - `backup.encryption.hint` is parsed and persisted but never surfaced
-    at the restore prompt.
-  - Restore does not yet stop/restart the running server or take a
-    pre-restore safety snapshot.
+  Backup history metadata is stored in `server.db` with the archive SHA-256;
+  encrypted restore prompts display `backup.encryption.hint`. A running
+  service-managed server is stopped before restore and started afterward.
+  Standalone processes without a detected service manager are not stopped
+  by this command.
   Read: AI.md PART 21
 - DONE: `--maintenance mode`, `setup`, and `secret rotate` actions — mode
   persistence and config precedence, first-run/root setup authorization,
@@ -703,10 +700,6 @@ banner row.
   The SAM path is tested against a fake in-process SAMv3 server
   (`src/i2p` is at 73.5%).
   Read: AI.md PART 31.2
-- DEFERRED: overlay metrics (`tor_*`/`i2p_*` gauges under PART 20) are
-  still unpopulated — PART 20 logged them as waiting on PART 31, and the
-  managers now expose the state the collectors need.
-  Read: AI.md PART 20, PART 31
 
 ## Spec-revision follow-ups (2026-08-14 / 2026-08-16 AI.md updates)
 

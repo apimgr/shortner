@@ -200,10 +200,11 @@ Restore authorization depends on who is running it:
 | Anyone else | Denied |
 
 !!! note
-    Restore does not currently stop and restart a running server, and does
-    not snapshot the existing state first. Stop the service before
-    restoring. Backup deletion requires operator authorization and typed
-    confirmation. The encryption hint is not shown at the restore prompt.
+    A running service-managed server is stopped before restore and started
+    afterward. A standalone server without a detected service manager is
+    not stopped automatically; stop it before restoring. The configured
+    encryption hint is shown before the password prompt. Backup deletion
+    requires operator authorization and typed confirmation.
 
 ## PGP Key Management
 
@@ -395,10 +396,11 @@ without UTF-8 get an ASCII symbol set automatically.
 !!! note "Optional native GUI"
     Native GUI support is built with `-tags gui` on Linux, macOS, and
     Windows using the pure-Go `gogpu/ui` toolkit. BSD builds use the TUI.
-    The GUI currently supports setup, link creation, and public link
-    listing. Other client commands remain available through the CLI/TUI;
-    GUI parity and its keyboard/accessibility contract remain open in
-    `TODO.AI.md` pending clarification of AI.md's requirements.
+    The GUI supports setup, link creation, public link listing, lookup,
+    update, deletion, click statistics, and server health. Other client
+    configuration and update controls remain available through the CLI/TUI;
+    full GUI parity and native screen-reader support remain open in
+    `TODO.AI.md`.
 
 The server publishes `/api/autodiscover` and serves colocated client
 binaries from `/cli/binaries/{project}-cli-{os}-{arch}`. The discovery
