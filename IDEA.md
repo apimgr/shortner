@@ -1,11 +1,12 @@
 ## Project description
 
-A self-hosted URL shortening service with an API, server-rendered web interface,
-and companion client with CLI/TUI and optional native GUI. Anyone can shorten a
-URL anonymously (rate-limited); created links belong to a persistent anonymous
-owner whose primary token can be restored and managed. Owners may create linked
-tokens for integrations. Every link has a full click-analytics page, with
-anonymized IPs, so link owners can see traffic without exposing visitor identity.
+A self-hosted URL shortening service with REST, OpenAPI, and read-only GraphQL
+interfaces, a server-rendered web interface, and companion CLI/TUI with optional
+native GUI. Anyone can shorten a URL anonymously (rate-limited); created links
+belong to a persistent anonymous owner whose primary token can be restored and
+managed. Owners may create linked tokens for integrations. Every link has a full
+click-analytics page, with anonymized IPs, so link owners can see traffic without
+exposing visitor identity.
 
 ## Project variables
 

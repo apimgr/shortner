@@ -4,10 +4,14 @@ package graphql
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/graphql-go/graphql"
+	"github.com/graphql-go/graphql/language/ast"
+	"github.com/graphql-go/graphql/language/parser"
+	"github.com/graphql-go/graphql/language/visitor"
 )
 
 // Link is the read-only public link representation exposed by GraphQL.
@@ -55,6 +59,7 @@ type Resolver interface {
 	Link(slug string) (*Link, error)
 	Links(limit, offset int) ([]Link, error)
 	LinkStats(slug string) (*LinkStats, error)
+	APIRead(path string) (any, error)
 }
 
 // ResolverFactory binds request-scoped context and origin data to operations.
@@ -71,6 +76,8 @@ type request struct {
 	Variables     map[string]any `json:"variables"`
 	OperationName string         `json:"operationName"`
 }
+
+const maxQueryFields = 100
 
 // Handler accepts standard GraphQL JSON POST requests and returns GraphQL's
 // data/errors response shape. Mutations are rejected by the query-only schema.
@@ -99,8 +106,33 @@ func Handler(resolve ResolverFactory) http.Handler {
 			http.Error(w, "invalid GraphQL request", http.StatusBadRequest)
 			return
 		}
+		if exceedsQueryComplexity(req.Query) {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"errors": []map[string]string{{"message": fmt.Sprintf("GraphQL query exceeds the %d-field complexity limit", maxQueryFields)}}})
+			return
+		}
 		result := graphql.Do(graphql.Params{Schema: schema, RequestString: req.Query, VariableValues: req.Variables, OperationName: req.OperationName, Context: contextWithResolver(r, resolve(r))})
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(result)
 	})
+}
+
+func exceedsQueryComplexity(query string) bool {
+	document, err := parser.Parse(parser.ParseParams{Source: query})
+	if err != nil {
+		return false
+	}
+	count := 0
+	visitor.Visit(document, &visitor.VisitorOptions{Enter: func(p visitor.VisitFuncParams) (string, any) {
+		switch p.Node.(type) {
+		case *ast.Field, *ast.FragmentSpread:
+			count++
+			if count > maxQueryFields {
+				return visitor.ActionBreak, nil
+			}
+		}
+		return visitor.ActionNoChange, nil
+	}}, nil)
+	return count > maxQueryFields
 }

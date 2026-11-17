@@ -1,6 +1,13 @@
 package graphql
 
-import "github.com/graphql-go/graphql"
+import (
+	"fmt"
+	"net/url"
+	"strings"
+
+	"github.com/apimgr/shortner/src/swagger"
+	"github.com/graphql-go/graphql"
+)
 
 // The executable schema is built directly from the Go API types and
 // resolver contract so field names and types cannot drift from implementation.
@@ -47,9 +54,15 @@ var clickInfoType = graphql.NewObject(graphql.ObjectConfig{Name: "ClickInfo", Fi
 	"region":    &graphql.Field{Type: graphql.String},
 }})
 
+var apiReadType = graphql.NewScalar(graphql.ScalarConfig{
+	Name:        "JSON",
+	Description: "A JSON value returned by a documented read-only REST endpoint.",
+	Serialize:   func(value any) any { return value },
+})
+
 // Schema is generated from the same public Link fields used by the resolver.
 func Schema() (graphql.Schema, error) {
-	query := graphql.NewObject(graphql.ObjectConfig{Name: "Query", Description: "Read-only queries corresponding to public link and analytics reads.", Fields: graphql.Fields{
+	fields := graphql.Fields{
 		"link": &graphql.Field{Type: linkType, Description: "Read one link by its short code.", Args: graphql.FieldConfigArgument{"slug": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)}}, Resolve: func(p graphql.ResolveParams) (any, error) {
 			return p.Context.Value(resolverKey{}).(Resolver).Link(p.Args["slug"].(string))
 		}},
@@ -59,6 +72,50 @@ func Schema() (graphql.Schema, error) {
 		"linkStats": &graphql.Field{Type: linkStatsType, Description: "Read click statistics for a link.", Args: graphql.FieldConfigArgument{"slug": &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)}}, Resolve: func(p graphql.ResolveParams) (any, error) {
 			return p.Context.Value(resolverKey{}).(Resolver).LinkStats(p.Args["slug"].(string))
 		}},
-	}})
+	}
+	for _, route := range swagger.RouteAnnotations() {
+		if route.Method != "get" || route.OperationID == "importPreferences" || strings.HasPrefix(route.Path, "/cli/") {
+			continue
+		}
+		route := route
+		args := graphql.FieldConfigArgument{}
+		for _, name := range routePathArguments(route.Path) {
+			args[name] = &graphql.ArgumentConfig{Type: graphql.NewNonNull(graphql.String)}
+		}
+		fields[route.OperationID] = &graphql.Field{
+			Type:        apiReadType,
+			Description: "Read-only REST operation: " + strings.ToUpper(route.Method) + " " + route.Path,
+			Args:        args,
+			Resolve: func(p graphql.ResolveParams) (any, error) {
+				path, err := routePath(route.Path, p.Args)
+				if err != nil {
+					return nil, err
+				}
+				return p.Context.Value(resolverKey{}).(Resolver).APIRead(path)
+			},
+		}
+	}
+	query := graphql.NewObject(graphql.ObjectConfig{Name: "Query", Description: "Read-only queries for documented REST reads. REST writes remain available only through REST.", Fields: fields})
 	return graphql.NewSchema(graphql.SchemaConfig{Query: query})
+}
+
+func routePathArguments(path string) []string {
+	var names []string
+	for _, part := range strings.Split(path, "/") {
+		if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
+			names = append(names, strings.TrimSuffix(strings.TrimPrefix(part, "{"), "}"))
+		}
+	}
+	return names
+}
+
+func routePath(path string, args map[string]any) (string, error) {
+	for _, name := range routePathArguments(path) {
+		value, ok := args[name].(string)
+		if !ok || strings.TrimSpace(value) == "" || strings.ContainsAny(value, "/?#") {
+			return "", fmt.Errorf("invalid GraphQL REST path argument %q", name)
+		}
+		path = strings.ReplaceAll(path, "{"+name+"}", url.PathEscape(value))
+	}
+	return path, nil
 }

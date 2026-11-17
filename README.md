@@ -25,7 +25,9 @@ https://shortner.example.com
 - Bot-exclusion for click analytics
 - Server-side rendered web UI — works fully without JavaScript
 - HTTPS service worker with cached static assets and an offline fallback
-- REST API for link creation, listing, management, analytics, and health; several Web UI pages still lack their specified API mirrors
+- REST API for link creation, listing, management, analytics, and health,
+  with OpenAPI and read-only GraphQL; several Web UI pages still lack their
+  specified API mirrors
 - Local GeoIP enrichment for click analytics and country-based controls
 - Tor v3 hidden service when a Tor binary is available; optional I2P eepsite
 - Single static server binary; overlay networking uses optional system runtimes

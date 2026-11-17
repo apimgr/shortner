@@ -182,11 +182,11 @@ func New(opts Options) *Server {
 		api.Get("/healthz", hd.healthHandler())
 		registerCLIUpdateRoutes(api, cfg, opts.Version)
 		api.Method(http.MethodGet, "/swagger", openAPIHandler(fd))
-		api.Method(http.MethodPost, "/graphql", graphQLHandler(ld))
+		api.Method(http.MethodPost, "/graphql", graphQLHandler(ld, r))
 		api.Route("/{api_version}", func(v chi.Router) {
 			v.Get("/server/healthz", hd.healthHandler())
 			v.Method(http.MethodGet, "/server/swagger", openAPIHandler(fd))
-			v.Method(http.MethodPost, "/server/graphql", graphQLHandler(ld))
+			v.Method(http.MethodPost, "/server/graphql", graphQLHandler(ld, r))
 			v.Get("/server/preferences", fd.preferenceAPISnapshotHandler)
 			v.Get("/server/auth/check", authCheckHandler)
 			v.Post("/server/preferences", fd.preferenceAPISaveHandler)

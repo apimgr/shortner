@@ -2,6 +2,7 @@ package graphql
 
 import (
 	"database/sql"
+	"errors"
 	"net/http"
 	"sort"
 	"time"
@@ -14,6 +15,14 @@ type LinkResolver struct {
 	DB       *sql.DB
 	Request  *http.Request
 	BuildURL func(*http.Request, string) string
+	ReadAPI  func(string) (any, error)
+}
+
+func (r LinkResolver) APIRead(path string) (any, error) {
+	if r.ReadAPI == nil {
+		return nil, errors.New("GraphQL REST read resolver is unavailable")
+	}
+	return r.ReadAPI(path)
 }
 
 func (r LinkResolver) Link(slug string) (*Link, error) {

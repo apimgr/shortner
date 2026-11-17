@@ -278,10 +278,12 @@ Still open under PART 9-11:
   simply not relayed, per PART 17's no-queue rule.
 - `/server/docs/swagger` and `/server/docs/graphql`, their versioned and
   unversioned API endpoints, and local documentation assets now exist.
-  Remaining sync work: complete the API route inventory and GraphQL read
-  coverage, generate and embed specs at build time, and complete the
-  interactive UI behavior required by PART 14. The specs must stay synced
-  with implemented handlers.
+  GraphQL query fields are generated for each annotated read-only REST
+  route, and internal dispatch rejects undocumented paths and GET routes
+  with side effects. Remaining sync work: complete the API route inventory
+  and concrete OpenAPI request/response schemas, generate and embed specs
+  at build time, and complete the interactive UI behavior required by PART
+  14. The specs must stay synced with implemented handlers.
 - DONE: Home page (`/`) body LAYOUT diffed against the prior Node.js app
   (`github.com/casjaydns/csj.lol`, reference assets formerly at
   `reference/csjlol/`) — `page/home.tmpl` (centered logo, h1 site name,

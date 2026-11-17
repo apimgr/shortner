@@ -17,9 +17,20 @@ GraphQL endpoint accepts POST requests at `/api/{api_version}/server/graphql`
 (also `/api/graphql`).
 
 GraphQL exposes `link(slug: String!)`, paginated `links(limit, offset)`, and
-`linkStats(slug: String!)` queries. It is query-only; use REST for create,
-update, and delete operations. Its remaining route and schema coverage is
-tracked in the project backlog.
+`linkStats(slug: String!)`, plus query fields for the documented read-only
+REST operations. REST-backed fields use the operation ID from the OpenAPI
+spec and return the REST response as a JSON value. For example:
+
+```graphql
+{
+  getHealth(api_version: "v1")
+}
+```
+
+The schema has no mutation fields. The preference-import GET route is
+excluded because it changes cookies. GraphQL requests are limited to 100
+field and fragment-spread nodes; use REST for create, update, and delete
+operations.
 
 ## Authentication
 

@@ -1,5 +1,7 @@
 package swagger
 
+import "strings"
+
 // Route is an API operation annotation consumed by the OpenAPI generator.
 type Route struct {
 	Path, Method, Summary, OperationID string
@@ -63,4 +65,38 @@ func RouteAnnotations() []Route {
 		{Path: "/api/{api_version}/links/{slug}", Method: "delete", Summary: "Delete a link", OperationID: "deleteLink", Auth: true},
 		{Path: "/api/{api_version}/links/{slug}/stats", Method: "get", Summary: "Get link statistics", OperationID: "getLinkStats"},
 	}
+}
+
+// IsReadPath reports whether path is a documented GET endpoint that is safe
+// to expose through the query-only GraphQL API. The preferences import route
+// is deliberately excluded because its GET handler writes preference cookies.
+func IsReadPath(path string) bool {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	for _, route := range RouteAnnotations() {
+		if route.Method != "get" || route.OperationID == "importPreferences" || strings.HasPrefix(route.Path, "/cli/") {
+			continue
+		}
+		routeParts := strings.Split(strings.Trim(route.Path, "/"), "/")
+		if len(parts) != len(routeParts) {
+			continue
+		}
+		matches := true
+		for i, part := range routeParts {
+			if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
+				if parts[i] == "" {
+					matches = false
+					break
+				}
+				continue
+			}
+			if parts[i] != part {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return true
+		}
+	}
+	return false
 }
