@@ -280,10 +280,15 @@ Still open under PART 9-11:
   unversioned API endpoints, and local documentation assets now exist.
   GraphQL query fields are generated for each annotated read-only REST
   route, and internal dispatch rejects undocumented paths and GET routes
-  with side effects. Remaining sync work: complete the API route inventory
-  and concrete OpenAPI request/response schemas, generate and embed specs
-  at build time, and complete the interactive UI behavior required by PART
-  14. The specs must stay synced with implemented handlers.
+  with side effects. OpenAPI now describes concrete link, health, CLI
+  discovery, preferences, token, GraphQL, report, and metrics contracts;
+  create/report success statuses and link pagination parameters match their
+  handlers. The annotations cover the API, CLI binary, report, link, and
+  metrics routes mounted in `src/httpserver/server.go`; request/response
+  schemas for the remaining server operations and richer endpoint examples
+  still need syncing. Also remaining: generate and embed specs at build
+  time, and complete the interactive UI behavior required by PART 14. The
+  specs must stay synced with implemented handlers.
 - DONE: Home page (`/`) body LAYOUT diffed against the prior Node.js app
   (`github.com/casjaydns/csj.lol`, reference assets formerly at
   `reference/csjlol/`) — `page/home.tmpl` (centered logo, h1 site name,

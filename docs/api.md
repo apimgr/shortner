@@ -32,6 +32,26 @@ excluded because it changes cookies. GraphQL requests are limited to 100
 field and fragment-spread nodes; use REST for create, update, and delete
 operations.
 
+## OpenAPI response contracts
+
+The generated OpenAPI document includes concrete request and response
+schemas for link creation, listing, lookup, updates, and statistics; health
+checks; CLI autodiscovery; preferences; token management; and GraphQL
+requests. Link creation returns HTTP `201`; link updates return `200`; and
+security-report intake returns `204`. The list-links operation documents
+its `page` and `limit` query parameters. Metrics responses are documented
+as plain text, and CLI binary downloads as octet streams. Successful
+responses that use the API envelope are described with their operation
+specific `data` shape.
+
+The route annotations cover the API, CLI binary, report, link, and metrics
+routes mounted by the server and are the source used by both the OpenAPI
+generator and the GraphQL read-field generator. Detailed schemas and
+examples for some remaining server operations, build-time spec embedding,
+and the interactive documentation UI are still being expanded. Inspect the
+live generated document for the operations currently available on a
+server.
+
 ## Authentication
 
 Most endpoints need no credentials. Editing or deleting a link requires a
