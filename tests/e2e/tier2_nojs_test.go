@@ -30,7 +30,7 @@ func TestTier2NoJavaScript(t *testing.T) {
 		{"/server/about", []string{"<body", "</html>"}},
 		{"/server/healthz", []string{"<body", "</html>"}},
 		{"/server/docs/swagger", []string{"GET /api/{api_version}/links", `id="openapi-document"`}},
-		{"/server/docs/graphql", []string{"linkStats", `name="variables"`, `name="operationName"`}},
+		{"/server/docs/graphql", []string{"linkStats", `name="variables"`, `name="operationName"`, `id="graphql-schema"`, `"__schema"`}},
 	}
 
 	for _, page := range pages {

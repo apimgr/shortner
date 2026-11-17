@@ -1,10 +1,43 @@
 package swagger
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
+
+func TestEmbeddedDocumentMatchesRouteGenerator(t *testing.T) {
+	generated, err := Document("/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(embeddedDocument, generated) {
+		t.Fatal("embedded OpenAPI document is stale; run go generate ./src/swagger")
+	}
+}
+
+func TestHandlerServesEmbeddedDocumentWithRequestServerURL(t *testing.T) {
+	handler := Handler(func(*http.Request) string { return "https://shortner.example/prefix" })
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/swagger", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", recorder.Code, recorder.Body.String())
+	}
+	var document struct {
+		Servers []struct {
+			URL string `json:"url"`
+		} `json:"servers"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if len(document.Servers) != 1 || document.Servers[0].URL != "https://shortner.example/prefix" {
+		t.Fatalf("servers = %+v, want runtime request URL", document.Servers)
+	}
+}
 
 func TestDocumentIncludesRegisteredAliasesAndContractDetails(t *testing.T) {
 	body, err := Document("https://shortner.example")

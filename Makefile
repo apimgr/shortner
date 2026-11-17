@@ -67,6 +67,7 @@ build: clean
 
 	@$(GO_DOCKER) go mod tidy
 	@$(GO_DOCKER) go mod download
+	@$(GO_DOCKER) go generate ./src/swagger
 
 	@echo "Building local binary..."
 	@$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
@@ -107,6 +108,7 @@ local: clean
 
 	@$(GO_DOCKER) go mod tidy
 	@$(GO_DOCKER) go mod download
+	@$(GO_DOCKER) go generate ./src/swagger
 
 	@echo "Building $(PROJECT_NAME)..."
 	@$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
@@ -196,6 +198,7 @@ test: i18n-validate
 		mkdir -p \"\$${TMPDIR:-/tmp}/$(PROJECT_ORG)\" && \
 		COVDIR=\$$(mktemp -d \"\$${TMPDIR:-/tmp}/$(PROJECT_ORG)/$(PROJECT_NAME)-XXXXXX\") && \
 		go mod download && \
+		go generate ./src/swagger && \
 		go test -v -cover -coverprofile=\$$COVDIR/coverage.out ./... && \
 		COVERAGE=\$$(go tool cover -func=\$$COVDIR/coverage.out | grep total | awk '{print \$$3}' | sed 's/%//') && \
 		echo \"Coverage: \$$COVERAGE%\" && \
@@ -210,6 +213,7 @@ test: i18n-validate
 dev:
 	@mkdir -p $(GO_CACHE) $(GO_BUILD)
 	@$(GO_DOCKER) go mod tidy
+	@$(GO_DOCKER) go generate ./src/swagger
 	@mkdir -p "$${TMPDIR:-/tmp}/$(PROJECT_ORG)" && \
 		BUILD_DIR=$$(mktemp -d "$${TMPDIR:-/tmp}/$(PROJECT_ORG)/$(PROJECT_NAME)-XXXXXX") && \
 		echo "Quick dev build to $$BUILD_DIR..." && \

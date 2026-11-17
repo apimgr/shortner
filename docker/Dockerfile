@@ -22,6 +22,7 @@ RUN go mod download
 
 # Copy source and build
 COPY . .
+RUN go generate ./src/swagger
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} GOFLAGS=-buildvcs=false go build \
     -trimpath \
     -ldflags "-s -w -X 'github.com/apimgr/shortner/src/common/version.Version=${VERSION}' -X 'github.com/apimgr/shortner/src/common/version.CommitID=${COMMIT_ID}' -X 'github.com/apimgr/shortner/src/common/version.BuildEpoch=${BUILD_EPOCH}' -X 'github.com/apimgr/shortner/src/common/version.OfficialSite=${OFFICIAL_SITE}'" \

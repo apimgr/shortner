@@ -2,10 +2,14 @@
 package swagger
 
 import (
+	_ "embed"
 	"encoding/json"
 	"net/http"
 	"strings"
 )
+
+//go:embed openapi.generated.json
+var embeddedDocument []byte
 
 type operation struct {
 	Summary     string                `json:"summary"`
@@ -114,7 +118,11 @@ func Document(serverURL string) ([]byte, error) {
 			},
 		},
 	}
-	return json.Marshal(doc)
+	encoded, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(encoded, '\n'), nil
 }
 
 func responseContract(route Route) (status, contentType, schema string) {
@@ -251,13 +259,19 @@ func operationTag(path string) string {
 // Handler serves the generated JSON specification directly.
 func Handler(serverURL func(*http.Request) string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := Document(serverURL(r))
+		var document map[string]any
+		if err := json.Unmarshal(embeddedDocument, &document); err != nil {
+			http.Error(w, "OpenAPI document unavailable", http.StatusInternalServerError)
+			return
+		}
+		document["servers"] = []any{map[string]string{"url": serverURL(r)}}
+		body, err := json.MarshalIndent(document, "", "  ")
 		if err != nil {
-			http.Error(w, "unable to generate OpenAPI document", http.StatusInternalServerError)
+			http.Error(w, "unable to encode OpenAPI document", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
-		_, _ = w.Write(body)
+		_, _ = w.Write(append(body, '\n'))
 	})
 }

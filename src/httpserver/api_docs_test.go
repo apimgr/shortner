@@ -96,6 +96,7 @@ func TestGraphQLPageListsSchemaFieldsAndFormControls(t *testing.T) {
 		"name=\"operationName\"",
 		"name=\"variables\"",
 		"id=\"graphql-token\"",
+		"id=\"graphql-schema\"",
 		"getAPIHealth",
 		"linkStats",
 		"REST-backed fields return JSON scalar values",

@@ -46,13 +46,18 @@ specific `data` shape.
 
 The route annotations cover the API, CLI binary, report, link, and metrics
 routes mounted by the server and are the source used by both the OpenAPI
-generator and the GraphQL read-field generator. Detailed schemas and
-examples for some remaining server operations and build-time spec embedding
-are still being expanded.
+generator and the GraphQL read-field generator. `go generate ./src/swagger`
+regenerates both documents from the route annotations and executable
+GraphQL schema. The build embeds those generated files; freshness tests fail
+when an embedded document no longer matches its source. The OpenAPI endpoint
+serves the embedded JSON with the request's resolved server URL, and the
+GraphQL page renders the embedded introspection document and query inventory.
+Some server operations still need more detailed response schemas and
+examples.
 Swagger lists every annotated operation and provides browser controls to
 inspect parameters, send requests, and view responses; JavaScript enhances
 the page while the server-rendered inventory and JSON link remain available
-without it. The GraphQL page lists fields from the executable schema and
+without it. The GraphQL page lists fields from the generated schema and
 accepts query, operation name, and JSON variables in either its enhanced
 form or a standard form submission. The enhanced form can send an optional
 API token in the `Authorization` header; tokens are not persisted by the

@@ -1,6 +1,7 @@
 package graphql
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,40 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestEmbeddedSchemaMatchesExecutableSchema(t *testing.T) {
+	generated, err := IntrospectionDocument()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(SchemaDocument(), generated) {
+		t.Fatal("embedded GraphQL schema is stale; run go generate ./src/swagger")
+	}
+}
+
+func TestDocumentQueriesUsesEmbeddedSchema(t *testing.T) {
+	queries, err := DocumentQueries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundHealth := false
+	foundVersionArgument := false
+	for _, query := range queries {
+		if query.Name == "getAPIHealth" {
+			foundHealth = true
+		}
+		if query.Name == "getHealth" {
+			for _, arg := range query.Args {
+				if arg == "api_version: String!" {
+					foundVersionArgument = true
+				}
+			}
+		}
+	}
+	if !foundHealth || !foundVersionArgument {
+		t.Errorf("embedded query inventory missing expected field or argument: %+v", queries)
+	}
+}
 
 type testResolver struct {
 	readPath string

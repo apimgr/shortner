@@ -105,7 +105,7 @@ __build_binaries() {
   bin_dir="$(mktemp -d "${TMPDIR:-/tmp}/$project_org/${project_name}-binaries-XXXXXX")"
 
   local build_cmd
-  build_cmd="GOOS=linux GOARCH=${TEST_GOARCH:-amd64} go build -buildvcs=false -trimpath -ldflags \"$ldflags\" -o $bin_dir/$project_name ./src"
+  build_cmd="go generate ./src/swagger && GOOS=linux GOARCH=${TEST_GOARCH:-amd64} go build -buildvcs=false -trimpath -ldflags \"$ldflags\" -o $bin_dir/$project_name ./src"
   if __has_client_main; then
     build_cmd="$build_cmd && GOOS=linux GOARCH=${TEST_GOARCH:-amd64} go build -buildvcs=false -trimpath -ldflags \"$ldflags\" -o $bin_dir/$project_name-cli ./src/client"
   fi

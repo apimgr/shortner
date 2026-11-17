@@ -20,5 +20,9 @@
 {{range .Queries}}<li><code>{{.Name}}{{if .Args}}({{range $index, $arg := .Args}}{{if $index}}, {{end}}{{$arg}}{{end}}){{end}}</code> — {{.Summary}}</li>
 {{end}}</ul>
 <p>The REST-backed fields return JSON scalar values; the direct link fields support GraphQL field selection.</p>
+<details>
+<summary>View generated GraphQL introspection schema</summary>
+<pre id="graphql-schema" tabindex="0" aria-label="GraphQL schema JSON">{{.GraphQLSchema}}</pre>
+</details>
 <script src="{{asset "/static/js/graphql-docs.js" .Base.AssetStamp}}" defer></script>
 </article>{{end}}
