@@ -7,6 +7,8 @@ type Route struct {
 	Path, Method, Summary, OperationID string
 	Auth                               bool
 	Example                            map[string]any
+	ContentTypes                       []string
+	Examples                           map[string]any
 }
 
 // RouteAnnotations mirrors the versioned API route registrations in
@@ -18,7 +20,7 @@ func RouteAnnotations() []Route {
 		{Path: "/api/autodiscover", Method: "get", Summary: "Discover compatible CLI binaries and minimum version", OperationID: "getCLIAutodiscover"},
 		{Path: "/api/autodiscover", Method: "head", Summary: "Check CLI autodiscovery metadata", OperationID: "headCLIAutodiscover"},
 		{Path: "/api/swagger", Method: "get", Summary: "OpenAPI specification (current-version alias)", OperationID: "getOpenAPIAlias"},
-		{Path: "/api/graphql", Method: "post", Summary: "Execute a read-only GraphQL query (current-version alias)", OperationID: "executeGraphQLAlias"},
+		{Path: "/api/graphql", Method: "post", Summary: "Execute a read-only GraphQL query (current-version alias)", OperationID: "executeGraphQLAlias", Example: map[string]any{"query": "{ links(limit: 10, offset: 0) { shortCode shortURL destinationURL } getAPIHealth }"}},
 		{Path: "/cli/binaries/{name}", Method: "get", Summary: "Download a CLI binary", OperationID: "downloadCLIBinary"},
 		{Path: "/cli/binaries/{name}", Method: "head", Summary: "Check CLI binary metadata", OperationID: "headCLIBinary"},
 		{Path: "/api/{api_version}/server/healthz", Method: "get", Summary: "Health status", OperationID: "getHealth"},
@@ -35,7 +37,7 @@ func RouteAnnotations() []Route {
 		{Path: "/api/{api_version}/server/preferences/tokens/primary/rotate", Method: "post", Summary: "Rotate primary token", OperationID: "rotatePrimaryToken", Auth: true},
 		{Path: "/api/{api_version}/server/preferences/tokens/{id}/reveal", Method: "post", Summary: "Reveal linked token", OperationID: "revealLinkedToken", Auth: true},
 		{Path: "/api/{api_version}/server/preferences/tokens/{id}/rotate", Method: "post", Summary: "Rotate linked token", OperationID: "rotateLinkedToken", Auth: true},
-		{Path: "/api/{api_version}/server/preferences/tokens/{id}", Method: "patch", Summary: "Update API token", OperationID: "updateToken", Auth: true},
+		{Path: "/api/{api_version}/server/preferences/tokens/{id}", Method: "patch", Summary: "Update API token", OperationID: "updateToken", Auth: true, Example: map[string]any{"name": "automation", "expiry": "30d"}},
 		{Path: "/api/{api_version}/server/preferences/tokens/{id}", Method: "delete", Summary: "Revoke API token", OperationID: "revokeToken", Auth: true},
 		{Path: "/api/{api_version}/server/security/policy", Method: "get", Summary: "Get security policy", OperationID: "getSecurityPolicy"},
 		{Path: "/api/{api_version}/server/dpo", Method: "get", Summary: "Get data protection contact", OperationID: "getDPO"},
@@ -55,9 +57,9 @@ func RouteAnnotations() []Route {
 		{Path: "/metrics/prometheus", Method: "get", Summary: "Get Prometheus metrics", OperationID: "getRootPrometheusMetrics"},
 		{Path: "/metrics/grafana", Method: "get", Summary: "Get Grafana metrics", OperationID: "getRootGrafanaMetrics"},
 		{Path: "/metrics/loki", Method: "get", Summary: "Get Loki metrics", OperationID: "getRootLokiMetrics"},
-		{Path: "/api/{api_version}/server/reports/csp", Method: "post", Summary: "Receive CSP reports", OperationID: "reportCSP", Example: map[string]any{"csp-report": map[string]any{"document-uri": "https://example.com/", "violated-directive": "script-src"}}},
-		{Path: "/api/{api_version}/server/reports/nel", Method: "post", Summary: "Receive NEL reports", OperationID: "reportNEL", Example: map[string]any{"type": "network-error", "url": "https://example.com/"}},
-		{Path: "/api/{api_version}/server/reports/default", Method: "post", Summary: "Receive security reports", OperationID: "reportDefault", Example: map[string]any{"type": "csp-violation", "url": "https://example.com/"}},
+		{Path: "/api/{api_version}/server/reports/csp", Method: "post", Summary: "Receive CSP reports", OperationID: "reportCSP", ContentTypes: reportContentTypes(), Examples: map[string]any{"application/csp-report": map[string]any{"csp-report": map[string]any{"document-uri": "https://example.com/", "violated-directive": "script-src"}}, "application/reports+json": []any{map[string]any{"type": "csp-violation", "url": "https://example.com/", "body": map[string]any{"effectiveDirective": "script-src"}}}}},
+		{Path: "/api/{api_version}/server/reports/nel", Method: "post", Summary: "Receive NEL reports", OperationID: "reportNEL", ContentTypes: reportContentTypes(), Examples: map[string]any{"application/reports+json": []any{map[string]any{"type": "network-error", "url": "https://example.com/", "body": map[string]any{"type": "tcp.reset"}}}}},
+		{Path: "/api/{api_version}/server/reports/default", Method: "post", Summary: "Receive security reports", OperationID: "reportDefault", ContentTypes: reportContentTypes(), Examples: map[string]any{"application/reports+json": []any{map[string]any{"type": "csp-violation", "url": "https://example.com/", "body": map[string]any{"effectiveDirective": "script-src"}}}}},
 		{Path: "/api/{api_version}/links", Method: "get", Summary: "List links", OperationID: "listLinks"},
 		{Path: "/api/{api_version}/links", Method: "post", Summary: "Create a link", OperationID: "createLink", Example: map[string]any{"url": "https://example.com/article", "slug": "article"}},
 		{Path: "/api/{api_version}/links/{slug}", Method: "get", Summary: "Get a link", OperationID: "getLink"},
@@ -65,6 +67,10 @@ func RouteAnnotations() []Route {
 		{Path: "/api/{api_version}/links/{slug}", Method: "delete", Summary: "Delete a link", OperationID: "deleteLink", Auth: true},
 		{Path: "/api/{api_version}/links/{slug}/stats", Method: "get", Summary: "Get link statistics", OperationID: "getLinkStats"},
 	}
+}
+
+func reportContentTypes() []string {
+	return []string{"application/csp-report", "application/reports+json"}
 }
 
 // IsReadPath reports whether path is a documented GET endpoint that is safe

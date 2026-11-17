@@ -75,6 +75,41 @@ func TestDocumentIncludesRegisteredAliasesAndContractDetails(t *testing.T) {
 	if _, ok := document.Paths["/api/{api_version}/server/preferences/tokens"]["get"]["security"]; !ok {
 		t.Error("token authorization is not documented")
 	}
+	deleteResponse := document.Paths["/api/{api_version}/links/{slug}"]["delete"]["responses"].(map[string]any)["200"].(map[string]any)
+	deleteSchema := deleteResponse["content"].(map[string]any)["application/json"].(map[string]any)["schema"].(map[string]any)
+	if deleteSchema["$ref"] != "#/components/schemas/DeleteLinkResponse" {
+		t.Errorf("delete response schema = %v", deleteSchema["$ref"])
+	}
+	openAPIResponse := document.Paths["/api/swagger"]["get"]["responses"].(map[string]any)["200"].(map[string]any)
+	openAPISchema := openAPIResponse["content"].(map[string]any)["application/json"].(map[string]any)["schema"].(map[string]any)
+	if openAPISchema["$ref"] != "#/components/schemas/OpenAPIDocument" {
+		t.Errorf("OpenAPI endpoint response schema = %v", openAPISchema["$ref"])
+	}
+	updateToken := document.Paths["/api/{api_version}/server/preferences/tokens/{id}"]["patch"]
+	updateBody := updateToken["requestBody"].(map[string]any)["content"].(map[string]any)["application/json"].(map[string]any)
+	if updateBody["example"] == nil {
+		t.Error("token update request example is missing")
+	}
+	if aliasExample := document.Paths["/api/graphql"]["post"]["requestBody"].(map[string]any)["content"].(map[string]any)["application/json"].(map[string]any)["example"]; aliasExample == nil {
+		t.Error("GraphQL alias request example is missing")
+	}
+	reportContent := document.Paths["/api/{api_version}/server/reports/nel"]["post"]["requestBody"].(map[string]any)["content"].(map[string]any)
+	if _, ok := reportContent["application/reports+json"]; !ok {
+		t.Error("modern reporting media type is missing")
+	}
+	if _, ok := reportContent["application/csp-report"]; !ok {
+		t.Error("legacy reporting media type is missing")
+	}
+	reportSchema := document.Components.Schemas["ReportPayload"].(map[string]any)
+	variants, ok := reportSchema["oneOf"].([]any)
+	if !ok || len(variants) != 2 {
+		t.Errorf("report payload variants = %v, want object and array schemas", reportSchema["oneOf"])
+	} else {
+		modernEntry := variants[1].(map[string]any)["items"].(map[string]any)
+		if nullable := modernEntry["properties"].(map[string]any)["body"].(map[string]any)["nullable"]; nullable != true {
+			t.Errorf("modern report body nullable = %v, want true", nullable)
+		}
+	}
 	if _, ok := document.Components.Schemas["APIError"]; !ok {
 		t.Error("API error schema is not documented")
 	}

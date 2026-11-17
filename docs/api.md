@@ -42,7 +42,9 @@ security-report intake returns `204`. The list-links operation documents
 its `page` and `limit` query parameters. Metrics responses are documented
 as plain text, and CLI binary downloads as octet streams. Successful
 responses that use the API envelope are described with their operation
-specific `data` shape.
+specific `data` shape. Report endpoints document both legacy
+`application/csp-report` and modern `application/reports+json` payloads,
+including their object and array forms.
 
 The route annotations cover the API, CLI binary, report, link, and metrics
 routes mounted by the server and are the source used by both the OpenAPI
@@ -52,8 +54,8 @@ GraphQL schema. The build embeds those generated files; freshness tests fail
 when an embedded document no longer matches its source. The OpenAPI endpoint
 serves the embedded JSON with the request's resolved server URL, and the
 GraphQL page renders the embedded introspection document and query inventory.
-Some server operations still need more detailed response schemas and
-examples.
+Some flexible payloads and failure responses remain generic, and several
+operations can use more useful response examples.
 Swagger lists every annotated operation and provides browser controls to
 inspect parameters, send requests, and view responses; JavaScript enhances
 the page while the server-rendered inventory and JSON link remain available

@@ -30,7 +30,7 @@ func Document(serverURL string) ([]byte, error) {
 		status, contentType, schema := responseContract(route)
 		responses := map[string]any{status: successResponse(contentType, schema), "400": errorResponse, "401": errorResponse, "403": errorResponse, "404": errorResponse, "500": errorResponse}
 		if route.OperationID == "reportCSP" || route.OperationID == "reportNEL" || route.OperationID == "reportDefault" {
-			responses = map[string]any{"204": map[string]any{"description": "Report accepted"}, "400": errorResponse}
+			responses = map[string]any{"204": map[string]any{"description": "Report accepted"}}
 		}
 		op := operation{Summary: route.Summary, OperationID: route.OperationID, Tags: []string{operationTag(route.Path)}, Responses: responses}
 		for _, part := range strings.Split(route.Path, "/") {
@@ -53,11 +53,21 @@ func Document(serverURL string) ([]byte, error) {
 			)
 		}
 		if requestSchema := requestSchema(route.OperationID); requestSchema != "" {
-			media := map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/" + requestSchema}}
-			if route.Example != nil {
-				media["example"] = route.Example
+			contentTypes := route.ContentTypes
+			if len(contentTypes) == 0 {
+				contentTypes = []string{"application/json"}
 			}
-			op.RequestBody = map[string]any{"required": true, "content": map[string]any{"application/json": media}}
+			content := make(map[string]any, len(contentTypes))
+			for _, contentType := range contentTypes {
+				media := map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/" + requestSchema}}
+				if example, ok := route.Examples[contentType]; ok {
+					media["example"] = example
+				} else if route.Example != nil {
+					media["example"] = route.Example
+				}
+				content[contentType] = media
+			}
+			op.RequestBody = map[string]any{"required": true, "content": content}
 		}
 		if route.Auth {
 			op.Security = []map[string][]string{{"BearerAuth": {}}, {"APIKeyAuth": {}}}
@@ -91,6 +101,7 @@ func Document(serverURL string) ([]byte, error) {
 				"CreateLinkResponse":         envelopeSchema(refSchema("CreateLinkData")),
 				"GetLinkResponse":            envelopeSchema(refSchema("Link")),
 				"UpdateLinkResponse":         envelopeSchema(objectSchema(map[string]any{"id": stringSchema(), "message": stringSchema(), "link": refSchema("Link")}, "id", "message", "link")),
+				"DeleteLinkResponse":         envelopeSchema(objectSchema(map[string]any{"id": stringSchema(), "message": stringSchema()}, "id", "message")),
 				"Health":                     objectSchema(map[string]any{"project": objectSchema(map[string]any{"name": stringSchema(), "tagline": stringSchema(), "description": stringSchema()}, "name", "tagline", "description"), "status": stringSchema(), "pending_restart": map[string]string{"type": "boolean"}, "restart_reason": map[string]any{"type": "array", "items": stringSchema()}, "version": stringSchema(), "go_version": stringSchema(), "build": objectSchema(map[string]any{"commit": stringSchema(), "date": dateTimeSchema()}, "commit", "date"), "uptime": stringSchema(), "mode": stringSchema(), "timestamp": dateTimeSchema(), "features": map[string]any{"type": "object", "properties": map[string]any{"tor": map[string]any{"type": "object"}, "i2p": map[string]any{"type": "object"}, "geoip": map[string]string{"type": "boolean"}}}, "checks": map[string]any{"type": "object", "additionalProperties": stringSchema()}, "stats": objectSchema(map[string]any{"requests_total": map[string]string{"type": "integer", "format": "int64"}, "requests_24h": map[string]string{"type": "integer", "format": "int64"}, "active_connections": integerSchema()}, "requests_total", "requests_24h", "active_connections")}, "project", "status", "version", "go_version", "build", "uptime", "mode", "timestamp", "features", "checks", "stats"),
 				"CLIAutodiscover":            objectSchema(map[string]any{"project_name": stringSchema(), "server_version": stringSchema(), "cli_versions": map[string]any{"type": "object", "additionalProperties": refSchema("CLIBinaryVersion")}, "cli_min_version": stringSchema()}, "project_name", "server_version", "cli_versions", "cli_min_version"),
 				"CLIBinaryVersion":           objectSchema(map[string]any{"version": stringSchema(), "sha256": map[string]string{"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "version", "sha256"),
@@ -112,9 +123,10 @@ func Document(serverURL string) ([]byte, error) {
 				"DPOResponse":                envelopeSchema(objectSchema(map[string]any{"name": stringSchema(), "email": stringSchema(), "privacy_url": map[string]string{"type": "string", "format": "uri"}}, "name", "email", "privacy_url")),
 				"GraphQLRequest":             objectSchema(map[string]any{"query": stringSchema(), "operationName": stringSchema(), "variables": map[string]any{"type": "object", "additionalProperties": true}}, "query"),
 				"GraphQLResponse":            objectSchema(map[string]any{"data": map[string]any{"type": "object", "additionalProperties": true}, "errors": map[string]any{"type": "array", "items": objectSchema(map[string]any{"message": stringSchema(), "locations": map[string]any{"type": "array", "items": objectSchema(map[string]any{"line": integerSchema(), "column": integerSchema()}, "line", "column")}, "path": map[string]any{"type": "array", "items": map[string]any{}}}, "message")}}, "data"),
-				"TokenCreateRequest":         objectSchema(map[string]any{"name": stringSchema(), "expiry": stringSchema(), "expires_on": stringSchema()}),
-				"TokenUpdateRequest":         objectSchema(map[string]any{"name": stringSchema(), "expiry": stringSchema(), "expires_on": stringSchema()}),
-				"JSONValue":                  map[string]any{},
+				"TokenCreateRequest":         objectSchema(map[string]any{"name": stringSchema(), "expiry": map[string]any{"type": "string", "enum": []string{"never", "7d", "30d", "90d", "1y", "custom"}}, "expires_on": map[string]any{"type": "string", "format": "date", "description": "Required when expiry is custom."}}),
+				"TokenUpdateRequest":         objectSchema(map[string]any{"name": stringSchema(), "expiry": map[string]any{"type": "string", "enum": []string{"never", "7d", "30d", "90d", "1y", "custom"}}, "expires_on": map[string]any{"type": "string", "format": "date", "description": "Required when expiry is custom."}}),
+				"OpenAPIDocument":            objectSchema(map[string]any{"openapi": stringSchema(), "info": objectSchema(map[string]any{"title": stringSchema(), "version": stringSchema(), "description": stringSchema()}, "title", "version"), "servers": map[string]any{"type": "array", "items": objectSchema(map[string]any{"url": stringSchema()}, "url")}, "paths": map[string]any{"type": "object", "additionalProperties": true}, "components": map[string]any{"type": "object", "additionalProperties": true}}, "openapi", "info", "servers", "paths"),
+				"ReportPayload":              map[string]any{"oneOf": []any{objectSchema(map[string]any{"csp-report": objectSchema(map[string]any{"document-uri": stringSchema(), "violated-directive": stringSchema(), "effective-directive": stringSchema(), "blocked-uri": stringSchema(), "disposition": stringSchema(), "status-code": integerSchema()})}), map[string]any{"type": "array", "items": objectSchema(map[string]any{"type": stringSchema(), "url": stringSchema(), "body": map[string]any{"type": "object", "nullable": true, "additionalProperties": true}}, "type", "url")}}},
 			},
 		},
 	}
@@ -137,7 +149,7 @@ func responseContract(route Route) (status, contentType, schema string) {
 	case "downloadCLIBinary":
 		contentType, schema = "application/octet-stream", ""
 	case "getOpenAPI", "getOpenAPIAlias":
-		schema = "JSONValue"
+		schema = "OpenAPIDocument"
 	case "listLinks":
 		schema = "LinkList"
 	case "updateLink":
@@ -148,6 +160,8 @@ func responseContract(route Route) (status, contentType, schema string) {
 		status, schema = "201", "CreateLinkResponse"
 	case "getLinkStats":
 		schema = "LinkStatsResponse"
+	case "deleteLink":
+		schema = "DeleteLinkResponse"
 	case "getSecurityPolicy":
 		schema = "SecurityPolicyResponse"
 	case "getDPO":
@@ -197,7 +211,7 @@ func requestSchema(operationID string) string {
 	case "updateToken":
 		return "TokenUpdateRequest"
 	case "reportCSP", "reportNEL", "reportDefault":
-		return "JSONValue"
+		return "ReportPayload"
 	default:
 		return ""
 	}
