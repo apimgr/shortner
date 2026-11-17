@@ -54,7 +54,6 @@ func (rd *reportDeps) registerReportRoutes(r chi.Router) {
 func (rd *reportDeps) handler(group string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer func() { _, _ = io.Copy(io.Discard, r.Body) }()
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 
 		ip := rd.resolver.ResolveClientIP(r)
 		if !rd.limiter.allow(ip, time.Now()) {

@@ -6,9 +6,13 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,6 +30,8 @@ import (
 // Server wraps the chi router and the underlying *http.Server.
 type Server struct {
 	httpServer *http.Server
+	servers    []*http.Server
+	portErr    error
 	stats      *Stats
 	blocks     *BlockStore
 	allowlist  *AllowlistLookup
@@ -48,10 +54,13 @@ type Options struct {
 	CommitID  string
 	BuildDate string
 	StartTime time.Time
-	// TLSConfig, when non-nil, makes Start serve HTTPS (AI.md PART 15
-	// "Built-in Let's Encrypt Support") instead of plain HTTP. Built via
+	// TLSConfig, when non-nil, configures HTTPS for the selected listener or
+	// the second listener in an HTTP,HTTPS pair. Built via
 	// src/certmgr.NewTLSConfig using the FQDN resolved from src/fqdn.
 	TLSConfig *tls.Config
+	// HTTPChallengeHandler wraps the normal HTTP handler with ACME HTTP-01
+	// challenge handling. It is applied only to the cleartext listener.
+	HTTPChallengeHandler func(http.Handler) http.Handler
 	// GeoIP is the shared lookup manager for country blocking (PART 12
 	// geoIPMiddleware) and click-analytics country/region enrichment (PART
 	// 19). May be nil (e.g. server.geoip.enabled: false), in which case both
@@ -89,10 +98,10 @@ type Options struct {
 	I2P I2PReporter
 }
 
-// New builds a Server ready for Start. Listen address is
-// cfg.Server.Listen:cfg.Server.Port; request/response limits come from
-// cfg.Server.Limits (invalid values were already normalized by
-// config.Validate before this is called).
+// New builds a Server ready for Start. cfg.Server.Port accepts one port or
+// an HTTP,HTTPS pair; request/response limits come from cfg.Server.Limits
+// (invalid values were already normalized by config.Validate before this is
+// called).
 func New(opts Options) *Server {
 	cfg := opts.Config
 	stats := NewStats()
@@ -169,7 +178,6 @@ func New(opts Options) *Server {
 	}
 
 	r.Route("/api", func(api chi.Router) {
-		api.Use(corsAPIMiddleware)
 		api.Use(apiResponseFormatMiddleware)
 		api.Get("/healthz", hd.healthHandler())
 		registerCLIUpdateRoutes(api, cfg, opts.Version)
@@ -255,38 +263,117 @@ func New(opts Options) *Server {
 		handler.ServeHTTP(w, req)
 	})
 
-	addr := fmt.Sprintf("%s:%s", cfg.Server.Listen, cfg.Server.Port)
-	return &Server{
+	ports, portErr := parsePortSetting(cfg.Server.Port)
+	httpHandler := http.Handler(buildStampMiddleware(assetStamp(opts.Version, opts.CommitID), limitedHandler))
+	if opts.HTTPChallengeHandler != nil {
+		httpHandler = opts.HTTPChallengeHandler(httpHandler)
+	}
+	newHTTPServer := func(port string, handler http.Handler, tlsConfig *tls.Config) *http.Server {
+		return &http.Server{
+			Addr:         net.JoinHostPort(strings.Trim(cfg.Server.Listen, "[]"), port),
+			Handler:      handler,
+			ReadTimeout:  readTimeout,
+			WriteTimeout: writeTimeout,
+			IdleTimeout:  idleTimeout,
+			TLSConfig:    tlsConfig,
+		}
+	}
+	s := &Server{
 		stats:     stats,
 		blocks:    blocks,
 		allowlist: allowlist,
 		resolver:  resolver,
-		httpServer: &http.Server{
-			Addr:         addr,
-			Handler:      buildStampMiddleware(assetStamp(opts.Version, opts.CommitID), limitedHandler),
-			ReadTimeout:  readTimeout,
-			WriteTimeout: writeTimeout,
-			IdleTimeout:  idleTimeout,
-			TLSConfig:    opts.TLSConfig,
-		},
+		portErr:   portErr,
 	}
+	appHandler := http.Handler(buildStampMiddleware(assetStamp(opts.Version, opts.CommitID), limitedHandler))
+	switch {
+	case portErr != nil:
+		s.httpServer = newHTTPServer("0", appHandler, nil)
+		s.servers = []*http.Server{s.httpServer}
+	case len(ports) == 2:
+		if opts.TLSConfig == nil {
+			s.portErr = fmt.Errorf("httpserver: dual HTTP,HTTPS ports require TLS to be enabled")
+			s.httpServer = newHTTPServer(ports[0], httpHandler, nil)
+			s.servers = []*http.Server{s.httpServer}
+			break
+		}
+		s.httpServer = newHTTPServer(ports[0], httpHandler, nil)
+		s.servers = []*http.Server{s.httpServer, newHTTPServer(ports[1], appHandler, opts.TLSConfig)}
+	case len(ports) == 1 && ports[0] == "443" && opts.TLSConfig == nil:
+		s.portErr = fmt.Errorf("httpserver: port 443 is HTTPS-only but TLS is unavailable")
+		s.httpServer = newHTTPServer(ports[0], appHandler, nil)
+		s.servers = []*http.Server{s.httpServer}
+	case len(ports) == 1:
+		s.httpServer = newHTTPServer(ports[0], appHandler, opts.TLSConfig)
+		s.servers = []*http.Server{s.httpServer}
+		if opts.TLSConfig != nil && opts.HTTPChallengeHandler != nil {
+			// TLS-only mode cannot answer HTTP-01 challenges; TLS-ALPN-01
+			// remains available on the configured HTTPS listener.
+			s.httpServer.Handler = appHandler
+		}
+	default:
+		s.portErr = fmt.Errorf("httpserver: invalid port configuration")
+		s.httpServer = newHTTPServer("0", appHandler, nil)
+		s.servers = []*http.Server{s.httpServer}
+	}
+	return s
 }
 
-// Start begins serving and blocks until the listener stops (normally via
-// Shutdown). It returns nil on a clean shutdown, per net/http.Server's
-// ErrServerClosed contract. When the server was built with a non-nil
-// Options.TLSConfig, it serves HTTPS (AI.md PART 15); the empty cert/key
-// path arguments are required by ListenAndServeTLS's signature but unused
-// since TLSConfig.GetCertificate supplies certificates dynamically.
-func (s *Server) Start() error {
-	var err error
-	if s.httpServer.TLSConfig != nil {
-		err = s.httpServer.ListenAndServeTLS("", "")
-	} else {
-		err = s.httpServer.ListenAndServe()
+func parsePortSetting(value string) ([]string, error) {
+	parts := strings.Split(strings.TrimSpace(value), ",")
+	if len(parts) < 1 || len(parts) > 2 {
+		return nil, fmt.Errorf("httpserver: port must be one number or an HTTP,HTTPS pair")
 	}
-	if err != nil && err != http.ErrServerClosed {
-		return fmt.Errorf("httpserver: listen %s: %w", s.httpServer.Addr, err)
+	ports := make([]string, len(parts))
+	for i, part := range parts {
+		part = strings.TrimSpace(part)
+		port, err := strconv.Atoi(part)
+		if err != nil || port < 0 || port > 65535 {
+			return nil, fmt.Errorf("httpserver: invalid port %q", part)
+		}
+		ports[i] = strconv.Itoa(port)
+	}
+	return ports, nil
+}
+
+// Start begins serving and blocks until the listener or listeners stop
+// (normally via Shutdown). A configured HTTP,HTTPS pair starts both at once;
+// a TLS-enabled single listener serves HTTPS. Certificates are supplied
+// dynamically through TLSConfig.GetCertificate.
+func (s *Server) Start() error {
+	if s.portErr != nil {
+		return s.portErr
+	}
+	if len(s.servers) == 1 {
+		return serve(s.servers[0])
+	}
+	errCh := make(chan error, len(s.servers))
+	for _, srv := range s.servers {
+		go func(server *http.Server) { errCh <- serve(server) }(srv)
+	}
+	firstErr := <-errCh
+	if firstErr != nil {
+		_ = s.shutdownServers()
+		return firstErr
+	}
+	for range s.servers[1:] {
+		if err := <-errCh; err != nil {
+			_ = s.shutdownServers()
+			return err
+		}
+	}
+	return nil
+}
+
+func serve(server *http.Server) error {
+	var err error
+	if server.TLSConfig != nil {
+		err = server.ListenAndServeTLS("", "")
+	} else {
+		err = server.ListenAndServe()
+	}
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("httpserver: listen %s: %w", server.Addr, err)
 	}
 	return nil
 }
@@ -297,7 +384,25 @@ func (s *Server) Shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	s.shutdownOverlays(ctx)
-	return s.httpServer.Shutdown(ctx)
+	var errs []error
+	for _, server := range s.servers {
+		if err := server.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (s *Server) shutdownServers() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var errs []error
+	for _, server := range s.servers {
+		if err := server.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // ReleaseExpiredBlocks drops every temporary IP block whose window has

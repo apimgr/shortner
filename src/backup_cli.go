@@ -20,6 +20,7 @@ import (
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/paths"
 	"github.com/apimgr/shortner/src/scheduler"
+	"github.com/apimgr/shortner/src/service"
 )
 
 // backupEnv is the resolved state both backup subcommands need: paths from
@@ -29,6 +30,33 @@ type backupEnv struct {
 	cfg    *config.Config
 	audit  backup.Auditor
 	dbPath string
+}
+
+type restoreServiceManager interface {
+	Status() service.Status
+	Stop() error
+	Start() error
+}
+
+func stopServiceForRestore(manager restoreServiceManager) (bool, error) {
+	if manager == nil {
+		return false, nil
+	}
+	status := manager.Status()
+	if !status.Installed || status.State != "running" {
+		return false, nil
+	}
+	if err := manager.Stop(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func restartServiceAfterRestore(manager restoreServiceManager, wasRunning bool) error {
+	if manager == nil || !wasRunning {
+		return nil
+	}
+	return manager.Start()
 }
 
 // promptPassword reads a password from the terminal without echoing it.
@@ -256,6 +284,9 @@ func runBackupRestore(binaryName string, p paths.Paths, file string) int {
 
 	var password string
 	if backup.IsEncryptedName(path) {
+		if hint := strings.TrimSpace(env.cfg.Server.Backup.Encryption.Hint); hint != "" {
+			fmt.Fprintln(os.Stderr, "Password hint: "+hint)
+		}
 		password, err = promptPassword("Enter backup password: ")
 		if err != nil {
 			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
@@ -263,8 +294,7 @@ func runBackupRestore(binaryName string, p paths.Paths, file string) int {
 		}
 	}
 
-	fmt.Print("Verifying backup integrity... ")
-	res, err := backup.Restore(backup.RestoreOptions{
+	options := backup.RestoreOptions{
 		Path:       path,
 		Password:   password,
 		ConfigFile: p.ConfigFile,
@@ -272,14 +302,43 @@ func runBackupRestore(binaryName string, p paths.Paths, file string) int {
 		ConfigDir:  p.Config,
 		DataDir:    p.Data,
 		AppVersion: version.String(),
-	})
-	if err != nil {
+	}
+	fmt.Print("Verifying backup integrity... ")
+	if _, _, err := backup.VerifyForRestore(options.Path, options.Password, options.AppVersion); err != nil {
 		fmt.Println("FAILED")
 		backup.AuditFailure(env.audit, filepath.Base(path), err)
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
 	fmt.Println("OK")
+
+	manager, managerErr := service.New(serviceParams(p))
+	if managerErr != nil && !errors.Is(managerErr, service.ErrUnsupported) {
+		fmt.Fprintf(os.Stderr, "%s: detect service manager before restore: %v\n", binaryName, managerErr)
+		return 1
+	}
+	if managerErr != nil {
+		manager = nil
+	}
+	wasRunning, err := stopServiceForRestore(manager)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: stop service before restore: %v\n", binaryName, err)
+		return 1
+	}
+	res, err := backup.Restore(options)
+	if err != nil {
+		if startErr := restartServiceAfterRestore(manager, wasRunning); startErr != nil {
+			fmt.Fprintf(os.Stderr, "%s: restore failed and service restart failed: %v\n", binaryName, startErr)
+		}
+		backup.AuditFailure(env.audit, filepath.Base(path), err)
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
+	if err := restartServiceAfterRestore(manager, wasRunning); err != nil {
+		backup.AuditRestored(env.audit, filepath.Base(path), res)
+		fmt.Fprintf(os.Stderr, "%s: restore completed but service restart failed: %v\n", binaryName, err)
+		return 1
+	}
 
 	for _, w := range res.Warnings {
 		fmt.Fprintln(os.Stderr, binaryName+": WARNING: "+w)

@@ -50,8 +50,8 @@ func TestReportHandlerAlways204(t *testing.T) {
 		if rec.Body.Len() != 0 {
 			t.Errorf("group %q: expected empty body, got %q", tt.group, rec.Body.String())
 		}
-		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
-			t.Errorf("Access-Control-Allow-Origin = %q, want *", got)
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("handler set Access-Control-Allow-Origin without request origin: %q", got)
 		}
 	}
 }

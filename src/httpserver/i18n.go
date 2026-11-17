@@ -137,7 +137,6 @@ func localesHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Language", lang)
 	w.Header().Set("Cache-Control", "public, max-age=3600")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if r.Method == http.MethodHead {
 		w.WriteHeader(http.StatusOK)
 		return

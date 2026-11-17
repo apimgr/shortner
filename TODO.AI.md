@@ -206,12 +206,18 @@ Still open under PART 9-11:
     Read: AI.md PART 15 "Certificate Directory Structure"
   - The scheduled `ssl_renewal` task currently warns when a certificate is
     within seven days of expiry; it does not proactively invoke ACME
-    re-issuance or emit `ssl_renewed` after a successful renewal.
+    re-issuance. Successful on-demand ACME renewal emits `ssl_renewed`
+    after the renewed certificate is persisted.
     Read: AI.md PART 15 and PART 18
   - Dual HTTP+HTTPS listeners, HTTP-01 challenge routing on the HTTP
     listener, automatic TLS when port 443 is selected, and separate startup
-    URLs are implemented. Validation remains pending for this increment.
+    URLs are implemented. Config validation accepts the AI.md single, dual,
+    and single-port `0` forms; tests and the full project gate pass.
     Read: AI.md PART 8 "Port Configuration", PART 15
+  - With `server.port: 0`, the OS-selected port is not reflected in the
+    startup URL banner, which currently prints the configured value. Bind
+    before rendering the banner so the actual address can be displayed.
+    Read: AI.md PART 8 "Special Port Handling"
 
 ## PART 16: Web frontend — DONE (core)
 
@@ -319,11 +325,10 @@ Still open under PART 9-11:
   `ssl_expiring`/`ssl_renewal_failed` (`src/scheduler/tasks.go`), and
   `update_available`/`update_installed` (`src/scheduler/update.go`).
   Deferred sub-items:
-  - `ssl_renewed` has an embedded template and a config switch but no
-    sender: AI.md PART 15 leaves re-issuance inside autocert's on-demand
-    TLS-handshake path, so nothing in-process observes a successful
-    renewal. It gets wired when PART 15's deferred
-    autocert-to-spec-layout bridging lands.
+  - `ssl_renewed` is emitted by the autocert `GetCertificate` path when a
+    new certificate has a later expiry than the existing certificate, after
+    the app-managed copy is saved. The first issuance does not count as a
+    renewal.
     Read: AI.md PART 15, PART 17 "ssl_renewed"
   - The PART 11 maintainer notification falls back to inline
     AES-256-GCM armor when no project PGP public key exists; with a key it
@@ -398,7 +403,8 @@ Still open under PART 9-11:
   Deferred sub-items (each an open gap, not silently dropped):
   - Cache metrics (`Cache*`) are declared but inert — `src/cache` is not
     wired into any request path yet.
-  - I2P overlay metrics are still not populated.
+  - I2P-specific metrics are not defined in AI.md PART 20; the PART 20
+    overlay metric contract covers Tor, which is wired.
   Read: AI.md PART 20
 - Backup & restore — DONE. `src/backup/` (`crypt.go` AES-256-GCM sealed
   under an Argon2id-derived key reusing `src/security`'s existing
@@ -599,8 +605,9 @@ The remaining items below are environment limits, not unbuilt work.
   described as deferred rather than shipped — Swagger/GraphQL are present
   with route/schema sync still in progress, no DNS-01, PWA core complete
   with Background Sync/geolocation awaiting a product contract, no hot reload,
-  no cache in the request path, unpopulated business metrics, no
-  `ssl_renewed` trigger, no backup `list`/`delete`. `mkdocs build
+  no cache in the request path, unpopulated business metrics, and a
+  warning-only scheduled `ssl_renewal` check. Backup `list`/`delete`
+  commands are implemented and documented as CLI conveniences. `mkdocs build
   --strict` verified clean inside `python:alpine` (built in 2.25s, zero
   warnings, all nav links resolve). `site_url` uses the org-project RTD
   format `https://apimgr-shortner.readthedocs.io` per PART 29's own rule
@@ -731,10 +738,10 @@ banner row.
   wiring in `src/config` when PART 10's storage layer lands.
   Read: AI.md PART 5, PART 10, PART 26
 
-- `src/main.go:306` calls `certmgr.NewTLSConfig(configDir, host, "")` and
-  discards the returned `*autocert.Manager`, so the HTTP-01 challenge
-  handler is never mounted and ACME issuance can never complete. Wire the
-  manager's `HTTPHandler` into the plain-HTTP listener.
+- RESOLVED: the autocert manager's HTTP-01 handler is mounted on the
+  cleartext listener, and issued certificates are mirrored into the
+  app-managed PEM layout. Successful on-demand renewals emit
+  `ssl_renewed` after persistence.
   Read: AI.md PART 15
 - `apperr.SendError` never logs `err.Internal`, so 5xx root causes are
   discarded. PART 9 "Error Logging" requires every error logged with

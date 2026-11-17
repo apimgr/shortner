@@ -8,8 +8,11 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/apimgr/shortner/src/applog"
@@ -427,7 +430,7 @@ func run(args []string) int {
 	// (.local, .test, the project's own name, etc.), which can never get a
 	// valid public certificate.
 	scheme := "http"
-	tlsConfig, tlsErr := buildTLSConfig(cfg, p.Config)
+	tlsConfig, httpChallengeHandler, tlsErr := buildTLSConfig(cfg, p.Config, notifier)
 	if tlsErr != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": warning: "+tlsErr.Error())
 	} else if tlsConfig != nil {
@@ -435,17 +438,18 @@ func run(args []string) int {
 	}
 
 	srv := httpserver.New(httpserver.Options{
-		Config:    cfg,
-		DB:        sqlDB,
-		DataDir:   p.Data,
-		AccessLog: accessLog,
-		Version:   version.Version,
-		CommitID:  version.CommitID,
-		BuildDate: version.BuildDate,
-		StartTime: time.Now(),
-		TLSConfig: tlsConfig,
-		GeoIP:     geoManager,
-		Metrics:   appMetrics,
+		Config:               cfg,
+		DB:                   sqlDB,
+		DataDir:              p.Data,
+		AccessLog:            accessLog,
+		Version:              version.Version,
+		CommitID:             version.CommitID,
+		BuildDate:            version.BuildDate,
+		StartTime:            time.Now(),
+		TLSConfig:            tlsConfig,
+		HTTPChallengeHandler: httpChallengeHandler,
+		GeoIP:                geoManager,
+		Metrics:              appMetrics,
 
 		ConfigDir:             p.Config,
 		AuditLog:              auditLog,
@@ -523,7 +527,7 @@ func run(args []string) int {
 		Version: version.Version,
 		AppMode: mode.GetCurrentAppMode().String(),
 		Debug:   mode.IsDebugEnabled(),
-		URLs:    startupURLs(cfg, p, scheme, host),
+		URLs:    startupURLsForConfiguredPorts(cfg, p, scheme, host),
 		Lang:    cliLang,
 	})
 
@@ -536,22 +540,71 @@ func run(args []string) int {
 	return 0
 }
 
-// buildTLSConfig resolves the server's FQDN and, when cfg.Server.TLS.Enabled
-// and the FQDN is not a dev-only TLD, returns a *tls.Config that serves the
-// best certificate found by certmgr (falling back to ACME issuance). It
-// returns (nil, nil) when TLS is disabled or the FQDN is dev-only — HTTP is
-// used in both cases, per AI.md PART 15 "Dev TLD Handling" (never request a
-// public certificate for a dev-only TLD).
-func buildTLSConfig(cfg *config.Config, configDir string) (*tls.Config, error) {
-	if !cfg.Server.TLS.Enabled {
-		return nil, nil
+func startupURLsForConfiguredPorts(cfg *config.Config, p paths.Paths, scheme, host string) []string {
+	parts := strings.Split(strings.TrimSpace(cfg.Server.Port), ",")
+	if len(parts) != 2 {
+		return startupURLs(cfg, p, scheme, host)
+	}
+	first, firstErr := strconv.Atoi(strings.TrimSpace(parts[0]))
+	second, secondErr := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if firstErr != nil || secondErr != nil || first < 0 || first > 65535 || second < 0 || second > 65535 {
+		return startupURLs(cfg, p, scheme, host)
+	}
+	base := *cfg
+	base.Server.Port = strconv.Itoa(first)
+	urls := startupURLs(&base, p, "http", host)
+	if scheme == "https" {
+		urls = append(urls, fmt.Sprintf("https://%s:%d%s", host, second, cfg.Server.BaseURL))
+	}
+	return urls
+}
+
+// buildTLSConfig resolves the server FQDN and prepares ACME-backed TLS when
+// TLS is enabled or port 443 is explicitly configured. The returned wrapper
+// mounts HTTP-01 challenge handling on the cleartext listener.
+func buildTLSConfig(cfg *config.Config, configDir string, notifier *notify.Notifier) (*tls.Config, func(http.Handler) http.Handler, error) {
+	requested := cfg.Server.TLS.Enabled || portIncludes(cfg.Server.Port, 443)
+	if !requested {
+		return nil, nil, nil
 	}
 	host := fqdn.GetFQDN(internalName)
 	if fqdn.IsDevTLD(host, internalName) {
-		return nil, fmt.Errorf("tls: %q is a dev-only TLD, skipping certificate issuance", host)
+		return nil, nil, fmt.Errorf("tls: %q is a dev-only TLD, skipping certificate issuance", host)
 	}
-	tlsConfig, _ := certmgr.NewTLSConfig(configDir, host, "")
-	return tlsConfig, nil
+	tlsConfig, manager := certmgr.NewTLSConfig(configDir, host, "", func(notAfter time.Time) {
+		sendSSLRenewed(notifier, host, notAfter)
+	})
+	challengeHandler := func(fallback http.Handler) http.Handler {
+		return certmgr.HTTPHandler(manager, fallback)
+	}
+	return tlsConfig, challengeHandler, nil
+}
+
+func sendSSLRenewed(notifier *notify.Notifier, host string, notAfter time.Time) {
+	if notifier == nil {
+		return
+	}
+	validUntil := notAfter.UTC()
+	days := int(validUntil.Sub(time.Now().UTC()).Hours() / 24)
+	if days < 0 {
+		days = 0
+	}
+	_ = notifier.Send(notify.EventSSLRenewed, map[string]string{
+		"fqdn":        host,
+		"expires_in":  fmt.Sprintf("%d days", days),
+		"expiry_date": validUntil.Format(time.RFC3339),
+		"valid_until": validUntil.Format(time.RFC3339),
+	})
+}
+
+func portIncludes(setting string, wanted int) bool {
+	for _, part := range strings.Split(setting, ",") {
+		port, err := strconv.Atoi(strings.TrimSpace(part))
+		if err == nil && port == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 // newBuiltinScheduler builds a scheduler.Scheduler with every AI.md
@@ -576,7 +629,7 @@ func newBuiltinScheduler(cfg *config.Config, sqlDB *sql.DB, schedulerLog, access
 			return d
 		}(),
 		Logger:     schedulerLog,
-		TLSEnabled: cfg.Server.TLS.Enabled,
+		TLSEnabled: cfg.Server.TLS.Enabled || portIncludes(cfg.Server.Port, 443),
 		ConfigDir:  p.Config,
 		FQDN:       host,
 		DevTLD:     fqdn.IsDevTLD(host, internalName),

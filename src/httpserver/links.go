@@ -149,24 +149,6 @@ func (ld *linkDeps) registerLinkAPIRoutes(apiGroup chi.Router) {
 	})
 }
 
-// corsAPIMiddleware sets the CORS headers required on every API endpoint,
-// per AI.md PART 14 "Authentication & CORS" / api-rules.md: "Access-
-// Control-Allow-Origin: * for API endpoints".
-func corsAPIMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h := w.Header()
-		h.Del("Access-Control-Allow-Credentials")
-		h.Set("Access-Control-Allow-Origin", "*")
-		h.Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-		h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key, API-Key, X-Auth-Token, X-Access-Token, X-Token, Token")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 // createLinkRequest is the POST /links body.
 type createLinkRequest struct {
 	URL       string  `json:"url"`

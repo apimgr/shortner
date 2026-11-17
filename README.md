@@ -29,7 +29,7 @@ https://shortner.example.com
 - Local GeoIP enrichment for click analytics and country-based controls
 - Tor v3 hidden service when a Tor binary is available; optional I2P eepsite
 - Single static server binary; overlay networking uses optional system runtimes
-- Companion `shortner-cli` with command-line and terminal interfaces
+- Companion `shortner-cli` with command-line, terminal, and optional native GUI interfaces
 
 ## Documentation
 

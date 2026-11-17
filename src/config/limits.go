@@ -100,7 +100,7 @@ func Validate(cfg *Config) []string {
 		cfg.Server.Mode = defaults.Server.Mode
 	}
 
-	if _, err := strconv.Atoi(cfg.Server.Port); err != nil || !validPort(cfg.Server.Port) {
+	if !validPortSetting(cfg.Server.Port) {
 		warnings = append(warnings, fmt.Sprintf("invalid server.port %q, using default %q", cfg.Server.Port, defaults.Server.Port))
 		cfg.Server.Port = defaults.Server.Port
 	}
@@ -599,10 +599,24 @@ func ParseRetentionSize(s string, def int64) (RetentionSize, error) {
 	return RetentionSize{Bytes: n}, nil
 }
 
-// validPort reports whether s parses to a TCP port in [1, 65535].
-func validPort(s string) bool {
-	n, err := strconv.Atoi(strings.TrimSpace(s))
-	return err == nil && n >= 1 && n <= 65535
+// validPortSetting accepts AI.md's single-port, OS-assigned, and HTTP,HTTPS
+// forms. Port zero is meaningful only for a single listener because a dual
+// listener pair must expose two configured service ports.
+func validPortSetting(s string) bool {
+	parts := strings.Split(strings.TrimSpace(s), ",")
+	if len(parts) < 1 || len(parts) > 2 {
+		return false
+	}
+	for _, part := range parts {
+		port, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || port < 1 || port > 65535 {
+			if len(parts) == 1 && err == nil && port == 0 {
+				continue
+			}
+			return false
+		}
+	}
+	return true
 }
 
 // defaultTimeout returns the framework default for one of the three

@@ -134,6 +134,8 @@ func RunSetup(ctx context.Context, opts SetupOptions) (SetupResult, error) {
 
 func dashboard(client *api.Client, server string, theme *material3.Theme, window *app.Window) *primitives.BoxWidget {
 	url := ""
+	slug := ""
+	updatedURL := ""
 	status := state.NewSignal("Create a short link or refresh the public link list.")
 	urlField := textfield.New(
 		textfield.Placeholder("https://destination.example"),
@@ -176,11 +178,91 @@ func dashboard(client *api.Client, server string, theme *material3.Theme, window
 		}
 		status.Set(strings.Join(rows, "\n"))
 	}), button.A11yHint("Load the latest public links from the server"))
+	slugField := textfield.New(textfield.Placeholder("Short code"), textfield.A11yLabel("Short code for link actions"), textfield.OnChange(func(v string) { slug = strings.TrimSpace(v) }))
+	updatedURLField := textfield.New(
+		textfield.Placeholder("New destination URL"),
+		textfield.A11yLabel("New destination URL"),
+		textfield.Validation(func(value string) string {
+			if strings.TrimSpace(value) != "" && !clientconfig.ValidateServerURL(strings.TrimSpace(value)) {
+				return "Enter a valid HTTP or HTTPS URL."
+			}
+			return ""
+		}),
+		textfield.OnChange(func(v string) { updatedURL = strings.TrimSpace(v) }),
+	)
+	getLink := button.New(button.TextOpt("Get link"), button.PainterOpt(material3.ButtonPainter{Theme: theme}), button.OnClick(func() {
+		if slug == "" {
+			showError(window, theme, "Short code required", "Enter a short code first.")
+			return
+		}
+		link, err := client.GetLink(context.Background(), slug)
+		if err != nil {
+			status.Set("Could not load link: " + err.Error())
+			showError(window, theme, "Could not load link", err.Error())
+			return
+		}
+		expires := "never"
+		if link.ExpiresAt != nil {
+			expires = *link.ExpiresAt
+		}
+		status.Set(fmt.Sprintf("%s\n%s\nCreated: %s\nExpires: %s\nClicks: %d", link.ShortURL, link.DestinationURL, link.CreatedAt, expires, link.ClickCount))
+	}), button.A11yHint("Read a link by its short code"))
+	updateLink := button.New(button.TextOpt("Update destination"), button.PainterOpt(material3.ButtonPainter{Theme: theme}), button.OnClick(func() {
+		if slug == "" || !clientconfig.ValidateServerURL(updatedURL) {
+			showError(window, theme, "Link details required", "Enter a short code and a valid new destination URL.")
+			return
+		}
+		link, err := client.UpdateLink(context.Background(), slug, updatedURL, "")
+		if err != nil {
+			status.Set("Could not update link: " + err.Error())
+			showError(window, theme, "Could not update link", err.Error())
+			return
+		}
+		status.Set("Updated " + link.ShortURL + " to " + link.DestinationURL)
+	}), button.A11yHint("Change the destination for the selected short code"))
+	deleteLink := button.New(button.TextOpt("Delete link"), button.PainterOpt(material3.ButtonPainter{Theme: theme}), button.OnClick(func() {
+		if slug == "" {
+			showError(window, theme, "Short code required", "Enter a short code first.")
+			return
+		}
+		if err := client.DeleteLink(context.Background(), slug); err != nil {
+			status.Set("Could not delete link: " + err.Error())
+			showError(window, theme, "Could not delete link", err.Error())
+			return
+		}
+		status.Set("Deleted link " + slug)
+	}), button.A11yHint("Permanently delete the selected link"))
+	showStats := button.New(button.TextOpt("Statistics"), button.PainterOpt(material3.ButtonPainter{Theme: theme}), button.OnClick(func() {
+		if slug == "" {
+			showError(window, theme, "Short code required", "Enter a short code first.")
+			return
+		}
+		stats, err := client.GetStats(context.Background(), slug)
+		if err != nil {
+			status.Set("Could not load statistics: " + err.Error())
+			showError(window, theme, "Could not load statistics", err.Error())
+			return
+		}
+		status.Set(fmt.Sprintf("Statistics for %s\nTotal clicks: %d\nReferrers: %d\nRecent clicks: %d", slug, stats.TotalClicks, len(stats.Referrers), len(stats.Recent)))
+	}), button.A11yHint("Read click statistics for the selected link"))
+	health := button.New(button.TextOpt("Server health"), button.PainterOpt(material3.ButtonPainter{Theme: theme}), button.OnClick(func() {
+		result, err := client.Health(context.Background())
+		if err != nil {
+			status.Set("Could not read server health: " + err.Error())
+			showError(window, theme, "Health check failed", err.Error())
+			return
+		}
+		status.Set("Server health: " + result.Status)
+	}), button.A11yHint("Check the configured server health"))
 	return primitives.Box(
 		primitives.Text("Shortner").FontSize(28).Bold(),
 		primitives.Text("Server: "+server),
 		urlField,
 		primitives.HBox(create, refresh).Gap(12),
+		slugField,
+		updatedURLField,
+		primitives.HBox(getLink, updateLink).Gap(12),
+		primitives.HBox(deleteLink, showStats, health).Gap(12),
 		primitives.Text("").ContentSignal(status),
 	).Padding(24).Gap(16)
 }

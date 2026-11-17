@@ -587,31 +587,6 @@ func TestIsBotUserAgent(t *testing.T) {
 	}
 }
 
-func TestCorsAPIMiddleware(t *testing.T) {
-	handler := corsAPIMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/links", nil)
-	rec := httptest.NewRecorder()
-	rec.Header().Set("Access-Control-Allow-Credentials", "true")
-	handler.ServeHTTP(rec, req)
-
-	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want *", got)
-	}
-	if got := rec.Header().Get("Access-Control-Allow-Credentials"); got != "" {
-		t.Errorf("Access-Control-Allow-Credentials = %q, want absent on wildcard API CORS", got)
-	}
-
-	optReq := httptest.NewRequest(http.MethodOptions, "/api/v1/links", nil)
-	optRec := httptest.NewRecorder()
-	handler.ServeHTTP(optRec, optReq)
-	if optRec.Code != http.StatusNoContent {
-		t.Errorf("OPTIONS status = %d, want 204", optRec.Code)
-	}
-}
-
 func TestValidateDestinationURLLength(t *testing.T) {
 	long := "https://example.com/" + strings.Repeat("a", maxDestinationURLLen)
 	if _, ok := validateDestinationURL(long); ok {

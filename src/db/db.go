@@ -203,6 +203,20 @@ var createStatements = []string{
 	`CREATE INDEX IF NOT EXISTS idx_scheduler_history_task    ON scheduler_history(task_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_scheduler_history_started ON scheduler_history(started_at)`,
 
+	// Backup history and metadata, per AI.md PART 10 "Backups" and PART 21
+	// "What Is in server.db". The checksum is the archive's SHA-256 digest.
+	`CREATE TABLE IF NOT EXISTS backups (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		filename    TEXT NOT NULL UNIQUE,
+		filepath    TEXT NOT NULL,
+		size_bytes  INTEGER NOT NULL,
+		type        TEXT NOT NULL DEFAULT 'auto',
+		created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+		checksum    TEXT,
+		notes       TEXT
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_backups_created ON backups(created_at)`,
+
 	// Coordinated-disclosure security reports, per AI.md PART 11 "Security
 	// Reports" -> "Submission Flow". Only triage metadata is stored in the
 	// clear; the researcher's identity and the vulnerability body live in

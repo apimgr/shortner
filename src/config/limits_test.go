@@ -115,6 +115,35 @@ func TestValidateAcceptsValidConfig(t *testing.T) {
 	}
 }
 
+func TestValidatePortSettings(t *testing.T) {
+	tests := []struct {
+		value string
+		valid bool
+	}{
+		{value: "8090", valid: true},
+		{value: "0", valid: true},
+		{value: "80,443", valid: true},
+		{value: "8090,8443", valid: true},
+		{value: "", valid: false},
+		{value: "65536", valid: false},
+		{value: "0,443", valid: false},
+		{value: "80,0", valid: false},
+		{value: "80,443,8080", valid: false},
+		{value: "http,443", valid: false},
+	}
+	for _, test := range tests {
+		t.Run(test.value, func(t *testing.T) {
+			cfg := Default("/db")
+			cfg.Server.Port = test.value
+			warnings := Validate(cfg)
+			gotValid := cfg.Server.Port == test.value && len(warnings) == 0
+			if gotValid != test.valid {
+				t.Errorf("Validate(port %q) = valid %v (normalized %q, warnings %v), want %v", test.value, gotValid, cfg.Server.Port, warnings, test.valid)
+			}
+		})
+	}
+}
+
 func TestValidateAcceptsCacheTypeNone(t *testing.T) {
 	cfg := Default("/db")
 	cfg.Server.Cache.Type = "none"

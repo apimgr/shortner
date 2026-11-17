@@ -12,12 +12,18 @@
 package backup
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/apimgr/shortner/src/db"
 )
 
 // ErrComplianceEncryptionRequired is returned when compliance mode is on
@@ -151,6 +157,29 @@ func Create(opts Options) (*Result, error) {
 		os.Remove(target)
 		return nil, err
 	}
+	checksum, err := archiveChecksum(target)
+	if err != nil {
+		os.Remove(target)
+		return nil, err
+	}
+	backupType := "auto"
+	if opts.Kind == KindManual {
+		backupType = "manual"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	err = db.RecordBackupAt(ctx, opts.DBPath, db.BackupMetadata{
+		Filename:  filepath.Base(target),
+		Filepath:  target,
+		SizeBytes: info.Size(),
+		Type:      backupType,
+		CreatedAt: opts.Now,
+		Checksum:  checksum,
+	})
+	cancel()
+	if err != nil {
+		os.Remove(target)
+		return nil, fmt.Errorf("backup: record backup metadata: %w", err)
+	}
 
 	return &Result{
 		Path:      target,
@@ -159,6 +188,19 @@ func Create(opts Options) (*Result, error) {
 		Encrypted: opts.Encrypt,
 		Manifest:  manifest,
 	}, nil
+}
+
+func archiveChecksum(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("backup: open archive for checksum: %w", err)
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", fmt.Errorf("backup: checksum archive: %w", err)
+	}
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 // normalized fills in Options defaults without mutating the caller's copy.

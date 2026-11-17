@@ -286,13 +286,13 @@ func TestBackupHourlyTaskDiffsAgainstNewestFull(t *testing.T) {
 	if manifest.Kind != backup.KindHourly {
 		t.Errorf("Kind = %q, want %q", manifest.Kind, backup.KindHourly)
 	}
-	// Nothing changed since the full, so the incremental carries no files
-	// but still records what it was diffed against.
+	// Recording the full backup in server.db changes the database after the
+	// full snapshot, so the incremental must carry the new database snapshot.
 	if manifest.BaseChecksum == "" {
 		t.Error("BaseChecksum is empty — the hourly was not diffed against the full")
 	}
-	if len(manifest.Files) != 0 {
-		t.Errorf("Files = %v, want an empty incremental", manifest.Files)
+	if _, ok := manifest.Files["server.db"]; !ok {
+		t.Errorf("Files = %v, want server.db because backup history changed", manifest.Files)
 	}
 }
 

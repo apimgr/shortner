@@ -2,8 +2,13 @@ package certmgr
 
 import (
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
+	"fmt"
 	"net/http"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"golang.org/x/crypto/acme/autocert"
 )
@@ -21,17 +26,12 @@ func AutocertCacheDir(configDir string) string {
 // and is not due for renewal, and otherwise falls back to ACME issuance
 // (HTTP-01/TLS-ALPN-01) via golang.org/x/crypto/acme/autocert.
 //
-// Deviation from a literal reading of AI.md PART 15: autocert manages its
-// own on-disk cache format (an opaque DirCache), not the
-// {fullchain,privkey}.pem layout PART 15's "Certificate Directory
-// Structure" specifies. A freshly-issued certificate is therefore cached
-// under AutocertCacheDir, not written into
-// {config_dir}/ssl/letsencrypt/{fqdn}/, until copied there by
-// SaveAppManagedCertificate — this bridging is not yet wired up
-// automatically (tracked in TODO.AI.md). DNS-01 issuance (needed for
-// wildcard certs and the full provider matrix in "DNS-01 Provider
-// Configuration") is not implemented.
-func NewTLSConfig(configDir, fqdn, email string) (*tls.Config, *autocert.Manager) {
+// autocert keeps its own opaque account/cache data, while every certificate
+// it returns is also bridged into the app-managed certbot-mirroring layout
+// required by AI.md PART 15 "Certificate Directory Structure". DNS-01
+// issuance (needed for wildcard certs and the full provider matrix in
+// "DNS-01 Provider Configuration") is not implemented.
+func NewTLSConfig(configDir, fqdn, email string, onRenewed func(time.Time)) (*tls.Config, *autocert.Manager) {
 	mgr := &autocert.Manager{
 		Prompt:     autocert.AcceptTOS,
 		HostPolicy: autocert.HostWhitelist(fqdn),
@@ -41,15 +41,71 @@ func NewTLSConfig(configDir, fqdn, email string) (*tls.Config, *autocert.Manager
 
 	tlsCfg := mgr.TLSConfig()
 	baseGetCert := tlsCfg.GetCertificate
+	var renewalMu sync.Mutex
+	var lastNotified time.Time
 	tlsCfg.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 		if found, err := FindCertificate(configDir, fqdn); err == nil && found != nil && !NeedsRenewal(found.NotAfter) {
 			if cert, cerr := tls.LoadX509KeyPair(found.CertPath, found.KeyPath); cerr == nil {
 				return &cert, nil
 			}
 		}
-		return baseGetCert(hello)
+		renewalMu.Lock()
+		defer renewalMu.Unlock()
+		previous, _ := FindCertificate(configDir, fqdn)
+		cert, err := baseGetCert(hello)
+		if err != nil {
+			return nil, err
+		}
+		if err := SaveAutocertCertificate(configDir, fqdn, cert); err != nil {
+			return nil, fmt.Errorf("certmgr: persist ACME certificate: %w", err)
+		}
+		if notAfter, renewed := renewedCertificateExpiry(previous, cert); renewed && !notAfter.Equal(lastNotified) {
+			lastNotified = notAfter
+			if onRenewed != nil {
+				go onRenewed(notAfter)
+			}
+		}
+		return cert, nil
 	}
 	return tlsCfg, mgr
+}
+
+func renewedCertificateExpiry(previous *Found, cert *tls.Certificate) (time.Time, bool) {
+	if previous == nil || cert == nil {
+		return time.Time{}, false
+	}
+	leaf := cert.Leaf
+	if leaf == nil && len(cert.Certificate) > 0 {
+		parsed, err := x509.ParseCertificate(cert.Certificate[0])
+		if err != nil {
+			return time.Time{}, false
+		}
+		leaf = parsed
+	}
+	if leaf == nil || !leaf.NotAfter.After(previous.NotAfter) {
+		return time.Time{}, false
+	}
+	return leaf.NotAfter.UTC(), true
+}
+
+// SaveAutocertCertificate serializes an autocert certificate and its private
+// key into the app-managed layout. The autocert cache remains in place for
+// account and ACME state; the mirrored pair is used by certificate lookup
+// and the PART 18 renewal task.
+func SaveAutocertCertificate(configDir, fqdn string, cert *tls.Certificate) error {
+	if cert == nil || len(cert.Certificate) == 0 || cert.PrivateKey == nil {
+		return fmt.Errorf("certmgr: ACME returned an incomplete certificate")
+	}
+	var certPEM []byte
+	for _, der := range cert.Certificate {
+		certPEM = append(certPEM, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(cert.PrivateKey)
+	if err != nil {
+		return fmt.Errorf("certmgr: marshal ACME private key: %w", err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
+	return SaveAppManagedCertificate(configDir, fqdn, certPEM, keyPEM)
 }
 
 // HTTPHandler wraps fallback with the autocert HTTP-01 challenge handler.

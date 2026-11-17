@@ -136,6 +136,21 @@ func TestCreateAndVerifyRoundTrip(t *testing.T) {
 	if err := Verify(res.Path, ""); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
+
+	metadataDB, err := sql.Open("sqlite", "file:"+env.dbPath)
+	if err != nil {
+		t.Fatalf("open metadata database: %v", err)
+	}
+	defer metadataDB.Close()
+	var filename, storedPath, kind, checksum string
+	var size int64
+	if err := metadataDB.QueryRow(`SELECT filename, filepath, size_bytes, type, checksum FROM backups WHERE filename = ?`, res.Name).
+		Scan(&filename, &storedPath, &size, &kind, &checksum); err != nil {
+		t.Fatalf("read backup metadata: %v", err)
+	}
+	if filename != res.Name || storedPath != res.Path || size != res.Size || kind != "auto" || !strings.HasPrefix(checksum, "sha256:") {
+		t.Errorf("backup metadata = %q, %q, %d, %q, %q", filename, storedPath, size, kind, checksum)
+	}
 }
 
 func TestCreateWithOptionalContents(t *testing.T) {
