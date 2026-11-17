@@ -38,6 +38,8 @@ https://shortner.example.com
 The operator and developer guides are in [`docs/`](docs/index.md), including
 the [API reference](docs/api.md), [configuration guide](docs/configuration.md),
 [security model](docs/security.md), and [translation guide](docs/translating.md).
+The live API pages at `/server/docs/swagger` and `/server/docs/graphql` list
+the implemented operations and provide interactive request/query controls.
 
 ## Production
 

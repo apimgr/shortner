@@ -47,10 +47,17 @@ specific `data` shape.
 The route annotations cover the API, CLI binary, report, link, and metrics
 routes mounted by the server and are the source used by both the OpenAPI
 generator and the GraphQL read-field generator. Detailed schemas and
-examples for some remaining server operations, build-time spec embedding,
-and the interactive documentation UI are still being expanded. Inspect the
-live generated document for the operations currently available on a
-server.
+examples for some remaining server operations and build-time spec embedding
+are still being expanded.
+Swagger lists every annotated operation and provides browser controls to
+inspect parameters, send requests, and view responses; JavaScript enhances
+the page while the server-rendered inventory and JSON link remain available
+without it. The GraphQL page lists fields from the executable schema and
+accepts query, operation name, and JSON variables in either its enhanced
+form or a standard form submission. The enhanced form can send an optional
+API token in the `Authorization` header; tokens are not persisted by the
+page. Inspect the live generated document for the operations currently
+available on a server.
 
 ## Authentication
 

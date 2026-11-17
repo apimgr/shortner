@@ -286,9 +286,14 @@ Still open under PART 9-11:
   handlers. The annotations cover the API, CLI binary, report, link, and
   metrics routes mounted in `src/httpserver/server.go`; request/response
   schemas for the remaining server operations and richer endpoint examples
-  still need syncing. Also remaining: generate and embed specs at build
-  time, and complete the interactive UI behavior required by PART 14. The
-  specs must stay synced with implemented handlers.
+  still need syncing. The Swagger page now renders the complete annotated
+  operation list without JavaScript and adds parameter, request, auth, and
+  response controls with JavaScript. GraphQL docs list fields from the
+  executable schema and support query, operation name, and variables in
+  enhanced and standard form submissions. Browser E2E for both pages now
+  passes across SSR, no-JavaScript, and browser-interaction tiers. Remaining:
+  generate and embed specs at build time, and finish schemas/examples for
+  remaining server operations.
 - DONE: Home page (`/`) body LAYOUT diffed against the prior Node.js app
   (`github.com/casjaydns/csj.lol`, reference assets formerly at
   `reference/csjlol/`) — `page/home.tmpl` (centered logo, h1 site name,
@@ -499,6 +504,19 @@ The remaining items below are environment limits, not unbuilt work.
   `ServiceStartName` for the Virtual Service Account) cross-compiles but
   is never run — there is no Windows host here.
   Read: AI.md PART 24
+
+## PART 26: Docker — DONE
+
+- `docker/Dockerfile` and `docker/Dockerfile.dev` include the required
+  `i2pd` runtime package and use the PART 26 healthcheck timing.
+- Production, development, and test Compose files use the shared project,
+  network, and fixed container names; timezone overrides use the specified
+  fallback, and development bind mounts omit the SELinux `:z` suffix.
+- The entrypoint maps `LISTEN` and `PORT` into safely quoted CLI arguments
+  and preserves the final `exec` handoff.
+- Verified: both images build, all three Compose files pass `docker compose
+  config`, and ShellCheck passes for `entrypoint.sh`.
+  Read: AI.md PART 26
 
 ## PART 27: CI/CD workflows
 

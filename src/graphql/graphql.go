@@ -96,11 +96,25 @@ func Handler(resolve ResolverFactory) http.Handler {
 		defer r.Body.Close()
 		var req request
 		if strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") {
-			_ = r.ParseForm()
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "invalid GraphQL request", http.StatusBadRequest)
+				return
+			}
 			req.Query = r.FormValue("query")
+			req.OperationName = r.FormValue("operationName")
+			if variables := r.FormValue("variables"); variables != "" {
+				if err := json.Unmarshal([]byte(variables), &req.Variables); err != nil {
+					http.Error(w, "invalid GraphQL variables", http.StatusBadRequest)
+					return
+				}
+			}
 		} else {
 			decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-			_ = decoder.Decode(&req)
+			if err := decoder.Decode(&req); err != nil {
+				http.Error(w, "invalid GraphQL request", http.StatusBadRequest)
+				return
+			}
 		}
 		if req.Query == "" {
 			http.Error(w, "invalid GraphQL request", http.StatusBadRequest)

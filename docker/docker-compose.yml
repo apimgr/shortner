@@ -19,7 +19,7 @@ services:
     logging: *default-logging
     environment:
       PORT: 80
-      TZ: America/New_York
+      TZ: ${TZ:-America/New_York}
       CACHE_URL: valkey://shortner-cache:6379
       # For remote libsql/Turso: set DATABASE_DRIVER and DATABASE_URL
       # DATABASE_DRIVER: libsql

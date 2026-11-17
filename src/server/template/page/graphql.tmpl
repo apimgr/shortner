@@ -4,13 +4,21 @@
 <p>Endpoint: <code>{{.Endpoint}}</code>. Queries are read-only.</p>
 <form method="post" action="{{.Endpoint}}" aria-label="GraphQL query" data-graphql-url="{{.Endpoint}}">
 <label for="graphql-query">Query</label>
-<textarea id="graphql-query" name="query" rows="10" required>{{printf "{ links(limit: 10) { shortCode shortURL destinationURL createdAt clickCount } }"}}</textarea>
+<textarea id="graphql-query" name="query" rows="10" required>{{printf "{ links(limit: 10) { shortCode shortURL destinationURL createdAt clickCount } getAPIHealth }"}}</textarea>
+<label for="graphql-operation-name">Operation name (optional)</label>
+<input id="graphql-operation-name" name="operationName" autocomplete="off">
+<label for="graphql-variables">Variables (JSON, optional)</label>
+<textarea id="graphql-variables" name="variables" rows="4">{}</textarea>
+<label for="graphql-token">API token (optional)</label>
+<input id="graphql-token" type="password" autocomplete="off" spellcheck="false">
 <button type="submit">Run query</button>
 </form>
 <p id="graphql-status" role="status" aria-live="polite">Queries can also be submitted as a standard HTML form.</p>
 <pre id="graphql-result" tabindex="0" aria-label="GraphQL response"></pre>
 <h2>Available queries</h2>
-<ul><li><code>link(slug: String!)</code></li><li><code>links(limit: Int, offset: Int)</code></li></ul>
-<p>POST a JSON body containing a <code>query</code> string to the endpoint.</p>
+<ul>
+{{range .Queries}}<li><code>{{.Name}}{{if .Args}}({{range $index, $arg := .Args}}{{if $index}}, {{end}}{{$arg}}{{end}}){{end}}</code> — {{.Summary}}</li>
+{{end}}</ul>
+<p>The REST-backed fields return JSON scalar values; the direct link fields support GraphQL field selection.</p>
 <script src="{{asset "/static/js/graphql-docs.js" .Base.AssetStamp}}" defer></script>
 </article>{{end}}

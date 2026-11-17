@@ -2,21 +2,22 @@
 <link rel="stylesheet" href="{{asset "/static/css/swagger-docs.css" .Base.AssetStamp}}">
 <h1>REST API documentation</h1>
 <p>OpenAPI JSON: <a href="{{.Endpoint}}">{{.Endpoint}}</a></p>
-<section aria-labelledby="openapi-title" data-openapi-url="{{.Endpoint}}">
+<label for="openapi-token">API token (optional)</label>
+<input id="openapi-token" type="password" autocomplete="off" spellcheck="false" aria-describedby="openapi-token-help">
+<p id="openapi-token-help">The token is kept in this page and sent only with requests you run.</p>
+<section aria-labelledby="openapi-title" data-openapi-url="{{.Endpoint}}" data-api-version="{{.APIVersion}}">
 <h2 id="openapi-title">Generated OpenAPI document</h2>
-<p id="openapi-status" role="status" aria-live="polite">The document is available from the JSON link above.</p>
-<pre id="openapi-document" tabindex="0" aria-label="OpenAPI JSON"></pre>
-</section>
-<h2>API operations</h2>
+<p id="openapi-status" role="status" aria-live="polite">The operation list below works without JavaScript. Enable JavaScript to load request controls.</p>
+<div id="openapi-operations" class="openapi-operations">
 <ul>
-<li><code>GET /api/{api_version}/links</code> — list links</li>
-<li><code>POST /api/{api_version}/links</code> — create a link</li>
-<li><code>GET /api/{api_version}/links/{slug}</code> — retrieve a link</li>
-<li><code>PATCH /api/{api_version}/links/{slug}</code> — update a link</li>
-<li><code>DELETE /api/{api_version}/links/{slug}</code> — delete a link</li>
-<li><code>GET /api/{api_version}/links/{slug}/stats</code> — retrieve link statistics</li>
-<li><code>GET /api/{api_version}/server/healthz</code> — retrieve service health</li>
-</ul>
+{{range .Operations}}<li><code>{{.Method}} {{.Path}}</code> — {{.Summary}}</li>
+{{end}}</ul>
+</div>
+<details>
+<summary>View generated OpenAPI JSON</summary>
+<pre id="openapi-document" tabindex="0" aria-label="OpenAPI JSON"></pre>
+</details>
+</section>
 <p>Use the JSON specification with your preferred OpenAPI client or SDK generator.</p>
 <script src="{{asset "/static/js/swagger-docs.js" .Base.AssetStamp}}" defer></script>
 </article>{{end}}

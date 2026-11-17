@@ -37,8 +37,8 @@ trap cleanup SIGTERM SIGINT SIGQUIT
 log "Starting ${APP_NAME}..."
 
 # Build flags from environment
-FLAGS="--address ${ADDRESS:-0.0.0.0} --port ${PORT:-80}"
-[ "${DEBUG:-false}" = "true" ] && FLAGS="$FLAGS --debug"
+FLAGS=(--address "${LISTEN:-0.0.0.0}" --port "${PORT:-80}")
+[ "${DEBUG:-false}" = "true" ] && FLAGS+=(--debug)
 
 # Start binary (binary handles ALL setup: dirs, perms, user/group, Tor, etc.)
-exec $APP_BIN $FLAGS "$@"
+exec "$APP_BIN" "${FLAGS[@]}" "$@"

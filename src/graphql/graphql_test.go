@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -60,6 +61,35 @@ func TestHandlerRunsReadOnlyRESTRoute(t *testing.T) {
 	}
 	if got := result.Data["getHealth"]["ok"]; got != true {
 		t.Errorf("GraphQL REST result = %v, want ok=true", result.Data["getHealth"])
+	}
+}
+
+func TestHandlerReadsFormVariablesWithoutJavaScript(t *testing.T) {
+	resolver := &testResolver{}
+	handler := Handler(func(*http.Request) Resolver { return resolver })
+	form := "query=" + url.QueryEscape("query Health($version: String!) { getHealth(api_version: $version) }") +
+		"&operationName=Health&variables=" + url.QueryEscape(`{"version":"v1"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/graphql", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if resolver.readPath != "/api/v1/server/healthz" {
+		t.Errorf("read path = %q, want variable-resolved health path", resolver.readPath)
+	}
+}
+
+func TestHandlerRejectsMalformedFormVariables(t *testing.T) {
+	handler := Handler(func(*http.Request) Resolver { return &testResolver{} })
+	form := "query=" + url.QueryEscape("{ getAPIHealth }") + "&variables=" + url.QueryEscape("{")
+	req := httptest.NewRequest(http.MethodPost, "/api/graphql", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body.String())
 	}
 }
 

@@ -60,7 +60,7 @@ func get(t *testing.T, client *http.Client, path string) (*http.Response, string
 func TestTier1ServerSideRendering(t *testing.T) {
 	client := newClient(t)
 
-	for _, path := range []string{"/", "/server/about", "/server/healthz", "/list"} {
+	for _, path := range []string{"/", "/server/about", "/server/healthz", "/list", "/server/docs/swagger", "/server/docs/graphql"} {
 		resp, body := get(t, client, path)
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("GET %s = %d, want 200", path, resp.StatusCode)
@@ -71,6 +71,24 @@ func TestTier1ServerSideRendering(t *testing.T) {
 		}
 		if strings.Contains(body, "{{") {
 			t.Errorf("GET %s leaked an unrendered template action", path)
+		}
+	}
+	swaggerResp, swaggerBody := get(t, client, "/server/docs/swagger")
+	if swaggerResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /server/docs/swagger = %d, want 200", swaggerResp.StatusCode)
+	}
+	for _, operation := range []string{"GET /api/{api_version}/links", "POST /api/{api_version}/links", "GET /metrics"} {
+		if !strings.Contains(swaggerBody, operation) {
+			t.Errorf("server-rendered Swagger inventory omitted %q", operation)
+		}
+	}
+	graphqlResp, graphqlBody := get(t, client, "/server/docs/graphql")
+	if graphqlResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /server/docs/graphql = %d, want 200", graphqlResp.StatusCode)
+	}
+	for _, field := range []string{"linkStats", "getAPIHealth", `name="variables"`} {
+		if !strings.Contains(graphqlBody, field) {
+			t.Errorf("server-rendered GraphQL docs omitted %q", field)
 		}
 	}
 	serverResp, _ := get(t, client, "/server")

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"strings"
 
 	apiGraphql "github.com/apimgr/shortner/src/graphql"
@@ -13,19 +14,52 @@ import (
 )
 
 type apiDocsPageData struct {
-	Base     PageData
-	Endpoint string
+	Base       PageData
+	Endpoint   string
+	APIVersion string
+	Operations []swagger.Route
+	Queries    []apiQueryDoc
+}
+
+type apiQueryDoc struct {
+	Name    string
+	Summary string
+	Args    []string
 }
 
 func (fd *frontendDeps) swaggerPage(w http.ResponseWriter, r *http.Request) {
-	data := apiDocsPageData{Base: fd.newPageData(r, "", "API documentation", "Explore the Shortner REST API."), Endpoint: fd.resolver.BuildURL(r, "/api/swagger")}
+	data := apiDocsPageData{
+		Base:       fd.newPageData(r, "", "API documentation", "Explore the Shortner REST API."),
+		Endpoint:   fd.resolver.BuildURL(r, "/api/swagger"),
+		APIVersion: fd.cfg.Server.APIVersion,
+		Operations: swagger.RouteAnnotations(),
+	}
+	for i := range data.Operations {
+		data.Operations[i].Method = strings.ToUpper(data.Operations[i].Method)
+	}
 	if err := renderPage(w, http.StatusOK, "swagger", data); err != nil {
 		http.Error(w, "unable to render API documentation", http.StatusInternalServerError)
 	}
 }
 
 func (fd *frontendDeps) graphqlPage(w http.ResponseWriter, r *http.Request) {
-	data := apiDocsPageData{Base: fd.newPageData(r, "", "GraphQL documentation", "Explore read-only Shortner GraphQL queries."), Endpoint: fd.resolver.BuildURL(r, "/api/graphql")}
+	data := apiDocsPageData{
+		Base:     fd.newPageData(r, "", "GraphQL documentation", "Explore read-only Shortner GraphQL queries."),
+		Endpoint: fd.resolver.BuildURL(r, "/api/graphql"),
+	}
+	schema, err := apiGraphql.Schema()
+	if err != nil {
+		http.Error(w, "GraphQL schema unavailable", http.StatusInternalServerError)
+		return
+	}
+	for name, field := range schema.QueryType().Fields() {
+		query := apiQueryDoc{Name: name, Summary: field.Description}
+		for _, arg := range field.Args {
+			query.Args = append(query.Args, arg.Name()+": "+arg.Type.String())
+		}
+		data.Queries = append(data.Queries, query)
+	}
+	sort.Slice(data.Queries, func(i, j int) bool { return data.Queries[i].Name < data.Queries[j].Name })
 	if err := renderPage(w, http.StatusOK, "graphql", data); err != nil {
 		http.Error(w, "unable to render GraphQL documentation", http.StatusInternalServerError)
 	}

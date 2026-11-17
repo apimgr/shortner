@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/apimgr/shortner/src/swagger"
 )
 
 func TestGraphQLAPIReadUsesDocumentedReadRoute(t *testing.T) {
@@ -50,5 +52,56 @@ func TestGraphQLAPIReadRejectsUnsafePaths(t *testing.T) {
 				t.Fatal("graphQLAPIRead() error = nil, want rejection")
 			}
 		})
+	}
+}
+
+func TestSwaggerPageListsAnnotatedOperationsWithoutJavaScript(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	fd.cfg.Server.APIVersion = "v1"
+	recorder := httptest.NewRecorder()
+	fd.swaggerPage(recorder, htmlRequest(http.MethodGet, "/server/docs/swagger", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, want := range []string{
+		"GET /api/{api_version}/links",
+		"POST /api/{api_version}/links",
+		"GET /api/{api_version}/server/preferences/tokens",
+		"GET /metrics",
+		"data-api-version=\"v1\"",
+		"/static/js/swagger-docs.js",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Swagger page does not include %q", want)
+		}
+	}
+	for _, route := range swagger.RouteAnnotations() {
+		want := strings.ToUpper(route.Method) + " " + route.Path
+		if !strings.Contains(body, want) {
+			t.Errorf("Swagger page operation inventory omits %q", want)
+		}
+	}
+}
+
+func TestGraphQLPageListsSchemaFieldsAndFormControls(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	recorder := httptest.NewRecorder()
+	fd.graphqlPage(recorder, htmlRequest(http.MethodGet, "/server/docs/graphql", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, want := range []string{
+		"name=\"operationName\"",
+		"name=\"variables\"",
+		"id=\"graphql-token\"",
+		"getAPIHealth",
+		"linkStats",
+		"REST-backed fields return JSON scalar values",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("GraphQL page does not include %q", want)
+		}
 	}
 }
