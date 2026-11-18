@@ -47,7 +47,7 @@ func TestLoadMissingFileReturnsDefault(t *testing.T) {
 func TestLoadParsesExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "server.yml")
-	yamlContent := "server:\n  token: tok_existing\n  listen: 127.0.0.1\n  port: \"9999\"\n  baseurl: /short/\n  database:\n    driver: libsql\n    url: mydb\n"
+	yamlContent := "server:\n  token: tok_existing\n  address: 127.0.0.1\n  port: \"9999\"\n  baseurl: /short/\n  database:\n    driver: libsql\n    url: mydb\n"
 	if err := os.WriteFile(path, []byte(yamlContent), 0o600); err != nil {
 		t.Fatalf("setup: WriteFile: %v", err)
 	}
@@ -67,6 +67,49 @@ func TestLoadParsesExistingFile(t *testing.T) {
 	}
 	if cfg.Server.Database.Driver != "libsql" {
 		t.Errorf("Driver = %q, want libsql", cfg.Server.Database.Driver)
+	}
+}
+
+func TestPeekServerPortReadsOnlyPort(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.yml")
+	content := "server:\n  address: 127.0.0.1\n  port: \"443,8443\"\n  token: tok_secret\nweb:\n  unknown_setting: ignored\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	address, got, err := PeekServerSettings(path)
+	if err != nil || got != "443,8443" || address != "127.0.0.1" {
+		t.Fatalf("PeekServerSettings() = %q, %q, %v", address, got, err)
+	}
+	missingAddress, missingPort, err := PeekServerSettings(filepath.Join(t.TempDir(), "missing.yml"))
+	if err != nil || missingAddress != "" || missingPort != "" {
+		t.Fatalf("PeekServerSettings(missing) = %q, %q, %v", missingAddress, missingPort, err)
+	}
+}
+
+func TestLoadSupportsLegacyListenKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.yml")
+	if err := os.WriteFile(path, []byte("server:\n  listen: 127.0.0.1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path, "unused")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server.Listen != "127.0.0.1" {
+		t.Fatalf("legacy server.listen = %q, want 127.0.0.1", cfg.Server.Listen)
+	}
+}
+
+func TestValidServerAddress(t *testing.T) {
+	for _, address := range []string{"0.0.0.0", "127.0.0.1", "[::]", "localhost", "server.example.org"} {
+		if !ValidServerAddress(address) {
+			t.Errorf("ValidServerAddress(%q) = false", address)
+		}
+	}
+	for _, address := range []string{"", "bad address", "127.0.0.1:8080", "http://example.org", "-invalid.example"} {
+		if ValidServerAddress(address) {
+			t.Errorf("ValidServerAddress(%q) = true", address)
+		}
 	}
 }
 

@@ -63,30 +63,29 @@ for path in / /server /server/about /server/healthz /list; do
 done
 
 __section "API routes"
-for path in /server/healthz; do
-  out="$(__body "$api_url$path" -H 'Accept: application/json')"
-  if command -v -- jq >/dev/null 2>&1; then
-    if printf '%s' "$out" | jq -e . >/dev/null 2>&1; then
-      __pass "$path + application/json -> valid JSON"
-    else
-      __fail "$path + application/json -> not valid JSON"
-    fi
+path=/server/healthz
+out="$(__body "$api_url$path" -H 'Accept: application/json')"
+if command -v -- jq >/dev/null 2>&1; then
+  if printf '%s' "$out" | jq -e . >/dev/null 2>&1; then
+    __pass "$path + application/json -> valid JSON"
   else
-    __assert_contains "$path + application/json -> JSON object" "{" "$out"
+    __fail "$path + application/json -> not valid JSON"
   fi
+else
+  __assert_contains "$path + application/json -> JSON object" "{" "$out"
+fi
 
-  ctype="$(__content_type "$api_url$path" -H 'Accept: application/json')"
-  __assert_contains "$path + application/json -> JSON Content-Type" "application/json" "$ctype"
+ctype="$(__content_type "$api_url$path" -H 'Accept: application/json')"
+__assert_contains "$path + application/json -> JSON Content-Type" "application/json" "$ctype"
 
-  out="$(__body "$api_url$path" -H 'Accept: text/plain')"
-  __assert_not_contains "$path + text/plain -> no JSON envelope" '"ok":' "$out"
+out="$(__body "$api_url$path" -H 'Accept: text/plain')"
+__assert_not_contains "$path + text/plain -> no JSON envelope" '"ok":' "$out"
 
-  out="$(__body "$api_url$path" -H "User-Agent: curl/8.0.0")"
-  __assert_not_contains "$path + curl UA (no Accept) -> plain text" '"ok":' "$out"
+out="$(__body "$api_url$path" -H "User-Agent: curl/8.0.0")"
+__assert_not_contains "$path + curl UA (no Accept) -> plain text" '"ok":' "$out"
 
-  out="$(__body "$api_url$path" -H "User-Agent: $browser_ua")"
-  __assert_contains "$path + browser UA (no Accept) -> JSON" '"status"' "$out"
-done
+out="$(__body "$api_url$path" -H "User-Agent: $browser_ua")"
+__assert_contains "$path + browser UA (no Accept) -> JSON" '"status"' "$out"
 
 __section "CORS"
 ctype="$(curl -sS -o /dev/null -D - "$api_url/server/healthz" 2>/dev/null | tr -d '\r' | grep -i -- '^access-control-allow-origin:' || true)"
@@ -106,10 +105,12 @@ done
 __section "Path suffix (.txt)"
 code="$(__status "$base_url/server/healthz.txt")"
 if [ "$code" = "200" ]; then
+  ctype="$(__content_type "$base_url/server/healthz.txt")"
+  __assert_contains "/server/healthz.txt -> text/plain" "text/plain" "$ctype"
   out="$(__body "$base_url/server/healthz.txt" -H "User-Agent: $browser_ua")"
   __assert_not_contains "/server/healthz.txt -> not HTML" "<!DOCTYPE" "$out"
 else
-  __skip "/server/healthz.txt" "path-suffix routing not implemented yet (HTTP $code) — TODO.AI.md PART 13/14"
+  __fail "/server/healthz.txt returned HTTP $code"
 fi
 
 __print_summary

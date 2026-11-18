@@ -40,6 +40,7 @@ type Params struct {
 
 	ConfigDir string
 	DataDir   string
+	DBDir     string
 	CacheDir  string
 	LogDir    string
 	BackupDir string

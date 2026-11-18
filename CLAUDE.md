@@ -300,8 +300,7 @@
   a `gui` build tag, and the server side of CLI auto-update; PART 11 has
   two deferred sub-items — GPG keypair
   management CLI and the `/server/security/report/{tracking_id}` status
-  page; PART 15 has deferred sub-items — DNS-01 provider matrix,
-  credential encryption at rest, autocert-to-spec-layout bridging; PART 16
+  page; PART 15 has deferred sub-items — autocert-to-spec-layout bridging; PART 16
   has deferred sub-items — PWA, sitemap.xml, favicon.ico,
   announcements-banner rendering, Web-UI toast rendering,
   Swagger/GraphQL doc pages; PART 17 has three deferred sub-items —

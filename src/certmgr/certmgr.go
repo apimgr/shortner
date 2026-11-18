@@ -5,10 +5,8 @@
 // validate it, and decide whether an app-managed certificate is due for
 // renewal.
 //
-// ACME issuance itself (obtaining a NEW certificate when none is found) is
-// in acme.go, built on golang.org/x/crypto/acme/autocert. The DNS-01
-// provider matrix (AI.md PART 15 "DNS-01 Provider Configuration") is not
-// implemented — see TODO.AI.md.
+// ACME issuance is split between autocert's HTTP-01/TLS-ALPN-01 path in
+// acme.go and lego's configurable DNS-01 path in dns.go.
 package certmgr
 
 import (

@@ -139,14 +139,12 @@ func parsePagination(r *http.Request) (page, limit int) {
 // scoped to "/api/{api_version}", per AI.md PART 14 "Route Naming
 // Convention" (plural noun, versioned).
 func (ld *linkDeps) registerLinkAPIRoutes(apiGroup chi.Router) {
-	apiGroup.Route("/links", func(sr chi.Router) {
-		sr.Post("/", ld.createLinkHandler)
-		sr.Get("/", ld.listLinksHandler)
-		sr.Get("/{slug}", ld.getLinkHandler)
-		sr.Patch("/{slug}", ld.updateLinkHandler)
-		sr.Delete("/{slug}", ld.deleteLinkHandler)
-		sr.Get("/{slug}/stats", ld.statsHandler)
-	})
+	apiGroup.Post("/links", ld.createLinkHandler)
+	apiGroup.Get("/links", ld.listLinksHandler)
+	apiGroup.Get("/links/{slug}", ld.getLinkHandler)
+	apiGroup.Patch("/links/{slug}", ld.updateLinkHandler)
+	apiGroup.Delete("/links/{slug}", ld.deleteLinkHandler)
+	apiGroup.Get("/links/{slug}/stats", ld.statsHandler)
 }
 
 // createLinkRequest is the POST /links body.

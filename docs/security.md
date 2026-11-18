@@ -243,13 +243,15 @@ convenience only and is never the enforcement point.
 
 ## Transport
 
-Built-in ACME issuance supports the HTTP-01 and TLS-ALPN-01 challenges.
-
-!!! warning
-    DNS-01 is not implemented — the `dns_provider` and `dns_credentials`
-    settings have no provider matrix behind them, and DNS credentials are
-    not encrypted at rest. Use HTTP-01, TLS-ALPN-01, or terminate TLS at a
-    reverse proxy.
+Built-in ACME issuance supports HTTP-01 and TLS-ALPN-01 through autocert.
+When `server.tls.dns_provider` is set, the server uses lego's DNS-01
+provider registry, including wildcard certificate requests. DNS credentials
+are supplied as a flat map of lego environment-variable names and encrypted
+with AES-256-GCM under `server.security.encryption_key` before the config is
+written. The provider is constructed with those values only for the duration
+of the constructor call; values are not returned by APIs or written to a
+separate credential file. A DNS provider error fails the TLS certificate
+request without falling back to another challenge type.
 
 ## Backup Security
 

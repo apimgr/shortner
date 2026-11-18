@@ -48,6 +48,7 @@
       })
       .catch(function () {
         /* the English fallbacks already in the code stay in effect */
+        return null;
       });
   }
 
@@ -58,7 +59,32 @@
     var offlineIndicator = document.getElementById("offline-indicator");
     var installPrompt = null;
     var waitingWorker = null;
+    var updateAccepted = false;
+    var reloading = false;
     var installDismissed = false;
+    function reloadOnce() {
+      if (reloading) return;
+      reloading = true;
+      window.location.reload();
+    }
+    function showWaitingUpdate(worker) {
+      if (!worker || !navigator.serviceWorker.controller) return;
+      waitingWorker = worker;
+      if (updateBanner) updateBanner.hidden = false;
+    }
+    function updateApp() {
+      updateAccepted = true;
+      if (updateBanner) updateBanner.hidden = true;
+      window.setTimeout(reloadOnce, 5000);
+      navigator.serviceWorker.ready.then(function (registration) {
+        if (registration.waiting) {
+          waitingWorker = registration.waiting;
+          waitingWorker.postMessage({ type: "SKIP_WAITING" });
+        } else {
+          reloadOnce();
+        }
+      }, reloadOnce);
+    }
     function updateOnlineState() {
       if (offlineIndicator) offlineIndicator.hidden = navigator.onLine;
     }
@@ -75,11 +101,14 @@
       installPrompt = null;
       if (installBanner) installBanner.hidden = true;
     });
-    if (!installBanner || window.location.protocol !== "https:" || !("serviceWorker" in navigator)) {
+    if (window.location.protocol !== "https:" || !("serviceWorker" in navigator)) {
       return;
     }
+    navigator.serviceWorker.addEventListener("controllerchange", function () {
+      if (updateAccepted) reloadOnce();
+    });
     var iosHelp = document.getElementById("pwa-ios-help");
-    if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !navigator.standalone && !window.matchMedia("(display-mode: standalone)").matches && iosHelp) {
+    if (installBanner && /iPad|iPhone|iPod/.test(navigator.userAgent) && !navigator.standalone && !window.matchMedia("(display-mode: standalone)").matches && iosHelp) {
       iosHelp.hidden = false;
       installBanner.hidden = false;
       if (installButton) installButton.hidden = true;
@@ -89,28 +118,22 @@
     window.addEventListener("load", function () {
       navigator.serviceWorker.register("/sw.js", { scope: "/" }).then(function (registration) {
         window.setInterval(function () {
-          registration.update().catch(function () {});
+          registration.update().catch(function () { return null; });
         }, 60 * 60 * 1000);
+        showWaitingUpdate(registration.waiting);
         registration.addEventListener("updatefound", function () {
           var worker = registration.installing;
           if (!worker) return;
           worker.addEventListener("statechange", function () {
             if (worker.state === "installed" && navigator.serviceWorker.controller) {
-              waitingWorker = worker;
-              if (updateBanner) updateBanner.hidden = false;
+              showWaitingUpdate(worker);
             }
           });
         });
       }).catch(function () {
         /* The web app remains fully usable when offline support is unavailable. */
+        return null;
       });
-    });
-    navigator.serviceWorker.addEventListener("controllerchange", function () {
-      var stamp = document.querySelector('meta[name="build-stamp"]');
-      var current = stamp ? stamp.content : "unknown";
-      if (sessionStorage.getItem("shortner_sw_reloaded_stamp") === current) return;
-      sessionStorage.setItem("shortner_sw_reloaded_stamp", current);
-      window.location.reload();
     });
     document.addEventListener("click", function (event) {
       var action = event.target.closest("[data-action]");
@@ -127,7 +150,7 @@
           if (installBanner) installBanner.hidden = true;
           break;
         case "update-app":
-          if (waitingWorker) waitingWorker.postMessage({ action: "skipWaiting" });
+          updateApp();
           break;
         case "dismiss-update":
           if (updateBanner) updateBanner.hidden = true;

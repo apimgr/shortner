@@ -29,7 +29,7 @@ type Server struct {
 	// Token is the global operator token (tok_ prefix). Auto-generated on
 	// first run if empty. See AI.md PART 11 "API Token Model".
 	Token   string `yaml:"token"`
-	Listen  string `yaml:"listen"`
+	Listen  string `yaml:"address"`
 	Port    string `yaml:"port"`
 	BaseURL string `yaml:"baseurl"`
 	// APIVersion is the version segment of /api/{api_version}/ routes. The
@@ -617,22 +617,17 @@ type ContactPage struct {
 }
 
 // TLS holds `server.tls`, per AI.md PART 15 "Built-in Let's Encrypt
-// Support". DNSCredentials is stored as plaintext YAML for now — AES-256-
-// GCM encryption at rest (spec: "credentials_encrypted") depends on an app
-// secret-encryption primitive this codebase does not have yet (tracked in
-// TODO.AI.md).
+// Support". DNSCredentials stores the flat lego environment-name map;
+// SealDNSCredentials encrypts every value before it is written to YAML.
 type TLS struct {
 	// Enabled turns on HTTPS/ACME certificate handling for the resolved
 	// FQDN. When false (default), the server is HTTP-only.
 	Enabled bool `yaml:"enabled"`
 	// DNSProvider selects a DNS-01 provider (e.g. "cloudflare", "route53")
-	// for wildcard certificate issuance. DNS-01 issuance itself is not
-	// implemented yet — see TODO.AI.md; HTTP-01/TLS-ALPN-01 via the
-	// certificate lookup order + ACME fallback in src/certmgr are.
+	// for certificate issuance when configured.
 	DNSProvider string `yaml:"dns_provider"`
-	// DNSCredentials holds the provider-specific credential fields (e.g.
-	// api_token, access_key_id), per AI.md PART 15 "Provider Credential
-	// Storage".
+	// DNSCredentials is the flat map of lego environment variable names to
+	// encrypted values, per AI.md PART 15 "DNS-01 credential contract".
 	DNSCredentials map[string]string `yaml:"dns_credentials"`
 }
 
@@ -932,8 +927,55 @@ func Load(path, dbPath string) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("config: parse %s: %w", path, err)
 	}
+	var addressProbe struct {
+		Server struct {
+			Address *string `yaml:"address"`
+			Listen  *string `yaml:"listen"`
+		} `yaml:"server"`
+	}
+	if err := yaml.Unmarshal(data, &addressProbe); err != nil {
+		return nil, fmt.Errorf("config: parse %s: %w", path, err)
+	}
+	if addressProbe.Server.Address == nil && addressProbe.Server.Listen != nil {
+		cfg.Server.Listen = *addressProbe.Server.Listen
+	}
 	cfg.Web.CSP.ModeExplicit = cspModeIsExplicit(data)
 	return cfg, nil
+}
+
+// PeekServerPort reads only server.port for the root startup phase, before
+// the full configuration is loaded after privileged ports have been bound.
+func PeekServerSettings(path string) (address, port string, err error) {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("config: read server startup settings from %s: %w", path, err)
+	}
+	var probe struct {
+		Server struct {
+			Address *string `yaml:"address"`
+			Listen  *string `yaml:"listen"`
+			Port    string  `yaml:"port"`
+		} `yaml:"server"`
+	}
+	if err := yaml.Unmarshal(data, &probe); err != nil {
+		return "", "", fmt.Errorf("config: parse server startup settings from %s: %w", path, err)
+	}
+	if probe.Server.Address != nil {
+		address = *probe.Server.Address
+	} else if probe.Server.Listen != nil {
+		address = *probe.Server.Listen
+	}
+	return strings.TrimSpace(address), strings.TrimSpace(probe.Server.Port), nil
+}
+
+// PeekServerPort remains a narrow convenience for callers that need only
+// the port; startup uses PeekServerSettings to bind the configured address.
+func PeekServerPort(path string) (string, error) {
+	_, port, err := PeekServerSettings(path)
+	return port, err
 }
 
 // cspModeExplicitProbe re-decodes just `web.csp.mode` as a pointer so a

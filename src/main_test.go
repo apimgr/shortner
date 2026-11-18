@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"flag"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/apimgr/shortner/src/httpserver"
+	"github.com/apimgr/shortner/src/service"
 )
 
 // captureOutput redirects both os.Stdout and os.Stderr for the duration of
@@ -37,6 +39,18 @@ func captureOutput(t *testing.T, fn func() int) (stdout, stderr string, code int
 	io.Copy(&bufOut, rOut)
 	io.Copy(&bufErr, rErr)
 	return bufOut.String(), bufErr.String(), code
+}
+
+func isolateRuntimePrivilegeHooks(t *testing.T) {
+	t.Helper()
+	oldCreate, oldOwnership, oldDrop, oldBind := createServiceAccount, setRuntimeOwnership, dropPrivileges, bindPrivilegedPorts
+	createServiceAccount = func(service.Params) (int, error) { return os.Getuid(), nil }
+	setRuntimeOwnership = func(service.Params, int) error { return nil }
+	dropPrivileges = func(int) error { return nil }
+	bindPrivilegedPorts = func(string, string) (map[string]net.Listener, error) { return nil, nil }
+	t.Cleanup(func() {
+		createServiceAccount, setRuntimeOwnership, dropPrivileges, bindPrivilegedPorts = oldCreate, oldOwnership, oldDrop, oldBind
+	})
 }
 
 func TestFlagWasSet(t *testing.T) {
@@ -200,6 +214,7 @@ func TestRunDispatchesUpdateHelp(t *testing.T) {
 // paths regardless of the privilege level or container status of the test
 // runner.
 func TestRunFullStartupPathWithIsolatedDirs(t *testing.T) {
+	isolateRuntimePrivilegeHooks(t)
 	old := startHTTPServer
 	startHTTPServer = func(*httpserver.Server) error { return nil }
 	defer func() { startHTTPServer = old }()
@@ -243,6 +258,7 @@ func TestRunFullStartupPathWithIsolatedDirs(t *testing.T) {
 }
 
 func TestRunAppliesAddressPortBaseURLOverrides(t *testing.T) {
+	isolateRuntimePrivilegeHooks(t)
 	old := startHTTPServer
 	startHTTPServer = func(*httpserver.Server) error { return nil }
 	defer func() { startHTTPServer = old }()

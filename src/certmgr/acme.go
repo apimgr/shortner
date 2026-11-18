@@ -28,9 +28,8 @@ func AutocertCacheDir(configDir string) string {
 //
 // autocert keeps its own opaque account/cache data, while every certificate
 // it returns is also bridged into the app-managed certbot-mirroring layout
-// required by AI.md PART 15 "Certificate Directory Structure". DNS-01
-// issuance (needed for wildcard certs and the full provider matrix in
-// "DNS-01 Provider Configuration") is not implemented.
+// required by AI.md PART 15 "Certificate Directory Structure". Configured
+// DNS-01 issuance uses the separate lego integration in dns.go.
 func NewTLSConfig(configDir, fqdn, email string, onRenewed func(time.Time)) (*tls.Config, *autocert.Manager) {
 	mgr := &autocert.Manager{
 		Prompt:     autocert.AcceptTOS,

@@ -41,11 +41,14 @@ type cliUpdateDeps struct {
 func registerCLIUpdateRoutes(api chi.Router, cfg *config.Config, version string) {
 	binaryDir := executableDirectory()
 	d := &cliUpdateDeps{cfg: cfg, version: version, binaryDir: binaryDir}
-	api.Handle("/autodiscover", http.HandlerFunc(d.autodiscoverHandler))
+	api.Method(http.MethodGet, "/autodiscover", http.HandlerFunc(d.autodiscoverHandler))
+	api.Method(http.MethodHead, "/autodiscover", http.HandlerFunc(d.autodiscoverHandler))
 }
 
 func registerCLIBinaryRoute(r chi.Router, cfg *config.Config) {
-	r.Handle("/cli/binaries/{name}", http.HandlerFunc((&cliUpdateDeps{cfg: cfg, binaryDir: executableDirectory()}).binaryHandler))
+	handler := http.HandlerFunc((&cliUpdateDeps{cfg: cfg, binaryDir: executableDirectory()}).binaryHandler)
+	r.Method(http.MethodGet, "/cli/binaries/{name}", handler)
+	r.Method(http.MethodHead, "/cli/binaries/{name}", handler)
 }
 
 func executableDirectory() string {

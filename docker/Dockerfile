@@ -51,6 +51,7 @@ RUN apk add --no-cache \
     curl \
     bash \
     tini \
+    shadow \
     tor \
     i2pd
 

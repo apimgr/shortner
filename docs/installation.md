@@ -81,7 +81,7 @@ privileged. Nothing is hardcoded at build time.
 | Logs | `/var/log/apimgr/shortner` |
 | Backups | `/mnt/Backups/apimgr/shortner` |
 | TLS | `/etc/apimgr/shortner/ssl` |
-| PID file | `/var/run/apimgr/shortner.pid` |
+| PID file | `/var/run/apimgr/shortner/shortner.pid` |
 
 ### Linux — running as an unprivileged user
 
@@ -176,11 +176,9 @@ The binary installs and manages its own service. It detects the init
 system, renders the correct unit or script, enables the service, and starts
 it. On the first normal server startup, the binary creates the dedicated
 account and runtime directories, sets ownership and private-path permissions,
-binds any privileged ports, then drops to the service account. The current
-systemd unit's `ProtectSystem=strict` sandbox prevents creation of missing
-paths on a fresh install; those paths must already exist before systemd can
-start the service. This AI.md conflict is tracked in `TODO.AI.md` and
-`~/Projects/github/apimgr/TODO.API.md`:
+binds any privileged ports, then drops to the service account. The systemd
+unit creates its required writable directories before applying the
+`ProtectSystem=strict` sandbox.
 
 ```bash
 sudo shortner --service --install

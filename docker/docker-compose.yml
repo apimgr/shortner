@@ -11,7 +11,7 @@ x-logging: &default-logging
 
 services:
   shortner:
-    image: ghcr.io/apimgr/shortner:latest
+    image: ghcr.io/apimgr/shortner:${IMAGE_TAG:-latest}
     container_name: shortner-app
     hostname: shortner
     restart: always
@@ -25,10 +25,10 @@ services:
       # DATABASE_DRIVER: libsql
       # DATABASE_URL: libsql://your-db.turso.io?authToken={token}
     volumes:
-      - './volumes/config:/config:z'
-      - './volumes/data:/data:z'
+      - '${CONFIG_PATH:-./volumes/config}:/config:z'
+      - '${DATA_PATH:-./volumes/data}:/data:z'
     ports:
-      - '172.17.0.1:64580:80'
+      - '${BIND_ADDRESS:-172.17.0.1}:${PORT:-64580}:80'
     healthcheck:
       test: ['CMD', '/usr/local/bin/shortner', '--status']
       interval: 10s

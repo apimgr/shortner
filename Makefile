@@ -191,6 +191,8 @@ i18n-validate:
 # =============================================================================
 # TEST - Run all tests with coverage enforcement (via Docker)
 # =============================================================================
+# Package-level serialization keeps the short SQLite startup deadlines stable
+# under the two-CPU Docker test limit.
 test: i18n-validate
 	@mkdir -p $(GO_CACHE) $(GO_BUILD)
 	@echo "Running tests with coverage..."
@@ -199,7 +201,7 @@ test: i18n-validate
 		COVDIR=\$$(mktemp -d \"\$${TMPDIR:-/tmp}/$(PROJECT_ORG)/$(PROJECT_NAME)-XXXXXX\") && \
 		go mod download && \
 		go generate ./src/swagger && \
-		go test -v -cover -coverprofile=\$$COVDIR/coverage.out ./... && \
+		go test -p 1 -v -cover -coverprofile=\$$COVDIR/coverage.out ./... && \
 		COVERAGE=\$$(go tool cover -func=\$$COVDIR/coverage.out | grep total | awk '{print \$$3}' | sed 's/%//') && \
 		echo \"Coverage: \$$COVERAGE%\" && \
 		if [ \$$(echo \"\$$COVERAGE < 60\" | bc -l) -eq 1 ]; then \

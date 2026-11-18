@@ -37,10 +37,28 @@ func systemdUnit(p Params) string {
 	b.WriteString("ProtectSystem=strict\n")
 	b.WriteString("ProtectHome=yes\n")
 	b.WriteString("PrivateTmp=yes\n")
-	for _, dir := range []string{p.ConfigDir, p.DataDir, p.CacheDir, p.LogDir} {
+	writePaths := []string{p.ConfigDir, p.DataDir, p.DBDir, p.CacheDir, p.LogDir, p.BackupDir}
+	if p.PIDFile != "" {
+		writePaths = append(writePaths, filepath.Dir(p.PIDFile))
+	}
+	preCreate := make([]string, 0, len(writePaths))
+	for _, dir := range writePaths {
 		if dir != "" {
-			b.WriteString("ReadWritePaths=" + dir + "\n")
+			preCreate = append(preCreate, dir)
 		}
+	}
+	if len(preCreate) > 0 {
+		prefix, mode := "+", "0755"
+		if p.UserLevel {
+			prefix, mode = "", "0700"
+		}
+		b.WriteString("ExecStartPre=" + prefix + "/usr/bin/install -d -m " + mode + " " + strings.Join(preCreate, " ") + "\n")
+	}
+	for _, dir := range preCreate {
+		b.WriteString("ReadWritePaths=-" + dir + "\n")
+	}
+	if !p.UserLevel {
+		b.WriteString("ReadWritePaths=-/mnt/Backups/" + p.InternalOrg + "/" + p.InternalName + "\n")
 	}
 	b.WriteString("\n")
 	b.WriteString("[Install]\n")

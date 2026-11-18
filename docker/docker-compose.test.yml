@@ -11,7 +11,7 @@ x-logging: &default-logging
 
 services:
   shortner:
-    image: ghcr.io/apimgr/shortner:devel
+    image: ghcr.io/apimgr/shortner:${IMAGE_TAG:-devel}
     pull_policy: always
     container_name: shortner-app
     hostname: shortner
@@ -27,10 +27,10 @@ services:
       # CRITICAL: ./volumes/ must resolve to $TEMP_DIR/volumes/, NOT project directory
       # This file MUST be copied to a temp directory before running
       # AI: NEVER run this from the project directory
-      - './volumes/config:/config:z'
-      - './volumes/data:/data:z'
+      - '${CONFIG_PATH:-./volumes/config}:/config:z'
+      - '${DATA_PATH:-./volumes/data}:/data:z'
     ports:
-      - '172.17.0.1:64581:80'
+      - '${BIND_ADDRESS:-172.17.0.1}:${PORT:-64581}:80'
     healthcheck:
       test: ['CMD', '/usr/local/bin/shortner', '--status']
       interval: 10s

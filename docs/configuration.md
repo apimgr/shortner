@@ -100,7 +100,7 @@ exactly the fields it needs and leave the rest to `server.yml`.
 server:
   # Operator API token; generated on first run
   token: "tok_..."
-  listen: "0.0.0.0"
+  address: "0.0.0.0"
   port: "8090"
   baseurl: "/"
   api_version: "v1"
@@ -253,16 +253,21 @@ CSRF uses a double-submit cookie on HTML form routes. It does not apply to
 server:
   tls:
     enabled: false
+    dns_provider: ""
+    dns_credentials: {}
 ```
 
 When enabled, certificates are obtained automatically via ACME using the
 HTTP-01 and TLS-ALPN-01 challenges.
 
-!!! warning
-    DNS-01 challenges are not implemented. The `dns_provider` and
-    `dns_credentials` keys are present in the schema but no provider
-    matrix exists behind them, and DNS credentials are not encrypted at
-    rest. Do not rely on them.
+For DNS-01, set the lego provider name and a flat map of that provider's
+environment variable names to values. For example, Cloudflare accepts
+`CF_DNS_API_TOKEN`; its plaintext value is encrypted and atomically rewritten
+in `server.yml` on startup. Credentials are never exposed by an API or view.
+The complete provider list and each provider's variable names are maintained
+by [lego](https://go-acme.github.io/lego/dns/). A configured DNS provider is
+validated at startup and before certificate issuance. Failed validation
+reports the variable name and does not fall back to HTTP-01 or TLS-ALPN-01.
 
 ## Branding, Contact, and Pages
 

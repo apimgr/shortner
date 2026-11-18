@@ -121,6 +121,10 @@ func rotateEncryptionKey(sqlDB *sql.DB, configPath string, cfg *config.Config, a
 	if err := db.ReencryptStoredData(ctx, sqlDB, oldKey, newKey); err != nil {
 		return err
 	}
+	if err := config.ReencryptDNSCredentials(cfg, oldKey, newKey); err != nil {
+		_ = db.ReencryptStoredData(ctx, sqlDB, newKey, oldKey)
+		return err
+	}
 	cfg.Server.Security.EncryptionKey = newEncoded
 	if err := config.Save(configPath, cfg); err != nil {
 		_ = db.ReencryptStoredData(ctx, sqlDB, newKey, oldKey)

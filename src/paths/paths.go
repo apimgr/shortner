@@ -9,8 +9,6 @@ import (
 	"runtime"
 	"strconv"
 	"time"
-
-	"github.com/apimgr/shortner/src/common/pidfile"
 )
 
 // internalOrg and internalName are frozen project identifiers — see IDEA.md.
@@ -60,11 +58,18 @@ func IsPrivileged() bool {
 	return os.Geteuid() == 0
 }
 
+// IsDocker reports whether the process has Docker's marker file. Only this
+// context uses the Docker image's /config and /data layout; other containers
+// keep the native OS paths.
+func IsDocker() bool {
+	_, err := os.Stat("/.dockerenv")
+	return err == nil
+}
+
 // Resolve returns the Paths for the current OS and privilege level.
-// A non-empty envOverride forces the Docker-style /config and /data layout,
-// used when the CONTAINER environment variable is set.
-func Resolve(inContainer bool) Paths {
-	if inContainer {
+// dockerContext selects the Docker image's /config and /data layout.
+func Resolve(dockerContext bool) Paths {
+	if dockerContext {
 		return dockerPaths()
 	}
 
@@ -109,7 +114,7 @@ func linuxPaths(home string) Paths {
 			Logs:       filepath.Join("/var/log", internalOrg, internalName),
 			LogFile:    filepath.Join("/var/log", internalOrg, internalName, "server.log"),
 			Backup:     filepath.Join("/mnt/Backups", internalOrg, internalName),
-			PIDFile:    filepath.Join("/var/run", internalOrg, internalName+".pid"),
+			PIDFile:    filepath.Join("/var/run", internalOrg, internalName, internalName+".pid"),
 			SSL:        filepath.Join("/etc", internalOrg, internalName, "ssl"),
 			Security:   filepath.Join("/var/lib", internalOrg, internalName, "security"),
 			DB:         filepath.Join("/var/lib", internalOrg, internalName, "db"),
@@ -143,7 +148,7 @@ func darwinPaths(home string) Paths {
 			Logs:       filepath.Join("/Library/Logs", internalOrg, internalName),
 			LogFile:    filepath.Join("/Library/Logs", internalOrg, internalName, "server.log"),
 			Backup:     filepath.Join("/Library/Backups", internalOrg, internalName),
-			PIDFile:    filepath.Join("/var/run", internalOrg, internalName+".pid"),
+			PIDFile:    filepath.Join("/var/run", internalOrg, internalName, internalName+".pid"),
 			SSL:        filepath.Join(base, "ssl"),
 			Security:   filepath.Join(base, "data", "security"),
 			DB:         filepath.Join(base, "db"),
@@ -177,7 +182,7 @@ func bsdPaths(home string) Paths {
 			Logs:       filepath.Join("/var/log", internalOrg, internalName),
 			LogFile:    filepath.Join("/var/log", internalOrg, internalName, "server.log"),
 			Backup:     filepath.Join("/var/backups", internalOrg, internalName),
-			PIDFile:    filepath.Join("/var/run", internalOrg, internalName+".pid"),
+			PIDFile:    filepath.Join("/var/run", internalOrg, internalName, internalName+".pid"),
 			SSL:        filepath.Join("/usr/local/etc", internalOrg, internalName, "ssl"),
 			Security:   filepath.Join("/var/db", internalOrg, internalName, "security"),
 			DB:         filepath.Join("/var/db", internalOrg, internalName, "db"),
@@ -232,12 +237,10 @@ func IsAdministrator() bool {
 	return runtime.GOOS == "windows" && windowsIsAdministrator()
 }
 
-// startedElevated is captured once at process start, before any future
-// privilege drop (server startup step 8g in AI.md PART 8 — not yet
-// implemented; tracked in TODO.AI.md). Directory mode (system vs user)
-// must never be re-derived after that drop: the service account's HOME
-// points at the data dir, so a late $HOME lookup would nest user-style
-// paths inside it.
+// startedElevated is captured once at process start, before the privilege
+// drop in server startup step 8h. Directory mode (system vs user) must
+// never be re-derived after that drop: the service account's HOME points at
+// the data dir, so a late $HOME lookup would nest user-style paths inside it.
 var startedElevated = IsPrivileged()
 
 // EnsureDir creates path (and any missing parents) with the permission
@@ -266,6 +269,14 @@ func EnsureDir(path string) error {
 // EnsurePIDFile creates the PID file's parent directory with the correct
 // permissions. See AI.md PART 8 "Directory Flags".
 func EnsurePIDFile(path string) error {
+	if path == "" {
+		return nil
+	}
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("paths: refusing symlink for PID file %s", path)
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("paths: inspect PID file %s: %w", path, err)
+	}
 	return EnsureDir(filepath.Dir(path))
 }
 
@@ -315,11 +326,11 @@ func GetPIDFile(flagValue, defaultFile string) string {
 // GetDatabaseDir returns the SQLite database directory. Docker uses a
 // separate /data/db/sqlite directory; native installs use {data_dir}/db/.
 // See AI.md PART 8 "Environment Variable Fallbacks".
-func GetDatabaseDir(dataDir string) string {
+func GetDatabaseDir(dataDir string, dockerContext bool) string {
 	if v := os.Getenv("DATABASE_DIR"); v != "" {
 		return v
 	}
-	if pidfile.IsContainer() {
+	if dockerContext {
 		return "/data/db/sqlite"
 	}
 	return filepath.Join(dataDir, "db")

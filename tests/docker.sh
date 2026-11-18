@@ -63,9 +63,9 @@ docker run -d --rm \
   "$docker_test_image" \
   sleep 900 >/dev/null
 
-# The suite needs a real bash plus curl/file/jq; alpine ships none of them
-# in the base image.
-docker exec "$container_name" sh -c 'apk add --no-cache bash curl file jq ca-certificates >/dev/null'
+# The suite needs bash/curl/file/jq, and server startup needs the account
+# tools supplied by shadow; alpine ships none of them in the base image.
+docker exec "$container_name" sh -c 'apk add --no-cache bash curl file jq ca-certificates shadow >/dev/null'
 __pass "test tooling installed in the container"
 
 docker exec "$container_name" mkdir -p /opt/tests

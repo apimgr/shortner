@@ -153,6 +153,14 @@ func CreateServiceAccount(p Params) (int, error) {
 		if convErr != nil {
 			return 0, fmt.Errorf("service: existing account %s has a non-numeric uid %q", p.InternalName, u.Uid)
 		}
+		group, groupErr := user.LookupGroup(p.InternalName)
+		if groupErr != nil {
+			return 0, fmt.Errorf("service: existing account %s has no matching group: %w", p.InternalName, groupErr)
+		}
+		gid, convErr := strconv.Atoi(group.Gid)
+		if convErr != nil || gid != id || u.Gid != group.Gid {
+			return 0, fmt.Errorf("service: existing account %s must use matching UID/GID; found uid=%s gid=%s group-gid=%s", p.InternalName, u.Uid, u.Gid, group.Gid)
+		}
 		return id, nil
 	}
 

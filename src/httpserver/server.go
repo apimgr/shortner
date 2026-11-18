@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,6 +33,8 @@ type Server struct {
 	httpServer *http.Server
 	servers    []*http.Server
 	portErr    error
+	apiRoutes  []registeredAPIRoute
+	listeners  map[string]net.Listener
 	stats      *Stats
 	blocks     *BlockStore
 	allowlist  *AllowlistLookup
@@ -58,6 +61,9 @@ type Options struct {
 	// the second listener in an HTTP,HTTPS pair. Built via
 	// src/certmgr.NewTLSConfig using the FQDN resolved from src/fqdn.
 	TLSConfig *tls.Config
+	// BoundListeners contains root-bound sockets for privileged ports. Keys
+	// match the configured server Addr and are used after privileges drop.
+	BoundListeners map[string]net.Listener
 	// HTTPChallengeHandler wraps the normal HTTP handler with ACME HTTP-01
 	// challenge handling. It is applied only to the cleartext listener.
 	HTTPChallengeHandler func(http.Handler) http.Handler
@@ -284,6 +290,8 @@ func New(opts Options) *Server {
 		allowlist: allowlist,
 		resolver:  resolver,
 		portErr:   portErr,
+		listeners: opts.BoundListeners,
+		apiRoutes: collectAPIRoutes(r),
 	}
 	appHandler := http.Handler(buildStampMiddleware(assetStamp(opts.Version, opts.CommitID), limitedHandler))
 	switch {
@@ -319,6 +327,33 @@ func New(opts Options) *Server {
 	return s
 }
 
+type registeredAPIRoute struct {
+	Method string
+	Path   string
+}
+
+func collectAPIRoutes(r chi.Router) []registeredAPIRoute {
+	seen := make(map[registeredAPIRoute]struct{})
+	_ = chi.Walk(r, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		if !strings.HasPrefix(route, "/api/") && !strings.HasPrefix(route, "/cli/") {
+			return nil
+		}
+		seen[registeredAPIRoute{Method: strings.ToLower(method), Path: route}] = struct{}{}
+		return nil
+	})
+	result := make([]registeredAPIRoute, 0, len(seen))
+	for route := range seen {
+		result = append(result, route)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Path == result[j].Path {
+			return result[i].Method < result[j].Method
+		}
+		return result[i].Path < result[j].Path
+	})
+	return result
+}
+
 func parsePortSetting(value string) ([]string, error) {
 	parts := strings.Split(strings.TrimSpace(value), ",")
 	if len(parts) < 1 || len(parts) > 2 {
@@ -345,11 +380,11 @@ func (s *Server) Start() error {
 		return s.portErr
 	}
 	if len(s.servers) == 1 {
-		return serve(s.servers[0])
+		return serve(s.servers[0], s.listeners[s.servers[0].Addr])
 	}
 	errCh := make(chan error, len(s.servers))
 	for _, srv := range s.servers {
-		go func(server *http.Server) { errCh <- serve(server) }(srv)
+		go func(server *http.Server) { errCh <- serve(server, s.listeners[server.Addr]) }(srv)
 	}
 	firstErr := <-errCh
 	if firstErr != nil {
@@ -365,9 +400,13 @@ func (s *Server) Start() error {
 	return nil
 }
 
-func serve(server *http.Server) error {
+func serve(server *http.Server, listener net.Listener) error {
 	var err error
-	if server.TLSConfig != nil {
+	if listener != nil && server.TLSConfig != nil {
+		err = server.ServeTLS(listener, "", "")
+	} else if listener != nil {
+		err = server.Serve(listener)
+	} else if server.TLSConfig != nil {
 		err = server.ListenAndServeTLS("", "")
 	} else {
 		err = server.ListenAndServe()

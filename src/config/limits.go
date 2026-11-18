@@ -104,6 +104,10 @@ func Validate(cfg *Config) []string {
 		warnings = append(warnings, fmt.Sprintf("invalid server.port %q, using default %q", cfg.Server.Port, defaults.Server.Port))
 		cfg.Server.Port = defaults.Server.Port
 	}
+	if !ValidServerAddress(cfg.Server.Listen) {
+		warnings = append(warnings, fmt.Sprintf("invalid server.address %q, using default %q", cfg.Server.Listen, defaults.Server.Listen))
+		cfg.Server.Listen = defaults.Server.Listen
+	}
 
 	if _, err := ParseSize(cfg.Server.Limits.MaxBodySize, 0); err != nil {
 		warnings = append(warnings, fmt.Sprintf("invalid server.limits.max_body_size %q, using default %q", cfg.Server.Limits.MaxBodySize, defaults.Server.Limits.MaxBodySize))
@@ -197,6 +201,32 @@ func Validate(cfg *Config) []string {
 	}
 
 	return warnings
+}
+
+// ValidServerAddress accepts an IP literal or a DNS hostname suitable for
+// net.Listen without resolving it during configuration validation.
+func ValidServerAddress(value string) bool {
+	address := strings.TrimSpace(value)
+	if address == "" {
+		return false
+	}
+	if net.ParseIP(strings.Trim(address, "[]")) != nil {
+		return true
+	}
+	if len(address) > 253 || strings.ContainsAny(address, ":/[]?#") {
+		return false
+	}
+	for _, label := range strings.Split(address, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, r := range label {
+			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func validateSEO(seo *SEO) []string {

@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/apimgr/shortner/src/common/pidfile"
 )
 
 func TestResolveContainer(t *testing.T) {
@@ -50,7 +48,7 @@ func TestLinuxPathsPrivilegeBranches(t *testing.T) {
 		if p.Config != filepath.Join("/etc", internalOrg, internalName) {
 			t.Errorf("privileged Config = %q, want /etc/%s/%s", p.Config, internalOrg, internalName)
 		}
-		if p.PIDFile != filepath.Join("/var/run", internalOrg, internalName+".pid") {
+		if p.PIDFile != filepath.Join("/var/run", internalOrg, internalName, internalName+".pid") {
 			t.Errorf("privileged PIDFile = %q", p.PIDFile)
 		}
 	} else {
@@ -192,17 +190,20 @@ func TestGetXDirHelpers(t *testing.T) {
 func TestGetDatabaseDir(t *testing.T) {
 	t.Run("env override wins", func(t *testing.T) {
 		t.Setenv("DATABASE_DIR", "/custom/db")
-		if got := GetDatabaseDir("/data"); got != "/custom/db" {
+		if got := GetDatabaseDir("/data", true); got != "/custom/db" {
 			t.Errorf("GetDatabaseDir() = %q, want /custom/db", got)
 		}
 	})
-	t.Run("non-container falls back to dataDir/db", func(t *testing.T) {
+	t.Run("Docker uses the Docker database directory", func(t *testing.T) {
 		t.Setenv("DATABASE_DIR", "")
-		if pidfile.IsContainer() {
-			t.Skip("test process is actually running inside a container; the container branch takes over")
+		if got := GetDatabaseDir("/data", true); got != "/data/db/sqlite" {
+			t.Errorf("GetDatabaseDir(Docker) = %q, want /data/db/sqlite", got)
 		}
-		if got := GetDatabaseDir("/data"); got != filepath.Join("/data", "db") {
-			t.Errorf("GetDatabaseDir() = %q, want /data/db", got)
+	})
+	t.Run("native container uses the OS data directory", func(t *testing.T) {
+		t.Setenv("DATABASE_DIR", "")
+		if got := GetDatabaseDir("/var/lib/shortner", false); got != filepath.Join("/var/lib/shortner", "db") {
+			t.Errorf("GetDatabaseDir(native) = %q, want /var/lib/shortner/db", got)
 		}
 	})
 }

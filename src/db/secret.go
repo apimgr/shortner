@@ -15,9 +15,11 @@ import (
 // Well-known app_secrets row names, per AI.md PART 11 "Cryptographic Keys":
 // project-level secrets stored in the database rather than server.yml.
 const (
-	SecretInstallation  = "installation_secret"
-	SecretCookieSigning = "cookie_signing_key"
-	SecretCSRFToken     = "csrf_token_secret"
+	SecretInstallation   = "installation_secret"
+	SecretCookieSigning  = "cookie_signing_key"
+	SecretCSRFToken      = "csrf_token_secret"
+	SecretDNSValidatedAt = "dns_validated_at"
+	SecretDNSFingerprint = "dns_credential_fingerprint"
 )
 
 // secretByteLen is the raw byte length generated for each app secret
@@ -49,6 +51,17 @@ func SetSecret(ctx context.Context, sqlDB *sql.DB, name, value string) error {
 		`INSERT INTO app_secrets (name, value) VALUES (?, ?)
 		 ON CONFLICT(name) DO UPDATE SET value = excluded.value, rotated_at = strftime('%s', 'now')`,
 		name, value)
+	if err != nil {
+		return HandleQueryError(err)
+	}
+	return nil
+}
+
+// DeleteSecret removes one server-owned app_secrets value.
+func DeleteSecret(ctx context.Context, sqlDB *sql.DB, name string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err := sqlDB.ExecContext(ctx, `DELETE FROM app_secrets WHERE name = ?`, name)
 	if err != nil {
 		return HandleQueryError(err)
 	}

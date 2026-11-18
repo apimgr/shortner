@@ -2,12 +2,15 @@ package httpserver
 
 import (
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+
+	serverassets "github.com/apimgr/shortner/src/server"
 )
 
 func TestPWARoutesServeEmbeddedManifestAndOfflinePage(t *testing.T) {
@@ -61,8 +64,40 @@ func TestPWAServiceWorkerUsesBuildStampAndNoCache(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "!/\\b(no-store|private)\\b/.test(cacheControl)") {
 		t.Errorf("service worker does not avoid caching private/no-store HTML responses")
 	}
+	for _, required := range []string{
+		"const NAV_TIMEOUT_MS = 8000",
+		"withTimeout(fetch(request), NAV_TIMEOUT_MS)",
+		"if (response.redirected) throw",
+		"response.ok && !response.redirected",
+		"if (!response.ok || response.redirected) throw",
+		"return response && response.ok && !response.redirected ? response : null",
+	} {
+		if !strings.Contains(rec.Body.String(), required) {
+			t.Errorf("service worker missing required recovery rule %q", required)
+		}
+	}
 	if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
 		t.Errorf("Cache-Control = %q, want no-cache", got)
+	}
+}
+
+func TestPWAUpdateReloadsOnlyAfterAcceptanceAndHasFallback(t *testing.T) {
+	appJS, err := fs.ReadFile(serverassets.StaticFS, "static/js/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(appJS)
+	if got := strings.Count(script, `navigator.serviceWorker.addEventListener("controllerchange"`); got != 1 {
+		t.Fatalf("controllerchange listeners = %d, want exactly one", got)
+	}
+	for _, required := range []string{
+		`if (updateAccepted) reloadOnce();`,
+		`window.setTimeout(reloadOnce, 5000);`,
+		`waitingWorker.postMessage({ type: "SKIP_WAITING" });`,
+	} {
+		if !strings.Contains(script, required) {
+			t.Errorf("PWA update script missing required behavior %q", required)
+		}
 	}
 }
 

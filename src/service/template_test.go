@@ -17,10 +17,11 @@ func templateParams() Params {
 		BinaryPath:   "/usr/local/bin/shortner",
 		ConfigDir:    "/etc/apimgr/shortner",
 		DataDir:      "/var/lib/apimgr/shortner",
+		DBDir:        "/var/lib/apimgr/shortner/db",
 		CacheDir:     "/var/cache/apimgr/shortner",
 		LogDir:       "/var/log/apimgr/shortner",
 		BackupDir:    "/var/lib/apimgr/shortner/backups",
-		PIDFile:      "/run/apimgr/shortner/server.pid",
+		PIDFile:      "/var/run/apimgr/shortner/shortner.pid",
 	}
 }
 
@@ -58,10 +59,15 @@ func TestSystemdUnit(t *testing.T) {
 		"ProtectSystem=strict",
 		"ProtectHome=yes",
 		"PrivateTmp=yes",
-		"ReadWritePaths=/etc/apimgr/shortner",
-		"ReadWritePaths=/var/lib/apimgr/shortner",
-		"ReadWritePaths=/var/cache/apimgr/shortner",
-		"ReadWritePaths=/var/log/apimgr/shortner",
+		"ExecStartPre=+/usr/bin/install -d -m 0755 /etc/apimgr/shortner /var/lib/apimgr/shortner /var/lib/apimgr/shortner/db /var/cache/apimgr/shortner /var/log/apimgr/shortner /var/lib/apimgr/shortner/backups /var/run/apimgr/shortner",
+		"ReadWritePaths=-/etc/apimgr/shortner",
+		"ReadWritePaths=-/var/lib/apimgr/shortner",
+		"ReadWritePaths=-/var/lib/apimgr/shortner/db",
+		"ReadWritePaths=-/var/cache/apimgr/shortner",
+		"ReadWritePaths=-/var/log/apimgr/shortner",
+		"ReadWritePaths=-/var/lib/apimgr/shortner/backups",
+		"ReadWritePaths=-/var/run/apimgr/shortner",
+		"ReadWritePaths=-/mnt/Backups/apimgr/shortner",
 		"[Install]",
 		"WantedBy=multi-user.target",
 	})
@@ -79,6 +85,9 @@ func TestSystemdUnitUserLevel(t *testing.T) {
 	if strings.Contains(out, "multi-user.target") {
 		t.Errorf("user unit wrongly targets multi-user.target\ngot:\n%s", out)
 	}
+	if !strings.Contains(out, "ExecStartPre=/usr/bin/install -d -m 0700") || strings.Contains(out, "ExecStartPre=+") {
+		t.Errorf("user unit must create its own directories without the system-unit privilege prefix\ngot:\n%s", out)
+	}
 }
 
 func TestOpenRCScript(t *testing.T) {
@@ -89,7 +98,7 @@ func TestOpenRCScript(t *testing.T) {
 		`description="Shortner"`,
 		`command="/usr/local/bin/shortner"`,
 		`command_user="shortner:shortner"`,
-		`pidfile="/run/apimgr/shortner/server.pid"`,
+		`pidfile="/var/run/apimgr/shortner/shortner.pid"`,
 		"command_background=true",
 		`output_log="/var/log/apimgr/shortner/server.log"`,
 		`error_log="/var/log/apimgr/shortner/error.log"`,
@@ -98,7 +107,7 @@ func TestOpenRCScript(t *testing.T) {
 		"after firewall",
 		"use dns logger",
 		"start_pre() {",
-		"checkpath -d -m 0755 -o shortner:shortner /run/apimgr/shortner",
+		"checkpath -d -m 0755 -o shortner:shortner /var/run/apimgr/shortner",
 	})
 }
 
@@ -114,7 +123,7 @@ func TestSysVinitScript(t *testing.T) {
 		"NAME=shortner",
 		"DAEMON=/usr/local/bin/shortner",
 		"DAEMON_USER=shortner",
-		"PIDFILE=/run/apimgr/shortner/server.pid",
+		"PIDFILE=/var/run/apimgr/shortner/shortner.pid",
 		"LOGFILE=/var/log/apimgr/shortner/server.log",
 		"start-stop-daemon --start",
 		"start-stop-daemon --stop",

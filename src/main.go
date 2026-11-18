@@ -6,8 +6,10 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
+	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,6 +22,7 @@ import (
 	"github.com/apimgr/shortner/src/certmgr"
 	"github.com/apimgr/shortner/src/common/banner"
 	"github.com/apimgr/shortner/src/common/color"
+	"github.com/apimgr/shortner/src/common/netutil"
 	"github.com/apimgr/shortner/src/common/pidfile"
 	"github.com/apimgr/shortner/src/common/version"
 	"github.com/apimgr/shortner/src/config"
@@ -33,6 +36,7 @@ import (
 	"github.com/apimgr/shortner/src/notify"
 	"github.com/apimgr/shortner/src/paths"
 	"github.com/apimgr/shortner/src/scheduler"
+	"github.com/apimgr/shortner/src/service"
 	"github.com/apimgr/shortner/src/signal"
 	"github.com/apimgr/shortner/src/tor"
 	"github.com/apimgr/shortner/src/updater"
@@ -55,6 +59,11 @@ func main() {
 var startHTTPServer = func(srv *httpserver.Server) error {
 	return srv.Start()
 }
+
+var createServiceAccount = service.CreateServiceAccount
+var setRuntimeOwnership = service.SetRuntimeOwnership
+var dropPrivileges = service.DropPrivileges
+var bindPrivilegedPorts = bindRootPorts
 
 func run(args []string) int {
 	binaryName := filepath.Base(os.Args[0])
@@ -138,11 +147,11 @@ func run(args []string) int {
 	// 16+ territory.
 	_ = color.Enabled(forceColor)
 
-	// Container detection combines the explicit CONTAINER env var with the
-	// broader file/env/cgroup heuristics in src/common/pidfile (PART 7),
-	// reused here instead of reimplemented.
-	inContainer := config.IsTruthy(os.Getenv("CONTAINER")) || pidfile.IsContainer()
-	p := paths.Resolve(inContainer)
+	// The shared container probe controls daemon/PID behavior. Only Docker
+	// uses /config and /data; Incus/LXC keeps its native OS path layout.
+	inContainer := pidfile.IsContainer()
+	dockerPaths := paths.IsDocker()
+	p := paths.Resolve(dockerPaths)
 
 	// Apply CLI flag / env var overrides (AI.md PART 8 "Environment
 	// Variable Fallbacks"), then re-derive the paths that depend on them.
@@ -154,7 +163,7 @@ func run(args []string) int {
 	p.LogFile = filepath.Join(p.Logs, "server.log")
 	p.Backup = paths.GetBackupDir(*backupDir, p.Data)
 	p.PIDFile = paths.GetPIDFile(*pidFile, p.PIDFile)
-	p.DB = paths.GetDatabaseDir(p.Data)
+	p.DB = paths.GetDatabaseDir(p.Data, dockerPaths)
 
 	if *statusFlag {
 		return runStatus(binaryName, p)
@@ -193,11 +202,19 @@ func run(args []string) int {
 		return runUpdate(binaryName, p, *updateFlag, firstArg(fs.Args()))
 	}
 
-	// --daemon (manual start only; --service start would auto-detect the
-	// service manager and ignore this, but --service's real actions are
-	// not implemented yet — see service.go).
+	// --daemon applies to manual starts only; `--service start` delegates
+	// process management to the detected service manager (see service.go).
 	if *daemonFlag && !inContainer {
 		if err := Daemonize(); err != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+			return 1
+		}
+	}
+
+	serviceUID := os.Getuid()
+	if paths.IsPrivileged() {
+		serviceUID, err = createServiceAccount(serviceParams(p))
+		if err != nil {
 			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 			return 1
 		}
@@ -215,6 +232,69 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
+	if paths.IsPrivileged() {
+		if err := setRuntimeOwnership(serviceParams(p), serviceUID); err != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+			return 1
+		}
+	} else if err := service.EnforceRuntimeModes(serviceParams(p), false); err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
+	portSetting := *port
+	portWasGenerated := false
+	var earlyPortWarning string
+	earlyAddress, configPort, peekErr := config.PeekServerSettings(p.ConfigFile)
+	if peekErr != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+peekErr.Error())
+		return 1
+	}
+	if earlyAddress != "" && !config.ValidServerAddress(earlyAddress) {
+		earlyAddress = ""
+	}
+	if portSetting == "" {
+		portSetting = os.Getenv("PORT")
+	}
+	if portSetting == "" {
+		portSetting = configPort
+		if portSetting != "" && !validPortSetting(portSetting) {
+			earlyPortWarning = fmt.Sprintf("invalid server.port %q", portSetting)
+			portSetting = ""
+		}
+	}
+	if portSetting == "" {
+		randomPort, portErr := netutil.GetRandomAvailablePort()
+		if portErr != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": "+portErr.Error())
+			return 1
+		}
+		portSetting = strconv.Itoa(randomPort)
+		portWasGenerated = true
+	}
+	var privilegedListeners map[string]net.Listener
+	if paths.IsPrivileged() && !flagWasSet(fs, "scheduler") {
+		defaultAddress := earlyAddress
+		if defaultAddress == "" {
+			defaultAddress = "0.0.0.0"
+		}
+		listenAddress := *address
+		if listenAddress == "" {
+			listenAddress = os.Getenv("LISTEN")
+		}
+		if listenAddress == "" {
+			listenAddress = defaultAddress
+		}
+		privilegedListeners, err = bindPrivilegedPorts(listenAddress, portSetting)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+			return 1
+		}
+		defer func() {
+			for _, listener := range privilegedListeners {
+				_ = listener.Close()
+			}
+		}()
+	}
 
 	// PID file: written at process start, removed on clean exit. AI.md
 	// PART 8 "Server Startup Sequence" steps 11-12 place the PID check and
@@ -231,11 +311,20 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
+	if earlyPortWarning != "" {
+		cfg.Server.Port = portSetting
+	}
 	// Invalid config values never fail startup — they are replaced with
 	// their framework default and warned about. See AI.md PART 12 "Config
 	// Validation Rule".
 	for _, warning := range config.Validate(cfg) {
 		fmt.Fprintln(os.Stderr, binaryName+": warning: "+warning)
+	}
+	if earlyPortWarning != "" {
+		fmt.Fprintf(os.Stderr, "%s: warning: %s, using random port %s\n", binaryName, earlyPortWarning, portSetting)
+	}
+	if portWasGenerated {
+		cfg.Server.Port = portSetting
 	}
 	effectiveMode := cfg.Server.Mode
 	if envMode := os.Getenv("MODE"); envMode != "" {
@@ -270,13 +359,17 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
-	if generated || keyGenerated {
+	dnsCredentialsChanged, err := config.SealDNSCredentials(cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
+	if generated || keyGenerated || portWasGenerated || dnsCredentialsChanged {
 		if err := config.Save(p.ConfigFile, cfg); err != nil {
 			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 			return 1
 		}
 	}
-
 	if *address != "" {
 		cfg.Server.Listen = *address
 	} else if v := os.Getenv("LISTEN"); v != "" {
@@ -289,6 +382,17 @@ func run(args []string) int {
 	}
 	if *baseURL != "" {
 		cfg.Server.BaseURL = *baseURL
+	}
+
+	if paths.IsPrivileged() {
+		if err := setRuntimeOwnership(serviceParams(p), serviceUID); err != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+			return 1
+		}
+		if err := dropPrivileges(serviceUID); err != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+			return 1
+		}
 	}
 
 	// AI.md PART 17 "Environment Variable Priority": SMTP_* env vars
@@ -365,6 +469,12 @@ func run(args []string) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": warning: "+err.Error())
 	}
+	if installSecret != "" {
+		if err := syncDNSCredentialState(sqlDB, cfg, installSecret); err != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+			return 1
+		}
+	}
 	previousInstallSecret, _ := db.GetGraceSecret(context.Background(), sqlDB, db.SecretInstallation)
 
 	// GeoIP (AI.md PART 19): opens whatever MMDB files already exist in
@@ -430,9 +540,12 @@ func run(args []string) int {
 	// (.local, .test, the project's own name, etc.), which can never get a
 	// valid public certificate.
 	scheme := "http"
-	tlsConfig, httpChallengeHandler, tlsErr := buildTLSConfig(cfg, p.Config, notifier)
+	tlsConfig, httpChallengeHandler, tlsErr := buildTLSConfig(cfg, p.Config, notifier, sqlDB)
 	if tlsErr != nil {
-		fmt.Fprintln(os.Stderr, binaryName+": warning: "+tlsErr.Error())
+		fmt.Fprintln(os.Stderr, binaryName+": ERROR: "+tlsErr.Error())
+		if tlsConfig != nil {
+			scheme = "https"
+		}
 	} else if tlsConfig != nil {
 		scheme = "https"
 	}
@@ -447,6 +560,7 @@ func run(args []string) int {
 		BuildDate:            version.BuildDate,
 		StartTime:            time.Now(),
 		TLSConfig:            tlsConfig,
+		BoundListeners:       privilegedListeners,
 		HTTPChallengeHandler: httpChallengeHandler,
 		GeoIP:                geoManager,
 		Metrics:              appMetrics,
@@ -559,10 +673,50 @@ func startupURLsForConfiguredPorts(cfg *config.Config, p paths.Paths, scheme, ho
 	return urls
 }
 
+func bindRootPorts(address, setting string) (map[string]net.Listener, error) {
+	if !paths.IsPrivileged() {
+		return nil, nil
+	}
+	listeners := make(map[string]net.Listener)
+	for _, part := range strings.Split(strings.TrimSpace(setting), ",") {
+		port, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil {
+			return nil, fmt.Errorf("invalid listen port %q: %w", part, err)
+		}
+		if port >= 1024 {
+			continue
+		}
+		addr := net.JoinHostPort(strings.Trim(address, "[]"), strconv.Itoa(port))
+		listener, err := net.Listen("tcp", addr)
+		if err != nil {
+			for _, opened := range listeners {
+				_ = opened.Close()
+			}
+			return nil, fmt.Errorf("bind privileged port %s: %w", addr, err)
+		}
+		listeners[addr] = listener
+	}
+	return listeners, nil
+}
+
+func validPortSetting(setting string) bool {
+	parts := strings.Split(strings.TrimSpace(setting), ",")
+	if len(parts) < 1 || len(parts) > 2 {
+		return false
+	}
+	for _, part := range parts {
+		port, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || port < 1 || port > 65535 {
+			return false
+		}
+	}
+	return true
+}
+
 // buildTLSConfig resolves the server FQDN and prepares ACME-backed TLS when
 // TLS is enabled or port 443 is explicitly configured. The returned wrapper
 // mounts HTTP-01 challenge handling on the cleartext listener.
-func buildTLSConfig(cfg *config.Config, configDir string, notifier *notify.Notifier) (*tls.Config, func(http.Handler) http.Handler, error) {
+func buildTLSConfig(cfg *config.Config, configDir string, notifier *notify.Notifier, sqlDB *sql.DB) (*tls.Config, func(http.Handler) http.Handler, error) {
 	requested := cfg.Server.TLS.Enabled || portIncludes(cfg.Server.Port, 443)
 	if !requested {
 		return nil, nil, nil
@@ -571,6 +725,27 @@ func buildTLSConfig(cfg *config.Config, configDir string, notifier *notify.Notif
 	if fqdn.IsDevTLD(host, internalName) {
 		return nil, nil, fmt.Errorf("tls: %q is a dev-only TLD, skipping certificate issuance", host)
 	}
+	if cfg.Server.TLS.DNSProvider != "" {
+		credentials, err := config.DNSCredentialValues(cfg)
+		if err != nil {
+			return dnsTLSFailureConfig(err), nil, err
+		}
+		tlsConfig, err := certmgr.NewDNSTLSConfig(configDir, host, cfg.Server.TLS.DNSProvider, credentials, func(notAfter time.Time, renewed bool) {
+			stamp := time.Now().UTC().Format(time.RFC3339)
+			if sqlDB != nil {
+				if err := db.SetSecret(context.Background(), sqlDB, db.SecretDNSValidatedAt, stamp); err != nil {
+					fmt.Fprintln(os.Stderr, "shortner: ERROR: update DNS validation timestamp")
+				}
+			}
+			if renewed {
+				sendSSLRenewed(notifier, host, notAfter)
+			}
+		})
+		if err != nil {
+			return dnsTLSFailureConfig(err), nil, err
+		}
+		return tlsConfig, nil, nil
+	}
 	tlsConfig, manager := certmgr.NewTLSConfig(configDir, host, "", func(notAfter time.Time) {
 		sendSSLRenewed(notifier, host, notAfter)
 	})
@@ -578,6 +753,37 @@ func buildTLSConfig(cfg *config.Config, configDir string, notifier *notify.Notif
 		return certmgr.HTTPHandler(manager, fallback)
 	}
 	return tlsConfig, challengeHandler, nil
+}
+
+func dnsTLSFailureConfig(cause error) *tls.Config {
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+			return nil, cause
+		},
+	}
+}
+
+func syncDNSCredentialState(sqlDB *sql.DB, cfg *config.Config, installSecret string) error {
+	credentials, err := config.DNSCredentialValues(cfg)
+	if err != nil {
+		return err
+	}
+	fingerprint := certmgr.DNSConfigFingerprint(cfg.Server.TLS.DNSProvider, credentials, installSecret)
+	ctx := context.Background()
+	previous, err := db.GetSecret(ctx, sqlDB, db.SecretDNSFingerprint)
+	if err != nil && !errors.Is(err, db.ErrNotFound) {
+		return fmt.Errorf("DNS credential state: read fingerprint")
+	}
+	if err != nil || previous != fingerprint {
+		if err := db.DeleteSecret(ctx, sqlDB, db.SecretDNSValidatedAt); err != nil {
+			return fmt.Errorf("DNS credential state: clear validation timestamp")
+		}
+	}
+	if err := db.SetSecret(ctx, sqlDB, db.SecretDNSFingerprint, fingerprint); err != nil {
+		return fmt.Errorf("DNS credential state: store fingerprint")
+	}
+	return nil
 }
 
 func sendSSLRenewed(notifier *notify.Notifier, host string, notAfter time.Time) {

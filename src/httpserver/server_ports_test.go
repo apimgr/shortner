@@ -2,6 +2,8 @@ package httpserver
 
 import (
 	"crypto/tls"
+	"fmt"
+	"net"
 	"net/http"
 	"reflect"
 	"testing"
@@ -40,6 +42,32 @@ func TestParsePortSetting(t *testing.T) {
 				t.Errorf("parsePortSetting(%q) = %v, want %v", test.value, got, test.want)
 			}
 		})
+	}
+}
+
+func TestServeUsesPreboundListener(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, "prebound")
+	})}
+	done := make(chan error, 1)
+	go func() { done <- serve(server, listener) }()
+
+	response, err := http.Get("http://" + listener.Addr().String())
+	if err != nil {
+		_ = server.Close()
+		t.Fatalf("request to prebound listener: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.StatusCode, http.StatusOK)
+	}
+	_ = server.Close()
+	if err := <-done; err != nil {
+		t.Fatalf("serve with prebound listener: %v", err)
 	}
 }
 

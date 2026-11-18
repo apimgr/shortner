@@ -104,6 +104,7 @@ func serviceParams(p paths.Paths) service.Params {
 		BinaryPath:   binary,
 		ConfigDir:    p.Config,
 		DataDir:      p.Data,
+		DBDir:        p.DB,
 		CacheDir:     p.Cache,
 		LogDir:       p.Logs,
 		BackupDir:    p.Backup,
