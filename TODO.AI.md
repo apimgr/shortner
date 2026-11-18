@@ -485,26 +485,24 @@ Still open under PART 9-11:
 ## PART 23-24: Privilege escalation & service
 
 PART 23 and PART 24 are implemented (`src/service/` + `src/service.go`).
-The remaining items below are environment limits, not unbuilt work.
+Linux service startup now creates and validates the dedicated account,
+assigns the runtime config/data/database/cache/log/backup/PID paths to it,
+enforces the root/user permission tables and private paths, binds ports
+below 1024 before dropping privileges, and serves through prebound sockets.
+The systemd first-install lifecycle is blocked by a PART 24 sandbox conflict
+tracked in `~/Projects/github/apimgr/TODO.API.md`: `ProtectSystem=strict`
+prevents normal startup from creating configured writable paths that do not
+yet exist.
 
-- Live init-system verification is not possible in this environment. The
-  build/test container has no systemd, OpenRC, runit, SysVinit, rc.d,
-  launchd, or Windows SCM, so an end-to-end `--service --install` →
-  enable → start → `--service --uninstall` cycle cannot be exercised
-  against a real init system. What is covered instead: the exact command
-  line each manager runs for every verb, the exact install path each
-  manager writes, the rendered content of all seven service templates,
-  init-system detection for every OS/binary combination, UID/GID
-  selection, the escalation chains, and one genuine end-to-end install
-  cycle over the systemd `--user` path (rooted at a temporary `HOME`,
-  which is the only manager that writes outside a system directory).
-  Verify the real install paths on a live host, or via `tests/incus.sh`
-  once that script grows systemd checks.
+- Verified in disposable Incus Debian/Trixie with systemd: the 109
+  application checks pass. A fresh `--service --install` fails to reach an
+  active state because systemd refuses creation of `/etc/apimgr/shortner`
+  under `ProtectSystem=strict`; later lifecycle commands in that run were
+  not a valid end-to-end service pass. Marker ownership remains covered by
+  unit tests and gates account removal during uninstall.
   Read: AI.md PART 23, 24
-- Account creation is asserted at the command-line level only.
-  `CreateServiceAccount` is tested with `run` stubbed, because a test
-  must not create a real system user/group. `dscl` (macOS) and
-  `pw` (FreeBSD) paths are therefore unexecuted on this Linux host.
+- `dscl` (macOS) and `pw` (FreeBSD) account creation paths have not been
+  exercised on those operating systems.
   Read: AI.md PART 23
 - Windows service registration (`mgr.CreateService` with an empty
   `ServiceStartName` for the Virtual Service Account) cross-compiles but
@@ -514,7 +512,8 @@ The remaining items below are environment limits, not unbuilt work.
 ## PART 26: Docker — DONE
 
 - `docker/Dockerfile` and `docker/Dockerfile.dev` include the required
-  `i2pd` runtime package and use the PART 26 healthcheck timing.
+  `i2pd` and `shadow` runtime packages (the server invokes the system
+  account tools at normal startup) and use the PART 26 healthcheck timing.
 - Production, development, and test Compose files use the shared project,
   network, and fixed container names; timezone overrides use the specified
   fallback, and development bind mounts omit the SELinux `:z` suffix.
@@ -559,8 +558,8 @@ The remaining items below are environment limits, not unbuilt work.
   `tests/docker.sh` builds in `casjaysdev/go:latest`, boots a disposable
   `alpine:latest` container bind-mounted to
   `${TMPDIR:-/tmp}/apimgr/shortner-XXXXXX/volumes`, installs
-  bash/curl/file/jq, pushes the binaries plus `suite.sh`/`assert.sh`, and
-  runs the suite. `tests/incus.sh` does the same against
+  bash/curl/file/jq/shadow, pushes the binaries plus `suite.sh`/`assert.sh`,
+  and runs the suite. `tests/incus.sh` does the same against
   `images:debian/trixie` and then exercises the real PART 23/24 service
   lifecycle (`--service --install`, `systemctl is-enabled`/`is-active`,
   the dedicated system user, reload/restart/stop/start, and
@@ -585,19 +584,15 @@ The remaining items below are environment limits, not unbuilt work.
   `go test ./src/httpserver/... -cover` (73.3%) all pass in
   `casjaysdev/go:latest`.
   Read: AI.md PART 28
-- NOT YET EXERCISED: no full `tests/docker.sh`, `tests/incus.sh`, or
-  `tests/e2e.sh` run has been executed end to end — the scripts are
-  syntax-checked and their helpers dry-run, but the first real pass will
-  almost certainly surface assertion-level drift (exact JSON field names,
-  status codes for validation errors, the `--service` verbs' exit codes).
-  Run all three and fix what they report.
+- Verified during this alignment: `tests/docker.sh` passes all 109 checks;
+  `tests/incus.sh` passes all 109 application checks and 15 service lifecycle
+  checks. Browser E2E for both documented server pages had previously passed
+  across SSR, no-JavaScript, and browser-interaction tiers (see the
+  PART 11/16 results above).
   Read: AI.md PART 28
-- `/server/healthz.txt` (and every other `.txt` path suffix) returns 404:
-  `wantsText` honors the suffix, but the chi router has no `.txt` route
-  variants and `urlNormalizeMiddleware` does not strip the extension
-  before matching. `tests/suite.sh` and
-  `tests/test_content_negotiation.sh` report this as a SKIP rather than
-  faking a pass. Add extension-stripping to the router.
+- `/server/healthz.txt` now returns HTTP 200 with `text/plain`; both Docker
+  and Incus suites assert it, and `tests/test_content_negotiation.sh` no
+  longer skips this path.
   Read: AI.md PART 13, 14
 - DONE (no longer reachable): `make build`/`make local` used to fail when
   `src/client/` existed without a `package main`. `src/client/main.go` is
@@ -708,6 +703,12 @@ top-level navigations only, `Secure` cookies still set),
 `health.go` (`features.tor.*` + `checks.tor`), `src/scheduler/overlay.go`
 (`tor_health` every 10m), `src/overlay.go` + `src/main.go` (start/stop
 wiring, `Tor: {onion_address}` printed once).
+
+- NOT YET ALIGNED: Tor currently starts asynchronously after the server has
+  dropped privileges. PART 8 step 8g requires spawning Tor before the drop
+  with the service UID/GID applied by the process creator. Keep bootstrap
+  asynchronous so Tor does not delay the clearnet listener.
+  Read: AI.md PART 8, PART 31.1
 
 - DEFERRED (environment): no `tor` binary exists in this container, so
   bootstrap, descriptor publication, a live circuit-ID PROXY header, and

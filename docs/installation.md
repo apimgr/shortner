@@ -173,8 +173,14 @@ and publishes the container's port 80.
 ## Installing as a System Service
 
 The binary installs and manages its own service. It detects the init
-system, renders the correct unit or script, creates a dedicated system
-user, enables the service, and starts it:
+system, renders the correct unit or script, enables the service, and starts
+it. On the first normal server startup, the binary creates the dedicated
+account and runtime directories, sets ownership and private-path permissions,
+binds any privileged ports, then drops to the service account. The current
+systemd unit's `ProtectSystem=strict` sandbox prevents creation of missing
+paths on a fresh install; those paths must already exist before systemd can
+start the service. This AI.md conflict is tracked in `TODO.AI.md` and
+`~/Projects/github/apimgr/TODO.API.md`:
 
 ```bash
 sudo shortner --service --install
@@ -205,7 +211,9 @@ records that this binary created the account, so uninstall only ever
 removes an account it created itself.
 
 Directory and account creation happen during normal server startup, not
-during `--service --install`.
+during `--service --install`. Runtime config, database, backup, cache, log,
+and PID paths are included in the systemd unit's writable-path allowances;
+the systemd sandbox still requires those paths to exist before startup.
 
 ### Managing the service
 
