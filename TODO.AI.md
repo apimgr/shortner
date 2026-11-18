@@ -240,10 +240,14 @@ Still open under PART 9-11:
 - PWA core is implemented: `/manifest.json`, `/sw.js` with a build-stamped
   cache, `/offline.html`, stamped static-asset caching, install/update
   prompts, offline status, required icon sizes including the iOS 180px icon,
-  and configured splash images. Background Sync and geolocation remain
-  unimplemented because AI.md gives generic behavior without a Shortner
-  action, data, or privacy contract; that gap is recorded in the parent
-  `TODO.API.md`.
+  and configured splash images. Service-worker navigations now time out after
+  8 seconds, redirect/error responses are excluded from precache/runtime
+  caches, and offline fallbacks always return a `Response`. Update acceptance
+  is the only event that enables one-time controller-change reload; missing
+  waiting workers reload immediately and missing takeover reloads after
+  5 seconds. Background Sync and geolocation remain unimplemented because
+  AI.md gives generic behavior without a Shortner action, data, or privacy
+  contract; that gap is recorded in the parent `TODO.API.md`.
   Read: AI.md PART 16 "PWA"
 - `sitemap.xml` — implemented (`src/httpserver/sitemap.go`,
   `GET/HEAD /sitemap.xml`): static public pages plus each unexpired public
