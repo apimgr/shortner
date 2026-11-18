@@ -54,7 +54,10 @@ On first run the binary:
 4. Opens (and creates, if needed) the SQLite database.
 5. Starts the scheduler, registers its built-in tasks, and begins any
    enabled background work such as the GeoIP download.
-6. Prints the startup banner and begins serving on `0.0.0.0:8090`.
+6. Prints the startup banner and begins serving on `[::]:8090` (IPv4 and
+   IPv6). If the kernel does not support IPv6 sockets, it falls back to
+   `0.0.0.0:8090` and logs one warning. An explicit `0.0.0.0` address remains
+   IPv4-only.
 
 The operator token is written into `server.yml`. Read it from there:
 

@@ -100,7 +100,7 @@ exactly the fields it needs and leave the rest to `server.yml`.
 server:
   # Operator API token; generated on first run
   token: "tok_..."
-  address: "0.0.0.0"
+  address: "[::]"
   port: "8090"
   baseurl: "/"
   api_version: "v1"
@@ -111,6 +111,11 @@ In dual-port mode the first listener serves HTTP (including ACME HTTP-01
 challenges) and the second serves HTTPS; the startup banner prints both
 URLs. A single port of `443` enables TLS automatically. With a single
 non-443 port, set `server.tls.enabled: true` to serve HTTPS on that port.
+
+The default address `[::]` listens on IPv4 and IPv6. If the kernel does not
+support IPv6 sockets, Shortner falls back to `0.0.0.0` and logs one warning.
+Setting `server.address` or `LISTEN` explicitly to `0.0.0.0` keeps the listener
+IPv4-only; it is never widened to all interfaces or another address.
 
 `api_version` must not contain `/`, `?`, or `#`; an invalid value falls
 back to `v1`. It determines the API path prefix, `/api/v1` by default.

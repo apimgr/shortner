@@ -145,6 +145,23 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
 - List all created links, paginated (public, anonymous) — `/list` page and
   `GET /api/{api_version}/links`
 
+### API routes
+
+These project-defined link routes extend the template API. All JSON mutation
+responses use the standard `{ok, data}` / RFC 7807 error shapes; list returns
+`{data, pagination}`. There are no compatibility aliases under `/api/links`.
+
+| Method | Path | Auth | Purpose | Request / response summary |
+|--------|------|------|---------|-----------------------------|
+| GET | `/api/{api_version}/links` | None | List links | Optional `page` and `limit`; returns paginated public link summaries |
+| POST | `/api/{api_version}/links` | None | Create link | JSON `url`, optional `slug`, optional RFC3339 `expires_at`; returns link and one-time `owner_token` |
+| GET | `/api/{api_version}/links/{slug}` | None | Read link | Returns public link summary |
+| PATCH | `/api/{api_version}/links/{slug}` | Owner or operator Bearer token | Update link | JSON destination and/or expiration changes; returns updated link |
+| DELETE | `/api/{api_version}/links/{slug}` | Owner or operator Bearer token | Delete link | Returns successful empty action result |
+| GET | `/api/{api_version}/links/{slug}/stats` | None | Read analytics API | Returns click totals, time series, referrers, and approximate locations |
+| GET | `/{slug}` | None | Native short-link redirect | Compatibility route for browsers and clients; returns 302 to the destination, or 404/410 |
+| GET | `/{slug}/stats` | None | Native analytics page/API | HTML for browsers, JSON or text for API clients; returns stats or 404 |
+
 **Data sources:**
 - Database for links and clicks — see PART 10
 - GeoIP for approximate click location — see PART 19

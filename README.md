@@ -130,7 +130,7 @@ flags (see `shortner --help`):
 | Flag | Description |
 |------|-------------|
 | `--config` | path to `server.yml` |
-| `--address` | bind address |
+| `--address` | bind address (default `[::]`, dual-stack; `0.0.0.0` is IPv4-only) |
 | `--port` | bind port |
 | `--baseurl` | public base URL used for generated short links |
 | `--mode` | `production` (default) or `development` |
@@ -148,7 +148,7 @@ over environment variables, which win over the built-in defaults.
 | `LOG_DIR` | log directory |
 | `DATABASE_DIR` | database directory (defaults inside the data directory) |
 | `BACKUP_DIR` | backup directory |
-| `LISTEN` | bind address (same as `--address`) |
+| `LISTEN` | bind address (default `[::]`, dual-stack; `0.0.0.0` is IPv4-only) |
 | `PORT` | bind port (same as `--port`) |
 | `DOMAIN` | public FQDN used for URL and certificate resolution |
 | `HOSTNAME` | fallback hostname when `DOMAIN` is unset |
@@ -158,6 +158,10 @@ over environment variables, which win over the built-in defaults.
 | `TZ` | timezone used for user-facing timestamps |
 | `NO_COLOR` | any non-empty value disables ANSI color output |
 | `TERM` | `dumb` disables ANSI output and animated spinners |
+
+If the kernel cannot create IPv6 sockets, the default `[::]` listener falls
+back to `0.0.0.0` with one warning. Explicitly choosing `0.0.0.0` remains
+IPv4-only.
 
 ## API
 
