@@ -322,11 +322,10 @@ server:
       per_email: 3
       global: 60
       window: 1h
-      max_links: 2
+      max_links: 10
       reject_markup: true
       blocked_words: []
       blocked_email_domains: []
-      blocked_link_domains: []
       strikes: 3
       ban_hours: 24
       duplicate_window_hours: 24
