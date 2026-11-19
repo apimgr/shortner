@@ -12,12 +12,15 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/common/i18n"
 	"github.com/apimgr/shortner/src/common/sanitize"
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/db"
+	"github.com/apimgr/shortner/src/metrics"
 	"github.com/apimgr/shortner/src/notify"
 )
 
@@ -138,6 +141,27 @@ type frontendDeps struct {
 	// notifier sends the AI.md PART 17 email events the frontend raises.
 	// Nil-safe: every notify.Notifier method is inert on a nil receiver.
 	notifier *notify.Notifier
+	metrics  *metrics.Metrics
+	antispam atomic.Pointer[config.ContactAntispam]
+	store    *db.Store
+}
+
+func (fd *frontendDeps) contactAntispam() config.ContactAntispam {
+	settings := fd.antispam.Load()
+	if settings == nil {
+		return fd.cfg.Server.Contact.Antispam
+	}
+	copy := *settings
+	copy.BlockedWords = append([]string(nil), settings.BlockedWords...)
+	copy.BlockedEmailDomains = append([]string(nil), settings.BlockedEmailDomains...)
+	return copy
+}
+
+func (fd *frontendDeps) setContactAntispam(settings config.ContactAntispam) {
+	copy := settings
+	copy.BlockedWords = append([]string(nil), settings.BlockedWords...)
+	copy.BlockedEmailDomains = append([]string(nil), settings.BlockedEmailDomains...)
+	fd.antispam.Store(&copy)
 }
 
 // newPageData builds the common PageData for one request, using r's

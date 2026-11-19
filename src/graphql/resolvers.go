@@ -1,7 +1,6 @@
 package graphql
 
 import (
-	"database/sql"
 	"errors"
 	"net/http"
 	"sort"
@@ -12,7 +11,7 @@ import (
 
 // LinkResolver reads public link data using the application's shared database.
 type LinkResolver struct {
-	DB       *sql.DB
+	DB       db.Handle
 	Request  *http.Request
 	BuildURL func(*http.Request, string) string
 	ReadAPI  func(string) (any, error)

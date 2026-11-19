@@ -42,7 +42,7 @@ const maxShortCodeAttempts = 10
 // rules" ("Short codes: 6-char alphanumeric, auto-generated (62^6
 // keyspace)"). Query has a 10s timeout per AI.md PART 10 "Query
 // Timeouts" (INSERT tier).
-func CreateLinkAutoCode(ctx context.Context, sqlDB *sql.DB, destinationURL string, expiresAt *time.Time) (*Link, error) {
+func CreateLinkAutoCode(ctx context.Context, sqlDB Handle, destinationURL string, expiresAt *time.Time) (*Link, error) {
 	ownerID, err := CreateOwner(ctx, sqlDB)
 	if err != nil {
 		return nil, err
@@ -50,7 +50,7 @@ func CreateLinkAutoCode(ctx context.Context, sqlDB *sql.DB, destinationURL strin
 	return CreateLinkAutoCodeOwned(ctx, sqlDB, ownerID, destinationURL, expiresAt)
 }
 
-func CreateLinkAutoCodeOwned(ctx context.Context, sqlDB *sql.DB, ownerID, destinationURL string, expiresAt *time.Time) (*Link, error) {
+func CreateLinkAutoCodeOwned(ctx context.Context, sqlDB Handle, ownerID, destinationURL string, expiresAt *time.Time) (*Link, error) {
 	for attempt := 0; attempt < maxShortCodeAttempts; attempt++ {
 		code, err := security.GenerateShortCode()
 		if err != nil {
@@ -72,7 +72,7 @@ func CreateLinkAutoCodeOwned(ctx context.Context, sqlDB *sql.DB, ownerID, destin
 // slug. Format and reserved-name validation is the caller's
 // responsibility (see security.ValidateSlugFormat / IsReservedSlug) —
 // this function only enforces the DB-level uniqueness constraint.
-func CreateLinkCustomSlug(ctx context.Context, sqlDB *sql.DB, slug, destinationURL string, expiresAt *time.Time) (*Link, error) {
+func CreateLinkCustomSlug(ctx context.Context, sqlDB Handle, slug, destinationURL string, expiresAt *time.Time) (*Link, error) {
 	ownerID, err := CreateOwner(ctx, sqlDB)
 	if err != nil {
 		return nil, err
@@ -80,7 +80,7 @@ func CreateLinkCustomSlug(ctx context.Context, sqlDB *sql.DB, slug, destinationU
 	return CreateLinkCustomSlugOwned(ctx, sqlDB, ownerID, slug, destinationURL, expiresAt)
 }
 
-func CreateLinkCustomSlugOwned(ctx context.Context, sqlDB *sql.DB, ownerID, slug, destinationURL string, expiresAt *time.Time) (*Link, error) {
+func CreateLinkCustomSlugOwned(ctx context.Context, sqlDB Handle, ownerID, slug, destinationURL string, expiresAt *time.Time) (*Link, error) {
 	link, err := insertLink(ctx, sqlDB, ownerID, slug, destinationURL, expiresAt)
 	if err != nil {
 		if isUniqueConstraintError(err) {
@@ -95,7 +95,7 @@ func CreateLinkCustomSlugOwned(ctx context.Context, sqlDB *sql.DB, ownerID, slug
 // link's short_code.
 var ErrSlugTaken = fmt.Errorf("slug already in use")
 
-func insertLink(ctx context.Context, sqlDB *sql.DB, ownerID, code, destinationURL string, expiresAt *time.Time) (*Link, error) {
+func insertLink(ctx context.Context, sqlDB Handle, ownerID, code, destinationURL string, expiresAt *time.Time) (*Link, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -120,7 +120,7 @@ func insertLink(ctx context.Context, sqlDB *sql.DB, ownerID, code, destinationUR
 
 // GetLinkByShortCode looks up a link by its short_code/slug. Returns
 // ErrNotFound if no such link exists.
-func GetLinkByShortCode(ctx context.Context, sqlDB *sql.DB, code string) (*Link, error) {
+func GetLinkByShortCode(ctx context.Context, sqlDB Handle, code string) (*Link, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -132,7 +132,7 @@ func GetLinkByShortCode(ctx context.Context, sqlDB *sql.DB, code string) (*Link,
 
 // GetLinkByID looks up a link by its internal primary key. Returns
 // ErrNotFound if no such link exists.
-func GetLinkByID(ctx context.Context, sqlDB *sql.DB, id int64) (*Link, error) {
+func GetLinkByID(ctx context.Context, sqlDB Handle, id int64) (*Link, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -165,7 +165,7 @@ func scanLink(row *sql.Row) (*Link, error) {
 // is the caller's responsibility (AI.md PART 14); this is the DB-layer
 // mutation only. Pass expiresAt == nil with clearExpiry == true to clear
 // an existing expiration.
-func UpdateLinkDestination(ctx context.Context, sqlDB *sql.DB, id int64, destinationURL string, expiresAt *time.Time, clearExpiry bool) error {
+func UpdateLinkDestination(ctx context.Context, sqlDB Handle, id int64, destinationURL string, expiresAt *time.Time, clearExpiry bool) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -192,7 +192,7 @@ func UpdateLinkDestination(ctx context.Context, sqlDB *sql.DB, id int64, destina
 // PRAGMA foreign_keys(1), so the link row cannot be removed while any
 // click survives) and any API token scoped to it (an owner token whose
 // resource no longer exists must not stay valid).
-func DeleteLink(ctx context.Context, sqlDB *sql.DB, id int64) error {
+func DeleteLink(ctx context.Context, sqlDB Handle, id int64) error {
 	return WithTransaction(ctx, sqlDB, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM clicks WHERE link_id = ?`, id); err != nil {
 			return HandleQueryError(err)
@@ -203,7 +203,7 @@ func DeleteLink(ctx context.Context, sqlDB *sql.DB, id int64) error {
 }
 
 // IncrementClickCount atomically increments a link's click_count.
-func IncrementClickCount(ctx context.Context, sqlDB *sql.DB, id int64) error {
+func IncrementClickCount(ctx context.Context, sqlDB Handle, id int64) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -218,7 +218,7 @@ func IncrementClickCount(ctx context.Context, sqlDB *sql.DB, id int64) error {
 // total row count, per AI.md PART 14 "Pagination" (default 250 items) and
 // IDEA.md "Endpoints": "List all created links (public, paginated)." limit
 // and offset are the caller's responsibility to validate/clamp.
-func ListLinks(ctx context.Context, sqlDB *sql.DB, limit, offset int) ([]Link, int64, error) {
+func ListLinks(ctx context.Context, sqlDB Handle, limit, offset int) ([]Link, int64, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 

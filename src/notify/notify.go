@@ -211,6 +211,11 @@ func (n *Notifier) SendTo(event string, to []string, vars map[string]string) err
 // "Submission Flow" step 4, whose body is an encrypted blob) and the
 // visitor contact form (PART 16), whose body is the visitor's own text.
 func (n *Notifier) SendRaw(to []string, subject, body string) error {
+	return n.SendRawReplyTo(to, "", subject, body)
+}
+
+// SendRawReplyTo delivers a raw message with an explicit reply address.
+func (n *Notifier) SendRawReplyTo(to []string, replyTo, subject, body string) error {
 	if !n.Enabled() {
 		return ErrDisabled
 	}
@@ -220,10 +225,13 @@ func (n *Notifier) SendRaw(to []string, subject, body string) error {
 	host := n.opts.FQDN
 	n.mu.RUnlock()
 
+	if strings.TrimSpace(replyTo) == "" {
+		replyTo = email.ReplyTo
+	}
 	msg := Message{
 		FromName:  fromName(email.From.Name, appName),
 		FromEmail: fromAddress(email.From.Email, host),
-		ReplyTo:   email.ReplyTo,
+		ReplyTo:   replyTo,
 		To:        to,
 		Subject:   subject,
 		Body:      body,

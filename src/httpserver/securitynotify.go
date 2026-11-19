@@ -14,6 +14,11 @@ import (
 	"github.com/apimgr/shortner/src/security"
 )
 
+type securityReportSender interface {
+	Enabled() bool
+	SendRaw(to []string, subject, body string) error
+}
+
 // notifySecurityReport sends AI.md PART 11 "Submission Flow" step 4 (the
 // maintainer notification) and step 5 (the researcher acknowledgment).
 //
@@ -23,18 +28,22 @@ import (
 // notify.Notifier refuses the send outright and nothing is queued — AI.md
 // PART 17 "SMTP Requirement".
 func (fd *frontendDeps) notifySecurityReport(r *http.Request, trackingID string, f securityReportForm) {
-	if !fd.notifier.Enabled() {
+	fd.notifySecurityReportWith(fd.notifier, r, trackingID, f)
+}
+
+func (fd *frontendDeps) notifySecurityReportWith(sender securityReportSender, r *http.Request, trackingID string, f securityReportForm) {
+	if sender == nil || !sender.Enabled() {
 		return
 	}
-	fd.notifyMaintainerSecurityReport(trackingID, f)
-	fd.notifyResearcherSecurityReport(r, trackingID, f)
+	fd.notifyMaintainerSecurityReport(sender, trackingID, f)
+	fd.notifyResearcherSecurityReport(sender, r, trackingID, f)
 }
 
 // notifyMaintainerSecurityReport implements step 4. AI.md requires a
 // PGP-encrypted email to the `security` contact role, "falls back to
 // AES-encrypted attachment + warning if no PGP key is configured. The
 // vulnerability text is never included in the plaintext body.
-func (fd *frontendDeps) notifyMaintainerSecurityReport(trackingID string, f securityReportForm) {
+func (fd *frontendDeps) notifyMaintainerSecurityReport(sender securityReportSender, trackingID string, f securityReportForm) {
 	to := strings.TrimSpace(fd.cfg.Server.Contact.Security.Email)
 	if to == "" {
 		return
@@ -52,7 +61,7 @@ func (fd *frontendDeps) notifyMaintainerSecurityReport(trackingID string, f secu
 		if err != nil {
 			return
 		}
-		_ = fd.notifier.SendRaw([]string{to}, fmt.Sprintf("[SECURITY] %s report %s", f.Severity, trackingID), message)
+		_ = sender.SendRaw([]string{to}, fmt.Sprintf("[SECURITY] %s report %s", f.Severity, trackingID), message)
 		return
 	}
 
@@ -73,7 +82,7 @@ func (fd *frontendDeps) notifyMaintainerSecurityReport(trackingID string, f secu
 	b.WriteString(fd.sealedReportArmor(f))
 	b.WriteString("\n----- END AES-256-GCM SEALED REPORT -----\n")
 
-	_ = fd.notifier.SendRaw([]string{to},
+	_ = sender.SendRaw([]string{to},
 		fmt.Sprintf("[SECURITY] %s report %s", f.Severity, trackingID), b.String())
 }
 
@@ -111,38 +120,26 @@ func wrapColumns(s string, width int) string {
 // notifyResearcherSecurityReport implements step 5: the acknowledgment
 // carrying the tracking id and the researcher status-page URL. AI.md
 // specifies a PGP-encrypted body when the researcher supplied a public key.
-func (fd *frontendDeps) notifyResearcherSecurityReport(r *http.Request, trackingID string, f securityReportForm) {
+func (fd *frontendDeps) notifyResearcherSecurityReport(sender securityReportSender, r *http.Request, trackingID string, f securityReportForm) {
 	to := strings.TrimSpace(f.Email)
 	if to == "" {
 		return
 	}
 	statusURL := fd.resolver.BuildURL(r, "/server/security/report/"+trackingID)
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "Thank you for reporting a security issue to %s.\n\n", projectInfo.Name)
-	fmt.Fprintf(&b, "Your report has been received and encrypted at rest.\n\n")
-	fmt.Fprintf(&b, "Tracking ID: %s\n", trackingID)
-	fmt.Fprintf(&b, "Status page: %s\n", statusURL)
-	fmt.Fprintf(&b, "Coordinated disclosure window: %d days\n\n", f.DisclosureDays)
-	b.WriteString("Keep the tracking ID — it is the only reference to your report.\n")
-	b.WriteString("Please do not disclose this issue publicly before the coordinated\n")
-	b.WriteString("date you agreed to when submitting.\n\n")
-	if f.ResearcherGPG == "" {
-		b.WriteString("You did not supply a PGP public key, so this acknowledgment is\n")
-		b.WriteString("unencrypted. It deliberately contains no details of your report.\n")
-	} else {
+	body := fmt.Sprintf("Tracking ID: %s\nStatus URL: %s\n", trackingID, statusURL)
+	if f.ResearcherGPG != "" {
 		recipients, err := pgp.ParsePublic(f.ResearcherGPG)
 		if err != nil {
 			return
 		}
-		message, err := pgp.EncryptArmored(recipients, []byte(b.String()))
+		message, err := pgp.EncryptArmored(recipients, []byte(body))
 		if err != nil {
 			return
 		}
-		b.Reset()
-		b.WriteString(message)
+		body = message
 	}
 
-	_ = fd.notifier.SendRaw([]string{to},
-		fmt.Sprintf("Security report received - %s", trackingID), b.String())
+	_ = sender.SendRaw([]string{to},
+		fmt.Sprintf("Security report received - %s", trackingID), body)
 }

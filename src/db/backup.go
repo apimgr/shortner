@@ -33,13 +33,13 @@ func RecordBackupAt(ctx context.Context, dbPath string, record BackupMetadata) e
 	if record.CreatedAt.IsZero() {
 		record.CreatedAt = time.Now().UTC()
 	}
-	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)", escapeDSNPath(dbPath))
-	sqlDB, err := sql.Open("sqlite", dsn)
+	sqlDB, err := OpenSQLite(dbPath, 1)
 	if err != nil {
 		return fmt.Errorf("db: open backup metadata database: %w", err)
 	}
 	defer sqlDB.Close()
-	if _, err := sqlDB.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS backups (
+	if err := sqlDB.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS backups (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		filename TEXT NOT NULL UNIQUE,
 		filepath TEXT NOT NULL,
@@ -48,17 +48,25 @@ func RecordBackupAt(ctx context.Context, dbPath string, record BackupMetadata) e
 		created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
 		checksum TEXT,
 		notes TEXT
-	)`); err != nil {
+	)`)
+		return err
+	}); err != nil {
 		return fmt.Errorf("db: create backup metadata table: %w", err)
 	}
-	if _, err := sqlDB.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_backups_created ON backups(created_at)`); err != nil {
+	if err := sqlDB.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_backups_created ON backups(created_at)`)
+		return err
+	}); err != nil {
 		return fmt.Errorf("db: create backup history index: %w", err)
 	}
-	if _, err := sqlDB.ExecContext(ctx, `INSERT INTO backups(filename, filepath, size_bytes, type, created_at, checksum, notes)
+	if err := sqlDB.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO backups(filename, filepath, size_bytes, type, created_at, checksum, notes)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(filename) DO UPDATE SET filepath=excluded.filepath, size_bytes=excluded.size_bytes,
 			type=excluded.type, created_at=excluded.created_at, checksum=excluded.checksum, notes=excluded.notes`,
-		record.Filename, record.Filepath, record.SizeBytes, record.Type, record.CreatedAt.UTC().Unix(), nullableString(record.Checksum), nullableString(record.Notes)); err != nil {
+			record.Filename, record.Filepath, record.SizeBytes, record.Type, record.CreatedAt.UTC().Unix(), nullableString(record.Checksum), nullableString(record.Notes))
+		return err
+	}); err != nil {
 		return fmt.Errorf("db: record backup metadata: %w", err)
 	}
 	return nil

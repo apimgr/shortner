@@ -33,22 +33,19 @@ type securityReportForm struct {
 	CVERequested     bool   `json:"cve_requested"`
 	DisclosureDays   int    `json:"disclosure_days"`
 	CreditPref       string `json:"credit_preference"`
+	CreditHandle     string `json:"credit_handle,omitempty"`
 	AppVersion       string `json:"app_version"`
 	CommitHash       string `json:"commit_hash"`
 	SubmittedAt      string `json:"submitted_at"`
 	RequestUA        string `json:"request_user_agent"`
 	AgreedDisclosure bool   `json:"agreed_disclosure"`
-	// Captcha is the anti-bot answer required of every contact submission
-	// (AI.md PART 11 lists the security fields as additions to "Name +
-	// Email + Captcha"). It is never persisted.
-	Captcha string `json:"-"`
 }
 
 // securitySeverities and securityCreditPrefs are the closed vocabularies
 // AI.md PART 11 defines for the two required dropdowns.
 var (
 	securitySeverities  = []string{"Critical", "High", "Medium", "Low", "Informational"}
-	securityCreditPrefs = []string{"Yes (real name)", "Yes (handle)", "No", "Anonymous"}
+	securityCreditPrefs = []string{"name", "handle", "no", "anon"}
 )
 
 // securityComponents is the "Affected component" dropdown. IDEA.md's
@@ -75,15 +72,21 @@ func (fd *frontendDeps) securityMode(r *http.Request) bool {
 	}
 	// The supplied id is logged deliberately: it is already invalid, so it
 	// grants nothing, and AI.md requires it for spotting scrape attempts.
-	_ = fd.audit.Write(applog.Entry{
-		Time:     time.Now().UTC(),
-		Event:    "security.security_id_invalid",
-		Category: "security",
-		Severity: applog.SeverityWarn,
-		Actor:    applog.Actor{IP: fd.resolver.ResolveClientIP(r)},
-		Details:  map[string]any{"supplied_id": id, "user_agent": r.UserAgent()},
-		Result:   applog.ResultFailure,
-	})
+	if fd.audit != nil {
+		ip := ""
+		if fd.resolver != nil {
+			ip = fd.resolver.ResolveClientIP(r)
+		}
+		_ = fd.audit.Write(applog.Entry{
+			Time:     time.Now().UTC(),
+			Event:    "security.security_id_invalid",
+			Category: "security",
+			Severity: applog.SeverityWarn,
+			Actor:    applog.Actor{IP: ip},
+			Details:  map[string]any{"supplied_id": id, "user_agent": r.UserAgent()},
+			Result:   applog.ResultFailure,
+		})
+	}
 	return false
 }
 
@@ -97,6 +100,7 @@ func (fd *frontendDeps) securityMode(r *http.Request) bool {
 // delivery failure never fails the submission — the report is already
 // sealed in the database at that point.
 func (fd *frontendDeps) securityReportPost(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, contactFormBodyLimit)
 	base := fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security_report.title"), fd.cfg.Server.SEO.Description)
 	data := securityContactPageData{
 		Base:         base,
@@ -105,19 +109,63 @@ func (fd *frontendDeps) securityReportPost(w http.ResponseWriter, r *http.Reques
 		Severities:   securitySeverities,
 		Components:   securityComponents,
 		CreditPrefs:  securityCreditPrefs,
-		Form:         fd.readSecurityForm(r),
 	}
 
+	if err := r.ParseForm(); err != nil {
+		fd.contactSpamBlock(r, "shape")
+		fd.renderSecurityContactFailure(w, r, http.StatusBadRequest, &data, t(r, "errors.form_read_failed"))
+		return
+	}
+	data.Form = fd.readSecurityForm(r)
+	if reason, valid := contactShapeValid(r.PostForm, true, false); !valid {
+		fd.contactSpamBlock(r, reason)
+		fd.renderSecurityContactFailure(w, r, http.StatusBadRequest, &data, t(r, "errors.form_read_failed"))
+		return
+	}
+	now := time.Now()
+	if fd.contactAntispam().Honeypot && r.FormValue("website") != "" {
+		fd.contactSpamBlock(r, "honeypot")
+		data.Submitted = true
+		trackingID, err := db.NewTrackingID()
+		if err != nil {
+			http.Error(w, "unable to complete submission", http.StatusInternalServerError)
+			return
+		}
+		data.TrackingID = trackingID
+		_ = renderPage(w, http.StatusOK, "contact_security", data)
+		return
+	}
+	if !fd.contactTokenValid(r.FormValue("form_token"), now) {
+		fd.contactSpamBlock(r, "fill_time")
+		fd.renderSecurityContactFailure(w, r, http.StatusBadRequest, &data, t(r, "contact.fill_wait"))
+		return
+	}
+	if !fd.verifyCaptcha(r, r.PostForm) {
+		fd.contactSpamBlock(r, "captcha")
+		fd.renderSecurityContactFailure(w, r, http.StatusBadRequest, &data, t(r, "errors.captcha_failed"))
+		return
+	}
 	if msg := validateSecurityForm(r, data.Form); msg != "" {
-		data.Error = msg
-		_ = renderPage(w, http.StatusBadRequest, "contact_security", data)
+		fd.contactSpamBlock(r, "shape")
+		fd.renderSecurityContactFailure(w, r, http.StatusBadRequest, &data, msg)
+		return
+	}
+	if reason, blocked := fd.contactRateReason(r, data.Form.Email, now); blocked {
+		fd.contactSpamBlock(r, reason)
+		setContactRetryAfter(w, fd.contactAntispam().Window)
+		fd.renderSecurityContactFailure(w, r, http.StatusTooManyRequests, &data, t(r, "errors.captcha_failed"))
+		return
+	}
+	if reason, blocked := fd.contactRecordAccepted(r, data.Form.Email, "", data.Form.Summary+"\n"+data.Form.Steps+"\n"+data.Form.Impact, now, false); blocked {
+		fd.contactSpamBlock(r, reason)
+		setContactRetryAfter(w, fd.contactAntispam().Window)
+		fd.renderSecurityContactFailure(w, r, http.StatusTooManyRequests, &data, t(r, "errors.captcha_failed"))
 		return
 	}
 
 	trackingID, err := fd.storeSecurityReport(r.Context(), data.Form)
 	if err != nil {
-		data.Error = t(r, "security_report.store_failed")
-		_ = renderPage(w, http.StatusInternalServerError, "contact_security", data)
+		fd.renderSecurityContactFailure(w, r, http.StatusInternalServerError, &data, t(r, "security_report.store_failed"))
 		return
 	}
 
@@ -125,22 +173,110 @@ func (fd *frontendDeps) securityReportPost(w http.ResponseWriter, r *http.Reques
 	fd.notifySecurityReport(r, trackingID, data.Form)
 
 	// Step 7: metadata only — no researcher PII, no vulnerability content.
-	_ = fd.audit.Write(applog.Entry{
-		Time:     time.Now().UTC(),
-		Event:    "security.report_received",
-		Category: "security",
-		Severity: applog.SeverityWarn,
-		Details: map[string]any{
-			"tracking_id": trackingID,
-			"severity":    data.Form.Severity,
-			"component":   data.Form.Component,
-		},
-		Result: applog.ResultSuccess,
-	})
+	if fd.audit != nil {
+		_ = fd.audit.Write(applog.Entry{
+			Time:     time.Now().UTC(),
+			Event:    "security.report_received",
+			Category: "security",
+			Severity: applog.SeverityWarn,
+			Details: map[string]any{
+				"tracking_id": trackingID,
+				"severity":    data.Form.Severity,
+				"component":   data.Form.Component,
+			},
+			Result: applog.ResultSuccess,
+		})
+	}
 
 	data.Submitted = true
 	data.TrackingID = trackingID
 	_ = renderPage(w, http.StatusOK, "contact_security", data)
+}
+
+func (fd *frontendDeps) renderSecurityContactFailure(w http.ResponseWriter, r *http.Request, status int, data *securityContactPageData, message string) {
+	data.Error = message
+	data.FormToken = fd.contactToken(time.Now())
+	challenge, err := fd.issueCaptcha(r)
+	if err != nil {
+		http.Error(w, "captcha temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	data.Captcha = challenge
+	_ = renderPage(w, status, "contact_security", *data)
+}
+
+func (fd *frontendDeps) securityReportAPIPost(w http.ResponseWriter, r *http.Request) {
+	writeError := func(status int, message string, refresh bool) {
+		payload := map[string]any{"ok": false, "error": message}
+		if refresh {
+			payload["form_token"] = fd.contactToken(time.Now())
+			descriptor, err := fd.issueCaptcha(r)
+			if err != nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "error": "captcha unavailable"})
+				return
+			}
+			payload["captcha"] = descriptor
+		}
+		writeJSON(w, status, payload)
+	}
+	if reason, valid := contactShapeValid(r.PostForm, true, true); !valid {
+		fd.contactSpamBlock(r, reason)
+		writeError(http.StatusBadRequest, "invalid form", true)
+		return
+	}
+	if fd.contactAntispam().Honeypot && r.FormValue("website") != "" {
+		fd.contactSpamBlock(r, "honeypot")
+		trackingID, err := db.NewTrackingID()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "error": "unable to complete submission"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": map[string]string{"tracking_id": trackingID}})
+		return
+	}
+	if !fd.contactTokenValid(r.FormValue("form_token"), time.Now()) {
+		fd.contactSpamBlock(r, "fill_time")
+		writeError(http.StatusBadRequest, t(r, "contact.fill_wait"), true)
+		return
+	}
+	if !fd.verifyCaptcha(r, r.PostForm) {
+		fd.contactSpamBlock(r, "captcha")
+		writeError(http.StatusBadRequest, "validation failed", true)
+		return
+	}
+	form := fd.readSecurityForm(r)
+	if message := validateSecurityForm(r, form); message != "" {
+		writeError(http.StatusBadRequest, message, true)
+		return
+	}
+	now := time.Now()
+	if reason, blocked := fd.contactRateReason(r, form.Email, now); blocked {
+		fd.contactSpamBlock(r, reason)
+		setContactRetryAfter(w, fd.contactAntispam().Window)
+		writeError(http.StatusTooManyRequests, "rate limited", true)
+		return
+	}
+	if reason, blocked := fd.contactRecordAccepted(r, form.Email, "", form.Summary+"\n"+form.Steps+"\n"+form.Impact, now, false); blocked {
+		fd.contactSpamBlock(r, reason)
+		setContactRetryAfter(w, fd.contactAntispam().Window)
+		writeError(http.StatusTooManyRequests, "rate limited", true)
+		return
+	}
+	trackingID, err := fd.storeSecurityReport(r.Context(), form)
+	if err != nil {
+		writeError(http.StatusInternalServerError, "report could not be stored", true)
+		return
+	}
+	fd.notifySecurityReport(r, trackingID, form)
+	if fd.audit != nil {
+		_ = fd.audit.Write(applog.Entry{
+			Time: time.Now().UTC(), Event: "security.report_received", Category: "security",
+			Severity: applog.SeverityWarn,
+			Details:  map[string]any{"tracking_id": trackingID, "severity": form.Severity, "component": form.Component},
+			Result:   applog.ResultSuccess,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": map[string]string{"tracking_id": trackingID}})
 }
 
 // readSecurityForm extracts and trims every security-mode field,
@@ -174,12 +310,12 @@ func (fd *frontendDeps) readSecurityForm(r *http.Request) securityReportForm {
 		CVERequested:     config.IsTruthy(field("cve_requested")),
 		DisclosureDays:   days,
 		CreditPref:       field("credit_preference"),
+		CreditHandle:     field("credit_handle"),
 		AppVersion:       fd.version,
 		CommitHash:       fd.commitID,
 		SubmittedAt:      time.Now().UTC().Format(time.RFC3339),
 		RequestUA:        r.UserAgent(),
 		AgreedDisclosure: config.IsTruthy(field("agreed_disclosure")),
-		Captcha:          field("captcha"),
 	}
 }
 
@@ -198,10 +334,10 @@ func validateSecurityForm(r *http.Request, f securityReportForm) string {
 		return t(r, "security_report.validate_summary")
 	case !containsString(securityCreditPrefs, f.CreditPref):
 		return t(r, "security_report.validate_credit")
+	case f.CreditPref == "handle" && f.CreditHandle == "":
+		return t(r, "security_report.validate_credit_handle")
 	case !f.AgreedDisclosure:
 		return t(r, "security_report.validate_disclosure")
-	case f.Captcha != contactCaptchaAnswer:
-		return t(r, "errors.captcha_failed")
 	}
 	return ""
 }

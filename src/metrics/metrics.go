@@ -49,6 +49,8 @@ type Metrics struct {
 	DBConnectionsOpen  prometheus.Gauge
 	DBConnectionsInUse prometheus.Gauge
 	DBErrorsTotal      *prometheus.CounterVec
+	DBBusyTotal        prometheus.Counter
+	DBWriteWaitSeconds prometheus.Histogram
 
 	CacheHitsTotal      *prometheus.CounterVec
 	CacheMissesTotal    *prometheus.CounterVec
@@ -80,6 +82,7 @@ type Metrics struct {
 
 	RateLimitRequestsTotal *prometheus.CounterVec
 	RateLimitBlockedTotal  *prometheus.CounterVec
+	ContactBlockedTotal    *prometheus.CounterVec
 
 	// Business metrics (AI.md PART 20 "Optional: Extended Metrics" ->
 	// "Business metrics", adapted to this project's link-shortener domain
@@ -134,6 +137,8 @@ func New(cfg config.Metrics) *Metrics {
 		DBConnectionsOpen:  f.NewGauge(prometheus.GaugeOpts{Name: namePrefix + "db_connections_open", Help: "Number of open database connections"}),
 		DBConnectionsInUse: f.NewGauge(prometheus.GaugeOpts{Name: namePrefix + "db_connections_in_use", Help: "Number of database connections in use"}),
 		DBErrorsTotal:      f.NewCounterVec(prometheus.CounterOpts{Name: namePrefix + "db_errors_total", Help: "Total database errors"}, []string{"operation", "error_type"}),
+		DBBusyTotal:        f.NewCounter(prometheus.CounterOpts{Name: namePrefix + "db_busy_total", Help: "SQLite writes that waited for the writer lock"}),
+		DBWriteWaitSeconds: f.NewHistogram(prometheus.HistogramOpts{Name: namePrefix + "db_write_wait_seconds", Help: "Time spent waiting for SQLite write transactions", Buckets: dbDurationBuckets}),
 
 		CacheHitsTotal:      f.NewCounterVec(prometheus.CounterOpts{Name: namePrefix + "cache_hits_total", Help: "Total cache hits"}, []string{"cache"}),
 		CacheMissesTotal:    f.NewCounterVec(prometheus.CounterOpts{Name: namePrefix + "cache_misses_total", Help: "Total cache misses"}, []string{"cache"}),
@@ -165,6 +170,7 @@ func New(cfg config.Metrics) *Metrics {
 
 		RateLimitRequestsTotal: f.NewCounterVec(prometheus.CounterOpts{Name: namePrefix + "ratelimit_requests_total", Help: "Total rate-limited requests"}, []string{"limit", "status"}),
 		RateLimitBlockedTotal:  f.NewCounterVec(prometheus.CounterOpts{Name: namePrefix + "ratelimit_blocked_total", Help: "Requests blocked by rate limiter"}, []string{"limit"}),
+		ContactBlockedTotal:    f.NewCounterVec(prometheus.CounterOpts{Name: namePrefix + "contact_blocked_total", Help: "Contact and security-report submissions blocked by anti-spam rule"}, []string{"reason"}),
 
 		LinksTotal:      f.NewGauge(prometheus.GaugeOpts{Name: namePrefix + "links_total", Help: "Total number of shortened links"}),
 		LinksCreated24h: f.NewGauge(prometheus.GaugeOpts{Name: namePrefix + "links_created_24h", Help: "Links created in the last 24 hours"}),

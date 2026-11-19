@@ -29,7 +29,7 @@ type SchedulerTask struct {
 // only its Name/Schedule columns (never the run-state columns) if it does —
 // this lets a binary upgrade change a built-in task's default schedule
 // without clobbering the operator's recorded history on restart.
-func UpsertSchedulerTask(ctx context.Context, sqlDB *sql.DB, id, name, schedule string) error {
+func UpsertSchedulerTask(ctx context.Context, sqlDB Handle, id, name, schedule string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -42,7 +42,7 @@ func UpsertSchedulerTask(ctx context.Context, sqlDB *sql.DB, id, name, schedule 
 }
 
 // GetSchedulerTask returns a single task's persisted state.
-func GetSchedulerTask(ctx context.Context, sqlDB *sql.DB, id string) (*SchedulerTask, error) {
+func GetSchedulerTask(ctx context.Context, sqlDB Handle, id string) (*SchedulerTask, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -53,7 +53,7 @@ func GetSchedulerTask(ctx context.Context, sqlDB *sql.DB, id string) (*Scheduler
 }
 
 // ListSchedulerTasks returns every task's persisted state, ordered by id.
-func ListSchedulerTasks(ctx context.Context, sqlDB *sql.DB) ([]SchedulerTask, error) {
+func ListSchedulerTasks(ctx context.Context, sqlDB Handle) ([]SchedulerTask, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -77,7 +77,7 @@ func ListSchedulerTasks(ctx context.Context, sqlDB *sql.DB) ([]SchedulerTask, er
 }
 
 // SetSchedulerTaskEnabled toggles a task's enabled flag.
-func SetSchedulerTaskEnabled(ctx context.Context, sqlDB *sql.DB, id string, enabled bool) error {
+func SetSchedulerTaskEnabled(ctx context.Context, sqlDB Handle, id string, enabled bool) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -98,7 +98,7 @@ func SetSchedulerTaskEnabled(ctx context.Context, sqlDB *sql.DB, id string, enab
 // RecordSchedulerRun updates a task's run-state columns after an execution
 // and appends a scheduler_history row, per AI.md PART 18 "Task Execution
 // Flow".
-func RecordSchedulerRun(ctx context.Context, sqlDB *sql.DB, id string, startedAt, finishedAt time.Time, nextRun *time.Time, status, errMsg string) error {
+func RecordSchedulerRun(ctx context.Context, sqlDB Handle, id string, startedAt, finishedAt time.Time, nextRun *time.Time, status, errMsg string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -133,7 +133,7 @@ func RecordSchedulerRun(ctx context.Context, sqlDB *sql.DB, id string, startedAt
 
 // SchedulerHistory returns the most recent runs of task id, newest first,
 // capped at limit rows.
-func SchedulerHistory(ctx context.Context, sqlDB *sql.DB, id string, limit int) ([]SchedulerHistoryEntry, error) {
+func SchedulerHistory(ctx context.Context, sqlDB Handle, id string, limit int) ([]SchedulerHistoryEntry, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -168,7 +168,7 @@ func SchedulerHistory(ctx context.Context, sqlDB *sql.DB, id string, limit int) 
 
 // PruneSchedulerHistory keeps only the most recent keep rows per task_id,
 // per AI.md PART 10's commented retention query for scheduler_history.
-func PruneSchedulerHistory(ctx context.Context, sqlDB *sql.DB, keep int) error {
+func PruneSchedulerHistory(ctx context.Context, sqlDB Handle, keep int) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 

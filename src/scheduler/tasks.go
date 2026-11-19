@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -38,7 +37,7 @@ var pendingBuiltins = []builtinDef{
 
 // Deps are the runtime dependencies real (non-pending) built-in tasks need.
 type Deps struct {
-	DB     *sql.DB
+	DB     db.Handle
 	Tokens config.Tokens
 	// Logs are rotated by log_rotation, per AI.md PART 18 "log_rotation" ->
 	// "Applies each log's rotate/keep/compress policy from server.logs".
@@ -141,7 +140,7 @@ func pendingTask(reason string) TaskFunc {
 
 // tokenCleanupTask preserves owner-visible expired linked tokens, per AI.md
 // PART 8, and purges idle owners without resources when configured.
-func tokenCleanupTask(sqlDB *sql.DB, tokens config.Tokens) TaskFunc {
+func tokenCleanupTask(sqlDB db.Handle, tokens config.Tokens) TaskFunc {
 	return func(ctx context.Context) error {
 		if _, err := db.CleanupExpiredTokens(ctx, sqlDB); err != nil {
 			return fmt.Errorf("token_cleanup: %w", err)
@@ -172,7 +171,7 @@ func logRotationTask(logs []*applog.Logger) TaskFunc {
 
 // healthcheckSelfTask verifies the database is reachable, per AI.md PART 18
 // "healthcheck_self".
-func healthcheckSelfTask(sqlDB *sql.DB) TaskFunc {
+func healthcheckSelfTask(sqlDB db.Handle) TaskFunc {
 	return func(ctx context.Context) error {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()

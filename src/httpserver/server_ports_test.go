@@ -86,10 +86,10 @@ func TestNewDualPortsMountsHTTPChallengeAndHTTPS(t *testing.T) {
 	if len(srv.servers) != 2 {
 		t.Fatalf("server listeners = %d, want HTTP and HTTPS", len(srv.servers))
 	}
-	if srv.servers[0].Addr != "0.0.0.0:8090" || srv.servers[0].TLSConfig != nil {
+	if srv.servers[0].Addr != "[::]:8090" || srv.servers[0].TLSConfig != nil {
 		t.Errorf("HTTP listener = addr %q TLS %v", srv.servers[0].Addr, srv.servers[0].TLSConfig)
 	}
-	if srv.servers[1].Addr != "0.0.0.0:8443" || srv.servers[1].TLSConfig == nil {
+	if srv.servers[1].Addr != "[::]:8443" || srv.servers[1].TLSConfig == nil {
 		t.Errorf("HTTPS listener = addr %q TLS %v", srv.servers[1].Addr, srv.servers[1].TLSConfig)
 	}
 	if challengeCalls != 1 {

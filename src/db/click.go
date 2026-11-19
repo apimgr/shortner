@@ -36,7 +36,7 @@ type Click struct {
 // and region come from a GeoIP lookup the caller already performed on the
 // raw (pre-anonymization) IP, per AI.md PART 19 — pass "" for both when
 // GeoIP is disabled or the lookup found nothing.
-func RecordClick(ctx context.Context, sqlDB *sql.DB, linkID int64, rawIP, userAgent, referrer, country, region string) (*Click, error) {
+func RecordClick(ctx context.Context, sqlDB Handle, linkID int64, rawIP, userAgent, referrer, country, region string) (*Click, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -74,7 +74,7 @@ func RecordClick(ctx context.Context, sqlDB *sql.DB, linkID int64, rawIP, userAg
 // ClicksForLink returns clicks for linkID, most recent first, up to
 // limit rows. Used by the per-link analytics page (IDEA.md "Endpoints":
 // "Get link click statistics").
-func ClicksForLink(ctx context.Context, sqlDB *sql.DB, linkID int64, limit int) ([]Click, error) {
+func ClicksForLink(ctx context.Context, sqlDB Handle, linkID int64, limit int) ([]Click, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 

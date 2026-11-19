@@ -93,6 +93,26 @@ func TestFirstArg(t *testing.T) {
 	}
 }
 
+func TestSelectListenAddressPrecedence(t *testing.T) {
+	tests := []struct {
+		name, flagAddress, envAddress, configAddress, defaultAddress, want string
+	}{
+		{"flag wins", " 192.0.2.1 ", "127.0.0.1", "::1", "[::]", "192.0.2.1"},
+		{"environment wins over config", "", " 127.0.0.1 ", "::1", "[::]", "127.0.0.1"},
+		{"config wins over default", "", "", " :: ", "[::]", "::"},
+		{"default applies when others are empty", "", "", "", "[::]", "[::]"},
+		{"default fallback if all empty", "", "", "", "", defaultListenAddress},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := selectListenAddress(tt.flagAddress, tt.envAddress, tt.configAddress, tt.defaultAddress)
+			if got != tt.want {
+				t.Errorf("selectListenAddress() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestInjectDefaultUpdateValue(t *testing.T) {
 	tests := []struct {
 		name string

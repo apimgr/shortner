@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/apimgr/shortner/src/config"
@@ -123,7 +124,8 @@ func stopOverlays(ref *overlayRef, torManager *tor.Manager, i2pManager *i2p.Mana
 // yet the row is omitted entirely and the bootstrap success line prints it
 // as soon as the network answers — never a placeholder, never a guess.
 func startupURLs(cfg *config.Config, p paths.Paths, scheme, host string) []string {
-	urls := []string{fmt.Sprintf("%s://%s:%s%s", scheme, host, cfg.Server.Port, cfg.Server.BaseURL)}
+	address := net.JoinHostPort(strings.Trim(host, "[]"), cfg.Server.Port)
+	urls := []string{fmt.Sprintf("%s://%s%s", scheme, address, cfg.Server.BaseURL)}
 	if onion := tor.ReadOnionAddress(p.Data); onion != "" {
 		urls = append(urls, "Tor: http://"+onion)
 	}

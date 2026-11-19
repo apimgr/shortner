@@ -125,6 +125,15 @@ article pre {
   max-width: 32rem;
 }
 
+.contact-honeypot {
+	position: absolute;
+	left: -10000px;
+	top: auto;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+}
+
 .contact-info {
   margin-top: 2rem;
   padding-top: 1rem;

@@ -79,6 +79,18 @@ func ParseSize(s string, def int64) (int64, error) {
 func Validate(cfg *Config) []string {
 	var warnings []string
 	defaults := Default("")
+	contactCaptcha := strings.ToLower(strings.TrimSpace(cfg.Pages.Contact.Captcha))
+	switch contactCaptcha {
+	case "", "simple":
+		cfg.Pages.Contact.Captcha = "simple"
+	case "recaptcha", "hcaptcha":
+		if strings.TrimSpace(cfg.Pages.Contact.CaptchaSiteKey) == "" || strings.TrimSpace(cfg.Pages.Contact.CaptchaSecretKey) == "" {
+			warnings = append(warnings, "pages.contact.captcha requires pages.contact.captcha_site_key and pages.contact.captcha_secret_key")
+		}
+	default:
+		warnings = append(warnings, "invalid pages.contact.captcha, using default simple")
+		cfg.Pages.Contact.Captcha = defaults.Pages.Contact.Captcha
+	}
 	diskLow := &cfg.Server.Notifications.DiskLow
 	defaultDiskLow := defaults.Server.Notifications.DiskLow
 	if diskLow.ThresholdPercent <= 0 || diskLow.ThresholdPercent > 100 {
@@ -201,6 +213,22 @@ func Validate(cfg *Config) []string {
 	}
 
 	return warnings
+}
+
+// ValidateContactCaptcha rejects an external CAPTCHA provider without both
+// required keys, which must fail startup instead of accepting unverified work.
+func ValidateContactCaptcha(cfg *Config) error {
+	provider := strings.ToLower(strings.TrimSpace(cfg.Pages.Contact.Captcha))
+	if provider == "" || provider == "simple" {
+		return nil
+	}
+	if provider != "recaptcha" && provider != "hcaptcha" {
+		return fmt.Errorf("pages.contact.captcha must be simple, recaptcha, or hcaptcha")
+	}
+	if strings.TrimSpace(cfg.Pages.Contact.CaptchaSiteKey) == "" || strings.TrimSpace(cfg.Pages.Contact.CaptchaSecretKey) == "" {
+		return fmt.Errorf("pages.contact.captcha requires pages.contact.captcha_site_key and pages.contact.captcha_secret_key")
+	}
+	return nil
 }
 
 // ValidServerAddress accepts an IP literal or a DNS hostname suitable for

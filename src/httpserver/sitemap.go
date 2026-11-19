@@ -4,7 +4,6 @@ package httpserver
 
 import (
 	"context"
-	"database/sql"
 	"encoding/xml"
 	"fmt"
 	"io/fs"
@@ -31,7 +30,7 @@ type sitemapDeps struct {
 	cfg       *config.Config
 	resolver  *ProxyResolver
 	startTime time.Time
-	sqlDB     *sql.DB
+	sqlDB     db.Handle
 	configDir string
 }
 

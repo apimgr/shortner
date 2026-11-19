@@ -33,7 +33,7 @@ func (k PGPKey) Expired(now time.Time) bool {
 }
 
 // UpsertPGPKey stores or replaces a keypair's metadata row.
-func UpsertPGPKey(ctx context.Context, sqlDB *sql.DB, key PGPKey) error {
+func UpsertPGPKey(ctx context.Context, sqlDB Handle, key PGPKey) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -70,7 +70,7 @@ func UpsertPGPKey(ctx context.Context, sqlDB *sql.DB, key PGPKey) error {
 }
 
 // GetPGPKey returns one keypair row by fingerprint, or ErrNotFound.
-func GetPGPKey(ctx context.Context, sqlDB *sql.DB, fingerprint string) (*PGPKey, error) {
+func GetPGPKey(ctx context.Context, sqlDB Handle, fingerprint string) (*PGPKey, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -82,7 +82,7 @@ func GetPGPKey(ctx context.Context, sqlDB *sql.DB, fingerprint string) (*PGPKey,
 
 // LatestPGPKey returns the most recently created non-revoked keypair row,
 // or ErrNotFound when no keypair has been generated.
-func LatestPGPKey(ctx context.Context, sqlDB *sql.DB) (*PGPKey, error) {
+func LatestPGPKey(ctx context.Context, sqlDB Handle) (*PGPKey, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -95,7 +95,7 @@ func LatestPGPKey(ctx context.Context, sqlDB *sql.DB) (*PGPKey, error) {
 // RevokePGPKey marks a fingerprint revoked without deleting the row, per
 // AI.md PART 11: "the key file may be gone but the fingerprint stays in
 // audit history".
-func RevokePGPKey(ctx context.Context, sqlDB *sql.DB, fingerprint string) error {
+func RevokePGPKey(ctx context.Context, sqlDB Handle, fingerprint string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -109,7 +109,7 @@ func RevokePGPKey(ctx context.Context, sqlDB *sql.DB, fingerprint string) error 
 
 // RevokeAllPGPKeys marks every keypair row revoked, used by
 // `--maintenance pgp delete` when the on-disk keys are removed.
-func RevokeAllPGPKeys(ctx context.Context, sqlDB *sql.DB) error {
+func RevokeAllPGPKeys(ctx context.Context, sqlDB Handle) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 

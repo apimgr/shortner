@@ -5,7 +5,6 @@ package httpserver
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/apimgr/shortner/src/apperr"
+	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/mode"
 )
 
@@ -139,7 +139,7 @@ type I2PReporter interface {
 // healthDeps bundles what the health handler needs to build a
 // HealthResponse.
 type healthDeps struct {
-	sqlDB     *sql.DB
+	sqlDB     db.Handle
 	dataDir   string
 	startTime time.Time
 	stats     *Stats
@@ -283,7 +283,7 @@ func (h *healthDeps) buildHealthResponse(ctx context.Context) HealthResponse {
 
 // checkDatabase pings sqlDB with a short timeout, per AI.md PART 13
 // "checks.database".
-func checkDatabase(ctx context.Context, sqlDB *sql.DB) string {
+func checkDatabase(ctx context.Context, sqlDB db.Handle) string {
 	if sqlDB == nil {
 		return "error"
 	}

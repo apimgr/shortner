@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -74,7 +73,7 @@ func runSecurityReportMaintenance(binaryName string, p paths.Paths, args []strin
 	}
 }
 
-func runSecurityReportUpdate(binaryName string, p paths.Paths, sqlDB *sql.DB, ctx context.Context, args []string) int {
+func runSecurityReportUpdate(binaryName string, p paths.Paths, sqlDB db.Handle, ctx context.Context, args []string) int {
 	if len(args) == 0 {
 		return securityReportUsage(binaryName)
 	}

@@ -412,9 +412,10 @@ type Feed struct {
 // page — only General.Email and Abuse.Email are, per the page's spec'd
 // "Abuse Reports" section.
 type Contact struct {
-	General ContactRecipient `yaml:"general"`
-	Admin   ContactRecipient `yaml:"admin"`
-	Abuse   ContactRecipient `yaml:"abuse"`
+	General  ContactRecipient `yaml:"general"`
+	Admin    ContactRecipient `yaml:"admin"`
+	Abuse    ContactRecipient `yaml:"abuse"`
+	Antispam ContactAntispam  `yaml:"antispam"`
 	// Security is the RFC 2142 security@ role mailbox — the CC channel for
 	// vulnerability reports, surfaced in security.txt's mailto Contact
 	// line and in the PGP keypair's UID.
@@ -423,6 +424,22 @@ type Contact struct {
 	// "Compliance Routes"). The page 404s unless a standard requiring a
 	// DPO is enabled, so these stay empty for most deployments.
 	DPO ContactDPO `yaml:"dpo"`
+}
+
+// ContactAntispam controls the server-side layers protecting anonymous
+// contact and security-report submissions, per AI.md PART 16.
+type ContactAntispam struct {
+	Honeypot             bool     `yaml:"honeypot"`
+	MinFillSeconds       int      `yaml:"min_fill_seconds"`
+	MaxAgeSeconds        int      `yaml:"max_age_seconds"`
+	PerIP                int      `yaml:"per_ip"`
+	PerEmail             int      `yaml:"per_email"`
+	Global               int      `yaml:"global"`
+	Window               string   `yaml:"window"`
+	MaxLinks             int      `yaml:"max_links"`
+	BlockedWords         []string `yaml:"blocked_words"`
+	BlockedEmailDomains  []string `yaml:"blocked_email_domains"`
+	DuplicateWindowHours int      `yaml:"duplicate_window_hours"`
 }
 
 // ContactRecipient is one named contact-form recipient.
@@ -611,9 +628,11 @@ type PageContent struct {
 
 // ContactPage holds `pages.contact`.
 type ContactPage struct {
-	Enabled        bool   `yaml:"enabled"`
-	Captcha        string `yaml:"captcha"`
-	SuccessMessage string `yaml:"success_message"`
+	Enabled          bool   `yaml:"enabled"`
+	Captcha          string `yaml:"captcha"`
+	CaptchaSiteKey   string `yaml:"captcha_site_key"`
+	CaptchaSecretKey string `yaml:"captcha_secret_key"`
+	SuccessMessage   string `yaml:"success_message"`
 }
 
 // TLS holds `server.tls`, per AI.md PART 15 "Built-in Let's Encrypt
@@ -719,7 +738,7 @@ func Default(dbPath string) *Config {
 	return &Config{
 		Server: Server{
 			Mode:       "production",
-			Listen:     "0.0.0.0",
+			Listen:     "[::]",
 			Port:       "8090",
 			BaseURL:    "/",
 			APIVersion: "v1",
@@ -780,7 +799,11 @@ func Default(dbPath string) *Config {
 				Sitemap: Sitemap{Enabled: true, MaxURLs: 50000},
 				Feed:    Feed{MaxItems: 50},
 			},
-			Contact: Contact{},
+			Contact: Contact{Antispam: ContactAntispam{
+				Honeypot: true, MinFillSeconds: 3, MaxAgeSeconds: 43200,
+				PerIP: 5, PerEmail: 3, Global: 60, Window: "1h",
+				MaxLinks: 2, DuplicateWindowHours: 24,
+			}},
 			GeoIP: GeoIP{
 				Enabled:        true,
 				Dir:            "",
@@ -903,9 +926,11 @@ func Default(dbPath string) *Config {
 		},
 		Pages: Pages{
 			Contact: ContactPage{
-				Enabled:        true,
-				Captcha:        "simple",
-				SuccessMessage: "Thank you for your message. We'll respond soon.",
+				Enabled:          true,
+				Captcha:          "simple",
+				CaptchaSiteKey:   "",
+				CaptchaSecretKey: "",
+				SuccessMessage:   "Thank you for your message. We'll respond soon.",
 			},
 		},
 	}

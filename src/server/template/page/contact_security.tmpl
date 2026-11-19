@@ -13,20 +13,24 @@
 
 <form method="POST" action="/server/contact" class="contact-form" novalidate>
 <input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
+<input type="hidden" name="form_token" value="{{.FormToken}}">
+<div class="contact-honeypot" aria-hidden="true">
+<label for="security-website">{{t $lang "contact.honeypot_label"}}</label><input type="text" id="security-website" name="website" maxlength="200" tabindex="-1" autocomplete="off">
+</div>
 <input type="hidden" name="security_id" value="{{.SecurityID}}">
 {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
 
 <div class="form-group">
 <label for="name">{{t $lang "security_report.name"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
-<input type="text" id="name" name="name" required aria-required="true" class="input-field" value="{{.Form.Name}}">
+<input type="text" id="name" name="name" maxlength="100" required aria-required="true" class="input-field" value="{{.Form.Name}}">
 </div>
 <div class="form-group">
 <label for="email">{{t $lang "security_report.email"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
-<input type="email" id="email" name="email" required aria-required="true" class="input-field" value="{{.Form.Email}}">
+<input type="email" id="email" name="email" maxlength="254" required aria-required="true" class="input-field" value="{{.Form.Email}}">
 </div>
 <div class="form-group">
 <label for="researcher_gpg">{{t $lang "security_report.gpg_label"}} <span class="form-optional">{{t $lang "form.optional_field"}}</span></label>
-<textarea id="researcher_gpg" name="researcher_gpg" class="input-field" rows="3"
+<textarea id="researcher_gpg" name="researcher_gpg" maxlength="16384" class="input-field" rows="3"
   aria-describedby="researcher_gpg_help">{{.Form.ResearcherGPG}}</textarea>
 <p id="researcher_gpg_help" class="form-help">{{t $lang "security_report.gpg_help"}}</p>
 </div>
@@ -39,11 +43,11 @@
 </div>
 <div class="form-group">
 <label for="component_other">{{t $lang "security_report.component_other"}} <span class="form-optional">{{t $lang "form.optional_field"}}</span></label>
-<input type="text" id="component_other" name="component_other" class="input-field">
+<input type="text" id="component_other" name="component_other" maxlength="255" class="input-field">
 </div>
 <div class="form-group">
 <label for="endpoint">{{t $lang "security_report.endpoint"}} <span class="form-optional">{{t $lang "form.optional_field"}}</span></label>
-<input type="text" id="endpoint" name="endpoint" class="input-field" value="{{.Form.Endpoint}}">
+<input type="text" id="endpoint" name="endpoint" maxlength="2048" class="input-field" value="{{.Form.Endpoint}}">
 </div>
 
 <div class="form-group">
@@ -55,19 +59,19 @@
 
 <div class="form-group">
 <label for="summary">{{t $lang "security_report.summary"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
-<input type="text" id="summary" name="summary" required aria-required="true" class="input-field" value="{{.Form.Summary}}">
+<input type="text" id="summary" name="summary" maxlength="200" required aria-required="true" class="input-field" value="{{.Form.Summary}}">
 </div>
 <div class="form-group">
 <label for="steps">{{t $lang "security_report.steps"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
-<textarea id="steps" name="steps" required aria-required="true" class="input-field" rows="6">{{.Form.Steps}}</textarea>
+<textarea id="steps" name="steps" maxlength="10000" required aria-required="true" class="input-field" rows="6">{{.Form.Steps}}</textarea>
 </div>
 <div class="form-group">
 <label for="impact">{{t $lang "security_report.impact"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
-<textarea id="impact" name="impact" required aria-required="true" class="input-field" rows="4">{{.Form.Impact}}</textarea>
+<textarea id="impact" name="impact" maxlength="5000" required aria-required="true" class="input-field" rows="4">{{.Form.Impact}}</textarea>
 </div>
 <div class="form-group">
 <label for="suggested_fix">{{t $lang "security_report.suggested_fix"}} <span class="form-optional">{{t $lang "form.optional_field"}}</span></label>
-<textarea id="suggested_fix" name="suggested_fix" class="input-field" rows="4">{{.Form.SuggestedFix}}</textarea>
+<textarea id="suggested_fix" name="suggested_fix" maxlength="5000" class="input-field" rows="4">{{.Form.SuggestedFix}}</textarea>
 </div>
 
 <div class="form-group form-check">
@@ -81,9 +85,12 @@
 <div class="form-group">
 <label for="credit_preference">{{t $lang "security_report.credit_preference"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
 <select id="credit_preference" name="credit_preference" required aria-required="true" class="input-field">
-{{range .CreditPrefs}}<option value="{{.}}"{{if eq . $.Form.CreditPref}} selected{{end}}>{{.}}</option>{{end}}
+{{range .CreditPrefs}}<option value="{{.}}"{{if eq . $.Form.CreditPref}} selected{{end}}>{{if eq . "name"}}{{t $lang "security_report.credit_real_name"}}{{else if eq . "handle"}}{{t $lang "security_report.credit_handle_choice"}}{{else if eq . "no"}}{{t $lang "security_report.credit_none"}}{{else}}{{t $lang "security_report.credit_anonymous"}}{{end}}</option>{{end}}
 </select>
 </div>
+{{if eq .Form.CreditPref "handle"}}
+<div class="form-group"><label for="credit_handle">{{t $lang "security_report.credit_handle"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label><input type="text" id="credit_handle" name="credit_handle" maxlength="100" required aria-required="true" class="input-field" value="{{.Form.CreditHandle}}"></div>
+{{end}}
 
 <div class="form-group form-check">
 <input type="checkbox" id="agreed_disclosure" name="agreed_disclosure" value="true" required aria-required="true"{{if .Form.AgreedDisclosure}} checked{{end}}>
@@ -92,7 +99,14 @@
 
 <div class="form-group">
 <label for="captcha">{{t $lang "contact.captcha_label"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
-<input type="text" id="captcha" name="captcha" required aria-required="true" class="input-field" autocomplete="off">
+{{if eq .Captcha.Provider "simple"}}
+<p>{{.Captcha.Question}}</p><input type="hidden" name="captcha_id" value="{{.Captcha.ChallengeID}}">
+<input type="text" id="captcha" name="captcha_answer" required aria-required="true" class="input-field" autocomplete="off">
+{{else}}
+{{if eq .Captcha.Provider "recaptcha"}}<div class="g-recaptcha" data-sitekey="{{.Captcha.SiteKey}}"></div>{{else}}<div class="h-captcha" data-sitekey="{{.Captcha.SiteKey}}"></div>{{end}}
+<noscript><p>{{.Captcha.Fallback.Question}}</p><input type="hidden" name="captcha_id" value="{{.Captcha.Fallback.ChallengeID}}"><label for="captcha-fallback">{{t $lang "contact.captcha_label"}}</label><input type="text" id="captcha-fallback" name="captcha_answer" required aria-required="true" class="input-field" autocomplete="off"></noscript>
+{{if eq .Captcha.Provider "recaptcha"}}<script src="https://www.google.com/recaptcha/api.js" async defer></script>{{else}}<script src="https://js.hcaptcha.com/1/api.js" async defer></script>{{end}}
+{{end}}
 </div>
 
 <button type="submit" class="btn btn-primary">{{t $lang "security_report.submit"}}</button>

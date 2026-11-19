@@ -10,8 +10,8 @@ import (
 
 func TestDefault(t *testing.T) {
 	cfg := Default("/tmp/db")
-	if cfg.Server.Listen != "0.0.0.0" {
-		t.Errorf("Listen = %q, want 0.0.0.0", cfg.Server.Listen)
+	if cfg.Server.Listen != "[::]" {
+		t.Errorf("Listen = %q, want [::]", cfg.Server.Listen)
 	}
 	if cfg.Server.Port != "8090" {
 		t.Errorf("Port = %q, want 8090", cfg.Server.Port)
@@ -27,6 +27,13 @@ func TestDefault(t *testing.T) {
 	}
 	if cfg.Server.Token != "" {
 		t.Errorf("Token = %q, want empty", cfg.Server.Token)
+	}
+	if !reflect.DeepEqual(cfg.Server.Contact.Antispam, ContactAntispam{
+		Honeypot: true, MinFillSeconds: 3, MaxAgeSeconds: 43200,
+		PerIP: 5, PerEmail: 3, Global: 60, Window: "1h",
+		MaxLinks: 2, DuplicateWindowHours: 24,
+	}) {
+		t.Errorf("Contact.Antispam = %+v, want spec defaults", cfg.Server.Contact.Antispam)
 	}
 }
 

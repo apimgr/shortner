@@ -60,50 +60,23 @@ func escapeDSNPath(path string) string {
 // PART 10 "Implementation" / "Schema Updates". m may be nil (e.g. metrics
 // disabled), in which case the plain "sqlite" driver is used with no
 // instrumentation.
-func Open(path string, pool Pool, m *metrics.Metrics) (*sql.DB, error) {
+func Open(path string, pool Pool, m *metrics.Metrics) (*Store, error) {
 	// The path is percent-encoded before interpolation: a raw "?" or "#"
 	// in the configured database path would otherwise terminate the file
 	// component and let the remainder be parsed as extra DSN parameters,
 	// silently overriding the pragmas set below.
-	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)",
-		escapeDSNPath(path))
-
-	driverName := "sqlite"
-	if m != nil {
-		// database/sql/driver doesn't expose the "sqlite" driver.Driver
-		// value directly (modernc.org/sqlite's Driver type is unexported);
-		// a throwaway in-memory *sql.DB's own Driver() method gets it, per
-		// AI.md PART 20 "Database Metrics" non-invasive instrumentation.
-		tmp, tmpErr := sql.Open("sqlite", "file::memory:")
-		if tmpErr == nil {
-			driverName = m.RegisterInstrumentedDriver("sqlite", tmp.Driver())
-			tmp.Close()
-		}
-	}
-
-	sqlDB, err := sql.Open(driverName, dsn)
+	store, err := openSQLiteWithMetrics(path, pool.MaxOpen, m)
 	if err != nil {
-		return nil, fmt.Errorf("db: open %s: %w", path, err)
-	}
-
-	sqlDB.SetMaxOpenConns(pool.MaxOpen)
-	sqlDB.SetMaxIdleConns(pool.MaxIdle)
-	sqlDB.SetConnMaxLifetime(pool.MaxLifetime)
-	sqlDB.SetConnMaxIdleTime(pool.MaxIdleTime)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := sqlDB.PingContext(ctx); err != nil {
-		sqlDB.Close()
-		return nil, fmt.Errorf("db: ping %s: %w", path, err)
-	}
-
-	if err := EnsureSchema(ctx, sqlDB); err != nil {
-		sqlDB.Close()
 		return nil, err
 	}
 
-	return sqlDB, nil
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := EnsureSchema(ctx, store); err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	return store, nil
 }
 
 // createStatements are the idempotent CREATE TABLE / CREATE INDEX
@@ -175,6 +148,13 @@ var createStatements = []string{
 		value TEXT NOT NULL,
 		expires_at INTEGER NOT NULL
 	)`,
+	`CREATE TABLE IF NOT EXISTS captcha_challenges (
+		id VARCHAR(32) PRIMARY KEY,
+		answer_hash VARCHAR(64) NOT NULL,
+		created_at INTEGER NOT NULL,
+		expires_at INTEGER NOT NULL
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_captcha_challenges_expiry ON captcha_challenges(expires_at)`,
 
 	// Scheduler task state and history, per AI.md PART 18 "Scheduler
 	// State (Persistent)" and PART 10's literal schema.
@@ -251,7 +231,7 @@ var schemaUpdates = []string{
 
 // EnsureSchema creates tables and applies schema updates. Safe to run on
 // every startup (idempotent), per AI.md PART 10 "EnsureSchema".
-func EnsureSchema(ctx context.Context, sqlDB *sql.DB) error {
+func EnsureSchema(ctx context.Context, sqlDB Handle) error {
 	if err := migrateLegacyOwnerSchema(ctx, sqlDB); err != nil {
 		return err
 	}
@@ -268,7 +248,7 @@ func EnsureSchema(ctx context.Context, sqlDB *sql.DB) error {
 	return nil
 }
 
-func migrateLegacyOwnerSchema(ctx context.Context, sqlDB *sql.DB) error {
+func migrateLegacyOwnerSchema(ctx context.Context, sqlDB Handle) error {
 	if _, err := sqlDB.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS owners (
 		id TEXT PRIMARY KEY,
 		created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
@@ -290,11 +270,31 @@ func migrateLegacyOwnerSchema(ctx context.Context, sqlDB *sql.DB) error {
 		}
 		return backfillLinkOwners(ctx, sqlDB)
 	}
-	tx, err := sqlDB.BeginTx(ctx, nil)
+	if store, ok := sqlDB.(*Store); ok {
+		return store.Write(ctx, func(tx *sql.Tx) error {
+			return migrateLegacyTokenSchema(ctx, tx)
+		})
+	}
+	beginner, ok := sqlDB.(transactionBeginner)
+	if !ok {
+		return fmt.Errorf("db: handle does not support transactions")
+	}
+	tx, err := beginner.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("db: begin owner migration: %w", err)
 	}
 	defer tx.Rollback()
+	if err := migrateLegacyTokenSchema(ctx, tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("db: commit owner migration: %w", err)
+	}
+	return nil
+}
+
+func migrateLegacyTokenSchema(ctx context.Context, tx *sql.Tx) error {
+	var err error
 	if _, err = tx.ExecContext(ctx, `ALTER TABLE api_tokens RENAME TO api_tokens_legacy`); err != nil {
 		return fmt.Errorf("db: rename legacy token table: %w", err)
 	}
@@ -415,22 +415,13 @@ func migrateLegacyOwnerSchema(ctx context.Context, sqlDB *sql.DB) error {
 	if _, err := tx.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_api_tokens_linked_name ON api_tokens(owner_id, name) WHERE kind = 'linked' AND name IS NOT NULL`); err != nil {
 		return err
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("db: commit owner migration: %w", err)
-	}
 	return nil
 }
 
-func backfillLinkOwners(ctx context.Context, sqlDB *sql.DB) error {
-	tx, err := sqlDB.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if err := fillUnownedLinks(ctx, tx); err != nil {
-		return err
-	}
-	return tx.Commit()
+func backfillLinkOwners(ctx context.Context, sqlDB Handle) error {
+	return WithTransaction(ctx, sqlDB, func(tx *sql.Tx) error {
+		return fillUnownedLinks(ctx, tx)
+	})
 }
 
 func fillUnownedLinks(ctx context.Context, tx *sql.Tx) error {
@@ -464,13 +455,13 @@ func fillUnownedLinks(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-func tableExists(ctx context.Context, db *sql.DB, table string) bool {
+func tableExists(ctx context.Context, db Handle, table string) bool {
 	var count int
 	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count)
 	return count > 0
 }
 
-func columnExists(ctx context.Context, db *sql.DB, table, column string) bool {
+func columnExists(ctx context.Context, db Handle, table, column string) bool {
 	rows, err := db.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
 	if err != nil {
 		return false
@@ -513,11 +504,18 @@ func isColumnExistsError(err error) bool {
 // WithTransaction runs fn inside a transaction with a 30s timeout,
 // committing on success and rolling back on error, per AI.md PART 10
 // "Transaction Patterns" -> "Basic Transaction".
-func WithTransaction(ctx context.Context, sqlDB *sql.DB, fn func(*sql.Tx) error) error {
+func WithTransaction(ctx context.Context, sqlDB Handle, fn func(*sql.Tx) error) error {
+	if store, ok := sqlDB.(*Store); ok {
+		return store.Write(ctx, fn)
+	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	tx, err := sqlDB.BeginTx(ctx, nil)
+	beginner, ok := sqlDB.(transactionBeginner)
+	if !ok {
+		return fmt.Errorf("db: handle does not support transactions")
+	}
+	tx, err := beginner.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("db: begin transaction: %w", err)
 	}
@@ -566,10 +564,17 @@ func isSerializationError(err error) bool {
 // WithSerializableRetry retries fn up to maxRetries times on a SQLite
 // busy/locked error, with linear backoff, per AI.md PART 10 "Retry on
 // Serialization Failure".
-func WithSerializableRetry(ctx context.Context, sqlDB *sql.DB, maxRetries int, fn func(*sql.Tx) error) error {
+func WithSerializableRetry(ctx context.Context, sqlDB Handle, maxRetries int, fn func(*sql.Tx) error) error {
+	if store, ok := sqlDB.(*Store); ok {
+		return store.Write(ctx, fn)
+	}
 	var lastErr error
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		tx, err := sqlDB.BeginTx(ctx, nil)
+		beginner, ok := sqlDB.(transactionBeginner)
+		if !ok {
+			return fmt.Errorf("db: handle does not support transactions")
+		}
+		tx, err := beginner.BeginTx(ctx, nil)
 		if err != nil {
 			return fmt.Errorf("db: begin transaction: %w", err)
 		}

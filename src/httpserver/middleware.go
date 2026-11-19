@@ -15,7 +15,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
-	"database/sql"
 	"encoding/hex"
 	"net"
 	"net/http"
@@ -40,7 +39,7 @@ import (
 // deps bundles the shared state every middleware needs, built once by
 // New() and closed over by each middleware function.
 type deps struct {
-	sqlDB       *sql.DB
+	sqlDB       db.Handle
 	resolver    *ProxyResolver
 	rateLimiter *RateLimiter
 	stats       *Stats

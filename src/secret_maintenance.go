@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/base64"
 	"fmt"
 	"os"
@@ -67,7 +66,7 @@ func runSecretMaintenance(binaryName string, p paths.Paths, args []string) int {
 	return 0
 }
 
-func rotateInstallationSecret(sqlDB *sql.DB, configDir string, audit *applog.AuditLogger) error {
+func rotateInstallationSecret(sqlDB db.Handle, configDir string, audit *applog.AuditLogger) error {
 	ctx := context.Background()
 	oldSecret, err := db.GetSecret(ctx, sqlDB, db.SecretInstallation)
 	if err != nil {
@@ -102,7 +101,7 @@ func rotateInstallationSecret(sqlDB *sql.DB, configDir string, audit *applog.Aud
 	return audit.Write(applog.Entry{Event: "security.installation_secret_rotated", Category: "security", Severity: applog.SeverityWarn, Details: map[string]any{"operator_reason": "manual rotation"}, Result: applog.ResultSuccess})
 }
 
-func rotateEncryptionKey(sqlDB *sql.DB, configPath string, cfg *config.Config, audit *applog.AuditLogger) error {
+func rotateEncryptionKey(sqlDB db.Handle, configPath string, cfg *config.Config, audit *applog.AuditLogger) error {
 	oldKey, err := config.DecodeEncryptionKey(cfg)
 	if err != nil {
 		return err

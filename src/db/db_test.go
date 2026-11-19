@@ -3,21 +3,59 @@ package db
 import (
 	"context"
 	"database/sql"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
 
-func openTestDB(t *testing.T) *sql.DB {
+func openTestDB(t *testing.T) *Store {
 	t.Helper()
-	sqlDB, err := Open(":memory:", DefaultPool(), nil)
+	_, testFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate DB test source")
+	}
+	projectRoot := filepath.Clean(filepath.Join(filepath.Dir(testFile), "../.."))
+	idea, err := os.ReadFile(filepath.Join(projectRoot, "IDEA.md"))
+	if err != nil {
+		t.Fatalf("read IDEA.md for temp namespace: %v", err)
+	}
+	projectOrg := ""
+	internalName := ""
+	for _, line := range strings.Split(string(idea), "\n") {
+		if strings.HasPrefix(line, "project_org:") {
+			projectOrg = strings.TrimSpace(strings.TrimPrefix(line, "project_org:"))
+		}
+		if strings.HasPrefix(line, "internal_name:") {
+			internalName = strings.TrimSpace(strings.TrimPrefix(line, "internal_name:"))
+		}
+	}
+	if projectOrg == "" || internalName == "" {
+		t.Fatal("IDEA.md does not define project_org and internal_name")
+	}
+	base := filepath.Join(os.TempDir(), projectOrg)
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatalf("create temp namespace: %v", err)
+	}
+	tempDir, err := os.MkdirTemp(base, internalName+"-")
+	if err != nil {
+		t.Fatalf("create temp database directory: %v", err)
+	}
+	sqlDB, err := Open(filepath.Join(tempDir, "server.db"), DefaultPool(), nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	// :memory: is per-connection — force a single connection so the pool
-	// never hands out a second, empty, in-memory database mid-test.
-	sqlDB.SetMaxOpenConns(1)
-	t.Cleanup(func() { sqlDB.Close() })
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close test Store: %v", err)
+		}
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Errorf("remove test database directory: %v", err)
+		}
+	})
 	return sqlDB
 }
 

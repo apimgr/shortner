@@ -2,7 +2,6 @@ package backup
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/apimgr/shortner/src/db"
 )
 
 // Authorization is the outcome of AI.md PART 21 "Restore Authorization".
@@ -80,7 +81,7 @@ func DatabaseEmpty(dbPath string) bool {
 		return true
 	}
 
-	handle, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro&_pragma=busy_timeout(5000)")
+	handle, err := db.OpenReadOnlySQLite(dbPath, 1)
 	if err != nil {
 		return false
 	}
@@ -90,7 +91,7 @@ func DatabaseEmpty(dbPath string) bool {
 	defer cancel()
 
 	var count int
-	err = handle.QueryRowContext(ctx,
+	err = handle.Read(ctx).QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").Scan(&count)
 	if err != nil {
 		return false

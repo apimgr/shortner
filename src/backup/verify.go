@@ -3,14 +3,13 @@ package backup
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"github.com/apimgr/shortner/src/db"
 )
 
 // Check names the individual verification steps AI.md PART 21
@@ -128,7 +127,7 @@ func Verify(path, password string) error {
 // PRAGMA integrity_check, per AI.md PART 21 "Database integrity — verify
 // SQLite/dump is valid".
 func checkSQLiteIntegrity(dbFile string) error {
-	handle, err := sql.Open("sqlite", "file:"+dbFile+"?mode=ro&_pragma=busy_timeout(5000)")
+	handle, err := db.OpenReadOnlySQLite(dbFile, 1)
 	if err != nil {
 		return fmt.Errorf("open extracted database: %w", err)
 	}
@@ -138,7 +137,7 @@ func checkSQLiteIntegrity(dbFile string) error {
 	defer cancel()
 
 	var result string
-	if err := handle.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&result); err != nil {
+	if err := handle.Read(ctx).QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&result); err != nil {
 		return fmt.Errorf("integrity_check: %w", err)
 	}
 	if result != "ok" {

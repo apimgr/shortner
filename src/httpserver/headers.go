@@ -212,6 +212,21 @@ func (hd *headerDeps) buildCSP(r *http.Request) (string, string) {
 				value += " " + extra
 			}
 		}
+		if r.URL.Path == "/server/contact" && (hd.resolver == nil || !hd.resolver.IsOverlay(r)) {
+			switch strings.ToLower(strings.TrimSpace(hd.cfg.Pages.Contact.Captcha)) {
+			case "recaptcha":
+				if d.name == "script-src" {
+					value += " https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/"
+				}
+				if d.name == "frame-src" || d.name == "connect-src" {
+					value += " https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/"
+				}
+			case "hcaptcha":
+				if d.name == "script-src" || d.name == "frame-src" || d.name == "connect-src" {
+					value += " https://hcaptcha.com https://*.hcaptcha.com"
+				}
+			}
+		}
 		parts = append(parts, d.name+" "+value)
 	}
 

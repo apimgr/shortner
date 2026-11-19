@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +21,13 @@ func testFrontendDeps(t *testing.T) (*frontendDeps, *linkDeps) {
 	t.Helper()
 	ld, _ := testLinkDeps(t)
 	cfg := config.Default(":memory:")
-	fd := &frontendDeps{cfg: cfg, version: "test", buildDate: "2026-01-01", ld: ld, resolver: NewProxyResolver(nil)}
+	store, err := db.Open(filepath.Join(t.TempDir(), "contact.sqlite"), db.DefaultPool(), nil)
+	if err != nil {
+		t.Fatalf("open contact test store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	fd := &frontendDeps{cfg: cfg, version: "test", buildDate: "2026-01-01", ld: ld, resolver: NewProxyResolver(nil), store: store, installSecret: "test-install-secret"}
+	fd.setContactAntispam(cfg.Server.Contact.Antispam)
 	return fd, ld
 }
 
@@ -171,10 +178,10 @@ func TestContactHandler_GET(t *testing.T) {
 
 func TestContactHandler_POSTSuccess(t *testing.T) {
 	fd, _ := testFrontendDeps(t)
-	form := url.Values{
-		"name": {"Jane"}, "email": {"jane@example.com"},
-		"subject": {"Hello"}, "message": {"A message"}, "captcha": {"7"},
-	}
+	form := contactTestForm(t, fd, "jane@example.com")
+	form.Set("name", "Jane")
+	form.Set("subject", "Hello")
+	form.Set("message", "A message")
 	rec := httptest.NewRecorder()
 	fd.contactHandler(rec, htmlRequest(http.MethodPost, "/server/contact", form))
 	if rec.Code != http.StatusOK {
@@ -187,14 +194,30 @@ func TestContactHandler_POSTSuccess(t *testing.T) {
 
 func TestContactHandler_POSTBadCaptcha(t *testing.T) {
 	fd, _ := testFrontendDeps(t)
-	form := url.Values{
-		"name": {"Jane"}, "email": {"jane@example.com"},
-		"subject": {"Hello"}, "message": {"A message"}, "captcha": {"9"},
-	}
+	form := contactTestForm(t, fd, "jane@example.com")
+	form.Set("name", "Jane")
+	form.Set("subject", "Hello")
+	form.Set("message", "A message")
+	form.Set("captcha_answer", "9")
 	rec := httptest.NewRecorder()
 	fd.contactHandler(rec, htmlRequest(http.MethodPost, "/server/contact", form))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func contactTestForm(t *testing.T, fd *frontendDeps, email string) url.Values {
+	t.Helper()
+	now := time.Now()
+	id := "test-captcha-id"
+	if err := fd.store.IssueCaptchaChallenge(context.Background(), id, captchaAnswerHash(id, "7"), now, now.Add(10*time.Minute)); err != nil {
+		t.Fatalf("issue test challenge: %v", err)
+	}
+	return url.Values{
+		"name": {"Jane"}, "email": {email},
+		"subject": {"Hello"}, "message": {"A message"}, "captcha_id": {id},
+		"captcha_answer": {"7"}, "website": {""},
+		"form_token": {issueContactFormToken(fd.installSecret, now.Add(-4*time.Second))},
 	}
 }
 

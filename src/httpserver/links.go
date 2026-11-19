@@ -17,7 +17,6 @@ package httpserver
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,7 +40,7 @@ import (
 
 // linkDeps bundles what the link handlers need.
 type linkDeps struct {
-	sqlDB    *sql.DB
+	sqlDB    db.Handle
 	tokenKey []byte
 	cfg      *config.Config
 	resolver *ProxyResolver
@@ -659,7 +658,7 @@ func buildStatsResponse(link *db.Link, clicks []db.Click) StatsResponse {
 
 // lookupLink fetches a link by slug, converting db.ErrNotFound into a
 // sentinel this package's handlers can map to the correct API error.
-func lookupLink(ctx context.Context, sqlDB *sql.DB, slug string) (*db.Link, error) {
+func lookupLink(ctx context.Context, sqlDB db.Handle, slug string) (*db.Link, error) {
 	return db.GetLinkByShortCode(ctx, sqlDB, slug)
 }
 

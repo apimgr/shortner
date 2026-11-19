@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"time"
 )
 
@@ -14,7 +13,7 @@ type SitemapLink struct {
 }
 
 // ListSitemapLinks returns a stable page of links that currently resolve.
-func ListSitemapLinks(ctx context.Context, sqlDB *sql.DB, limit, offset int, now time.Time) ([]SitemapLink, int64, error) {
+func ListSitemapLinks(ctx context.Context, sqlDB Handle, limit, offset int, now time.Time) ([]SitemapLink, int64, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 

@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/apimgr/shortner/src/applog"
@@ -46,6 +46,8 @@ import (
 // "internal_name"), used as the dev-TLD project name in fqdn.IsDevTLD.
 const internalName = "shortner"
 
+const defaultListenAddress = "[::]"
+
 func main() {
 	os.Exit(run(os.Args[1:]))
 }
@@ -64,6 +66,7 @@ var createServiceAccount = service.CreateServiceAccount
 var setRuntimeOwnership = service.SetRuntimeOwnership
 var dropPrivileges = service.DropPrivileges
 var bindPrivilegedPorts = bindRootPorts
+var ipv4FallbackWarning sync.Once
 
 func run(args []string) int {
 	binaryName := filepath.Base(os.Args[0])
@@ -252,6 +255,20 @@ func run(args []string) int {
 	if earlyAddress != "" && !config.ValidServerAddress(earlyAddress) {
 		earlyAddress = ""
 	}
+	listenAddress := selectListenAddress(*address, os.Getenv("LISTEN"), earlyAddress, defaultListenAddress)
+	if !config.ValidServerAddress(listenAddress) {
+		fmt.Fprintf(os.Stderr, "%s: invalid listen address %q\n", binaryName, listenAddress)
+		return 1
+	}
+	resolvedListenAddress, usedIPv4Fallback, addressErr := netutil.ResolveListenAddress(listenAddress)
+	if addressErr != nil {
+		fmt.Fprintf(os.Stderr, "%s: resolve listen address %q: %v\n", binaryName, listenAddress, addressErr)
+		return 1
+	}
+	listenAddress = resolvedListenAddress
+	if usedIPv4Fallback {
+		warnIPv4Fallback(binaryName)
+	}
 	if portSetting == "" {
 		portSetting = os.Getenv("PORT")
 	}
@@ -273,17 +290,6 @@ func run(args []string) int {
 	}
 	var privilegedListeners map[string]net.Listener
 	if paths.IsPrivileged() && !flagWasSet(fs, "scheduler") {
-		defaultAddress := earlyAddress
-		if defaultAddress == "" {
-			defaultAddress = "0.0.0.0"
-		}
-		listenAddress := *address
-		if listenAddress == "" {
-			listenAddress = os.Getenv("LISTEN")
-		}
-		if listenAddress == "" {
-			listenAddress = defaultAddress
-		}
 		privilegedListeners, err = bindPrivilegedPorts(listenAddress, portSetting)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
@@ -319,6 +325,10 @@ func run(args []string) int {
 	// Validation Rule".
 	for _, warning := range config.Validate(cfg) {
 		fmt.Fprintln(os.Stderr, binaryName+": warning: "+warning)
+	}
+	if err := config.ValidateContactCaptcha(cfg); err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
 	}
 	if earlyPortWarning != "" {
 		fmt.Fprintf(os.Stderr, "%s: warning: %s, using random port %s\n", binaryName, earlyPortWarning, portSetting)
@@ -370,11 +380,6 @@ func run(args []string) int {
 			return 1
 		}
 	}
-	if *address != "" {
-		cfg.Server.Listen = *address
-	} else if v := os.Getenv("LISTEN"); v != "" {
-		cfg.Server.Listen = v
-	}
 	if *port != "" {
 		cfg.Server.Port = *port
 	} else if v := os.Getenv("PORT"); v != "" {
@@ -383,6 +388,7 @@ func run(args []string) int {
 	if *baseURL != "" {
 		cfg.Server.BaseURL = *baseURL
 	}
+	cfg.Server.Listen = listenAddress
 
 	if paths.IsPrivileged() {
 		if err := setRuntimeOwnership(serviceParams(p), serviceUID); err != nil {
@@ -426,8 +432,11 @@ func run(args []string) int {
 	}
 	defer sqlDB.Close()
 
+	stopMetrics := func() {}
 	if appMetrics != nil {
-		appMetrics.StartCollector(context.Background(), p.Data, sqlDB, cfg.Server.Metrics.IncludeSystem, cfg.Server.Metrics.IncludeRuntime)
+		metricsCtx, cancelMetrics := context.WithCancel(context.Background())
+		stopMetrics = cancelMetrics
+		appMetrics.StartCollector(metricsCtx, p.Data, sqlDB.Read(metricsCtx), cfg.Server.Metrics.IncludeSystem, cfg.Server.Metrics.IncludeRuntime)
 	}
 
 	accessLog, err := applog.Open(filepath.Join(p.Logs, "access.log"), applog.LevelInfo)
@@ -436,6 +445,12 @@ func run(args []string) int {
 		return 1
 	}
 	defer accessLog.Close()
+	sqlDB.SetBusyObserver(func(wait time.Duration, caller string) {
+		if wait <= time.Second {
+			return
+		}
+		_ = accessLog.WriteLine(applog.LevelWarn, fmt.Sprintf("db.busy wait_ms=%d caller=%s", wait.Milliseconds(), caller))
+	})
 	if err := accessLog.SetRotationPolicy("monthly", "none", false); err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
@@ -553,6 +568,7 @@ func run(args []string) int {
 	srv := httpserver.New(httpserver.Options{
 		Config:               cfg,
 		DB:                   sqlDB,
+		Store:                sqlDB,
 		DataDir:              p.Data,
 		AccessLog:            accessLog,
 		Version:              version.Version,
@@ -566,6 +582,7 @@ func run(args []string) int {
 		Metrics:              appMetrics,
 
 		ConfigDir:             p.Config,
+		ContactConfigPath:     filepath.Join(p.Config, "server.yml"),
 		AuditLog:              auditLog,
 		InstallSecret:         installSecret,
 		PreviousInstallSecret: previousInstallSecret,
@@ -622,7 +639,15 @@ func run(args []string) int {
 	// still usable.
 	signal.Register(func() { _ = notifier.Send(notify.EventShutdown, nil) })
 	signal.Register(func() { _ = geoManager.Close() })
-	signal.Register(func() { sqlDB.Close() })
+	signal.Register(stopMetrics)
+	signal.Register(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := sqlDB.Checkpoint(ctx); err != nil {
+			_ = accessLog.WriteLine(applog.LevelError, "db: WAL checkpoint failed: "+err.Error())
+		}
+		_ = sqlDB.Close()
+	})
 	signal.Register(func() { accessLog.Close() })
 	signal.Register(func() { schedulerLog.Close() })
 	signal.Register(func() { pidfile.RemovePIDFile(pidPath) })
@@ -654,6 +679,15 @@ func run(args []string) int {
 	return 0
 }
 
+func selectListenAddress(flagAddress, envAddress, configAddress, defaultAddress string) string {
+	for _, address := range []string{flagAddress, envAddress, configAddress, defaultAddress} {
+		if address = strings.TrimSpace(address); address != "" {
+			return address
+		}
+	}
+	return defaultListenAddress
+}
+
 func startupURLsForConfiguredPorts(cfg *config.Config, p paths.Paths, scheme, host string) []string {
 	parts := strings.Split(strings.TrimSpace(cfg.Server.Port), ",")
 	if len(parts) != 2 {
@@ -668,7 +702,8 @@ func startupURLsForConfiguredPorts(cfg *config.Config, p paths.Paths, scheme, ho
 	base.Server.Port = strconv.Itoa(first)
 	urls := startupURLs(&base, p, "http", host)
 	if scheme == "https" {
-		urls = append(urls, fmt.Sprintf("https://%s:%d%s", host, second, cfg.Server.BaseURL))
+		address := net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(second))
+		urls = append(urls, fmt.Sprintf("https://%s%s", address, cfg.Server.BaseURL))
 	}
 	return urls
 }
@@ -687,16 +722,25 @@ func bindRootPorts(address, setting string) (map[string]net.Listener, error) {
 			continue
 		}
 		addr := net.JoinHostPort(strings.Trim(address, "[]"), strconv.Itoa(port))
-		listener, err := net.Listen("tcp", addr)
+		listener, fallback, err := netutil.ListenTCP(addr)
 		if err != nil {
 			for _, opened := range listeners {
 				_ = opened.Close()
 			}
 			return nil, fmt.Errorf("bind privileged port %s: %w", addr, err)
 		}
+		if fallback {
+			warnIPv4Fallback(filepath.Base(os.Args[0]))
+		}
 		listeners[addr] = listener
 	}
 	return listeners, nil
+}
+
+func warnIPv4Fallback(binaryName string) {
+	ipv4FallbackWarning.Do(func() {
+		fmt.Fprintf(os.Stderr, "%s: warning: IPv6 is unavailable; listening on IPv4 address 0.0.0.0\n", binaryName)
+	})
 }
 
 func validPortSetting(setting string) bool {
@@ -716,7 +760,7 @@ func validPortSetting(setting string) bool {
 // buildTLSConfig resolves the server FQDN and prepares ACME-backed TLS when
 // TLS is enabled or port 443 is explicitly configured. The returned wrapper
 // mounts HTTP-01 challenge handling on the cleartext listener.
-func buildTLSConfig(cfg *config.Config, configDir string, notifier *notify.Notifier, sqlDB *sql.DB) (*tls.Config, func(http.Handler) http.Handler, error) {
+func buildTLSConfig(cfg *config.Config, configDir string, notifier *notify.Notifier, sqlDB db.Handle) (*tls.Config, func(http.Handler) http.Handler, error) {
 	requested := cfg.Server.TLS.Enabled || portIncludes(cfg.Server.Port, 443)
 	if !requested {
 		return nil, nil, nil
@@ -764,7 +808,7 @@ func dnsTLSFailureConfig(cause error) *tls.Config {
 	}
 }
 
-func syncDNSCredentialState(sqlDB *sql.DB, cfg *config.Config, installSecret string) error {
+func syncDNSCredentialState(sqlDB db.Handle, cfg *config.Config, installSecret string) error {
 	credentials, err := config.DNSCredentialValues(cfg)
 	if err != nil {
 		return err
@@ -816,7 +860,7 @@ func portIncludes(setting string, wanted int) bool {
 // newBuiltinScheduler builds a scheduler.Scheduler with every AI.md
 // PART 18 "Built-in Tasks (Required)" registered, using cfg's per-task
 // schedule/enabled overrides. It does not start the scheduler.
-func newBuiltinScheduler(cfg *config.Config, sqlDB *sql.DB, schedulerLog, accessLog *applog.Logger, p paths.Paths, host string, geoManager *geoip.Manager, auditLog backup.Auditor, notifier *notify.Notifier, torManager *tor.Manager, i2pManager *i2p.Manager) (*scheduler.Scheduler, error) {
+func newBuiltinScheduler(cfg *config.Config, sqlDB db.Handle, schedulerLog, accessLog *applog.Logger, p paths.Paths, host string, geoManager *geoip.Manager, auditLog backup.Auditor, notifier *notify.Notifier, torManager *tor.Manager, i2pManager *i2p.Manager) (*scheduler.Scheduler, error) {
 	sched, err := scheduler.New(sqlDB, schedulerLog, cfg.Server.Scheduler.Timezone, cfg.Server.Scheduler.CatchUpWindow)
 	if err != nil {
 		return nil, err

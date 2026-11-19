@@ -4,7 +4,6 @@ package scheduler
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strconv"
 	"strings"
@@ -28,7 +27,7 @@ type TaskDef struct {
 }
 
 type Scheduler struct {
-	sqlDB         *sql.DB
+	sqlDB         db.Handle
 	logger        *applog.Logger
 	location      *time.Location
 	catchUpWindow time.Duration
@@ -53,7 +52,7 @@ type taskRun struct {
 
 func (s *Scheduler) SetMetrics(m *metrics.Metrics) { s.metrics = m }
 
-func New(sqlDB *sql.DB, logger *applog.Logger, timezone, catchUpWindow string) (*Scheduler, error) {
+func New(sqlDB db.Handle, logger *applog.Logger, timezone, catchUpWindow string) (*Scheduler, error) {
 	loc, err := time.LoadLocation(timezone)
 	if err != nil || timezone == "" {
 		loc = time.UTC
@@ -148,7 +147,7 @@ func (s *Scheduler) fireDue(now time.Time) {
 		}
 		task := s.tasks[id]
 		s.nextRuns[id] = nextScheduled(task.Schedule, now, s.location)
-		_, _ = s.sqlDB.Exec(`UPDATE scheduler_tasks SET next_run = ? WHERE id = ?`, s.nextRuns[id].Unix(), id)
+		_, _ = s.sqlDB.ExecContext(context.Background(), `UPDATE scheduler_tasks SET next_run = ? WHERE id = ?`, s.nextRuns[id].Unix(), id)
 		go s.runTask(id)
 	}
 }

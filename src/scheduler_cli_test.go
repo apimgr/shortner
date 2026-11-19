@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
-	"database/sql"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -11,15 +13,49 @@ import (
 	"github.com/apimgr/shortner/src/scheduler"
 )
 
-func testSchedulerDB(t *testing.T) *sql.DB {
+func testSchedulerDB(t *testing.T) *db.Store {
 	t.Helper()
-	sqlDB, err := db.Open(":memory:", db.DefaultPool(), nil)
+	projectOrg, internalName := testProjectTempNamespace(t)
+	base := filepath.Join(os.TempDir(), projectOrg)
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := os.MkdirTemp(base, internalName+"-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.Open(filepath.Join(dir, "server.db"), db.DefaultPool(), nil)
 	if err != nil {
 		t.Fatalf("db.Open() error = %v", err)
 	}
-	sqlDB.SetMaxOpenConns(1)
-	t.Cleanup(func() { sqlDB.Close() })
+	t.Cleanup(func() { _ = sqlDB.Close(); _ = os.RemoveAll(dir) })
 	return sqlDB
+}
+
+func testProjectTempNamespace(t *testing.T) (string, string) {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate test source")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(source), ".."))
+	data, err := os.ReadFile(filepath.Join(root, "IDEA.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var projectOrg, internalName string
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "project_org:") {
+			projectOrg = strings.TrimSpace(strings.TrimPrefix(line, "project_org:"))
+		}
+		if strings.HasPrefix(line, "internal_name:") {
+			internalName = strings.TrimSpace(strings.TrimPrefix(line, "internal_name:"))
+		}
+	}
+	if projectOrg == "" || internalName == "" {
+		t.Fatal("IDEA.md is missing test temp namespace variables")
+	}
+	return projectOrg, internalName
 }
 
 func testSchedulerLogger(t *testing.T) *applog.Logger {

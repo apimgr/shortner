@@ -276,9 +276,11 @@ type WebSecurity struct {
 
 // SecurityThanks is one acknowledgment entry on /server/security/thanks.
 type SecurityThanks struct {
-	Name   string `yaml:"name"`
-	Year   int    `yaml:"year"`
-	Credit string `yaml:"credit"`
+	Name     string `yaml:"name"`
+	Year     int    `yaml:"year"`
+	Credit   string `yaml:"credit"`
+	Date     string `yaml:"date"`
+	Severity string `yaml:"severity"`
 }
 
 // LLMs holds `web.llms`, per AI.md PART 11 "llms.txt (AI Discovery)".

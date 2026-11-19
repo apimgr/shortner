@@ -109,6 +109,27 @@ func Create(opts Options) (*Result, error) {
 	if opts.Dir == "" && opts.Name == "" {
 		return nil, errors.New("backup: backup directory is required")
 	}
+	sourceDBPath := opts.DBPath
+	snapshot, err := os.CreateTemp(filepath.Dir(sourceDBPath), ".shortner-db-snapshot-*")
+	if err != nil {
+		return nil, fmt.Errorf("backup: create database snapshot path: %w", err)
+	}
+	snapshotPath := snapshot.Name()
+	if err := snapshot.Close(); err != nil {
+		_ = os.Remove(snapshotPath)
+		return nil, err
+	}
+	if err := os.Remove(snapshotPath); err != nil {
+		return nil, err
+	}
+	defer os.Remove(snapshotPath)
+	snapshotCtx, snapshotCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	err = db.SnapshotSQLite(snapshotCtx, sourceDBPath, snapshotPath)
+	snapshotCancel()
+	if err != nil {
+		return nil, failed(sourceDBPath, CheckDBIntegrity, fmt.Errorf("snapshot server database: %w", err))
+	}
+	opts.DBPath = snapshotPath
 
 	files, err := collectSources(opts)
 	if err != nil {
@@ -167,7 +188,7 @@ func Create(opts Options) (*Result, error) {
 		backupType = "manual"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	err = db.RecordBackupAt(ctx, opts.DBPath, db.BackupMetadata{
+	err = db.RecordBackupAt(ctx, sourceDBPath, db.BackupMetadata{
 		Filename:  filepath.Base(target),
 		Filepath:  target,
 		SizeBytes: info.Size(),

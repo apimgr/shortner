@@ -9,7 +9,6 @@ import (
 	"bufio"
 	"context"
 	"crypto/subtle"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,7 +49,7 @@ const pgpExportInterval = time.Hour
 type pgpEnv struct {
 	paths         paths.Paths
 	cfg           *config.Config
-	sqlDB         *sql.DB
+	sqlDB         *db.Store
 	store         *pgp.Store
 	audit         *applog.AuditLogger
 	installSecret string

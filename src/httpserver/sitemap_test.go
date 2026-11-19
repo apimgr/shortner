@@ -99,11 +99,11 @@ func TestBrandingAssetHandlerServesConfiguredImageAndRejectsTraversal(t *testing
 }
 
 func TestSitemapIncludesLiveLinkAndStatsResource(t *testing.T) {
-	sqlDB, err := db.Open(":memory:", db.DefaultPool(), nil)
+	sqlDB, err := db.Open(filepath.Join(t.TempDir(), "server.db"), db.DefaultPool(), nil)
 	if err != nil {
 		t.Fatalf("db.Open() error = %v", err)
 	}
-	defer sqlDB.Close()
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	if _, err := db.CreateLinkCustomSlug(context.Background(), sqlDB, "public-link", "https://example.com", nil); err != nil {
 		t.Fatalf("db.CreateLinkCustomSlug() error = %v", err)
 	}

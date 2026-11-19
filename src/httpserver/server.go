@@ -5,12 +5,12 @@ package httpserver
 import (
 	"context"
 	"crypto/tls"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,7 +22,9 @@ import (
 
 	"github.com/apimgr/shortner/src/apperr"
 	"github.com/apimgr/shortner/src/applog"
+	"github.com/apimgr/shortner/src/common/netutil"
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/geoip"
 	"github.com/apimgr/shortner/src/metrics"
 	"github.com/apimgr/shortner/src/notify"
@@ -30,15 +32,18 @@ import (
 
 // Server wraps the chi router and the underlying *http.Server.
 type Server struct {
-	httpServer *http.Server
-	servers    []*http.Server
-	portErr    error
-	apiRoutes  []registeredAPIRoute
-	listeners  map[string]net.Listener
-	stats      *Stats
-	blocks     *BlockStore
-	allowlist  *AllowlistLookup
-	resolver   *ProxyResolver
+	httpServer           *http.Server
+	servers              []*http.Server
+	portErr              error
+	apiRoutes            []registeredAPIRoute
+	listeners            map[string]net.Listener
+	stats                *Stats
+	blocks               *BlockStore
+	allowlist            *AllowlistLookup
+	resolver             *ProxyResolver
+	contactDeps          *frontendDeps
+	contactWatcherCancel context.CancelFunc
+	contactWatcherDone   chan struct{}
 	// overlayServers tracks the AI.md PART 31 overlay backend listeners
 	// (Tor, I2P) started by ServeOverlay so Shutdown can stop them with the
 	// clearnet listener rather than leaving onion traffic being served by a
@@ -50,7 +55,8 @@ type Server struct {
 // Options configures New.
 type Options struct {
 	Config    *config.Config
-	DB        *sql.DB
+	DB        db.Handle
+	Store     *db.Store
 	DataDir   string
 	AccessLog *applog.Logger
 	Version   string
@@ -63,7 +69,8 @@ type Options struct {
 	TLSConfig *tls.Config
 	// BoundListeners contains root-bound sockets for privileged ports. Keys
 	// match the configured server Addr and are used after privileges drop.
-	BoundListeners map[string]net.Listener
+	BoundListeners    map[string]net.Listener
+	ContactConfigPath string
 	// HTTPChallengeHandler wraps the normal HTTP handler with ACME HTTP-01
 	// challenge handling. It is applied only to the cleartext listener.
 	HTTPChallengeHandler func(http.Handler) http.Handler
@@ -181,7 +188,10 @@ func New(opts Options) *Server {
 		audit:                 opts.AuditLog,
 		configDir:             opts.ConfigDir,
 		notifier:              opts.Notifier,
+		metrics:               opts.Metrics,
+		store:                 opts.Store,
 	}
+	fd.setContactAntispam(cfg.Server.Contact.Antispam)
 
 	r.Route("/api", func(api chi.Router) {
 		api.Use(apiResponseFormatMiddleware)
@@ -189,10 +199,19 @@ func New(opts Options) *Server {
 		registerCLIUpdateRoutes(api, cfg, opts.Version)
 		api.Method(http.MethodGet, "/swagger", openAPIHandler(fd))
 		api.Method(http.MethodPost, "/graphql", graphQLHandler(ld, r))
+		api.Method(http.MethodPost, "/mcp", http.HandlerFunc(unavailableMCPHandler))
 		api.Route("/{api_version}", func(v chi.Router) {
 			v.Get("/server/healthz", hd.healthHandler())
 			v.Method(http.MethodGet, "/server/swagger", openAPIHandler(fd))
 			v.Method(http.MethodPost, "/server/graphql", graphQLHandler(ld, r))
+			v.Method(http.MethodPost, "/server/mcp", http.HandlerFunc(unavailableMCPHandler))
+			v.Get("/server/about", fd.pageContentAPIHandler("about"))
+			v.Get("/server/privacy", fd.privacyAPIHandler)
+			v.Get("/server/help", fd.pageContentAPIHandler("help"))
+			v.Get("/server/terms", fd.pageContentAPIHandler("terms"))
+			v.Get("/server/security", fd.securityAPIHandler)
+			v.Get("/server/security/thanks", fd.securityThanksAPIHandler)
+			v.Get("/server/help/mcp", fd.mcpHelpAPIHandler)
 			v.Get("/server/preferences", fd.preferenceAPISnapshotHandler)
 			v.Get("/server/auth/check", authCheckHandler)
 			v.Post("/server/preferences", fd.preferenceAPISaveHandler)
@@ -208,11 +227,14 @@ func New(opts Options) *Server {
 			v.Delete("/server/preferences/tokens/{id}", fd.tokenAPIActionHandler)
 			v.Get("/server/security/policy", fd.securityPolicyAPIHandler)
 			v.Get("/server/dpo", fd.dpoAPIHandler)
+			v.Get("/server/contact", fd.contactAPIHandler)
+			v.Post("/server/contact", fd.contactAPIHandler)
 			RegisterVersionedMetricsRoutes(v, cfg.Server.Metrics, opts.Metrics, opts.AccessLog)
 			rd.registerReportRoutes(v)
 			ld.registerLinkAPIRoutes(v)
 		})
 	})
+	r.Method(http.MethodPost, "/mcp", http.HandlerFunc(unavailableMCPHandler))
 	registerCLIBinaryRoute(r, cfg)
 	RegisterMetricsRoutes(r, cfg.Server.Metrics, opts.Metrics, opts.AccessLog)
 
@@ -285,13 +307,14 @@ func New(opts Options) *Server {
 		}
 	}
 	s := &Server{
-		stats:     stats,
-		blocks:    blocks,
-		allowlist: allowlist,
-		resolver:  resolver,
-		portErr:   portErr,
-		listeners: opts.BoundListeners,
-		apiRoutes: collectAPIRoutes(r),
+		stats:       stats,
+		blocks:      blocks,
+		allowlist:   allowlist,
+		resolver:    resolver,
+		portErr:     portErr,
+		listeners:   opts.BoundListeners,
+		apiRoutes:   collectAPIRoutes(r),
+		contactDeps: fd,
 	}
 	appHandler := http.Handler(buildStampMiddleware(assetStamp(opts.Version, opts.CommitID), limitedHandler))
 	switch {
@@ -324,6 +347,9 @@ func New(opts Options) *Server {
 		s.httpServer = newHTTPServer("0", appHandler, nil)
 		s.servers = []*http.Server{s.httpServer}
 	}
+	if opts.ContactConfigPath != "" {
+		s.startContactConfigWatcher(opts.ContactConfigPath, cfg.Server.Database.URL)
+	}
 	return s
 }
 
@@ -335,7 +361,7 @@ type registeredAPIRoute struct {
 func collectAPIRoutes(r chi.Router) []registeredAPIRoute {
 	seen := make(map[registeredAPIRoute]struct{})
 	_ = chi.Walk(r, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
-		if !strings.HasPrefix(route, "/api/") && !strings.HasPrefix(route, "/cli/") {
+		if !strings.HasPrefix(route, "/api/") && !strings.HasPrefix(route, "/cli/") && route != "/healthz" && route != "/metrics" && !strings.HasPrefix(route, "/metrics/") && route != "/server/metrics" && !strings.HasPrefix(route, "/server/metrics/") && route != "/{slug}" && route != "/{slug}/stats" {
 			return nil
 		}
 		seen[registeredAPIRoute{Method: strings.ToLower(method), Path: route}] = struct{}{}
@@ -402,19 +428,33 @@ func (s *Server) Start() error {
 
 func serve(server *http.Server, listener net.Listener) error {
 	var err error
-	if listener != nil && server.TLSConfig != nil {
+	if listener == nil {
+		var fallback bool
+		listener, fallback, err = netutil.ListenTCP(server.Addr)
+		if err == nil && fallback {
+			warnIPv4ListenerFallback()
+		}
+		if err == nil {
+			server.Addr = listener.Addr().String()
+		}
+	}
+	if err == nil && listener != nil && server.TLSConfig != nil {
 		err = server.ServeTLS(listener, "", "")
-	} else if listener != nil {
+	} else if err == nil && listener != nil {
 		err = server.Serve(listener)
-	} else if server.TLSConfig != nil {
-		err = server.ListenAndServeTLS("", "")
-	} else {
-		err = server.ListenAndServe()
 	}
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("httpserver: listen %s: %w", server.Addr, err)
 	}
 	return nil
+}
+
+var ipv4ListenerFallbackWarning sync.Once
+
+func warnIPv4ListenerFallback() {
+	ipv4ListenerFallbackWarning.Do(func() {
+		fmt.Fprintln(os.Stderr, "shortner: warning: IPv6 is unavailable; listening on IPv4 address 0.0.0.0")
+	})
 }
 
 // Shutdown gracefully stops the server, waiting up to 30s for in-flight
@@ -423,6 +463,10 @@ func (s *Server) Shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	s.shutdownOverlays(ctx)
+	if s.contactWatcherCancel != nil {
+		s.contactWatcherCancel()
+		<-s.contactWatcherDone
+	}
 	var errs []error
 	for _, server := range s.servers {
 		if err := server.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {

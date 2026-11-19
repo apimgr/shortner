@@ -23,8 +23,10 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -112,6 +114,34 @@ func (fd *frontendDeps) dismissAnnouncementHandler(w http.ResponseWriter, r *htt
 		SameSite: http.SameSiteLaxMode,
 	})
 	fd.redirectAfterAnnouncementDismiss(w, r)
+}
+
+func parseContactAPIForm(r *http.Request) error {
+	if !strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
+		return r.ParseForm()
+	}
+	var fields map[string]json.RawMessage
+	body, err := io.ReadAll(io.LimitReader(r.Body, contactFormBodyLimit+1))
+	if err != nil {
+		return err
+	}
+	if len(body) > contactFormBodyLimit {
+		return fmt.Errorf("contact form exceeds body limit")
+	}
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return err
+	}
+	values := make(url.Values, len(fields))
+	for key, raw := range fields {
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return fmt.Errorf("contact field %q must be a string", key)
+		}
+		values.Set(key, value)
+	}
+	r.PostForm = values
+	r.Form = values
+	return nil
 }
 
 func (fd *frontendDeps) redirectAfterAnnouncementDismiss(w http.ResponseWriter, r *http.Request) {
@@ -324,11 +354,6 @@ func (fd *frontendDeps) privacyHandler(w http.ResponseWriter, r *http.Request) {
 	_ = renderPage(w, http.StatusOK, "privacy", data)
 }
 
-// contactCaptchaAnswer is the expected answer to the contact form's
-// no-JavaScript math question ("What is 3 + 4?"), shared by the standard
-// and security-report submission paths.
-const contactCaptchaAnswer = "7"
-
 // contactPageData is the data bound to page/contact.tmpl.
 type contactPageData struct {
 	Base           PageData
@@ -341,6 +366,8 @@ type contactPageData struct {
 	Subject        string
 	Message        string
 	AbuseEmail     string
+	FormToken      string
+	Captcha        captchaDescriptor
 }
 
 // securityContactPageData is the data bound to page/contact_security.tmpl
@@ -350,6 +377,8 @@ type securityContactPageData struct {
 	Base         PageData
 	SecurityMode bool
 	SecurityID   string
+	FormToken    string
+	Captcha      captchaDescriptor
 	Severities   []string
 	Components   []string
 	CreditPrefs  []string
@@ -367,14 +396,21 @@ func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
 			fd.securityReportPost(w, r)
 			return
 		}
+		captcha, captchaErr := fd.issueCaptcha(r)
 		data := securityContactPageData{
 			Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security_report.title"), fd.cfg.Server.SEO.Description),
 			SecurityMode: true,
 			SecurityID:   r.FormValue("security_id"),
+			FormToken:    fd.contactToken(time.Now()),
 			Severities:   securitySeverities,
 			Components:   securityComponents,
 			CreditPrefs:  securityCreditPrefs,
 			Form:         securityReportForm{DisclosureDays: defaultDisclosureDays},
+			Captcha:      captcha,
+		}
+		if captchaErr != nil {
+			http.Error(w, "captcha temporarily unavailable", http.StatusServiceUnavailable)
+			return
 		}
 		_ = renderPage(w, http.StatusOK, "contact_security", data)
 		return
@@ -383,10 +419,17 @@ func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
 		fd.contactPost(w, r)
 		return
 	}
+	captcha, captchaErr := fd.issueCaptcha(r)
+	if captchaErr != nil {
+		http.Error(w, "captcha temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	data := contactPageData{
 		Base:       fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "contact.title"), fd.cfg.Server.SEO.Description),
 		Enabled:    fd.cfg.Pages.Contact.Enabled,
 		AbuseEmail: fd.cfg.Server.Contact.Abuse.Email,
+		FormToken:  fd.contactToken(time.Now()),
+		Captcha:    captcha,
 	}
 	_ = renderPage(w, http.StatusOK, "contact", data)
 }
@@ -396,6 +439,7 @@ func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
 // notifier; per that PART's SMTP Requirement the relay is best-effort, so
 // the visitor is shown success either way and nothing is ever queued.
 func (fd *frontendDeps) contactPost(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, contactFormBodyLimit)
 	base := fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "contact.title"), fd.cfg.Server.SEO.Description)
 	abuseEmail := fd.cfg.Server.Contact.Abuse.Email
 
@@ -406,8 +450,23 @@ func (fd *frontendDeps) contactPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := r.ParseForm(); err != nil {
-		data := contactPageData{Base: base, Enabled: true, AbuseEmail: abuseEmail, Error: t(r, "errors.form_read_failed")}
+		captcha, issueErr := fd.issueCaptcha(r)
+		if issueErr != nil {
+			http.Error(w, "captcha temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		data := contactPageData{Base: base, Enabled: true, AbuseEmail: abuseEmail, Error: t(r, "errors.form_read_failed"), FormToken: fd.contactToken(time.Now()), Captcha: captcha}
 		_ = renderPage(w, http.StatusBadRequest, "contact", data)
+		return
+	}
+	if reason, valid := contactShapeValid(r.PostForm, false, false); !valid {
+		fd.contactSpamBlock(r, reason)
+		captcha, issueErr := fd.issueCaptcha(r)
+		if issueErr != nil {
+			http.Error(w, "captcha temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		_ = renderPage(w, http.StatusBadRequest, "contact", contactPageData{Base: base, Enabled: true, AbuseEmail: abuseEmail, Error: t(r, "errors.form_read_failed"), FormToken: fd.contactToken(time.Now()), Captcha: captcha})
 		return
 	}
 
@@ -415,32 +474,209 @@ func (fd *frontendDeps) contactPost(w http.ResponseWriter, r *http.Request) {
 	email := strings.TrimSpace(r.FormValue("email"))
 	subject := strings.TrimSpace(r.FormValue("subject"))
 	message := strings.TrimSpace(r.FormValue("message"))
-	captcha := strings.TrimSpace(r.FormValue("captcha"))
-
 	data := contactPageData{
 		Base: base, Enabled: true, AbuseEmail: abuseEmail,
 		Name: name, Email: email, Subject: subject, Message: message,
+		FormToken: fd.contactToken(time.Now()),
+	}
+	now := time.Now()
+	if fd.contactAntispam().Honeypot && r.FormValue("website") != "" {
+		fd.contactSpamBlock(r, "honeypot")
+		data.Submitted = true
+		data.SuccessMessage = fd.contactSuccessMessage(r)
+		_ = renderPage(w, http.StatusOK, "contact", data)
+		return
 	}
 
 	switch {
 	case name == "" || email == "" || subject == "" || message == "":
-		data.Error = t(r, "errors.all_fields_required")
-		_ = renderPage(w, http.StatusBadRequest, "contact", data)
+		fd.renderContactFailure(w, r, http.StatusBadRequest, &data, t(r, "errors.all_fields_required"))
 		return
-	case captcha != contactCaptchaAnswer:
-		data.Error = t(r, "errors.captcha_failed")
-		_ = renderPage(w, http.StatusBadRequest, "contact", data)
+	case !fd.contactTokenValid(r.FormValue("form_token"), now):
+		fd.contactSpamBlock(r, "fill_time")
+		fd.renderContactFailure(w, r, http.StatusBadRequest, &data, t(r, "contact.fill_wait"))
+		return
+	case !fd.verifyCaptcha(r, r.PostForm):
+		fd.contactSpamBlock(r, "captcha")
+		fd.renderContactFailure(w, r, http.StatusBadRequest, &data, t(r, "errors.captcha_failed"))
+		return
+	}
+	if reason, blocked := fd.contactRateReason(r, email, now); blocked {
+		fd.contactSpamBlock(r, reason)
+		setContactRetryAfter(w, fd.contactAntispam().Window)
+		fd.renderContactFailure(w, r, http.StatusTooManyRequests, &data, t(r, "errors.captcha_failed"))
+		return
+	}
+	if fd.contactContentBlocked(name, email, subject, message) {
+		fd.contactSpamBlock(r, "content")
+		fd.renderContactFailure(w, r, http.StatusBadRequest, &data, "Your message could not be sent")
+		return
+	}
+	if reason, blocked := fd.contactRecordAccepted(r, email, subject, message, now, true); blocked {
+		fd.contactSpamBlock(r, reason)
+		setContactRetryAfter(w, fd.contactAntispam().Window)
+		fd.renderContactFailure(w, r, http.StatusTooManyRequests, &data, t(r, "errors.captcha_failed"))
 		return
 	}
 
 	fd.relayContactMessage(name, email, subject, message)
 
 	data.Submitted = true
-	data.SuccessMessage = fd.cfg.Pages.Contact.SuccessMessage
-	if data.SuccessMessage == "" {
-		data.SuccessMessage = t(r, "contact.success")
-	}
+	data.SuccessMessage = fd.contactSuccessMessage(r)
 	_ = renderPage(w, http.StatusOK, "contact", data)
+}
+
+func (fd *frontendDeps) contactSuccessMessage(r *http.Request) string {
+	if message := fd.cfg.Pages.Contact.SuccessMessage; message != "" {
+		return message
+	}
+	return t(r, "contact.success")
+}
+
+func (fd *frontendDeps) contactAPIHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if r.Method == http.MethodGet {
+		abuseEmail := strings.TrimSpace(fd.cfg.Server.Contact.Abuse.Email)
+		if abuseEmail == "" {
+			abuseEmail = strings.TrimSpace(fd.cfg.Server.Contact.General.Email)
+		}
+		captcha, err := fd.issueCaptcha(r)
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "error": "captcha unavailable"})
+			return
+		}
+		fields := []map[string]any{
+			{"name": "name", "type": "text", "required": true, "max_length": 100},
+			{"name": "email", "type": "email", "required": true, "max_length": 254},
+			{"name": "subject", "type": "text", "required": true, "max_length": 200},
+			{"name": "message", "type": "textarea", "required": true, "max_length": 5000},
+			{"name": "captcha", "type": "captcha", "required": true, "max_length": nil},
+		}
+		if fd.securityMode(r) {
+			fields = append(fields,
+				map[string]any{"name": "security_id", "type": "hidden", "required": true, "max_length": 100},
+				map[string]any{"name": "researcher_gpg", "type": "text", "required": false, "max_length": 16384, "max_length_when": []map[string]any{{"prefix": "https://", "max_length": 2048}}},
+				map[string]any{"name": "component", "type": "enum", "required": true, "max_length": 255, "enum": securityComponents},
+				map[string]any{"name": "endpoint", "type": "text", "required": false, "max_length": 2048},
+				map[string]any{"name": "severity", "type": "enum", "required": true, "max_length": nil, "enum": securitySeverities},
+				map[string]any{"name": "summary", "type": "text", "required": true, "max_length": 200},
+				map[string]any{"name": "steps", "type": "textarea", "required": true, "max_length": 10000},
+				map[string]any{"name": "impact", "type": "textarea", "required": true, "max_length": 5000},
+				map[string]any{"name": "suggested_fix", "type": "textarea", "required": false, "max_length": 5000},
+				map[string]any{"name": "cve_requested", "type": "checkbox", "required": false, "max_length": nil},
+				map[string]any{"name": "disclosure_days", "type": "number", "required": false, "max_length": nil},
+				map[string]any{"name": "credit_preference", "type": "enum", "required": true, "max_length": nil, "enum": securityCreditPrefs},
+				map[string]any{"name": "credit_handle", "type": "text", "required": false, "max_length": 100, "required_when": map[string]string{"field": "credit_preference", "equals": "handle"}},
+				map[string]any{"name": "agreed_disclosure", "type": "checkbox", "required": true, "max_length": nil},
+				map[string]any{"name": "app_version", "type": "hidden", "required": false, "max_length": nil},
+				map[string]any{"name": "commit_hash", "type": "hidden", "required": false, "max_length": nil},
+				map[string]any{"name": "timestamp", "type": "hidden", "required": false, "max_length": nil},
+				map[string]any{"name": "request_user_agent", "type": "hidden", "required": false, "max_length": nil},
+			)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"fields":       fields,
+			"captcha":      captcha,
+			"form_token":   fd.contactToken(time.Now()),
+			"security_url": fd.resolver.BuildURL(r, "/server/security"),
+			"abuse_email":  abuseEmail,
+		})
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, contactFormBodyLimit)
+	if err := parseContactAPIForm(r); err != nil {
+		fd.writeAPIContactFailure(w, r, http.StatusBadRequest, "invalid form", true)
+		return
+	}
+	if fd.securityMode(r) {
+		fd.securityReportAPIPost(w, r)
+		return
+	}
+	if reason, valid := contactShapeValid(r.PostForm, false, true); !valid {
+		fd.contactSpamBlock(r, reason)
+		fd.writeAPIContactFailure(w, r, http.StatusBadRequest, "invalid form", true)
+		return
+	}
+	if fd.contactAntispam().Honeypot && r.FormValue("website") != "" {
+		fd.contactSpamBlock(r, "honeypot")
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": map[string]string{"message": fd.contactSuccessMessage(r)}})
+		return
+	}
+	if !fd.contactTokenValid(r.FormValue("form_token"), time.Now()) {
+		fd.contactSpamBlock(r, "fill_time")
+		fd.writeAPIContactFailure(w, r, http.StatusBadRequest, t(r, "contact.fill_wait"), true)
+		return
+	}
+	if !fd.verifyCaptcha(r, r.PostForm) {
+		fd.contactSpamBlock(r, "captcha")
+		fd.writeAPIContactFailure(w, r, http.StatusBadRequest, "validation failed", true)
+		return
+	}
+	name, email := strings.TrimSpace(r.FormValue("name")), strings.TrimSpace(r.FormValue("email"))
+	subject, message := strings.TrimSpace(r.FormValue("subject")), strings.TrimSpace(r.FormValue("message"))
+	now := time.Now()
+	if reason, blocked := fd.contactRateReason(r, email, now); blocked {
+		fd.contactSpamBlock(r, reason)
+		setContactRetryAfter(w, fd.contactAntispam().Window)
+		fd.writeAPIContactFailure(w, r, http.StatusTooManyRequests, "rate limited", true)
+		return
+	}
+	if fd.contactContentBlocked(name, email, subject, message) {
+		fd.contactSpamBlock(r, "content")
+		fd.writeAPIContactFailure(w, r, http.StatusBadRequest, "Your message could not be sent", true)
+		return
+	}
+	if reason, blocked := fd.contactRecordAccepted(r, email, subject, message, now, true); blocked {
+		fd.contactSpamBlock(r, reason)
+		setContactRetryAfter(w, fd.contactAntispam().Window)
+		fd.writeAPIContactFailure(w, r, http.StatusTooManyRequests, "rate limited", true)
+		return
+	}
+	fd.relayContactMessage(name, email, subject, message)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": map[string]string{"message": fd.contactSuccessMessage(r)}})
+}
+
+func (fd *frontendDeps) writeAPIContactFailure(w http.ResponseWriter, r *http.Request, status int, message string, refresh bool) {
+	payload := map[string]any{"ok": false, "error": message}
+	if refresh {
+		payload["form_token"] = fd.contactToken(time.Now())
+		challenge, err := fd.issueCaptcha(r)
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "error": "captcha unavailable"})
+			return
+		}
+		payload["captcha"] = challenge
+	}
+	writeJSON(w, status, payload)
+}
+
+func (fd *frontendDeps) renderContactFailure(w http.ResponseWriter, r *http.Request, status int, data *contactPageData, message string) {
+	data.Error = message
+	data.FormToken = fd.contactToken(time.Now())
+	challenge, err := fd.issueCaptcha(r)
+	if err != nil {
+		http.Error(w, "captcha temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	data.Captcha = challenge
+	_ = renderPage(w, status, "contact", *data)
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func setContactRetryAfter(w http.ResponseWriter, window string) {
+	duration, err := time.ParseDuration(window)
+	if err != nil || duration <= 0 {
+		duration = time.Hour
+	}
+	seconds := int(duration.Seconds())
+	if seconds < 1 {
+		seconds = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(seconds))
 }
 
 // relayContactMessage forwards a validated contact submission to the
@@ -462,7 +698,11 @@ func (fd *frontendDeps) relayContactMessage(name, email, subject, message string
 	}
 	body := fmt.Sprintf("A message was submitted through the contact form.\n\nFrom: %s <%s>\nSubject: %s\n\n%s\n",
 		name, email, subject, message)
-	_ = fd.notifier.SendRaw([]string{to}, "[Contact] "+subject, body)
+	appName := strings.TrimSpace(fd.cfg.Server.Branding.SiteName)
+	if appName == "" {
+		appName = "Shortner"
+	}
+	_ = fd.notifier.SendRawReplyTo([]string{to}, email, "["+appName+" contact] "+subject, body)
 }
 
 // consentCookieName is the granular cookie-consent cookie, per AI.md

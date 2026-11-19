@@ -54,7 +54,7 @@ func MaskAPIToken(t *APIToken) string {
 	return "tok_••••••••••••••••••••••••" + tail
 }
 
-func CreateOwner(ctx context.Context, sqlDB *sql.DB) (string, error) {
+func CreateOwner(ctx context.Context, sqlDB Handle) (string, error) {
 	id, err := security.RandomString("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", 32)
 	if err != nil {
 		return "", err
@@ -66,7 +66,7 @@ func CreateOwner(ctx context.Context, sqlDB *sql.DB) (string, error) {
 	return id, nil
 }
 
-func GetOwner(ctx context.Context, sqlDB *sql.DB, id string) (*Owner, error) {
+func GetOwner(ctx context.Context, sqlDB Handle, id string) (*Owner, error) {
 	var o Owner
 	var created, seen int64
 	if err := sqlDB.QueryRowContext(ctx, `SELECT id,created_at,last_seen_at FROM owners WHERE id=?`, id).Scan(&o.ID, &created, &seen); err != nil {
@@ -77,10 +77,10 @@ func GetOwner(ctx context.Context, sqlDB *sql.DB, id string) (*Owner, error) {
 	return &o, nil
 }
 
-func CreatePrimaryToken(ctx context.Context, sqlDB *sql.DB, ownerID string, key []byte) (string, *APIToken, error) {
-	return createToken(ctx, sqlDB, ownerID, "primary", "", nil, key)
+func CreatePrimaryToken(ctx context.Context, sqlDB Handle, ownerID string, key []byte) (string, *APIToken, error) {
+	return createToken(ctx, sqlDB, ownerID, "primary", "", nil, key, nil)
 }
-func CreateLinkedToken(ctx context.Context, sqlDB *sql.DB, ownerID, name string, expiry *time.Time, maximum int, key []byte) (string, *APIToken, error) {
+func CreateLinkedToken(ctx context.Context, sqlDB Handle, ownerID, name string, expiry *time.Time, maximum int, key []byte) (string, *APIToken, error) {
 	name = strings.TrimSpace(name)
 	if len(name) < 1 || len(name) > 64 {
 		return "", nil, errors.New("token name must contain 1 to 64 characters")
@@ -88,23 +88,26 @@ func CreateLinkedToken(ctx context.Context, sqlDB *sql.DB, ownerID, name string,
 	if maximum <= 0 {
 		maximum = 25
 	}
-	var count, duplicate int
-	if err := sqlDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM api_tokens WHERE owner_id=? AND kind='linked' AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>strftime('%s','now'))`, ownerID).Scan(&count); err != nil {
-		return "", nil, HandleQueryError(err)
+	preflight := func(tx *sql.Tx) error {
+		var count, duplicate int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM api_tokens WHERE owner_id=? AND kind='linked' AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>strftime('%s','now'))`, ownerID).Scan(&count); err != nil {
+			return HandleQueryError(err)
+		}
+		if count >= maximum {
+			return errors.New("maximum active linked tokens reached")
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM api_tokens WHERE owner_id=? AND kind='linked' AND name=?`, ownerID, name).Scan(&duplicate); err != nil {
+			return HandleQueryError(err)
+		}
+		if duplicate > 0 {
+			return errors.New("token name already exists")
+		}
+		return nil
 	}
-	if count >= maximum {
-		return "", nil, errors.New("maximum active linked tokens reached")
-	}
-	if err := sqlDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM api_tokens WHERE owner_id=? AND kind='linked' AND name=?`, ownerID, name).Scan(&duplicate); err != nil {
-		return "", nil, HandleQueryError(err)
-	}
-	if duplicate > 0 {
-		return "", nil, errors.New("token name already exists")
-	}
-	return createToken(ctx, sqlDB, ownerID, "linked", name, expiry, key)
+	return createToken(ctx, sqlDB, ownerID, "linked", name, expiry, key, preflight)
 }
 
-func createToken(ctx context.Context, sqlDB *sql.DB, ownerID, kind, name string, expiry *time.Time, key []byte) (string, *APIToken, error) {
+func createToken(ctx context.Context, sqlDB Handle, ownerID, kind, name string, expiry *time.Time, key []byte, preflight func(*sql.Tx) error) (string, *APIToken, error) {
 	if len(key) != 32 {
 		return "", nil, security.ErrSealKeySize
 	}
@@ -124,11 +127,20 @@ func createToken(ctx context.Context, sqlDB *sql.DB, ownerID, kind, name string,
 	if name != "" {
 		dbName = name
 	}
-	res, err := sqlDB.ExecContext(ctx, `INSERT INTO api_tokens(owner_id,kind,name,token_hash,token_prefix,token_enc,expires_at) VALUES (?,?,?,?,?,?,?)`, ownerID, kind, dbName, security.HashToken(raw), security.TokenPrefix(raw), sealed, expires)
-	if err != nil {
-		return "", nil, HandleQueryError(err)
-	}
-	id, err := res.LastInsertId()
+	var id int64
+	err = WithTransaction(ctx, sqlDB, func(tx *sql.Tx) error {
+		if preflight != nil {
+			if err := preflight(tx); err != nil {
+				return err
+			}
+		}
+		res, err := tx.ExecContext(ctx, `INSERT INTO api_tokens(owner_id,kind,name,token_hash,token_prefix,token_enc,expires_at) VALUES (?,?,?,?,?,?,?)`, ownerID, kind, dbName, security.HashToken(raw), security.TokenPrefix(raw), sealed, expires)
+		if err != nil {
+			return HandleQueryError(err)
+		}
+		id, err = res.LastInsertId()
+		return err
+	})
 	if err != nil {
 		return "", nil, err
 	}
@@ -136,7 +148,7 @@ func createToken(ctx context.Context, sqlDB *sql.DB, ownerID, kind, name string,
 	return raw, tok, err
 }
 
-func LookupTokenByRaw(ctx context.Context, sqlDB *sql.DB, raw string) (*APIToken, error) {
+func LookupTokenByRaw(ctx context.Context, sqlDB Handle, raw string) (*APIToken, error) {
 	if !strings.HasPrefix(raw, "tok_") {
 		return nil, ErrNotFound
 	}
@@ -151,36 +163,38 @@ func LookupTokenByRaw(ctx context.Context, sqlDB *sql.DB, raw string) (*APIToken
 	return tok, nil
 }
 
-func TouchTokenLastUsed(ctx context.Context, sqlDB *sql.DB, id int64, ownerID string) error {
-	if _, err := sqlDB.ExecContext(ctx, `UPDATE api_tokens SET last_used_at=CASE WHEN last_used_at IS NULL OR last_used_at<=strftime('%s','now')-60 THEN strftime('%s','now') ELSE last_used_at END WHERE id=?`, id); err != nil {
+func TouchTokenLastUsed(ctx context.Context, sqlDB Handle, id int64, ownerID string) error {
+	return WithTransaction(ctx, sqlDB, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `UPDATE api_tokens SET last_used_at=CASE WHEN last_used_at IS NULL OR last_used_at<=strftime('%s','now')-60 THEN strftime('%s','now') ELSE last_used_at END WHERE id=?`, id); err != nil {
+			return HandleQueryError(err)
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE owners SET last_seen_at=strftime('%s','now') WHERE id=?`, ownerID)
 		return HandleQueryError(err)
-	}
-	_, err := sqlDB.ExecContext(ctx, `UPDATE owners SET last_seen_at=strftime('%s','now') WHERE id=?`, ownerID)
-	return HandleQueryError(err)
+	})
 }
 
-func GetTokenByID(ctx context.Context, sqlDB *sql.DB, id int64) (*APIToken, error) {
+func GetTokenByID(ctx context.Context, sqlDB Handle, id int64) (*APIToken, error) {
 	return scanToken(sqlDB.QueryRowContext(ctx, tokenSelect+` WHERE id=?`, id))
 }
-func GetTokenByPrefix(ctx context.Context, sqlDB *sql.DB, prefix string) (*APIToken, error) {
+func GetTokenByPrefix(ctx context.Context, sqlDB Handle, prefix string) (*APIToken, error) {
 	return tokenByPrefix(ctx, sqlDB, prefix)
 }
-func GetPrimaryToken(ctx context.Context, sqlDB *sql.DB, owner string) (*APIToken, error) {
+func GetPrimaryToken(ctx context.Context, sqlDB Handle, owner string) (*APIToken, error) {
 	return scanToken(sqlDB.QueryRowContext(ctx, tokenSelect+` WHERE owner_id=? AND kind='primary' AND revoked_at IS NULL`, owner))
 }
-func ListOwnerTokens(ctx context.Context, sqlDB *sql.DB, owner string) ([]APIToken, error) {
+func ListOwnerTokens(ctx context.Context, sqlDB Handle, owner string) ([]APIToken, error) {
 	return listTokens(ctx, sqlDB, tokenSelect+` WHERE owner_id=? ORDER BY kind,created_at DESC,id DESC`, owner)
 }
-func ListActiveTokens(ctx context.Context, sqlDB *sql.DB) ([]APIToken, error) {
+func ListActiveTokens(ctx context.Context, sqlDB Handle) ([]APIToken, error) {
 	return listTokens(ctx, sqlDB, tokenSelect+` WHERE revoked_at IS NULL ORDER BY created_at DESC`)
 }
-func ListAllTokens(ctx context.Context, sqlDB *sql.DB) ([]APIToken, error) {
+func ListAllTokens(ctx context.Context, sqlDB Handle) ([]APIToken, error) {
 	return listTokens(ctx, sqlDB, tokenSelect+` ORDER BY created_at DESC,id DESC`)
 }
 
 const tokenSelect = `SELECT id,owner_id,kind,name,token_hash,token_prefix,token_enc,created_at,rotated_at,expires_at,last_used_at,revoked_at,revoked_reason FROM api_tokens`
 
-func tokenByHash(ctx context.Context, sqlDB *sql.DB, prefix, hash string) (*APIToken, error) {
+func tokenByHash(ctx context.Context, sqlDB Handle, prefix, hash string) (*APIToken, error) {
 	return scanToken(sqlDB.QueryRowContext(ctx, tokenSelect+` WHERE token_prefix=? AND token_hash=?`, prefix, hash))
 }
 func scanToken(row tokenRowScanner) (*APIToken, error) {
@@ -210,7 +224,7 @@ func unixPtr(v sql.NullInt64) *time.Time {
 	t := time.Unix(v.Int64, 0).UTC()
 	return &t
 }
-func listTokens(ctx context.Context, db *sql.DB, q string, args ...any) ([]APIToken, error) {
+func listTokens(ctx context.Context, db Handle, q string, args ...any) ([]APIToken, error) {
 	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, HandleQueryError(err)
@@ -237,7 +251,7 @@ func RevealToken(t *APIToken, key []byte) (string, error) {
 	value, err := security.Open(key, t.TokenEnc)
 	return string(value), err
 }
-func RotateToken(ctx context.Context, db *sql.DB, id int64, owner, kind string, key []byte) (string, *APIToken, error) {
+func RotateToken(ctx context.Context, db Handle, id int64, owner, kind string, key []byte) (string, *APIToken, error) {
 	if len(key) != 32 {
 		return "", nil, security.ErrSealKeySize
 	}
@@ -264,7 +278,7 @@ func RotateToken(ctx context.Context, db *sql.DB, id int64, owner, kind string, 
 	return raw, tok, err
 }
 
-func UpdateLinkedToken(ctx context.Context, db *sql.DB, owner string, id int64, name string, expiry *time.Time, clearExpiry bool) error {
+func UpdateLinkedToken(ctx context.Context, db Handle, owner string, id int64, name string, expiry *time.Time, clearExpiry bool) error {
 	name = strings.TrimSpace(name)
 	if len(name) < 1 || len(name) > 64 {
 		return errors.New("token name must contain 1 to 64 characters")
@@ -284,11 +298,11 @@ func UpdateLinkedToken(ctx context.Context, db *sql.DB, owner string, id int64, 
 	res, err := db.ExecContext(ctx, `UPDATE api_tokens SET name=?,expires_at=? WHERE id=? AND owner_id=? AND kind='linked' AND revoked_at IS NULL`, name, exp, id, owner)
 	return checkRowsAffected(res, err)
 }
-func RevokeLinkedToken(ctx context.Context, db *sql.DB, owner string, id int64) error {
+func RevokeLinkedToken(ctx context.Context, db Handle, owner string, id int64) error {
 	res, err := db.ExecContext(ctx, `UPDATE api_tokens SET revoked_at=strftime('%s','now'),revoked_reason='owner_revoked' WHERE id=? AND owner_id=? AND kind='linked' AND revoked_at IS NULL`, id, owner)
 	return checkRowsAffected(res, err)
 }
-func RevokeToken(ctx context.Context, db *sql.DB, prefix, reason string) error {
+func RevokeToken(ctx context.Context, db Handle, prefix, reason string) error {
 	tok, err := tokenByPrefix(ctx, db, prefix)
 	if err != nil {
 		return err
@@ -303,17 +317,17 @@ func RevokeToken(ctx context.Context, db *sql.DB, prefix, reason string) error {
 	res, err := db.ExecContext(ctx, `UPDATE api_tokens SET revoked_at=strftime('%s','now'),revoked_reason=? WHERE id=? AND revoked_at IS NULL`, reason, tok.ID)
 	return checkRowsAffected(res, err)
 }
-func tokenByPrefix(ctx context.Context, db *sql.DB, prefix string) (*APIToken, error) {
+func tokenByPrefix(ctx context.Context, db Handle, prefix string) (*APIToken, error) {
 	return scanToken(db.QueryRowContext(ctx, tokenSelect+` WHERE token_prefix=?`, prefix))
 }
-func CleanupExpiredTokens(ctx context.Context, db *sql.DB) (int64, error) {
+func CleanupExpiredTokens(ctx context.Context, db Handle) (int64, error) {
 	// Expired linked tokens remain visible to their owner until revoked or
 	// reconfigured, per AI.md PART 8 "Token Management". Authentication
 	// rejects them in LookupTokenByRaw, so cleanup intentionally removes none.
 	return 0, nil
 }
 
-func PurgeIdleOwners(ctx context.Context, db *sql.DB, idleDays int) (int64, error) {
+func PurgeIdleOwners(ctx context.Context, db Handle, idleDays int) (int64, error) {
 	if idleDays <= 0 {
 		return 0, nil
 	}
