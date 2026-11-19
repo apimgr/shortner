@@ -437,8 +437,12 @@ type ContactAntispam struct {
 	Global               int      `yaml:"global"`
 	Window               string   `yaml:"window"`
 	MaxLinks             int      `yaml:"max_links"`
+	RejectMarkup         bool     `yaml:"reject_markup"`
 	BlockedWords         []string `yaml:"blocked_words"`
 	BlockedEmailDomains  []string `yaml:"blocked_email_domains"`
+	BlockedLinkDomains   []string `yaml:"blocked_link_domains"`
+	Strikes              int      `yaml:"strikes"`
+	BanHours             int      `yaml:"ban_hours"`
 	DuplicateWindowHours int      `yaml:"duplicate_window_hours"`
 }
 
@@ -802,7 +806,7 @@ func Default(dbPath string) *Config {
 			Contact: Contact{Antispam: ContactAntispam{
 				Honeypot: true, MinFillSeconds: 3, MaxAgeSeconds: 43200,
 				PerIP: 5, PerEmail: 3, Global: 60, Window: "1h",
-				MaxLinks: 2, DuplicateWindowHours: 24,
+				MaxLinks: 2, RejectMarkup: true, Strikes: 3, BanHours: 24, DuplicateWindowHours: 24,
 			}},
 			GeoIP: GeoIP{
 				Enabled:        true,

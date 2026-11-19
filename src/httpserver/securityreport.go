@@ -152,7 +152,7 @@ func (fd *frontendDeps) securityReportPost(w http.ResponseWriter, r *http.Reques
 	}
 	if reason, blocked := fd.contactRateReason(r, data.Form.Email, now); blocked {
 		fd.contactSpamBlock(r, reason)
-		setContactRetryAfter(w, fd.contactAntispam().Window)
+		fd.setContactRetryAfter(w, r, reason)
 		fd.renderSecurityContactFailure(w, r, http.StatusTooManyRequests, &data, t(r, "errors.captcha_failed"))
 		return
 	}
@@ -252,7 +252,7 @@ func (fd *frontendDeps) securityReportAPIPost(w http.ResponseWriter, r *http.Req
 	now := time.Now()
 	if reason, blocked := fd.contactRateReason(r, form.Email, now); blocked {
 		fd.contactSpamBlock(r, reason)
-		setContactRetryAfter(w, fd.contactAntispam().Window)
+		fd.setContactRetryAfter(w, r, reason)
 		writeError(http.StatusTooManyRequests, "rate limited", true)
 		return
 	}

@@ -1,6 +1,8 @@
 package httpserver
 
 import (
+	"fmt"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
@@ -71,7 +73,62 @@ func TestContactContentRules(t *testing.T) {
 	if !fd.contactContentBlocked("Ada", "ada@example.com", "Question", "https://one.test https://two.test https://three.test") {
 		t.Fatal("message above max_links was accepted")
 	}
+	for _, message := range []string{"<a href=\"https://example.com\">link</a>", "[url=https://example.com]link[/url]", "&lt;script&gt;"} {
+		if got := fd.contactContentReason("Ada", "ada@example.com", "Question", message); got != "markup" {
+			t.Errorf("contactContentReason(%q) = %q, want markup", message, got)
+		}
+	}
+	if got := fd.contactContentReason("Ada", "ada@example.com", "Question", "Visit one.test two.example three.shop"); got != "content" {
+		t.Errorf("bare-domain link count reason = %q, want content", got)
+	}
+	settings := fd.cfg.Server.Contact.Antispam
+	settings.BlockedLinkDomains = []string{"example.shop"}
+	fd.setContactAntispam(settings)
+	if got := fd.contactContentReason("Ada", "ada@example.com", "Question", "Visit a.example.shop"); got != "content" {
+		t.Errorf("blocked suffix domain reason = %q, want content", got)
+	}
 	if fd.contactDuplicateKey(" ADA@example.com ", " Hello ", "one  two") != fd.contactDuplicateKey("ada@example.com", "hello", "one two") {
 		t.Fatal("duplicate hashing did not normalize case and whitespace")
+	}
+}
+
+func TestContactStrikesBanAndOverlayExemption(t *testing.T) {
+	fd := &frontendDeps{cfg: config.Default("unused"), installSecret: "strikes-test"}
+	fd.cfg.Server.Contact.Antispam.Window = "1h"
+	fd.cfg.Server.Contact.Antispam.Strikes = 3
+	fd.cfg.Server.Contact.Antispam.BanHours = 24
+	request := httptest.NewRequest("POST", "http://example.test/server/contact", nil)
+	request.RemoteAddr = "192.0.2.18:4321"
+	now := time.Now()
+	for i := 0; i < 3; i++ {
+		fd.contactSpamBlock(request, "captcha")
+	}
+	if reason, blocked := fd.contactRateReason(request, "ada@example.com", now.Add(4*time.Second)); !blocked || reason != "banned" {
+		t.Fatalf("contactRateReason() = (%q,%v), want (banned,true)", reason, blocked)
+	}
+
+	overlayFD := &frontendDeps{cfg: config.Default("unused"), installSecret: "overlay-strikes-test", resolver: NewProxyResolver(nil)}
+	overlayFD.cfg.Server.Contact.Antispam.Strikes = 1
+	overlayFD.resolver.SetOverlayHost(OverlayTor, "exampleonion.onion")
+	overlayRequest := httptest.NewRequest("POST", "http://exampleonion.onion/server/contact", nil)
+	overlayFD.contactSpamBlock(overlayRequest, "captcha")
+	if reason, blocked := overlayFD.contactRateReason(overlayRequest, "ada@example.com", now.Add(time.Second)); blocked || reason != "" {
+		t.Fatalf("overlay contactRateReason() = (%q,%v), want no IP ban", reason, blocked)
+	}
+}
+
+func TestContactPerIPLimitUsesConfiguredThreshold(t *testing.T) {
+	fd := &frontendDeps{cfg: config.Default("unused"), installSecret: "ip-rate-test"}
+	request := httptest.NewRequest("POST", "http://example.test/server/contact", nil)
+	request.RemoteAddr = "192.0.2.19:4321"
+	now := time.Now()
+	for i := 0; i < fd.contactAntispam().PerIP; i++ {
+		email := fmt.Sprintf("ada%d@example.com", i)
+		if reason, blocked := fd.contactRecordAccepted(request, email, "subject", "message", now.Add(time.Duration(i)*time.Second), false); blocked {
+			t.Fatalf("accepted submission %d blocked: %s", i+1, reason)
+		}
+	}
+	if reason, blocked := fd.contactRateReason(request, "new@example.com", now.Add(time.Minute)); !blocked || reason != "rate_ip" {
+		t.Fatalf("submission after configured limit = (%q,%v), want (rate_ip,true)", reason, blocked)
 	}
 }

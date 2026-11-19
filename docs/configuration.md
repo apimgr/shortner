@@ -323,8 +323,12 @@ server:
       global: 60
       window: 1h
       max_links: 2
+      reject_markup: true
       blocked_words: []
       blocked_email_domains: []
+      blocked_link_domains: []
+      strikes: 3
+      ban_hours: 24
       duplicate_window_hours: 24
     security:
       email: ""
@@ -388,8 +392,9 @@ The `simple` CAPTCHA creates a localized arithmetic challenge that works
 without JavaScript and over Tor or I2P. `recaptcha` and `hcaptcha` require both
 keys; submissions fail closed if the selected provider cannot be verified.
 Overlay requests always use the simple challenge. The antispam settings reload
-when `server.yml` changes. Rate counters stay in memory, and rejected
-submissions are logged with only the reason and client IP.
+when `server.yml` changes. Rate counters, strike counts and active bans stay
+in memory. Tor and I2P submissions do not share a per-IP counter or strike
+ban. Rejected submissions are logged with only the reason and client IP.
 
 ## Privacy and Consent
 

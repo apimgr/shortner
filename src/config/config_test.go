@@ -31,7 +31,7 @@ func TestDefault(t *testing.T) {
 	if !reflect.DeepEqual(cfg.Server.Contact.Antispam, ContactAntispam{
 		Honeypot: true, MinFillSeconds: 3, MaxAgeSeconds: 43200,
 		PerIP: 5, PerEmail: 3, Global: 60, Window: "1h",
-		MaxLinks: 2, DuplicateWindowHours: 24,
+		MaxLinks: 2, RejectMarkup: true, Strikes: 3, BanHours: 24, DuplicateWindowHours: 24,
 	}) {
 		t.Errorf("Contact.Antispam = %+v, want spec defaults", cfg.Server.Contact.Antispam)
 	}

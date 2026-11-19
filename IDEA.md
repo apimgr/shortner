@@ -146,7 +146,11 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
   `GET /api/{api_version}/links`
 - Anonymous contact and security-report submissions use the configured
   recipients, server-side CAPTCHA, signed fill-time token, honeypot, and
-  in-memory rate/content controls; security reports are encrypted at rest.
+  in-memory rate controls. Contact submissions reject markup, excess or blocked
+  links, blocked words, and blocked sender domains; repeated honeypot, CAPTCHA,
+  content, or duplicate failures can ban a clearnet IP for a configured period.
+  Tor and I2P submissions do not share a per-IP limit or strike ban; security
+  reports are encrypted at rest.
 
 ### API routes
 

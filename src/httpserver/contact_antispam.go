@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"html"
 	"net"
 	"net/http"
 	"net/mail"
@@ -22,7 +23,8 @@ import (
 
 const contactFormBodyLimit = 16 << 10
 
-var contactURLPattern = regexp.MustCompile(`(?i)(https?://|www\.)`)
+var contactLinkPattern = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://[^\s<>"']+|www\.[a-z0-9.-]+\.[a-z]{2,}|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,})(?:/[^\s<>"']*)?`)
+var contactMarkupPattern = regexp.MustCompile(`(?i)<\s*(?:/?\s*[a-z]|!)|\[(?:url|img|b)(?:\s|=|\])|\[/`)
 
 type contactSpamBucket struct {
 	start time.Time
@@ -38,6 +40,8 @@ type contactSpamState struct {
 	mu         sync.Mutex
 	buckets    map[string]contactSpamBucket
 	duplicates map[string]contactSpamDuplicate
+	strikes    map[string][]time.Time
+	bans       map[string]time.Time
 }
 
 var contactSpamStates sync.Map
@@ -46,6 +50,7 @@ func contactSpamStateFor(secret string) *contactSpamState {
 	key := fmt.Sprintf("%x", sha256.Sum256([]byte(secret)))
 	state, _ := contactSpamStates.LoadOrStore(key, &contactSpamState{
 		buckets: make(map[string]contactSpamBucket), duplicates: make(map[string]contactSpamDuplicate),
+		strikes: make(map[string][]time.Time), bans: make(map[string]time.Time),
 	})
 	return state.(*contactSpamState)
 }
@@ -196,6 +201,9 @@ func (fd *frontendDeps) contactToken(now time.Time) string {
 }
 
 func (fd *frontendDeps) contactSpamBlock(r *http.Request, reason string) {
+	if reason == "honeypot" || reason == "captcha" || reason == "content" || reason == "markup" || reason == "duplicate" {
+		fd.recordContactStrike(r, time.Now())
+	}
 	if fd.metrics != nil && fd.metrics.ContactBlockedTotal != nil {
 		fd.metrics.ContactBlockedTotal.WithLabelValues(reason).Inc()
 	}
@@ -227,27 +235,124 @@ func emailDomain(email string) string {
 	return host
 }
 
-func (fd *frontendDeps) contactContentBlocked(name, email, subject, message string) bool {
+func (fd *frontendDeps) contactContentReason(name, email, subject, message string) string {
 	settings := fd.contactAntispam()
-	if settings.MaxLinks > 0 && len(contactURLPattern.FindAllStringIndex(message, -1)) > settings.MaxLinks {
-		return true
+	if settings.RejectMarkup {
+		for _, value := range []string{name, subject, message} {
+			if contactMarkupPattern.MatchString(value) || strings.ContainsAny(html.UnescapeString(value), "<>") {
+				return "markup"
+			}
+		}
 	}
-	if contactURLPattern.MatchString(subject) || contactURLPattern.MatchString(name) {
-		return true
+	links := contactLinkPattern.FindAllString(message, -1)
+	if contactLinkPattern.MatchString(subject) || contactLinkPattern.MatchString(name) {
+		return "content"
+	}
+	if settings.MaxLinks > 0 && len(links) > settings.MaxLinks {
+		return "content"
+	}
+	for _, raw := range links {
+		host := linkHost(raw)
+		for _, blocked := range settings.BlockedLinkDomains {
+			blocked = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(blocked)), ".")
+			if blocked != "" && (host == blocked || strings.HasSuffix(host, "."+blocked)) {
+				return "content"
+			}
+		}
 	}
 	domain := emailDomain(email)
 	for _, blocked := range settings.BlockedEmailDomains {
 		if domain == strings.ToLower(strings.TrimSpace(blocked)) {
-			return true
+			return "content"
 		}
 	}
 	for _, blocked := range settings.BlockedWords {
 		needle := strings.ToLower(strings.TrimSpace(blocked))
 		if needle != "" && (strings.Contains(strings.ToLower(message), needle) || strings.Contains(strings.ToLower(subject), needle) || strings.Contains(strings.ToLower(name), needle)) {
-			return true
+			return "content"
 		}
 	}
-	return false
+	return ""
+}
+
+func linkHost(raw string) string {
+	trimmed := strings.TrimRight(raw, ".,;:!?)]}")
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Host == "" {
+		parsed, err = url.Parse("//" + trimmed)
+	}
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+}
+
+func (fd *frontendDeps) contactContentBlocked(name, email, subject, message string) bool {
+	return fd.contactContentReason(name, email, subject, message) != ""
+}
+
+func contactClientIP(fd *frontendDeps, r *http.Request) string {
+	if fd.resolver != nil {
+		return fd.resolver.ResolveClientIP(r)
+	}
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	return ip
+}
+
+func (fd *frontendDeps) recordContactStrike(r *http.Request, now time.Time) {
+	if fd.resolver != nil && fd.resolver.IsOverlay(r) {
+		return
+	}
+	settings := fd.contactAntispam()
+	if settings.Strikes <= 0 || settings.BanHours <= 0 {
+		return
+	}
+	ip := contactClientIP(fd, r)
+	if ip == "" {
+		return
+	}
+	state := contactSpamStateFor(fd.installSecret)
+	window, err := time.ParseDuration(settings.Window)
+	if err != nil || window <= 0 {
+		window = time.Hour
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	strikeKey := "ip:" + ip
+	strikes := state.strikes[strikeKey][:0]
+	for _, strike := range state.strikes[strikeKey] {
+		if now.Sub(strike) < window {
+			strikes = append(strikes, strike)
+		}
+	}
+	strikes = append(strikes, now)
+	if len(strikes) >= settings.Strikes {
+		state.bans[strikeKey] = now.Add(time.Duration(settings.BanHours) * time.Hour)
+		delete(state.strikes, strikeKey)
+	} else {
+		state.strikes[strikeKey] = strikes
+	}
+}
+
+func (fd *frontendDeps) setContactRetryAfter(w http.ResponseWriter, r *http.Request, reason string) {
+	if reason == "banned" {
+		seconds := fd.contactAntispam().BanHours * 3600
+		if fd.resolver == nil || !fd.resolver.IsOverlay(r) {
+			state := contactSpamStateFor(fd.installSecret)
+			key := "ip:" + contactClientIP(fd, r)
+			state.mu.Lock()
+			if remaining := time.Until(state.bans[key]); remaining > 0 {
+				seconds = int((remaining + time.Second - 1) / time.Second)
+			}
+			state.mu.Unlock()
+		}
+		if seconds < 1 {
+			seconds = 1
+		}
+		w.Header().Set("Retry-After", strconv.Itoa(seconds))
+		return
+	}
+	setContactRetryAfter(w, fd.contactAntispam().Window)
 }
 
 func (fd *frontendDeps) contactDuplicateKey(email, subject, message string) string {
@@ -267,18 +372,23 @@ func (fd *frontendDeps) contactRateReason(r *http.Request, email string, now tim
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	if fd.resolver == nil || !fd.resolver.IsOverlay(r) {
+		ip := contactClientIP(fd, r)
+		if ip != "" {
+			banKey := "ip:" + ip
+			if until := state.bans[banKey]; until.After(now) {
+				return "banned", true
+			}
+			delete(state.bans, banKey)
+		}
+	}
 	for key, bucket := range state.buckets {
 		if now.Sub(bucket.start) >= window {
 			delete(state.buckets, key)
 		}
 	}
 	if fd.resolver == nil || !fd.resolver.IsOverlay(r) {
-		ip := ""
-		if fd.resolver != nil {
-			ip = fd.resolver.ResolveClientIP(r)
-		} else {
-			ip, _, _ = net.SplitHostPort(r.RemoteAddr)
-		}
+		ip := contactClientIP(fd, r)
 		if settings.PerIP > 0 && state.buckets["ip:"+ip].count >= settings.PerIP {
 			return "rate_ip", true
 		}
@@ -320,9 +430,7 @@ func (fd *frontendDeps) contactRecordAccepted(r *http.Request, email, subject, m
 	}
 	ip := ""
 	if fd.resolver == nil || !fd.resolver.IsOverlay(r) {
-		if fd.resolver != nil {
-			ip = fd.resolver.ResolveClientIP(r)
-		}
+		ip = contactClientIP(fd, r)
 		if settings.PerIP > 0 && state.buckets["ip:"+ip].count >= settings.PerIP {
 			return "rate_ip", true
 		}

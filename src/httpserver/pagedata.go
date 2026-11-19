@@ -154,6 +154,7 @@ func (fd *frontendDeps) contactAntispam() config.ContactAntispam {
 	copy := *settings
 	copy.BlockedWords = append([]string(nil), settings.BlockedWords...)
 	copy.BlockedEmailDomains = append([]string(nil), settings.BlockedEmailDomains...)
+	copy.BlockedLinkDomains = append([]string(nil), settings.BlockedLinkDomains...)
 	return copy
 }
 
@@ -161,6 +162,7 @@ func (fd *frontendDeps) setContactAntispam(settings config.ContactAntispam) {
 	copy := settings
 	copy.BlockedWords = append([]string(nil), settings.BlockedWords...)
 	copy.BlockedEmailDomains = append([]string(nil), settings.BlockedEmailDomains...)
+	copy.BlockedLinkDomains = append([]string(nil), settings.BlockedLinkDomains...)
 	fd.antispam.Store(&copy)
 }
 

@@ -25,7 +25,8 @@ https://shortner.example.com
 - Bot-exclusion for click analytics
 - Server-side rendered web UI — works fully without JavaScript
 - Contact and coordinated-disclosure forms protected by signed form tokens,
-  single-use CAPTCHA challenges, bounded rate limits, and silent honeypot drops
+  single-use CAPTCHA challenges, bounded rate limits, markup and link filtering,
+  strike bans, and silent honeypot drops
 - HTTPS service worker with cached static assets and an offline fallback
 - REST API for link creation, listing, management, analytics, and health,
   with OpenAPI and read-only GraphQL, including a JSON contact-form mirror

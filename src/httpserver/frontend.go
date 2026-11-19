@@ -503,18 +503,24 @@ func (fd *frontendDeps) contactPost(w http.ResponseWriter, r *http.Request) {
 	}
 	if reason, blocked := fd.contactRateReason(r, email, now); blocked {
 		fd.contactSpamBlock(r, reason)
-		setContactRetryAfter(w, fd.contactAntispam().Window)
+		fd.setContactRetryAfter(w, r, reason)
 		fd.renderContactFailure(w, r, http.StatusTooManyRequests, &data, t(r, "errors.captcha_failed"))
 		return
 	}
-	if fd.contactContentBlocked(name, email, subject, message) {
-		fd.contactSpamBlock(r, "content")
+	if reason := fd.contactContentReason(name, email, subject, message); reason != "" {
+		fd.contactSpamBlock(r, reason)
 		fd.renderContactFailure(w, r, http.StatusBadRequest, &data, "Your message could not be sent")
 		return
 	}
 	if reason, blocked := fd.contactRecordAccepted(r, email, subject, message, now, true); blocked {
 		fd.contactSpamBlock(r, reason)
-		setContactRetryAfter(w, fd.contactAntispam().Window)
+		if reason == "duplicate" {
+			data.Submitted = true
+			data.SuccessMessage = fd.contactSuccessMessage(r)
+			_ = renderPage(w, http.StatusOK, "contact", data)
+			return
+		}
+		fd.setContactRetryAfter(w, r, reason)
 		fd.renderContactFailure(w, r, http.StatusTooManyRequests, &data, t(r, "errors.captcha_failed"))
 		return
 	}
@@ -617,18 +623,22 @@ func (fd *frontendDeps) contactAPIHandler(w http.ResponseWriter, r *http.Request
 	now := time.Now()
 	if reason, blocked := fd.contactRateReason(r, email, now); blocked {
 		fd.contactSpamBlock(r, reason)
-		setContactRetryAfter(w, fd.contactAntispam().Window)
+		fd.setContactRetryAfter(w, r, reason)
 		fd.writeAPIContactFailure(w, r, http.StatusTooManyRequests, "rate limited", true)
 		return
 	}
-	if fd.contactContentBlocked(name, email, subject, message) {
-		fd.contactSpamBlock(r, "content")
+	if reason := fd.contactContentReason(name, email, subject, message); reason != "" {
+		fd.contactSpamBlock(r, reason)
 		fd.writeAPIContactFailure(w, r, http.StatusBadRequest, "Your message could not be sent", true)
 		return
 	}
 	if reason, blocked := fd.contactRecordAccepted(r, email, subject, message, now, true); blocked {
 		fd.contactSpamBlock(r, reason)
-		setContactRetryAfter(w, fd.contactAntispam().Window)
+		if reason == "duplicate" {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": map[string]string{"message": fd.contactSuccessMessage(r)}})
+			return
+		}
+		fd.setContactRetryAfter(w, r, reason)
 		fd.writeAPIContactFailure(w, r, http.StatusTooManyRequests, "rate limited", true)
 		return
 	}
