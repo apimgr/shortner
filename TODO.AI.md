@@ -275,9 +275,13 @@ Still open under PART 9-11:
   "unknown" gracefully when empty, and now gets real values: PART 19's
   `src/geoip` lookup populates `ClickInfo.Country`/`.Region` at click time.
 - DONE: Contact-form email delivery — `contactPost` in `frontend.go`
-  validates the form (including the static math-captcha check) and
+  validates the form with signed fill-time tokens, bounded honeypot/rate
+  limits, content checks and single-use database-backed CAPTCHA challenges
+  (simple arithmetic, reCAPTCHA or hCaptcha with a JS-free fallback), then
   `relayContactMessage` forwards it to `server.contact.general.email`
-  (falling back to `.admin.email`) through the PART 17 notifier. The
+  (falling back to `.admin.email`) through the PART 17 notifier. The same
+  protections cover the JSON API and security-report submissions; CAPTCHA
+  descriptors and form tokens refresh after rejected submissions. The
   relay is best-effort by design: with no working SMTP the message is
   simply not relayed, per PART 17's no-queue rule.
 - `/server/docs/swagger` and `/server/docs/graphql`, their versioned and

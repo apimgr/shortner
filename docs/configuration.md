@@ -314,6 +314,18 @@ server:
       email: ""
     abuse:
       email: ""
+    antispam:
+      honeypot: true
+      min_fill_seconds: 3
+      max_age_seconds: 43200
+      per_ip: 5
+      per_email: 3
+      global: 60
+      window: 1h
+      max_links: 2
+      blocked_words: []
+      blocked_email_domains: []
+      duplicate_window_hours: 24
     security:
       email: ""
     dpo:
@@ -367,8 +379,17 @@ pages:
   contact:
     enabled: true
     captcha: "simple"
+    captcha_site_key: ""
+    captcha_secret_key: ""
     success_message: "Thank you for your message. We'll respond soon."
 ```
+
+The `simple` CAPTCHA creates a localized arithmetic challenge that works
+without JavaScript and over Tor or I2P. `recaptcha` and `hcaptcha` require both
+keys; submissions fail closed if the selected provider cannot be verified.
+Overlay requests always use the simple challenge. The antispam settings reload
+when `server.yml` changes. Rate counters stay in memory, and rejected
+submissions are logged with only the reason and client IP.
 
 ## Privacy and Consent
 

@@ -24,10 +24,11 @@ https://shortner.example.com
 - Click analytics with IP anonymization
 - Bot-exclusion for click analytics
 - Server-side rendered web UI — works fully without JavaScript
+- Contact and coordinated-disclosure forms protected by signed form tokens,
+  single-use CAPTCHA challenges, bounded rate limits, and silent honeypot drops
 - HTTPS service worker with cached static assets and an offline fallback
 - REST API for link creation, listing, management, analytics, and health,
-  with OpenAPI and read-only GraphQL; several Web UI pages still lack their
-  specified API mirrors
+  with OpenAPI and read-only GraphQL, including a JSON contact-form mirror
 - Local GeoIP enrichment for click analytics and country-based controls
 - Tor v3 hidden service when a Tor binary is available; optional I2P eepsite
 - Single static server binary; overlay networking uses optional system runtimes

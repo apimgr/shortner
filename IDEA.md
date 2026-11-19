@@ -144,6 +144,9 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
 - Delete link (owner token or operator token required)
 - List all created links, paginated (public, anonymous) — `/list` page and
   `GET /api/{api_version}/links`
+- Anonymous contact and security-report submissions use the configured
+  recipients, server-side CAPTCHA, signed fill-time token, honeypot, and
+  in-memory rate/content controls; security reports are encrypted at rest.
 
 ### API routes
 

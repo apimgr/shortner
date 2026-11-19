@@ -460,6 +460,8 @@ Server-rendered HTML. Every one of these works with JavaScript disabled.
 | `DELETE /api/{api_version}/server/preferences/tokens/{id}` | Revoke linked token |
 | `GET /api/{api_version}/server/security/policy` | Coordinated disclosure policy data |
 | `GET /api/{api_version}/server/dpo` | Public DPO contact data |
+| `GET /api/{api_version}/server/contact` | Contact form fields, CAPTCHA descriptor, signed form token, and public security/abuse links |
+| `POST /api/{api_version}/server/contact` | Submit contact or a security report; echo the form token and submit exactly one CAPTCHA proof |
 | `GET /api/{api_version}/server/auth/check` | Validate a Bearer token and return its kind |
 | `GET /server/security/report/{tracking_id}` | Researcher report status (requires the one-time status token) |
 | `POST /server/consent` | Cookie consent choice |
