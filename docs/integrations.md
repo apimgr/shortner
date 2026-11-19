@@ -223,11 +223,14 @@ header injection and dot-stuffing errors.
     observer of a successful renewal yet — so that event never fires even
     when enabled.
 
-### Contact form relay
+### Report form relay
 
-The web contact form relays submissions to the configured contact address
-through the same notifier. Delivery is best-effort and never queued; a
-failure to send does not fail the submission.
+The private report form accepts abuse, DMCA, and privacy reports after a
+server-rendered review and confirmation step. Abuse and DMCA reports route to
+the abuse recipient; privacy requests route to the DPO recipient. Each falls
+back to the general recipient and then the administrator recipient. Delivery
+is best-effort and never queued; a failure to send does not fail the
+submission. Security reports use their dedicated encrypted reporting flow.
 
 ## Self-Update via GitHub Releases
 

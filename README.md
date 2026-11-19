@@ -24,9 +24,9 @@ https://shortner.example.com
 - Click analytics with IP anonymization
 - Bot-exclusion for click analytics
 - Server-side rendered web UI — works fully without JavaScript
-- Contact and coordinated-disclosure forms protected by signed form tokens,
-  single-use CAPTCHA challenges, bounded rate limits, markup and link filtering,
-  strike bans, and silent honeypot drops
+- Security, abuse, DMCA, and privacy reports through a private report form
+  with review and confirmation, origin checks, single-use tokens and CAPTCHA,
+  rate limits, content filtering, strike bans, and silent honeypot drops
 - HTTPS service worker with cached static assets and an offline fallback
 - REST API for link creation, listing, management, analytics, and health,
   with OpenAPI and read-only GraphQL, including a JSON contact-form mirror

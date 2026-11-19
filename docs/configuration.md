@@ -318,6 +318,8 @@ server:
       honeypot: true
       min_fill_seconds: 3
       max_age_seconds: 43200
+      review_min_seconds: 2
+      review_max_seconds: 900
       per_ip: 5
       per_email: 3
       global: 60

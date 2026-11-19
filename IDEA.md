@@ -144,13 +144,12 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
 - Delete link (owner token or operator token required)
 - List all created links, paginated (public, anonymous) — `/list` page and
   `GET /api/{api_version}/links`
-- Anonymous contact and security-report submissions use the configured
-  recipients, server-side CAPTCHA, signed fill-time token, honeypot, and
-  in-memory rate controls. Contact submissions reject markup, excess or blocked
-  links, blocked words, and blocked sender domains; repeated honeypot, CAPTCHA,
-  content, or duplicate failures can ban a clearnet IP for a configured period.
-  Tor and I2P submissions do not share a per-IP limit or strike ban; security
-  reports are encrypted at rest.
+- The private report form accepts security, abuse, DMCA, and privacy reports.
+  A server-side review and confirmation step precedes delivery, with configured
+  recipient routing, CAPTCHA, single-use signed tokens, origin checks, and
+  in-memory rate controls. Content filters, strike bans, and a silent honeypot
+  limit abuse; Tor and I2P submissions do not share a per-IP limit or strike
+  ban. Security reports are encrypted at rest.
 
 ### API routes
 

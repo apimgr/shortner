@@ -10,7 +10,9 @@ Report security issues privately. Do not open a public issue.
   RFC 9116 file listing its own contact address, policy URL, preferred
   languages, and expiry.
 - **The instance's own form** — `/server/contact?security_id={id}` switches
-  the contact form into security-report mode.
+  the private report form into security-report mode. It is reached from
+  `/server/security` or the security.txt Contact line; the public report form
+  also accepts abuse, DMCA, and privacy submissions.
 
 A running server also serves human-readable pages: `/server/security` for
 reporting information, `/server/security/policy` for the coordinated
@@ -22,7 +24,7 @@ the database, under the key in `server.security.encryption_key`. Report
 bodies are never stored in plaintext. The configured project PGP key is
 used to encrypt the maintainer email; PGP-at-rest storage is not yet wired.
 
-Submitting a report returns a tracking ID and triggers two notifications —
+After the report's review and confirmation, submission returns a tracking ID and triggers two notifications —
 one to the maintainer and one acknowledging the researcher. Those emails
 are always a courtesy copy, never the primary channel: if email is
 unavailable or the send fails, the submission still succeeds and the
