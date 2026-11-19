@@ -211,6 +211,40 @@ ceiling across all classes. Exceeding a limit returns `429 Too Many
 Requests` with a `Retry-After` header. See
 [API Reference](api.md#rate-limiting).
 
+### Log configuration
+
+Each named log inherits `custom`, `rotate`, and `keep` from `server.logs.defaults`.
+Per-kind values override those defaults. Log filenames are inferred from the
+kind and are not configurable. The access log supports `apache`, `nginx`, and
+`json` formats.
+
+```yaml
+server:
+  logs:
+    level: warn
+    defaults:
+      custom: ""
+      rotate: weekly,50MB
+      keep: none
+    access:
+      format: apache
+      rotate: monthly
+    server:
+      format: text
+    error:
+      format: text
+    audit:
+      enabled: true
+      format: json
+      rotate: daily
+      compress: false
+    security:
+      format: fail2ban
+    debug:
+      enabled: false
+      format: text
+```
+
 ### Cache
 
 ```yaml

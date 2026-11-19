@@ -27484,7 +27484,7 @@ server:
 | `header.html` | **Extends** | Inserted inside `<header>` of every public page, after the built-in logo and navigation. It replaces nothing |
 | `about.{html,md,txt}` | **Extends** | Appended after the built-in About content |
 | `privacy.{html,md,txt}` | **Extends** | Appended after the built-in privacy sections (after "Your Rights" and the consent controls) and before the Contact section. The built-in sections are never replaced, because they must stay in step with `server.privacy.*` |
-| `footer.html` | **Overrides** | Replaces the custom branding block above the Application Footer ("Footer Customization"). No file: the built-in branding. A file that holds only whitespace: no branding. The Default Application Footer is always shown |
+| `footer.html` | **Overrides** | Replaces the custom branding block above the Application Footer ("Footer Customization"). No file: the built-in branding. An empty or whitespace-only file: no branding. The Default Application Footer is always shown |
 | `terms.{html,md,txt}` | **Overrides** | Replaces the built-in terms of service entirely. No file: the built-in terms |
 
 | Rule | Behavior |
@@ -27512,7 +27512,7 @@ server:
 **There is no `server.yml` key for the footer.** The custom branding block above the Application Footer is the file `{config_dir}/html/footer.html` ("Operator Content Files"):
 
 - No file: use the default branding (built-in)
-- A file holding only whitespace: disable branding, show only the Application Footer
+- An empty or whitespace-only file: disable branding, show only the Application Footer
 - Custom HTML: use your own branding (SANITIZED, no scripts)
 
 ### Custom HTML Validation
@@ -27520,13 +27520,17 @@ server:
 **`footer.html` is SANITIZED before rendering. Scripts and dangerous elements are NEVER executed.**
 
 ```go
-import "github.com/microcosm-cc/bluemonday"
+import (
+    "strings"
+
+    "github.com/microcosm-cc/bluemonday"
+)
 
 // SanitizeFooterHTML sanitizes custom footer HTML
 // ONLY allows safe formatting tags - NO scripts, NO event handlers
 func SanitizeFooterHTML(html string) string {
-    if html == "" || html == " " {
-        // Empty or space (disable) passes through
+    if strings.TrimSpace(html) == "" {
+        // An empty or whitespace-only file (branding disabled) passes through
         return html
     }
 
@@ -27571,7 +27575,7 @@ func ValidateFooterHTML(html string) (string, error) {
     }
 
     // Warn if content was modified (sanitization applied)
-    if html != sanitized && html != "" && html != " " {
+    if html != sanitized && strings.TrimSpace(html) != "" {
         log.Warnf("footer.html was sanitized: removed potentially dangerous content")
     }
 
