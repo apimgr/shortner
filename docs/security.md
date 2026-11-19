@@ -151,7 +151,7 @@ warned about, since it makes the site ineligible for the preload list.
 | `Origin-Agent-Cluster` | on | `web.headers.origin_agent_cluster` |
 | `X-Permitted-Cross-Domain-Policies` | `none` | `web.headers.cross_domain_policies` |
 | `X-DNS-Prefetch-Control` | omitted | `web.headers.dns_prefetch_control` |
-| `Permissions-Policy` | 25 features locked down | `web.permissions_policy` |
+| `Permissions-Policy` | Fixed project policy, always emitted | No configuration key |
 | `NEL` | enabled, 30 days | `web.headers.nel` |
 | `Server-Timing` | debug mode only | `web.headers.server_timing_in_debug_only` |
 

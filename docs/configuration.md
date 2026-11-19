@@ -192,7 +192,6 @@ here so forwarded client IPs are honored.
 ```yaml
 server:
   rate_limit:
-    enabled: true
     read:
       requests: 120
       window: 60
@@ -703,8 +702,8 @@ for example `script_src_extra` and `script_src_override`. Prefer `_extra`.
 In development mode the CSP downgrades to report-only unless `mode` was
 set explicitly.
 
-`web.permissions_policy` holds a map of 25 browser features, all locked
-down by default. `web.robots` controls the generated `robots.txt`.
+The `Permissions-Policy` header is always emitted from the project's fixed
+feature policy; it has no `server.yml` setting. `web.robots` controls the generated `robots.txt`.
 `web.announcements.enabled` and `web.announcements.messages` control
 server-rendered site banners. Messages with an active RFC 3339 `start` and
 `end` window appear in configuration order; visitors can dismiss entries
