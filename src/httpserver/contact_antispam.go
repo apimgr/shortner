@@ -2,7 +2,9 @@ package httpserver
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"html"
@@ -10,7 +12,9 @@ import (
 	"net/http"
 	"net/mail"
 	"net/url"
+	"path"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,9 +23,11 @@ import (
 	"unicode/utf8"
 
 	"github.com/apimgr/shortner/src/applog"
+	"github.com/apimgr/shortner/src/db"
+	"github.com/apimgr/shortner/src/fqdn"
 )
 
-const contactFormBodyLimit = 16 << 10
+const contactFormBodyLimit = 256 << 10
 
 var contactLinkPattern = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://[^\s<>"']+|www\.[a-z0-9.-]+\.[a-z]{2,}|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,})(?:/[^\s<>"']*)?`)
 var contactMarkupPattern = regexp.MustCompile(`(?i)<\s*(?:/?\s*[a-z]|!)|\[(?:url|img|b)(?:\s|=|\])|\[/`)
@@ -42,6 +48,7 @@ type contactSpamState struct {
 	duplicates map[string]contactSpamDuplicate
 	strikes    map[string][]time.Time
 	bans       map[string]time.Time
+	usedTokens map[string]time.Time
 }
 
 var contactSpamStates sync.Map
@@ -50,38 +57,44 @@ func contactSpamStateFor(secret string) *contactSpamState {
 	key := fmt.Sprintf("%x", sha256.Sum256([]byte(secret)))
 	state, _ := contactSpamStates.LoadOrStore(key, &contactSpamState{
 		buckets: make(map[string]contactSpamBucket), duplicates: make(map[string]contactSpamDuplicate),
-		strikes: make(map[string][]time.Time), bans: make(map[string]time.Time),
+		strikes: make(map[string][]time.Time), bans: make(map[string]time.Time), usedTokens: make(map[string]time.Time),
 	})
 	return state.(*contactSpamState)
 }
 
 func issueContactFormToken(secret string, now time.Time) string {
 	issued := now.Unix()
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		return ""
+	}
+	nonceText := base64.RawURLEncoding.EncodeToString(nonce)
 	mac := hmac.New(sha256.New, []byte(secret))
-	fmt.Fprintf(mac, "contact-form|%d", issued)
-	return fmt.Sprintf("%d.%s", issued, hex.EncodeToString(mac.Sum(nil)))
+	fmt.Fprintf(mac, "contact-form|%d|%s", issued, nonceText)
+	return fmt.Sprintf("%d.%s.%s", issued, nonceText, base64.RawURLEncoding.EncodeToString(mac.Sum(nil)))
 }
 
-func verifyContactFormToken(secret, token string, now time.Time, minAge, maxAge int) bool {
-	issuedText, signature, found := strings.Cut(token, ".")
-	if !found || strings.Contains(signature, ".") || len(signature) != sha256.Size*2 {
-		return false
+func verifyContactFormToken(secret, token string, now time.Time, minAge, maxAge int) (string, bool) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 || len(parts[1]) != 22 || len(parts[2]) != 43 {
+		return "", false
 	}
+	issuedText, nonce, signature := parts[0], parts[1], parts[2]
 	issued, err := strconv.ParseInt(issuedText, 10, 64)
 	if err != nil {
-		return false
+		return "", false
 	}
 	age := now.Unix() - issued
 	if age < int64(minAge) || age < 0 || (maxAge > 0 && age > int64(maxAge)) {
-		return false
+		return "", false
 	}
-	provided, err := hex.DecodeString(signature)
+	provided, err := base64.RawURLEncoding.DecodeString(signature)
 	if err != nil {
-		return false
+		return "", false
 	}
 	mac := hmac.New(sha256.New, []byte(secret))
-	fmt.Fprintf(mac, "contact-form|%d", issued)
-	return hmac.Equal(provided, mac.Sum(nil))
+	fmt.Fprintf(mac, "contact-form|%d|%s", issued, nonce)
+	return nonce, hmac.Equal(provided, mac.Sum(nil))
 }
 
 func contactAllowedFields(security bool) map[string]struct{} {
@@ -91,6 +104,7 @@ func contactAllowedFields(security bool) map[string]struct{} {
 		"g-recaptcha-response": {}, "h-captcha-response": {}, "credit_handle": {},
 		"app_version": {}, "commit_hash": {}, "timestamp": {}, "request_user_agent": {},
 		"website": {}, "form_token": {},
+		"step": {}, "review_token": {}, "confirmed": {},
 	}
 	if security {
 		for _, field := range []string{
@@ -100,11 +114,22 @@ func contactAllowedFields(security bool) map[string]struct{} {
 		} {
 			fields[field] = struct{}{}
 		}
+	} else {
+		for _, field := range []string{
+			"type", "reported_url", "reason", "copyrighted_work", "good_faith_statement",
+			"accuracy_statement", "signature", "request_kind",
+		} {
+			fields[field] = struct{}{}
+		}
 	}
 	return fields
 }
 
 func contactShapeValid(values url.Values, security, api bool) (string, bool) {
+	step := values.Get("step")
+	if step != "" && step != "submit" && step != "confirm" && step != "edit" {
+		return "shape", false
+	}
 	if api {
 		if _, exists := values["csrf_token"]; exists {
 			return "shape", false
@@ -147,7 +172,10 @@ func contactShapeValid(values url.Values, security, api bool) (string, bool) {
 	}
 	providerProof := providerProofs == 1
 	simpleID, simpleAnswer := values.Get("captcha_id") != "", values.Get("captcha_answer") != ""
-	if simpleID != simpleAnswer || (!providerProof && !(simpleID && simpleAnswer)) {
+	if contactCaptchaProofInvalid(step, simpleID, simpleAnswer, providerProof) {
+		return "shape", false
+	}
+	if step == "confirm" && values.Get("confirmed") != "true" && values.Get("confirmed") != "" {
 		return "shape", false
 	}
 	if !api {
@@ -156,7 +184,7 @@ func contactShapeValid(values url.Values, security, api bool) (string, bool) {
 		}
 	}
 	if !security {
-		for _, required := range []string{"subject", "message"} {
+		for _, required := range []string{"subject", "message", "type"} {
 			if _, ok := values[required]; !ok {
 				return "shape", false
 			}
@@ -177,6 +205,32 @@ func contactShapeValid(values url.Values, security, api bool) (string, bool) {
 			return "shape", false
 		}
 	}
+	if !security {
+		limits := map[string]int{"reported_url": 2048, "copyrighted_work": 2000, "signature": 100}
+		for field, limit := range limits {
+			if utf8.RuneCountInString(values.Get(field)) > limit {
+				return "shape", false
+			}
+		}
+		typeValue := values.Get("type")
+		if typeValue != "abuse" && typeValue != "dmca" && typeValue != "privacy" {
+			return "shape", false
+		}
+		switch typeValue {
+		case "abuse":
+			if !validReportedURL(values.Get("reported_url")) || !oneOf(values.Get("reason"), "illegal_content", "terms_violation", "harassment", "malware_phishing", "other") {
+				return "shape", false
+			}
+		case "dmca":
+			if !validReportedURL(values.Get("reported_url")) || values.Get("copyrighted_work") == "" || values.Get("good_faith_statement") != "true" || values.Get("accuracy_statement") != "true" || values.Get("signature") == "" {
+				return "shape", false
+			}
+		case "privacy":
+			if !oneOf(values.Get("request_kind"), "access", "export", "deletion", "correction", "opt_out", "other") {
+				return "shape", false
+			}
+		}
+	}
 	if strings.ContainsAny(email, ",;<>\r\n") {
 		return "shape", false
 	}
@@ -185,6 +239,33 @@ func contactShapeValid(values url.Values, security, api bool) (string, bool) {
 		return "shape", false
 	}
 	return "", true
+}
+
+func validReportedURL(value string) bool {
+	parsed, err := url.ParseRequestURI(strings.TrimSpace(value))
+	return err == nil && (strings.EqualFold(parsed.Scheme, "http") || strings.EqualFold(parsed.Scheme, "https")) && parsed.Hostname() != "" && parsed.User == nil
+}
+
+func oneOf(value string, options ...string) bool {
+	for _, option := range options {
+		if value == option {
+			return true
+		}
+	}
+	return false
+}
+
+func contactCaptchaProofInvalid(step string, simpleID, simpleAnswer, providerProof bool) bool {
+	if step == "confirm" || step == "edit" {
+		return false
+	}
+	if simpleID != simpleAnswer {
+		return true
+	}
+	if providerProof {
+		return false
+	}
+	return !simpleID
 }
 
 func containsUnsafeUnicode(value string) bool {
@@ -201,7 +282,7 @@ func (fd *frontendDeps) contactToken(now time.Time) string {
 }
 
 func (fd *frontendDeps) contactSpamBlock(r *http.Request, reason string) {
-	if reason == "honeypot" || reason == "captcha" || reason == "content" || reason == "markup" || reason == "duplicate" {
+	if reason == "honeypot" || reason == "captcha" || reason == "content" || reason == "markup" || reason == "duplicate" || reason == "origin" || reason == "replay" {
 		fd.recordContactStrike(r, time.Now())
 	}
 	if fd.metrics != nil && fd.metrics.ContactBlockedTotal != nil {
@@ -222,9 +303,148 @@ func (fd *frontendDeps) contactSpamBlock(r *http.Request, reason string) {
 	}
 }
 
-func (fd *frontendDeps) contactTokenValid(token string, now time.Time) bool {
+func (fd *frontendDeps) contactTokenValidationReason(token string, now time.Time) string {
 	settings := fd.contactAntispam()
-	return verifyContactFormToken(fd.installSecret, token, now, settings.MinFillSeconds, settings.MaxAgeSeconds)
+	nonce, ok := verifyContactFormToken(fd.installSecret, token, now, settings.MinFillSeconds, settings.MaxAgeSeconds)
+	if !ok || nonce == "" {
+		return "fill_time"
+	}
+	state := contactSpamStateFor(fd.installSecret)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	for key, expires := range state.usedTokens {
+		if !expires.After(now) {
+			delete(state.usedTokens, key)
+		}
+	}
+	if _, exists := state.usedTokens[nonce]; exists {
+		return "replay"
+	}
+	if len(state.usedTokens) >= 50000 {
+		for key := range state.usedTokens {
+			delete(state.usedTokens, key)
+			break
+		}
+	}
+	state.usedTokens[nonce] = now.Add(time.Duration(settings.MaxAgeSeconds) * time.Second)
+	return ""
+}
+
+func (fd *frontendDeps) contactOriginValid(r *http.Request) bool {
+	origin, referer, fetchSite := strings.TrimSpace(r.Header.Get("Origin")), strings.TrimSpace(r.Header.Get("Referer")), strings.TrimSpace(r.Header.Get("Sec-Fetch-Site"))
+	if fetchSite != "" && fetchSite != "same-origin" {
+		return false
+	}
+	value := origin
+	if value == "" {
+		value = referer
+	}
+	if value == "" {
+		return fetchSite == "same-origin"
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" || parsed.User != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return false
+	}
+	if fd.resolver == nil {
+		return strings.EqualFold(parsed.Host, r.Host) && strings.EqualFold(parsed.Scheme, requestScheme(r))
+	}
+	proto, host, port := fd.resolver.GetURLVars(r)
+	if !strings.EqualFold(parsed.Scheme, proto) || !strings.EqualFold(parsed.Hostname(), host) {
+		return false
+	}
+	originPort := parsed.Port()
+	if originPort == "" {
+		if proto == "https" {
+			originPort = "443"
+		} else {
+			originPort = "80"
+		}
+	}
+	if port == "" {
+		if proto == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	return originPort == port
+}
+
+func requestScheme(r *http.Request) string {
+	if r.TLS != nil {
+		return "https"
+	}
+	return "http"
+}
+
+func normalizedContactHash(values url.Values) string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		if key == "form_token" || key == "review_token" || key == "step" || key == "confirmed" || strings.Contains(key, "captcha") || key == "csrf_token" || key == "website" {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	for _, key := range keys {
+		value := strings.ToLower(strings.Join(strings.Fields(values.Get(key)), " "))
+		fmt.Fprintf(h, "%s=%s\n", key, value)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func contactReviewValues(values url.Values) url.Values {
+	result := make(url.Values)
+	for key, entries := range values {
+		if key == "csrf_token" || key == "form_token" || key == "review_token" || key == "step" || key == "confirmed" || key == "website" || strings.Contains(key, "captcha") || key == "g-recaptcha-response" || key == "h-captcha-response" {
+			continue
+		}
+		result[key] = append([]string(nil), entries...)
+	}
+	return result
+}
+
+func issueContactReviewToken(secret string, values url.Values, now time.Time, flags string) string {
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		return ""
+	}
+	issued, nonceText := now.Unix(), base64.RawURLEncoding.EncodeToString(nonce)
+	mac := hmac.New(sha256.New, []byte(secret))
+	fmt.Fprintf(mac, "contact-review|%d|%s|%s|%s", issued, nonceText, flags, normalizedContactHash(values))
+	return fmt.Sprintf("%d.%s.%s.%s", issued, nonceText, flags, base64.RawURLEncoding.EncodeToString(mac.Sum(nil)))
+}
+
+func verifyContactReviewToken(secret, token string, values url.Values, now time.Time, minAge, maxAge int) (string, bool) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 4 || len(parts[1]) != 22 || (parts[2] != "" && parts[2] != "d") || len(parts[3]) != 43 {
+		return "", false
+	}
+	issued, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return "", false
+	}
+	age := now.Unix() - issued
+	if age < int64(minAge) || age < 0 || (maxAge > 0 && age > int64(maxAge)) {
+		return "", false
+	}
+	provided, err := base64.RawURLEncoding.DecodeString(parts[3])
+	if err != nil {
+		return "", false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	fmt.Fprintf(mac, "contact-review|%d|%s|%s|%s", issued, parts[1], parts[2], normalizedContactHash(values))
+	return parts[1], hmac.Equal(provided, mac.Sum(nil))
+}
+
+func contactReviewFlags(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) == 4 && parts[2] == "d" {
+		return "d"
+	}
+	return ""
 }
 
 func emailDomain(email string) string {
@@ -235,32 +455,56 @@ func emailDomain(email string) string {
 	return host
 }
 
-func (fd *frontendDeps) contactContentReason(name, email, subject, message string) string {
+func contactLinks(value string) []string {
+	indexes := contactLinkPattern.FindAllStringIndex(value, -1)
+	links := make([]string, 0, len(indexes))
+	for _, index := range indexes {
+		if index[0] > 0 && value[index[0]-1] == '@' {
+			continue
+		}
+		links = append(links, value[index[0]:index[1]])
+	}
+	return links
+}
+
+func (fd *frontendDeps) contactContentReason(r *http.Request, values url.Values) string {
 	settings := fd.contactAntispam()
+	textFields := []string{"name", "email", "subject", "message", "reported_url", "reason", "copyrighted_work", "good_faith_statement", "accuracy_statement", "signature", "request_kind"}
+	var links []string
+	var textValues []string
 	if settings.RejectMarkup {
-		for _, value := range []string{name, subject, message} {
+		for _, field := range textFields {
+			value := values.Get(field)
+			textValues = append(textValues, value)
 			if contactMarkupPattern.MatchString(value) || strings.ContainsAny(html.UnescapeString(value), "<>") {
 				return "markup"
 			}
 		}
+	} else {
+		for _, field := range textFields {
+			textValues = append(textValues, values.Get(field))
+		}
 	}
-	links := contactLinkPattern.FindAllString(message, -1)
-	if contactLinkPattern.MatchString(subject) || contactLinkPattern.MatchString(name) {
+	if len(contactLinks(values.Get("name"))) > 0 || len(contactLinks(values.Get("subject"))) > 0 {
 		return "content"
+	}
+	for _, field := range textFields {
+		if field == "name" || field == "email" || field == "subject" {
+			continue
+		}
+		links = append(links, contactLinks(values.Get(field))...)
 	}
 	if settings.MaxLinks > 0 && len(links) > settings.MaxLinks {
 		return "content"
 	}
+	allowedHosts := contactAllowedLinkHosts(fd, r)
 	for _, raw := range links {
 		host := linkHost(raw)
-		for _, blocked := range settings.BlockedLinkDomains {
-			blocked = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(blocked)), ".")
-			if blocked != "" && (host == blocked || strings.HasSuffix(host, "."+blocked)) {
-				return "content"
-			}
+		if host == "" || !allowedHosts[host] {
+			return "content"
 		}
 	}
-	domain := emailDomain(email)
+	domain := emailDomain(values.Get("email"))
 	for _, blocked := range settings.BlockedEmailDomains {
 		if domain == strings.ToLower(strings.TrimSpace(blocked)) {
 			return "content"
@@ -268,11 +512,75 @@ func (fd *frontendDeps) contactContentReason(name, email, subject, message strin
 	}
 	for _, blocked := range settings.BlockedWords {
 		needle := strings.ToLower(strings.TrimSpace(blocked))
-		if needle != "" && (strings.Contains(strings.ToLower(message), needle) || strings.Contains(strings.ToLower(subject), needle) || strings.Contains(strings.ToLower(name), needle)) {
-			return "content"
+		if needle == "" {
+			continue
+		}
+		for _, value := range textValues {
+			if strings.Contains(strings.ToLower(value), needle) {
+				return "content"
+			}
 		}
 	}
 	return ""
+}
+
+func (fd *frontendDeps) validReportTarget(r *http.Request, values url.Values) bool {
+	typeValue := values.Get("type")
+	if typeValue != "abuse" && typeValue != "dmca" {
+		return true
+	}
+	parsed, err := url.ParseRequestURI(strings.TrimSpace(values.Get("reported_url")))
+	if err != nil || parsed.Hostname() == "" {
+		return false
+	}
+	routePath := path.Clean(parsed.Path)
+	if routePath == "." || routePath == "/" || routePath == "/server/contact" || strings.HasPrefix(routePath, "/api/") || routePath == "/api" || routePath == "/server/admin" || strings.HasPrefix(routePath, "/server/admin/") {
+		return false
+	}
+	if fd.routeMatch == nil {
+		return false
+	}
+	pattern, params, matched := fd.routeMatch(routePath)
+	if !matched {
+		return false
+	}
+	if pattern == "/{slug}" {
+		_, err := db.GetLinkByShortCode(r.Context(), fd.ld.sqlDB, params["slug"])
+		return err == nil
+	}
+	return true
+}
+
+func contactAllowedLinkHosts(fd *frontendDeps, r *http.Request) map[string]bool {
+	hosts := make(map[string]bool)
+	add := func(host string) {
+		host = strings.ToLower(strings.TrimSpace(host))
+		if strings.Contains(host, "://") {
+			if parsed, err := url.Parse(host); err == nil {
+				host = parsed.Hostname()
+			}
+		} else if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+			host = parsedHost
+		}
+		host = strings.TrimSuffix(strings.Trim(host, "[]"), ".")
+		if host != "" {
+			hosts[host] = true
+		}
+	}
+	if fd.resolver != nil {
+		_, host, _ := fd.resolver.GetURLVars(r)
+		add(host)
+	} else {
+		host, _, _ := net.SplitHostPort(r.Host)
+		if host == "" {
+			host = r.Host
+		}
+		add(host)
+	}
+	for _, host := range fqdn.GetAllDomains() {
+		add(host)
+	}
+	return hosts
 }
 
 func linkHost(raw string) string {
@@ -285,10 +593,6 @@ func linkHost(raw string) string {
 		return ""
 	}
 	return strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
-}
-
-func (fd *frontendDeps) contactContentBlocked(name, email, subject, message string) bool {
-	return fd.contactContentReason(name, email, subject, message) != ""
 }
 
 func contactClientIP(fd *frontendDeps, r *http.Request) string {

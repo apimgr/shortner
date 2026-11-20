@@ -59,10 +59,11 @@ On first run the binary:
    `0.0.0.0:8090` and logs one warning. An explicit `0.0.0.0` address remains
    IPv4-only.
 
-The operator token is written into `server.yml`. Read it from there:
+The operator token is written into the private `secrets.yml`. Read it from
+there:
 
 ```bash
-grep -- '^  token:' /etc/apimgr/shortner/server.yml
+grep -- '^  token:' /etc/apimgr/shortner/secrets.yml
 ```
 
 Treat that token as a root credential — it grants global authority over

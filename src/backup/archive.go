@@ -114,6 +114,16 @@ func collectSources(opts Options) ([]sourceFile, error) {
 		}
 		files = append(files, *f)
 	}
+	secretPath := filepath.Join(opts.ConfigDir, "secrets.yml")
+	if _, err := os.Lstat(secretPath); err == nil {
+		f, err := newSourceFile("secrets.yml", secretPath)
+		if err != nil {
+			return nil, fmt.Errorf("backup: secrets.yml: %w", err)
+		}
+		files = append(files, *f)
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("backup: inspect secrets.yml: %w", err)
+	}
 
 	dirs := []struct {
 		name    string
@@ -122,6 +132,8 @@ func collectSources(opts Options) ([]sourceFile, error) {
 	}{
 		{"template", filepath.Join(opts.ConfigDir, "template"), true},
 		{"theme", filepath.Join(opts.ConfigDir, "theme"), true},
+		{"yaml.d", filepath.Join(opts.ConfigDir, "yaml.d"), true},
+		{"html", filepath.Join(opts.ConfigDir, "html"), true},
 		{"ssl", filepath.Join(opts.ConfigDir, "ssl"), opts.IncludeSSL},
 		{"data", opts.DataDir, opts.IncludeData},
 	}

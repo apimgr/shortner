@@ -126,8 +126,9 @@ curl -LSsf https://github.com/apimgr/shortner/releases/latest/download/shortner-
 
 ## Configuration
 
-Shortner auto-creates `server.yml` with sane defaults on first run. Key
-flags (see `shortner --help`):
+Shortner auto-creates `server.yml` with sane defaults on first run and keeps
+generated credentials in the private `secrets.yml`. Optional `yaml.d/`
+drop-ins split larger configurations. Key flags (see `shortner --help`):
 
 | Flag | Description |
 |------|-------------|
@@ -140,12 +141,13 @@ flags (see `shortner --help`):
 
 ### Environment variables
 
-Every variable below is read by the server binary. CLI flags always win
-over environment variables, which win over the built-in defaults.
+Every variable below is read by the server binary. CLI flags win over
+environment variables; environment variables win over merged config files;
+config files win over built-in defaults.
 
 | Variable | Description |
 |----------|-------------|
-| `CONFIG_DIR` | config directory (holds `server.yml`) |
+| `CONFIG_DIR` | config directory (holds `server.yml`, `yaml.d/`, `secrets.yml`, and `html/`) |
 | `DATA_DIR` | data directory |
 | `LOG_DIR` | log directory |
 | `DATABASE_DIR` | database directory (defaults inside the data directory) |

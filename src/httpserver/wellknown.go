@@ -241,8 +241,10 @@ func (wd *wellKnownDeps) securityTxt(r *http.Request) string {
 	if url := strings.TrimSpace(sec.ReportURL); url != "" {
 		fmt.Fprintf(&b, "Contact: %s\n", url)
 	}
-	if id := security.SecurityID(wd.installSecret, time.Now()); id != "" {
-		fmt.Fprintf(&b, "Contact: %s\n", wd.resolver.BuildURL(r, "/server/contact?security_id="+id))
+	if wd.cfg.Pages.Contact.Enabled {
+		if id := security.SecurityID(wd.installSecret, time.Now()); id != "" {
+			fmt.Fprintf(&b, "Contact: %s\n", wd.resolver.BuildURL(r, "/server/contact?security_id="+id))
+		}
 	}
 	if contact := wd.securityContact(r); contact != "" {
 		fmt.Fprintf(&b, "Contact: mailto:%s\n", contact)
@@ -337,7 +339,7 @@ func (wd *wellKnownDeps) llmsTxt(r *http.Request) string {
 
 	b.WriteString("\n## API\n")
 	fmt.Fprintf(&b, "Base URL: %s\n", apiBase)
-	b.WriteString("Authentication: Bearer token (server token from server.yml, or resource owner token issued on resource creation)\n")
+	b.WriteString("Authentication: Bearer token (operator token from secrets.yml, or resource owner token issued on resource creation)\n")
 	fmt.Fprintf(&b, "Rate limit: %d read and %d write requests/minute per IP\n",
 		cfg.Server.RateLimit.Read.Requests, cfg.Server.RateLimit.Write.Requests)
 
@@ -358,7 +360,7 @@ func (wd *wellKnownDeps) llmsTxt(r *http.Request) string {
 	}
 
 	b.WriteString("\n## Contact\n")
-	fmt.Fprintf(&b, "API issues: %s\n", wd.resolver.BuildURL(r, "/server/contact"))
+	fmt.Fprintf(&b, "Website reports: %s\n", wd.resolver.BuildURL(r, "/server/security"))
 	if contact := wd.securityContact(r); contact != "" {
 		fmt.Fprintf(&b, "Security: %s\n", contact)
 	}

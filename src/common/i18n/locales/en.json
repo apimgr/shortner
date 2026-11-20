@@ -189,14 +189,14 @@
     "geoip_after": "Country and ASN data licensed CC BY 4.0 by the Number Resource Organization (NRO)."
   },
   "contact": {
-    "title": "Contact",
-    "description": "Send a message to the operator of this server.",
+    "title": "Submit a report",
+    "description": "Report a security issue, terms violation, copyright concern, or privacy request.",
     "name": "Name",
     "email": "Email",
     "subject": "Subject",
     "message": "Message",
     "send": "Send message",
-    "success": "Thank you for your message. We will reply soon.",
+    "success": "Your report has been received.",
     "failed": "The message could not be sent. Please try again later.",
     "email_hint": "We only use your address to reply to this message.",
     "disabled": "The contact form is currently disabled.",
@@ -210,8 +210,40 @@
     "security_title": "Security Issues",
     "security_body_before": "To report a security vulnerability, consult our security policy at",
     "abuse_title": "Abuse Reports",
-    "abuse_body": "To report abusive content or policy violations, use this contact form",
-    "abuse_or_email": "or email {email}"
+    "abuse_body": "To report abusive content or a terms violation, choose the type Abuse above. To send a DMCA notice, choose the type DMCA.",
+    "abuse_or_email": "or email {email}",
+    "purpose_notice": "This form is only for security reports, terms violations at a URL on this site, DMCA notices and privacy requests. It cannot be used for support, bug reports, feature requests or general questions.",
+    "type": "Report type",
+    "type_choose": "Choose a report type",
+    "type_abuse": "Abuse or terms violation",
+    "type_dmca": "DMCA notice",
+    "type_privacy": "Privacy request",
+    "reported_url": "Reported URL",
+    "reported_url_help": "Enter the URL on this site that the report concerns.",
+    "reason": "Reason",
+    "reason_choose": "Choose a reason",
+    "reason_illegal_content": "Illegal content",
+    "reason_terms_violation": "Terms violation",
+    "reason_harassment": "Harassment",
+    "reason_malware_phishing": "Malware or phishing",
+    "reason_other": "Other",
+    "copyrighted_work": "Copyrighted work",
+    "good_faith_statement": "I have a good-faith belief that this use is not authorized by the copyright owner, its agent or the law.",
+    "accuracy_statement": "The information is accurate and, under penalty of perjury, I am the owner or authorized to act for the owner.",
+    "signature": "Full legal name (electronic signature)",
+    "request_kind": "Privacy request kind",
+    "request_kind_choose": "Choose a request kind",
+    "request_kind_access": "Access",
+    "request_kind_export": "Export",
+    "request_kind_deletion": "Deletion",
+    "request_kind_correction": "Correction",
+    "request_kind_opt_out": "Opt out",
+    "request_kind_other": "Other",
+    "review_title": "Review your report",
+    "review_description": "Confirm that this email address and report are correct.",
+    "review_confirm": "This email address is correct, and this is a genuine report, not an advertisement, a solicitation or spam.",
+    "review_submit": "Confirm and send",
+    "review_edit": "Edit report"
   },
   "help": {
     "title": "Help",
@@ -302,7 +334,10 @@
     "default_data_collection": "We collect the destination URL, an anonymized IP address, user agent, and referrer for each link click, plus the URLs and slugs you submit to shorten.",
     "default_data_security": "Visitor IP addresses are anonymized (last octet/segment zeroed) before being written to storage — the raw IP is never persisted.",
     "data_sale_title": "Data Sale Disclosure",
-    "data_sale_body": "Some data may be sold or shared with third parties as described below."
+    "data_sale_body": "Some data may be sold or shared with third parties as described below.",
+    "contact_title": "Contact",
+    "contact_fallback": "For privacy-related requests, see",
+    "contact_security_link": "how to reach us"
   },
   "ccpa": {
     "title": "California Privacy Rights (CCPA)",
@@ -329,7 +364,9 @@
     "postal_address": "Postal address",
     "see_privacy_before": "See our",
     "privacy_policy_link": "Privacy Policy",
-    "see_privacy_after": "for what we collect and why."
+    "see_privacy_after": "for what we collect and why.",
+    "contact_fallback": "No DPO email is configured. See",
+    "contact_security_link": "how to reach us"
   },
   "terms": {
     "title": "Terms of Service",
@@ -393,7 +430,10 @@
     "report_state_confirmed": "Confirmed",
     "report_state_patching": "Patching",
     "report_state_disclosed": "Disclosed",
-    "report_state_wont_fix": "Won’t Fix"
+    "report_state_wont_fix": "Won’t Fix",
+    "other_reports": "Other reports",
+    "other_reports_intro": "For terms violations, DMCA notices, or privacy requests, use",
+    "other_reports_link": "the report form"
   },
   "security_report": {
     "title": "Report a vulnerability",

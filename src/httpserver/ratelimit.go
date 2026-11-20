@@ -85,9 +85,6 @@ func (rl *RateLimiter) classLimit(class rlClass) config.RateLimitClass {
 // Allow reports whether ip may proceed for class, and if not, the number of
 // seconds until the window resets (for the Retry-After header).
 func (rl *RateLimiter) Allow(ip string, class rlClass) (allowed bool, retryAfterSeconds int) {
-	if !rl.cfg.Enabled {
-		return true, 0
-	}
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 

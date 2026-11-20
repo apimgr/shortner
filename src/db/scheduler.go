@@ -109,9 +109,10 @@ func RecordSchedulerRun(ctx context.Context, sqlDB Handle, id string, startedAt,
 		}
 		failIncr := 0
 		runIncr := 0
-		if status == "success" {
+		switch status {
+		case "success":
 			runIncr = 1
-		} else if status == "failed" {
+		case "failed":
 			failIncr = 1
 		}
 		if _, err := tx.ExecContext(ctx, `

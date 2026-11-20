@@ -288,15 +288,6 @@ func TestValidateWebHeadersReportsRateLimits(t *testing.T) {
 	}
 }
 
-func TestValidateWebHeadersPermissionsPolicyDefaultedWhenEmpty(t *testing.T) {
-	cfg := Default("/db")
-	cfg.Web.PermissionsPolicy = nil
-	Validate(cfg)
-	if len(cfg.Web.PermissionsPolicy) == 0 {
-		t.Error("PermissionsPolicy still empty after Validate(), want defaults populated")
-	}
-}
-
 func TestValidateWebHeadersWellKnownUnsupportedBehaviorFixedAt404(t *testing.T) {
 	cfg := Default("/db")
 	cfg.Web.WellKnown.UnsupportedBehavior = 410

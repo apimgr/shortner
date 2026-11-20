@@ -189,14 +189,14 @@
     "geoip_after": "Les données de pays et d'ASN sont publiées sous licence CC BY 4.0 par la Number Resource Organization (NRO)."
   },
   "contact": {
-    "title": "Contact",
-    "description": "Envoyer un message à l'exploitant de ce serveur.",
+    "title": "Envoyer un signalement",
+    "description": "Signalez un problème de sécurité, une violation des conditions, une question de droit d’auteur ou une demande relative à la vie privée.",
     "name": "Nom",
     "email": "Adresse e-mail",
     "subject": "Objet",
     "message": "Message",
     "send": "Envoyer le message",
-    "success": "Merci pour votre message. Nous vous répondrons prochainement.",
+    "success": "Votre signalement a bien été reçu.",
     "failed": "Le message n'a pas pu être envoyé. Veuillez réessayer plus tard.",
     "email_hint": "Nous utilisons votre adresse uniquement pour répondre à ce message.",
     "disabled": "Le formulaire de contact est actuellement désactivé.",
@@ -210,8 +210,40 @@
     "security_title": "Problèmes de sécurité",
     "security_body_before": "Pour signaler une faille de sécurité, consultez notre politique de sécurité à l'adresse",
     "abuse_title": "Signalements d'abus",
-    "abuse_body": "Pour signaler un contenu abusif ou une violation des règles, utilisez ce formulaire de contact",
-    "abuse_or_email": "ou écrivez à {email}"
+    "abuse_body": "Pour signaler un contenu abusif ou une violation des conditions, choisissez Abus ci-dessus. Pour envoyer un avis DMCA, choisissez DMCA.",
+    "abuse_or_email": "ou écrivez à {email}",
+    "purpose_notice": "Ce formulaire est réservé aux signalements de sécurité, aux violations des conditions concernant une URL de ce site, aux avis DMCA et aux demandes relatives à la vie privée. Il ne sert pas au support, aux rapports de bogue, aux demandes de fonctionnalités ni aux questions générales.",
+    "type": "Type de signalement",
+    "type_choose": "Choisissez un type de signalement",
+    "type_abuse": "Abus ou violation des conditions",
+    "type_dmca": "Avis DMCA",
+    "type_privacy": "Demande relative à la vie privée",
+    "reported_url": "URL signalée",
+    "reported_url_help": "Indiquez l’URL de ce site concernée par le signalement.",
+    "reason": "Motif",
+    "reason_choose": "Choisissez un motif",
+    "reason_illegal_content": "Contenu illégal",
+    "reason_terms_violation": "Violation des conditions",
+    "reason_harassment": "Harcèlement",
+    "reason_malware_phishing": "Logiciel malveillant ou hameçonnage",
+    "reason_other": "Autre",
+    "copyrighted_work": "Œuvre protégée par le droit d’auteur",
+    "good_faith_statement": "Je crois de bonne foi que cette utilisation n’est autorisée ni par le titulaire des droits, ni par son représentant, ni par la loi.",
+    "accuracy_statement": "Les informations sont exactes et, sous peine de parjure, je suis le titulaire des droits ou autorisé à agir en son nom.",
+    "signature": "Nom légal complet (signature électronique)",
+    "request_kind": "Type de demande relative à la vie privée",
+    "request_kind_choose": "Choisissez un type de demande",
+    "request_kind_access": "Accès",
+    "request_kind_export": "Exportation",
+    "request_kind_deletion": "Suppression",
+    "request_kind_correction": "Correction",
+    "request_kind_opt_out": "Opposition",
+    "request_kind_other": "Autre",
+    "review_title": "Vérifiez votre signalement",
+    "review_description": "Confirmez que cette adresse e-mail et ce signalement sont exacts.",
+    "review_confirm": "Cette adresse e-mail est correcte et ce signalement est authentique, sans publicité, sollicitation ni spam.",
+    "review_submit": "Confirmer et envoyer",
+    "review_edit": "Modifier le signalement"
   },
   "help": {
     "title": "Aide",
@@ -302,7 +334,10 @@
     "default_data_collection": "Nous collectons l'URL de destination, une adresse IP anonymisée, l'agent utilisateur et le référent pour chaque clic sur un lien, ainsi que les URL et les identifiants que vous soumettez pour raccourcissement.",
     "default_data_security": "Les adresses IP des visiteurs sont anonymisées (dernier octet ou segment mis à zéro) avant d'être écrites sur le support de stockage — l'adresse IP brute n'est jamais conservée.",
     "data_sale_title": "Déclaration relative à la vente de données",
-    "data_sale_body": "Certaines données peuvent être vendues ou partagées avec des tiers, comme décrit ci-dessous."
+    "data_sale_body": "Certaines données peuvent être vendues ou partagées avec des tiers, comme décrit ci-dessous.",
+    "contact_title": "Contact",
+    "contact_fallback": "Pour les demandes relatives à la vie privée, consultez",
+    "contact_security_link": "comment nous joindre"
   },
   "ccpa": {
     "title": "Droits à la vie privée en Californie (CCPA)",
@@ -329,7 +364,9 @@
     "postal_address": "Adresse postale",
     "see_privacy_before": "Consultez notre",
     "privacy_policy_link": "Politique de confidentialité",
-    "see_privacy_after": "pour savoir ce que nous collectons et pourquoi."
+    "see_privacy_after": "pour savoir ce que nous collectons et pourquoi.",
+    "contact_fallback": "Aucune adresse e-mail de DPO n’est configurée. Consultez",
+    "contact_security_link": "comment nous joindre"
   },
   "terms": {
     "title": "Conditions d'utilisation",
@@ -393,7 +430,10 @@
     "report_state_confirmed": "Confirmé",
     "report_state_patching": "Correction en cours",
     "report_state_disclosed": "Divulgué",
-    "report_state_wont_fix": "Ne sera pas corrigé"
+    "report_state_wont_fix": "Ne sera pas corrigé",
+    "other_reports": "Autres signalements",
+    "other_reports_intro": "Pour les violations des conditions, les avis DMCA ou les demandes relatives à la vie privée, utilisez",
+    "other_reports_link": "le formulaire de signalement"
   },
   "security_report": {
     "title": "Signaler une vulnérabilité",

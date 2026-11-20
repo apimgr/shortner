@@ -189,14 +189,14 @@
     "geoip_after": "Land- und ASN-Daten sind von der Number Resource Organization (NRO) unter CC BY 4.0 lizenziert."
   },
   "contact": {
-    "title": "Kontakt",
-    "description": "Senden Sie eine Nachricht an den Betreiber dieses Servers.",
+    "title": "Meldung einreichen",
+    "description": "Melden Sie ein Sicherheitsproblem, einen Verstoß gegen die Nutzungsbedingungen, eine Urheberrechtsverletzung oder eine Datenschutzanfrage.",
     "name": "Name",
     "email": "E-Mail",
     "subject": "Betreff",
     "message": "Nachricht",
     "send": "Nachricht senden",
-    "success": "Vielen Dank für Ihre Nachricht. Wir antworten in Kürze.",
+    "success": "Ihre Meldung ist eingegangen.",
     "failed": "Die Nachricht konnte nicht gesendet werden. Bitte versuchen Sie es später erneut.",
     "email_hint": "Wir verwenden Ihre Adresse ausschließlich zur Beantwortung dieser Nachricht.",
     "disabled": "Das Kontaktformular ist derzeit deaktiviert.",
@@ -210,8 +210,40 @@
     "security_title": "Sicherheitsprobleme",
     "security_body_before": "Um eine Sicherheitslücke zu melden, lesen Sie unsere Sicherheitsrichtlinie unter",
     "abuse_title": "Missbrauchsmeldungen",
-    "abuse_body": "Um missbräuchliche Inhalte oder Richtlinienverstöße zu melden, verwenden Sie dieses Kontaktformular",
-    "abuse_or_email": "oder schreiben Sie an {email}"
+    "abuse_body": "Um missbräuchliche Inhalte oder einen Verstoß gegen die Nutzungsbedingungen zu melden, wählen Sie oben Missbrauch. Für eine DMCA-Mitteilung wählen Sie DMCA.",
+    "abuse_or_email": "oder schreiben Sie an {email}",
+    "purpose_notice": "Dieses Formular ist ausschließlich für Sicherheitsmeldungen, Verstöße gegen die Nutzungsbedingungen auf einer URL dieser Website, DMCA-Mitteilungen und Datenschutzanfragen vorgesehen. Es ist nicht für Support, Fehlerberichte, Funktionswünsche oder allgemeine Fragen bestimmt.",
+    "type": "Meldungstyp",
+    "type_choose": "Meldungstyp auswählen",
+    "type_abuse": "Missbrauch oder Verstoß gegen Nutzungsbedingungen",
+    "type_dmca": "DMCA-Mitteilung",
+    "type_privacy": "Datenschutzanfrage",
+    "reported_url": "Gemeldete URL",
+    "reported_url_help": "Geben Sie die URL auf dieser Website an, auf die sich die Meldung bezieht.",
+    "reason": "Grund",
+    "reason_choose": "Grund auswählen",
+    "reason_illegal_content": "Illegale Inhalte",
+    "reason_terms_violation": "Verstoß gegen Nutzungsbedingungen",
+    "reason_harassment": "Belästigung",
+    "reason_malware_phishing": "Schadsoftware oder Phishing",
+    "reason_other": "Sonstiges",
+    "copyrighted_work": "Urheberrechtlich geschütztes Werk",
+    "good_faith_statement": "Ich bin nach Treu und Glauben der Überzeugung, dass diese Nutzung nicht vom Rechteinhaber, dessen Vertreter oder dem Gesetz genehmigt ist.",
+    "accuracy_statement": "Die Angaben sind korrekt. Unter Strafandrohung erkläre ich, dass ich Rechteinhaber bin oder den Rechteinhaber vertreten darf.",
+    "signature": "Vollständiger rechtlicher Name (elektronische Signatur)",
+    "request_kind": "Art der Datenschutzanfrage",
+    "request_kind_choose": "Anfrageart auswählen",
+    "request_kind_access": "Auskunft",
+    "request_kind_export": "Export",
+    "request_kind_deletion": "Löschung",
+    "request_kind_correction": "Berichtigung",
+    "request_kind_opt_out": "Widerspruch",
+    "request_kind_other": "Sonstiges",
+    "review_title": "Bericht überprüfen",
+    "review_description": "Bestätigen Sie, dass diese E-Mail-Adresse und der Bericht korrekt sind.",
+    "review_confirm": "Diese E-Mail-Adresse ist korrekt und dies ist ein echter Bericht, keine Werbung, Aufforderung oder Spam.",
+    "review_submit": "Bestätigen und senden",
+    "review_edit": "Bericht bearbeiten"
   },
   "help": {
     "title": "Hilfe",
@@ -302,7 +334,10 @@
     "default_data_collection": "Wir erheben für jeden Klick auf einen Link die Ziel-URL, eine anonymisierte IP-Adresse, den User-Agent und die verweisende Seite sowie die URLs und Slugs, die Sie zum Kürzen übermitteln.",
     "default_data_security": "Die IP-Adressen der Besucher werden anonymisiert (das letzte Oktett bzw. Segment wird auf null gesetzt), bevor sie gespeichert werden – die unveränderte IP-Adresse wird niemals dauerhaft gespeichert.",
     "data_sale_title": "Hinweis zum Verkauf von Daten",
-    "data_sale_body": "Einige Daten können, wie nachfolgend beschrieben, an Dritte verkauft oder weitergegeben werden."
+    "data_sale_body": "Einige Daten können, wie nachfolgend beschrieben, an Dritte verkauft oder weitergegeben werden.",
+    "contact_title": "Kontakt",
+    "contact_fallback": "Für Datenschutzanfragen erfahren Sie hier",
+    "contact_security_link": "wie Sie uns erreichen"
   },
   "ccpa": {
     "title": "Datenschutzrechte in Kalifornien (CCPA)",
@@ -329,7 +364,9 @@
     "postal_address": "Postanschrift",
     "see_privacy_before": "Siehe unsere",
     "privacy_policy_link": "Datenschutzerklärung",
-    "see_privacy_after": "dazu, welche Daten wir erheben und warum."
+    "see_privacy_after": "dazu, welche Daten wir erheben und warum.",
+    "contact_fallback": "Es ist keine DPO-E-Mail-Adresse konfiguriert. Hier erfahren Sie",
+    "contact_security_link": "wie Sie uns erreichen"
   },
   "terms": {
     "title": "Nutzungsbedingungen",
@@ -393,7 +430,10 @@
     "report_state_confirmed": "Bestätigt",
     "report_state_patching": "Fehlerbehebung läuft",
     "report_state_disclosed": "Offengelegt",
-    "report_state_wont_fix": "Wird nicht behoben"
+    "report_state_wont_fix": "Wird nicht behoben",
+    "other_reports": "Weitere Meldungen",
+    "other_reports_intro": "Für Verstöße gegen die Nutzungsbedingungen, DMCA-Mitteilungen oder Datenschutzanfragen verwenden Sie",
+    "other_reports_link": "das Meldeformular"
   },
   "security_report": {
     "title": "Sicherheitslücke melden",

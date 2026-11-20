@@ -13,6 +13,12 @@
 <a href="mailto:{{.ContactEmail}}">{{.ContactEmail}}</a></li>{{end}}
 </ol>
 
+{{if .ReportFormURL}}
+<h2>{{t $lang "security.other_reports"}}</h2>
+<p>{{t $lang "security.other_reports_intro"}}
+<a href="{{.ReportFormURL}}">{{t $lang "security.other_reports_link"}}</a>.</p>
+{{end}}
+
 <h2>{{t $lang "security.what_to_include"}}</h2>
 <p>{{t $lang "security.what_to_include_body"}}</p>
 

@@ -189,14 +189,14 @@
     "geoip_after": "国家/地区和 ASN 数据由号码资源组织（NRO）依据 CC BY 4.0 许可。"
   },
   "contact": {
-    "title": "联系我们",
-    "description": "向本服务器的运营者发送消息。",
+    "title": "提交报告",
+    "description": "报告安全问题、违反服务条款、版权问题或隐私请求。",
     "name": "姓名",
     "email": "电子邮箱",
     "subject": "主题",
     "message": "留言内容",
     "send": "发送消息",
-    "success": "感谢您的留言，我们会尽快回复。",
+    "success": "我们已收到您的报告。",
     "failed": "消息发送失败，请稍后重试。",
     "email_hint": "我们仅使用您的邮箱地址回复此消息。",
     "disabled": "联系表单目前已禁用。",
@@ -210,8 +210,40 @@
     "security_title": "安全问题",
     "security_body_before": "如需报告安全漏洞，请查阅我们的安全策略：",
     "abuse_title": "滥用举报",
-    "abuse_body": "如需举报滥用内容或违反政策的行为，请使用此联系表单",
-    "abuse_or_email": "或发送邮件至 {email}"
+    "abuse_body": "举报滥用内容或违反服务条款时，请选择上方的“滥用”。发送 DMCA 通知时，请选择“DMCA”。",
+    "abuse_or_email": "或发送邮件至 {email}",
+    "purpose_notice": "此表单仅用于安全报告、涉及本站 URL 的服务条款违规、DMCA 通知和隐私请求。不能用于支持、错误报告、功能请求或一般问题。",
+    "type": "报告类型",
+    "type_choose": "选择报告类型",
+    "type_abuse": "滥用或违反服务条款",
+    "type_dmca": "DMCA 通知",
+    "type_privacy": "隐私请求",
+    "reported_url": "举报的 URL",
+    "reported_url_help": "填写与报告有关的本站 URL。",
+    "reason": "原因",
+    "reason_choose": "选择原因",
+    "reason_illegal_content": "非法内容",
+    "reason_terms_violation": "违反服务条款",
+    "reason_harassment": "骚扰",
+    "reason_malware_phishing": "恶意软件或网络钓鱼",
+    "reason_other": "其他",
+    "copyrighted_work": "受版权保护的作品",
+    "good_faith_statement": "我善意地认为此使用未经版权所有者、其代理人或法律授权。",
+    "accuracy_statement": "所提供的信息准确无误；本人在承担伪证责任的前提下声明自己是权利人或获授权代表权利人行事。",
+    "signature": "法定全名（电子签名）",
+    "request_kind": "隐私请求类型",
+    "request_kind_choose": "选择请求类型",
+    "request_kind_access": "访问",
+    "request_kind_export": "导出",
+    "request_kind_deletion": "删除",
+    "request_kind_correction": "更正",
+    "request_kind_opt_out": "退出",
+    "request_kind_other": "其他",
+    "review_title": "检查您的报告",
+    "review_description": "请确认此电子邮件地址和报告内容正确。",
+    "review_confirm": "此电子邮件地址正确，且此报告真实，并非广告、招揽或垃圾邮件。",
+    "review_submit": "确认并发送",
+    "review_edit": "编辑报告"
   },
   "help": {
     "title": "帮助",
@@ -302,7 +334,10 @@
     "default_data_collection": "对于每次链接点击，我们会收集目标网址、匿名化的 IP 地址、用户代理和来源页面，以及您提交用于缩短的网址和短码。",
     "default_data_security": "访客 IP 地址在写入存储前已匿名化（末段清零）— 原始 IP 绝不会被持久化保存。",
     "data_sale_title": "数据出售披露",
-    "data_sale_body": "部分数据可能会按下述方式出售或与第三方共享。"
+    "data_sale_body": "部分数据可能会按下述方式出售或与第三方共享。",
+    "contact_title": "联系",
+    "contact_fallback": "如需提出隐私请求，请查看",
+    "contact_security_link": "联系我们的方式"
   },
   "ccpa": {
     "title": "加州隐私权（CCPA）",
@@ -329,7 +364,9 @@
     "postal_address": "通讯地址",
     "see_privacy_before": "请参阅我们的",
     "privacy_policy_link": "隐私政策",
-    "see_privacy_after": "以了解我们收集哪些数据及其原因。"
+    "see_privacy_after": "以了解我们收集哪些数据及其原因。",
+    "contact_fallback": "尚未配置 DPO 电子邮箱。请查看",
+    "contact_security_link": "联系我们的方式"
   },
   "terms": {
     "title": "服务条款",
@@ -393,7 +430,10 @@
     "report_state_confirmed": "已确认",
     "report_state_patching": "修复中",
     "report_state_disclosed": "已披露",
-    "report_state_wont_fix": "不予修复"
+    "report_state_wont_fix": "不予修复",
+    "other_reports": "其他报告",
+    "other_reports_intro": "如需报告违反服务条款、发送 DMCA 通知或提出隐私请求，请使用",
+    "other_reports_link": "报告表单"
   },
   "security_report": {
     "title": "报告漏洞",

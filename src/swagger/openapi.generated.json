@@ -2673,7 +2673,7 @@
     },
     "/api/{api_version}/server/contact": {
       "get": {
-        "summary": "Describe the contact form",
+        "summary": "Describe the private report form",
         "operationId": "getContactForm",
         "tags": [
           "Server"
@@ -2752,7 +2752,7 @@
         }
       },
       "post": {
-        "summary": "Submit a contact message",
+        "summary": "Submit or confirm a report",
         "operationId": "submitContactForm",
         "tags": [
           "Server"

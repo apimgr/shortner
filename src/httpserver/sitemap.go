@@ -144,7 +144,6 @@ func (sd *sitemapDeps) staticSitemapEntries() []sitemapURL {
 		{Loc: "/server/help", Lastmod: lastmod, ChangeFreq: "weekly", Priority: "0.8"},
 		{Loc: "/server/privacy", Lastmod: lastmod, ChangeFreq: "weekly", Priority: "0.8"},
 		{Loc: "/server/terms", Lastmod: lastmod, ChangeFreq: "weekly", Priority: "0.8"},
-		{Loc: "/server/contact", Lastmod: lastmod, ChangeFreq: "weekly", Priority: "0.6"},
 		{Loc: "/server/security", Lastmod: lastmod, ChangeFreq: "weekly", Priority: "0.6"},
 		{Loc: "/server/security/policy", Lastmod: lastmod, ChangeFreq: "weekly", Priority: "0.6"},
 		{Loc: "/server/security/thanks", Lastmod: lastmod, ChangeFreq: "weekly", Priority: "0.6"},

@@ -62,7 +62,7 @@ There are three roles and no user accounts.
 |------|-------|--------|
 | Anonymous | nothing | Create links, resolve links, view any link's stats |
 | Resource owner | the owner's primary or linked token | Manage links belonging to that owner; primary tokens manage linked tokens too |
-| Operator | `server.token` from `server.yml` | Anything, on any link; access metrics |
+| Operator | `server.token` from `secrets.yml` | Anything, on any link; access metrics |
 
 The primary `owner_token` is returned when an anonymous owner is created.
 The owner can restore it on another browser and reveal it on the token

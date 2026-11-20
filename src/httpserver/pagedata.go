@@ -10,14 +10,12 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/common/i18n"
-	"github.com/apimgr/shortner/src/common/sanitize"
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/metrics"
@@ -79,6 +77,7 @@ type PageData struct {
 	I18NEnabled        bool
 
 	FooterCustomHTML template.HTML
+	OperatorHeader   template.HTML
 	// TorOnionAddress and I2PAddress carry the live overlay addresses
 	// (AI.md PART 31) so the footer can advertise them. Both are empty
 	// whenever that network is not published, which is how a host with no
@@ -140,10 +139,11 @@ type frontendDeps struct {
 	configDir             string
 	// notifier sends the AI.md PART 17 email events the frontend raises.
 	// Nil-safe: every notify.Notifier method is inert on a nil receiver.
-	notifier *notify.Notifier
-	metrics  *metrics.Metrics
-	antispam atomic.Pointer[config.ContactAntispam]
-	store    *db.Store
+	notifier   *notify.Notifier
+	metrics    *metrics.Metrics
+	antispam   atomic.Pointer[config.ContactAntispam]
+	store      *db.Store
+	routeMatch func(string) (string, map[string]string, bool)
 }
 
 func (fd *frontendDeps) contactAntispam() config.ContactAntispam {
@@ -154,7 +154,6 @@ func (fd *frontendDeps) contactAntispam() config.ContactAntispam {
 	copy := *settings
 	copy.BlockedWords = append([]string(nil), settings.BlockedWords...)
 	copy.BlockedEmailDomains = append([]string(nil), settings.BlockedEmailDomains...)
-	copy.BlockedLinkDomains = append([]string(nil), settings.BlockedLinkDomains...)
 	return copy
 }
 
@@ -162,7 +161,6 @@ func (fd *frontendDeps) setContactAntispam(settings config.ContactAntispam) {
 	copy := settings
 	copy.BlockedWords = append([]string(nil), settings.BlockedWords...)
 	copy.BlockedEmailDomains = append([]string(nil), settings.BlockedEmailDomains...)
-	copy.BlockedLinkDomains = append([]string(nil), settings.BlockedLinkDomains...)
 	fd.antispam.Store(&copy)
 }
 
@@ -198,15 +196,9 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 	i2pAddress := resolver.overlayHost(OverlayI2P)
 	// Variables are expanded BEFORE sanitizing so the sanitizer validates
 	// the markup that actually renders, never a pre-substitution shape.
-	footerHTML, _ := sanitize.ValidateFooterHTML(expandFooterVariables(cfg.Web.Footer.CustomHTML, footerVariables{
-		currentYear:    strconv.Itoa(overlayTime(time.Now(), overlay).Year()),
-		projectName:    projectInfo.Name,
-		projectOrg:     "apimgr",
-		projectVersion: fd.version,
-		buildDateTime:  footerBuildDateTime(fd.buildDate, overlay),
-		onionAddress:   onionAddress,
-		i2pAddress:     i2pAddress,
-	}))
+	variables := fd.operatorVariables(r)
+	footerHTML := fd.operatorHTML(r, "footer", variables)
+	headerHTML := fd.operatorHTML(r, "header", variables)
 
 	cookieName := cfg.Server.CSRF.CookieName
 	if cookieName == "" {
@@ -256,7 +248,8 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 		AvailableLanguages: i18n.LanguagesFor(cfg.Server.I18N.AvailableLanguages),
 		I18NEnabled:        cfg.Server.I18N.Enabled,
 
-		FooterCustomHTML: template.HTML(footerHTML),
+		FooterCustomHTML: footerHTML,
+		OperatorHeader:   headerHTML,
 		TorOnionAddress:  onionAddress,
 		I2PAddress:       i2pAddress,
 		IsTorRequest:     resolver.OverlayOf(r) == OverlayTor,
@@ -454,7 +447,7 @@ func firstNonEmpty(values ...string) string {
 
 func pageRobots(path string) string {
 	switch path {
-	case "/", "/list", "/server/about", "/server/privacy", "/server/contact", "/server/help", "/server/terms", "/server/security", "/server/security/policy", "/server/security/thanks", "/server/dpo", "/server/docs/swagger", "/server/docs/graphql", "/server/ccpa":
+	case "/", "/list", "/server/about", "/server/privacy", "/server/help", "/server/terms", "/server/security", "/server/security/policy", "/server/security/thanks", "/server/dpo", "/server/docs/swagger", "/server/docs/graphql", "/server/ccpa":
 		return "index,follow"
 	default:
 		if strings.Count(path, "/") == 2 && strings.HasSuffix(path, "/stats") && !strings.HasPrefix(path, "/server/") {

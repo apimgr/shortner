@@ -46,6 +46,11 @@ curl -X DELETE {{.Base.SiteName}}/api/v1/links/my-link \
 <div class="api-docs">
 <h3>{{t $lang "help.api_documentation"}}</h3>
 <p>{{t $lang "help.api_docs_body"}}</p>
+<ul>
+<li><a href="/server/docs/swagger">Swagger UI</a></li>
+<li><a href="/server/docs/graphql">GraphiQL</a></li>
+<li><a href="/server/help/mcp">MCP server</a> - Use this application from an AI assistant</li>
+</ul>
 </div>
 
 {{if .Base.TorOnionAddress}}

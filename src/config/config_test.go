@@ -29,11 +29,26 @@ func TestDefault(t *testing.T) {
 		t.Errorf("Token = %q, want empty", cfg.Server.Token)
 	}
 	if !reflect.DeepEqual(cfg.Server.Contact.Antispam, ContactAntispam{
-		Honeypot: true, MinFillSeconds: 3, MaxAgeSeconds: 43200,
+		Honeypot: true, MinFillSeconds: 3, MaxAgeSeconds: 43200, ReviewMinSeconds: 2, ReviewMaxSeconds: 900,
 		PerIP: 5, PerEmail: 3, Global: 60, Window: "1h",
-		MaxLinks: 2, RejectMarkup: true, Strikes: 3, BanHours: 24, DuplicateWindowHours: 24,
+		MaxLinks: 10, RejectMarkup: true, Strikes: 3, BanHours: 24, DuplicateWindowHours: 24,
 	}) {
 		t.Errorf("Contact.Antispam = %+v, want spec defaults", cfg.Server.Contact.Antispam)
+	}
+}
+
+func TestLogKindInheritsDefaults(t *testing.T) {
+	logs := Default("/db").Server.Logs
+	access, ok := logs.EffectiveLogKind("access")
+	if !ok || access.Format != "apache" || access.Rotate != "monthly" || access.Keep != "none" {
+		t.Fatalf("effective access log = %+v, ok=%v", access, ok)
+	}
+	server, ok := logs.EffectiveLogKind("server")
+	if !ok || server.Rotate != "weekly,50MB" || server.Keep != "none" {
+		t.Fatalf("effective server log = %+v, ok=%v", server, ok)
+	}
+	if _, ok := logs.EffectiveLogKind("unknown"); ok {
+		t.Fatal("unknown log kind should not resolve")
 	}
 }
 
@@ -74,6 +89,103 @@ func TestLoadParsesExistingFile(t *testing.T) {
 	}
 	if cfg.Server.Database.Driver != "libsql" {
 		t.Errorf("Driver = %q, want libsql", cfg.Server.Database.Driver)
+	}
+}
+
+func TestLoadMergesDropInsInFilenameOrder(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("server.yml", "server:\n  address: 127.0.0.1\n  limits:\n    max_body_size: 100\n")
+	if err := os.Mkdir(filepath.Join(dir, "yaml.d"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write("yaml.d/10-first.yml", "server:\n  limits:\n    max_body_size: 200\n    read_timeout: 300\n")
+	write("yaml.d/20-last.yaml", "server:\n  port: '9000'\n  limits:\n    max_body_size: 400\n")
+	write("yaml.d/30-ignore.bak", "not: [valid")
+	if err := os.Mkdir(filepath.Join(dir, "yaml.d", "40-directory.yml"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path, "/db")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Server.Listen != "127.0.0.1" || cfg.Server.Port != "9000" || cfg.Server.Limits.MaxBodySize != "400" || cfg.Server.Limits.ReadTimeout != "300" {
+		t.Fatalf("merged config = address %q port %q limits %+v", cfg.Server.Listen, cfg.Server.Port, cfg.Server.Limits)
+	}
+}
+
+func TestLoadRejectsDuplicateAndNullDropInValues(t *testing.T) {
+	for name, content := range map[string]string{
+		"duplicate": "server:\n  port: '1'\n  port: '2'\n",
+		"null":      "server:\n  port: null\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.Mkdir(filepath.Join(dir, "yaml.d"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, "server.yml")
+			if err := os.WriteFile(path, []byte("server:\n  port: '9000'\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "yaml.d", "10-invalid.yml"), []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path, "/db"); err == nil {
+				t.Fatal("Load() error = nil, want invalid drop-in error")
+			}
+		})
+	}
+}
+
+func TestLoadUsesDropInsWhenServerFileIsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "yaml.d"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "yaml.d", "10-port.yml"), []byte("server:\n  port: '9123'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path, "/db")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Server.Port != "9123" {
+		t.Fatalf("port = %q, want 9123", cfg.Server.Port)
+	}
+}
+
+func TestLoadDoesNotMigrateDropInCredentials(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	if err := os.WriteFile(path, []byte("server:\n  address: 127.0.0.1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "yaml.d"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "yaml.d", "10-token.yml"), []byte("server:\n  token: tok_dropin\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path, "/db")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Server.Token != "tok_dropin" {
+		t.Fatalf("token = %q, want drop-in value", cfg.Server.Token)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "secrets.yml")); !os.IsNotExist(err) {
+		t.Fatalf("secrets.yml stat error = %v, want file not created", err)
 	}
 }
 
@@ -212,6 +324,83 @@ func TestSaveAndReload(t *testing.T) {
 	}
 	if reloaded.Server.Token != "tok_abc123" {
 		t.Errorf("Token = %q, want tok_abc123", reloaded.Server.Token)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(string(data), "\n") || strings.HasSuffix(string(data), "\n\n") || !strings.Contains(string(data), "\n  database:\n    driver:") {
+		t.Fatalf("saved YAML must have one trailing newline and two-space nesting; got suffix %q", string(data[len(data)-min(len(data), 100):]))
+	}
+	if strings.Contains(string(data), "tok_abc123") {
+		t.Fatal("server.yml contains the operator token")
+	}
+	secretData, err := os.ReadFile(filepath.Join(dir, "nested", "secrets.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(secretData), "tok_abc123") {
+		t.Fatal("secrets.yml does not contain the operator token")
+	}
+}
+
+func TestLoadMigratesLegacyCredentialsToSecrets(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	legacy := "server:\n  token: tok_legacy\n  security:\n    encryption_key: legacy-key\n"
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path, "/db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server.Token != "tok_legacy" || cfg.Server.Security.EncryptionKey != "legacy-key" {
+		t.Fatalf("loaded credentials = token %q, key %q", cfg.Server.Token, cfg.Server.Security.EncryptionKey)
+	}
+	serverData, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(serverData), "tok_legacy") || strings.Contains(string(serverData), "legacy-key") {
+		t.Fatalf("legacy credentials remain in server.yml after migration: %s", serverData)
+	}
+	secretData, err := os.ReadFile(filepath.Join(dir, "secrets.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(secretData), "tok_legacy") || !strings.Contains(string(secretData), "legacy-key") {
+		t.Fatal("migrated credentials are missing from secrets.yml")
+	}
+}
+
+func TestEnforcePrivatePaths(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "config")
+	if err := os.MkdirAll(filepath.Join(dir, "html"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "html", "about.html"), []byte("<p>about</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "server.yml"), []byte("server: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnforcePrivatePaths(dir); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]os.FileMode{
+		dir:                                      0o700,
+		filepath.Join(dir, "server.yml"):         0o600,
+		filepath.Join(dir, "html"):               0o700,
+		filepath.Join(dir, "html", "about.html"): 0o600,
+	} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != want {
+			t.Errorf("mode for %s = %o, want %o", path, got, want)
+		}
 	}
 }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"io"
 	"net"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/httpserver"
 	"github.com/apimgr/shortner/src/service"
 )
@@ -44,12 +46,15 @@ func captureOutput(t *testing.T, fn func() int) (stdout, stderr string, code int
 func isolateRuntimePrivilegeHooks(t *testing.T) {
 	t.Helper()
 	oldCreate, oldOwnership, oldDrop, oldBind := createServiceAccount, setRuntimeOwnership, dropPrivileges, bindPrivilegedPorts
+	oldGeoIPDownload := downloadGeoIP
 	createServiceAccount = func(service.Params) (int, error) { return os.Getuid(), nil }
 	setRuntimeOwnership = func(service.Params, int) error { return nil }
 	dropPrivileges = func(int) error { return nil }
 	bindPrivilegedPorts = func(string, string) (map[string]net.Listener, error) { return nil, nil }
+	downloadGeoIP = func(context.Context, string, config.GeoIPDatabases) error { return nil }
 	t.Cleanup(func() {
 		createServiceAccount, setRuntimeOwnership, dropPrivileges, bindPrivilegedPorts = oldCreate, oldOwnership, oldDrop, oldBind
+		downloadGeoIP = oldGeoIPDownload
 	})
 }
 

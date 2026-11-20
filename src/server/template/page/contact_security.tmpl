@@ -6,6 +6,22 @@
 <p class="tracking-id"><strong>{{t $lang "security_report.tracking_id"}}</strong> <code>{{.TrackingID}}</code></p>
 <p>{{t $lang "security_report.encrypted_before"}}
 <a href="/server/security/policy">{{t $lang "security_report.policy_link"}}</a>.</p>
+{{else if .Review}}
+<section class="contact-review" role="dialog" aria-labelledby="security-review-title">
+<h2 id="security-review-title">{{t $lang "contact.review_title"}}</h2>
+<p>{{t $lang "contact.review_description"}}</p>
+{{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
+<p>{{t $lang "security_report.email"}}: <strong>{{.Form.Email}}</strong></p>
+<p>{{t $lang "security_report.summary"}}: {{.Form.Summary}}</p>
+<form method="POST" action="/server/contact">
+<input type="hidden" name="step" value="confirm"><input type="hidden" name="review_token" value="{{.ReviewToken}}"><input type="hidden" name="form_token" value="{{.FormToken}}">
+{{range $key, $values := .ReviewValues}}<input type="hidden" name="{{$key}}" value="{{index $values 0}}">{{end}}
+<input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
+<input type="hidden" name="website" value="">
+<div class="form-group form-check"><input type="checkbox" id="confirmed" name="confirmed" value="true" required><label for="confirmed">{{t $lang "contact.review_confirm"}}</label></div>
+<button type="submit" class="btn btn-primary">{{t $lang "contact.review_submit"}}</button>
+</form>
+<form method="POST" action="/server/contact"><input type="hidden" name="step" value="edit"><input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}"><input type="hidden" name="form_token" value="{{.FormToken}}"><input type="hidden" name="website" value="">{{range $key, $values := .ReviewValues}}<input type="hidden" name="{{$key}}" value="{{index $values 0}}">{{end}}<button type="submit" class="btn">{{t $lang "contact.review_edit"}}</button></form>
 {{else}}
 <p>{{t $lang "security_report.form_intro_before"}}
 <a href="/.well-known/security.txt">{{t $lang "security_report.security_txt_link"}}</a>,

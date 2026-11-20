@@ -29,6 +29,19 @@ func TestBuildPermissionsPolicy(t *testing.T) {
 	}
 }
 
+func TestPermissionsPolicyAlwaysEmittedFromProjectDefaults(t *testing.T) {
+	cfg := config.Default(":memory:")
+	hd := newHeaderDeps(cfg, NewProxyResolver(nil))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "example.com"
+	hd.apply(rec, req)
+	got := rec.Header().Get("Permissions-Policy")
+	if got == "" || !strings.Contains(got, "camera=()") || !strings.Contains(got, "fullscreen=(self)") {
+		t.Fatalf("Permissions-Policy = %q, want fixed project policy", got)
+	}
+}
+
 // TestBuildHSTS covers every combination of the includeSubDomains/preload
 // flags, per AI.md PART 11's HSTS rendering rule.
 func TestBuildHSTS(t *testing.T) {

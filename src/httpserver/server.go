@@ -123,25 +123,26 @@ func New(opts Options) *Server {
 	allowlist := NewAllowlistLookup(cfg.Server.Security.Allowlist)
 	blocks := NewBlockStore(cfg.Server.Security.BlockedIPs, opts.AuditLog)
 	d := &deps{
-		sqlDB:       opts.DB,
-		resolver:    resolver,
-		rateLimiter: NewRateLimiter(cfg.Server.RateLimit),
-		stats:       stats,
-		access:      opts.AccessLog,
-		operatorTok: cfg.Server.Token,
-		cors:        cfg.Server.CORS,
-		csrf:        cfg.Server.CSRF,
-		geo:         opts.GeoIP,
-		geoCfg:      cfg.Server.GeoIP,
-		metrics:     opts.Metrics,
-		cfgHeaders:  cfg.Web.Headers,
-		headers:     newHeaderDeps(cfg, resolver),
-		privacy:     &privacyDeps{cfg: cfg, resolver: resolver, audit: opts.AuditLog},
-		allowlist:   allowlist,
-		blocks:      blocks,
-		abuse:       NewAbuseDetector(cfg.Server.Security.AbuseDetection, cfg.Server.RateLimit.Read.Requests),
-		notifier:    opts.Notifier,
-		i18n:        cfg.Server.I18N,
+		sqlDB:           opts.DB,
+		resolver:        resolver,
+		rateLimiter:     NewRateLimiter(cfg.Server.RateLimit),
+		stats:           stats,
+		access:          opts.AccessLog,
+		accessLogFormat: cfg.Server.Logs.Access.Format,
+		operatorTok:     cfg.Server.Token,
+		cors:            cfg.Server.CORS,
+		csrf:            cfg.Server.CSRF,
+		geo:             opts.GeoIP,
+		geoCfg:          cfg.Server.GeoIP,
+		metrics:         opts.Metrics,
+		cfgHeaders:      cfg.Web.Headers,
+		headers:         newHeaderDeps(cfg, resolver),
+		privacy:         &privacyDeps{cfg: cfg, resolver: resolver, audit: opts.AuditLog},
+		allowlist:       allowlist,
+		blocks:          blocks,
+		abuse:           NewAbuseDetector(cfg.Server.Security.AbuseDetection, cfg.Server.RateLimit.Read.Requests),
+		notifier:        opts.Notifier,
+		i18n:            cfg.Server.I18N,
 	}
 
 	r := chi.NewRouter()
@@ -274,6 +275,17 @@ func New(opts Options) *Server {
 	// with a server-rendered one.
 	r.Get("/locales/{lang}.json", localesHandler)
 	r.Head("/locales/{lang}.json", localesHandler)
+	fd.routeMatch = func(path string) (string, map[string]string, bool) {
+		rctx := chi.NewRouteContext()
+		if !r.Match(rctx, http.MethodGet, path) {
+			return "", nil, false
+		}
+		params := make(map[string]string, len(rctx.URLParams.Keys))
+		for i, key := range rctx.URLParams.Keys {
+			params[key] = rctx.URLParams.Values[i]
+		}
+		return rctx.RoutePattern(), params, true
+	}
 
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
 		sendError(w, req, apperr.New(apperr.CodeNotFound))

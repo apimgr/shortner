@@ -1,7 +1,8 @@
 # Configuration
 
-All settings live in a single YAML file, `server.yml`, in the
-configuration directory. It is created with defaults on first run. See
+Configuration is merged from `server.yml`, optional ordered files in
+`yaml.d/`, and `secrets.yml` (which has the final precedence). `server.yml`
+is created with defaults on first run. See
 [Installation](installation.md#filesystem-paths) for where it lands on each
 platform.
 
@@ -10,15 +11,20 @@ platform.
 For any setting that has more than one source:
 
 ```
-command-line flag  >  environment variable  >  server.yml  >  built-in default
+command-line flag  >  environment variable  >  merged config files  >  built-in default
 ```
+
+File precedence is built-in defaults, `server.yml`, `yaml.d/` files in
+filename order, and `secrets.yml`. Drop-in maps merge recursively; later
+scalar or list values replace earlier values. The server stores its generated
+operator token and encryption key in `secrets.yml`.
 
 ## Validation Never Blocks Startup
 
-An invalid value is **never** a fatal error. Every setting is validated on
-load; anything invalid is logged as a warning and replaced with its
-default, and the server starts. A typo in `server.yml` degrades one
-setting — it does not take the service down.
+Invalid individual values are logged as warnings and replaced with their
+defaults. Malformed YAML, duplicate keys, explicit `null` values, and files
+that cannot be read are configuration errors and stop startup; these errors
+must be corrected before the server can load the merged configuration.
 
 A second class of warning is informational: the value is kept, but you are
 told it may not do what you expect. For example, an HSTS `max_age_seconds`
@@ -27,10 +33,8 @@ list.
 
 ## Hot Reload
 
-**Configuration is not currently hot-reloadable.** Changes to `server.yml`
-take effect on the next restart. `SIGHUP` is deliberately ignored by the
-process — it is reserved for a future file-watcher-driven reload — so
-sending it will not reload anything.
+Contact anti-spam settings reload when `server.yml` changes. Other settings
+take effect on the next restart. `SIGHUP` is ignored.
 
 ## Modes and Debug
 
@@ -300,8 +304,8 @@ HTTP-01 and TLS-ALPN-01 challenges.
 
 For DNS-01, set the lego provider name and a flat map of that provider's
 environment variable names to values. For example, Cloudflare accepts
-`CF_DNS_API_TOKEN`; its plaintext value is encrypted and atomically rewritten
-in `server.yml` on startup. Credentials are never exposed by an API or view.
+`CF_DNS_API_TOKEN`; credentials are stored in `secrets.yml` and never
+exposed by an API or view.
 The complete provider list and each provider's variable names are maintained
 by [lego](https://go-acme.github.io/lego/dns/). A configured DNS provider is
 validated at startup and before certificate issuance. Failed validation
@@ -398,29 +402,27 @@ resolves to `security@` at the detected FQDN. The `dpo` block drives the
 `/server/dpo` page, which is only routed when compliance settings or a DPO
 name require it.
 
-Static page content fields render as Markdown. Raw HTML is disabled, output
-is sanitized through an allow-list, and external links receive
-`rel="noopener noreferrer nofollow ugc"`.
-
-Static page content is configured under `pages:`:
+The help page content is configured under `pages:`. About, privacy, terms,
+header, and footer content is read from private files in `{config_dir}/html/`:
+`about.{html,md,txt}`, `privacy.{html,md,txt}`, `terms.{html,md,txt}`,
+`header.html`, and `footer.html`. Content is sanitized before rendering;
+scripts and unsafe attributes are removed. The `terms` file replaces the
+built-in page, while the other content files extend their built-in pages or
+branding.
 
 ```yaml
 pages:
-  about:
-    content: ""
-  privacy:
-    content: ""
   help:
-    content: ""
-  terms:
     content: ""
   contact:
     enabled: true
     captcha: "simple"
     captcha_site_key: ""
-    captcha_secret_key: ""
     success_message: "Thank you for your message. We'll respond soon."
 ```
+
+The CAPTCHA secret key belongs in `secrets.yml` at
+`pages.contact.captcha_secret_key`, not in a shared configuration file.
 
 The `simple` CAPTCHA creates a localized arithmetic challenge that works
 without JavaScript and over Tor or I2P. `recaptcha` and `hcaptcha` require both
@@ -742,8 +744,8 @@ feature policy; it has no `server.yml` setting. `web.robots` controls the genera
 server-rendered site banners. Messages with an active RFC 3339 `start` and
 `end` window appear in configuration order; visitors can dismiss entries
 marked `dismissible: true` without JavaScript. A single-space value for
-`web.footer.custom_html` disables the footer, while an empty string keeps
-the default branding.
+the optional footer file `html/footer.html` removes the custom branding
+block; the built-in application footer remains visible.
 
 ```yaml
 web:

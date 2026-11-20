@@ -249,7 +249,9 @@ func ValidServerAddress(value string) bool {
 			return false
 		}
 		for _, r := range label {
-			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-') {
+			switch {
+			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-':
+			default:
 				return false
 			}
 		}
@@ -460,10 +462,6 @@ func validateWebHeaders(cfg *Config, defaults *Config) []string {
 	if rep.RateLimitPerIPBurst <= 0 {
 		warnings = append(warnings, fmt.Sprintf("invalid web.reports.rate_limit_per_ip_burst %d, using default %d", rep.RateLimitPerIPBurst, drep.RateLimitPerIPBurst))
 		rep.RateLimitPerIPBurst = drep.RateLimitPerIPBurst
-	}
-
-	if len(cfg.Web.PermissionsPolicy) == 0 {
-		cfg.Web.PermissionsPolicy = DefaultPermissionsPolicy()
 	}
 
 	if cfg.Web.WellKnown.UnsupportedBehavior != 404 {

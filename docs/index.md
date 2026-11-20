@@ -27,7 +27,8 @@ generates its own operator token, and starts serving.
 reset. Anyone can create a link. Links belong to an anonymous owner with a
 primary token; linked tokens can be made for integrations. The primary
 token can be restored on a new browser and rotated without changing link
-ownership. The operator token in `server.yml` grants global authority.
+ownership. The operator token in the private `secrets.yml` grants global
+authority.
 
 **Privacy by default.** Client IP addresses are anonymized *before* they
 are written — the last octet of an IPv4 address and the last 80 bits of an
@@ -53,8 +54,8 @@ shortner
 ```
 
 That is the whole first run. The binary creates its configuration and data
-directories, writes `server.yml`, generates an operator token, opens the
-database, and starts listening on port `8090`.
+directories, writes `server.yml` and private `secrets.yml`, generates an
+operator token, opens the database, and starts listening on port `8090`.
 
 Then create a link:
 

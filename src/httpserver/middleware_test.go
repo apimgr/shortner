@@ -10,6 +10,25 @@ import (
 	"github.com/apimgr/shortner/src/config"
 )
 
+func TestIsHealthProbe(t *testing.T) {
+	for _, tc := range []struct {
+		method string
+		path   string
+		want   bool
+	}{
+		{method: "GET", path: "/server/healthz", want: true},
+		{method: "GET", path: "/api/v1/server/healthz", want: true},
+		{method: "GET", path: "/api/healthz", want: true},
+		{method: "POST", path: "/healthz", want: false},
+		{method: "GET", path: "/server/about", want: false},
+	} {
+		r := httptest.NewRequest(tc.method, tc.path, nil)
+		if got := isHealthProbe(r); got != tc.want {
+			t.Errorf("isHealthProbe(%s %s) = %v, want %v", tc.method, tc.path, got, tc.want)
+		}
+	}
+}
+
 func testDeps(t *testing.T) *deps {
 	t.Helper()
 	logPath := filepath.Join(t.TempDir(), "access.log")
@@ -23,17 +42,18 @@ func testDeps(t *testing.T) *deps {
 	resolver := NewProxyResolver(nil)
 
 	return &deps{
-		resolver:    resolver,
-		rateLimiter: NewRateLimiter(config.RateLimit{Enabled: false}),
-		stats:       NewStats(),
-		access:      logger,
-		operatorTok: "tok_test-operator",
-		cfgHeaders:  cfg.Web.Headers,
-		headers:     newHeaderDeps(cfg, resolver),
-		privacy:     &privacyDeps{cfg: cfg, resolver: resolver},
-		allowlist:   NewAllowlistLookup(cfg.Server.Security.Allowlist),
-		blocks:      NewBlockStore(cfg.Server.Security.BlockedIPs, nil),
-		abuse:       NewAbuseDetector(cfg.Server.Security.AbuseDetection, cfg.Server.RateLimit.Read.Requests),
+		resolver:        resolver,
+		rateLimiter:     NewRateLimiter(config.RateLimit{Read: config.RateLimitClass{Requests: 1000, Window: 60}, Write: config.RateLimitClass{Requests: 1000, Window: 60}, Health: config.RateLimitClass{Requests: 1000, Window: 60}, GlobalBurst: 1000}),
+		stats:           NewStats(),
+		access:          logger,
+		accessLogFormat: cfg.Server.Logs.Access.Format,
+		operatorTok:     "tok_test-operator",
+		cfgHeaders:      cfg.Web.Headers,
+		headers:         newHeaderDeps(cfg, resolver),
+		privacy:         &privacyDeps{cfg: cfg, resolver: resolver},
+		allowlist:       NewAllowlistLookup(cfg.Server.Security.Allowlist),
+		blocks:          NewBlockStore(cfg.Server.Security.BlockedIPs, nil),
+		abuse:           NewAbuseDetector(cfg.Server.Security.AbuseDetection, cfg.Server.RateLimit.Read.Requests),
 	}
 }
 
@@ -273,7 +293,6 @@ func TestSecurityHeadersMiddlewareSetsHeaders(t *testing.T) {
 func TestRateLimitMiddlewareBlocksOverLimit(t *testing.T) {
 	d := testDeps(t)
 	d.rateLimiter = NewRateLimiter(config.RateLimit{
-		Enabled:     true,
 		Read:        config.RateLimitClass{Requests: 1, Window: 60},
 		Write:       config.RateLimitClass{Requests: 1, Window: 60},
 		Health:      config.RateLimitClass{Requests: 1, Window: 60},
@@ -303,7 +322,6 @@ func TestRateLimitMiddlewareBlocksOverLimit(t *testing.T) {
 func TestRateLimitMiddlewareBypassesAllowlisted(t *testing.T) {
 	d := testDeps(t)
 	d.rateLimiter = NewRateLimiter(config.RateLimit{
-		Enabled:     true,
 		Read:        config.RateLimitClass{Requests: 1, Window: 60},
 		Write:       config.RateLimitClass{Requests: 1, Window: 60},
 		Health:      config.RateLimitClass{Requests: 1, Window: 60},

@@ -189,14 +189,14 @@
     "geoip_after": "国および ASN のデータは、Number Resource Organization（NRO）により CC BY 4.0 でライセンスされています。"
   },
   "contact": {
-    "title": "お問い合わせ",
-    "description": "このサーバーの運営者にメッセージを送信します。",
+    "title": "報告を送信",
+    "description": "セキュリティ問題、利用規約違反、著作権に関する懸念、またはプライバシーに関する請求を報告します。",
     "name": "お名前",
     "email": "メールアドレス",
     "subject": "件名",
     "message": "メッセージ",
     "send": "メッセージを送信",
-    "success": "お問い合わせありがとうございます。追ってご返信いたします。",
+    "success": "報告を受け付けました。",
     "failed": "メッセージを送信できませんでした。しばらくしてからもう一度お試しください。",
     "email_hint": "メールアドレスはこのメッセージへの返信にのみ使用します。",
     "disabled": "お問い合わせフォームは現在無効になっています。",
@@ -210,8 +210,40 @@
     "security_title": "セキュリティに関する問題",
     "security_body_before": "セキュリティ上の脆弱性を報告するには、こちらのセキュリティポリシーをご確認ください：",
     "abuse_title": "不正利用の報告",
-    "abuse_body": "不適切なコンテンツやポリシー違反を報告するには、このお問い合わせフォームをご利用ください",
-    "abuse_or_email": "または {email} までメールでご連絡ください"
+    "abuse_body": "不正なコンテンツや利用規約違反を報告する場合は、上の「不正利用」を選択してください。DMCA通知を送る場合は「DMCA」を選択してください。",
+    "abuse_or_email": "または {email} までメールでご連絡ください",
+    "purpose_notice": "このフォームは、セキュリティ報告、このサイト上のURLに関する利用規約違反、DMCA通知、プライバシー請求専用です。サポート、バグ報告、機能要望、一般的な質問には使用できません。",
+    "type": "報告の種類",
+    "type_choose": "報告の種類を選択",
+    "type_abuse": "不正利用または利用規約違反",
+    "type_dmca": "DMCA通知",
+    "type_privacy": "プライバシー請求",
+    "reported_url": "報告対象のURL",
+    "reported_url_help": "報告対象となるこのサイト上のURLを入力してください。",
+    "reason": "理由",
+    "reason_choose": "理由を選択",
+    "reason_illegal_content": "違法コンテンツ",
+    "reason_terms_violation": "利用規約違反",
+    "reason_harassment": "嫌がらせ",
+    "reason_malware_phishing": "マルウェアまたはフィッシング",
+    "reason_other": "その他",
+    "copyrighted_work": "著作物",
+    "good_faith_statement": "著作権者、その代理人、または法律によってこの利用が許可されていないと誠実に信じています。",
+    "accuracy_statement": "情報は正確です。偽証罪の適用を受けることを理解したうえで、私は権利者または権利者の代理人として行動する権限を有します。",
+    "signature": "戸籍上の氏名（電子署名）",
+    "request_kind": "プライバシー請求の種類",
+    "request_kind_choose": "請求の種類を選択",
+    "request_kind_access": "アクセス",
+    "request_kind_export": "エクスポート",
+    "request_kind_deletion": "削除",
+    "request_kind_correction": "訂正",
+    "request_kind_opt_out": "オプトアウト",
+    "request_kind_other": "その他",
+    "review_title": "報告内容を確認",
+    "review_description": "このメールアドレスと報告内容が正しいことを確認してください。",
+    "review_confirm": "このメールアドレスは正しく、この報告は広告、勧誘、迷惑メールではありません。",
+    "review_submit": "確認して送信",
+    "review_edit": "報告を編集"
   },
   "help": {
     "title": "ヘルプ",
@@ -302,7 +334,10 @@
     "default_data_collection": "リンクのクリックごとに、リンク先 URL、匿名化された IP アドレス、ユーザーエージェント、リファラーを収集します。また、短縮のために送信された URL とスラッグも収集します。",
     "default_data_security": "訪問者の IP アドレスは、ストレージに書き込まれる前に匿名化されます（末尾のオクテット／セグメントをゼロ化）。生の IP アドレスが保存されることはありません。",
     "data_sale_title": "データ販売に関する開示",
-    "data_sale_body": "一部のデータは、以下に記載のとおり第三者に販売または共有される場合があります。"
+    "data_sale_body": "一部のデータは、以下に記載のとおり第三者に販売または共有される場合があります。",
+    "contact_title": "お問い合わせ",
+    "contact_fallback": "プライバシーに関する請求については、",
+    "contact_security_link": "連絡方法をご覧ください"
   },
   "ccpa": {
     "title": "カリフォルニア州プライバシー権（CCPA）",
@@ -329,7 +364,9 @@
     "postal_address": "郵送先住所",
     "see_privacy_before": "収集する情報とその理由については、",
     "privacy_policy_link": "プライバシーポリシー",
-    "see_privacy_after": "をご覧ください。"
+    "see_privacy_after": "をご覧ください。",
+    "contact_fallback": "DPOのメールアドレスが設定されていません。",
+    "contact_security_link": "連絡方法をご覧ください"
   },
   "terms": {
     "title": "利用規約",
@@ -393,7 +430,10 @@
     "report_state_confirmed": "確認済み",
     "report_state_patching": "修正中",
     "report_state_disclosed": "公開済み",
-    "report_state_wont_fix": "対応しない"
+    "report_state_wont_fix": "対応しない",
+    "other_reports": "その他の報告",
+    "other_reports_intro": "利用規約違反、DMCA通知、プライバシー請求については、",
+    "other_reports_link": "報告フォームをご利用ください"
   },
   "security_report": {
     "title": "脆弱性を報告する",

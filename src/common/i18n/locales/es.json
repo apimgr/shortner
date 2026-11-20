@@ -189,14 +189,14 @@
     "geoip_after": "Los datos de país y ASN están licenciados bajo CC BY 4.0 por la Number Resource Organization (NRO)."
   },
   "contact": {
-    "title": "Contacto",
-    "description": "Envíe un mensaje al operador de este servidor.",
+    "title": "Enviar un informe",
+    "description": "Informe de un problema de seguridad, una infracción de las condiciones, un asunto de derechos de autor o una solicitud de privacidad.",
     "name": "Nombre",
     "email": "Correo electrónico",
     "subject": "Asunto",
     "message": "Mensaje",
     "send": "Enviar mensaje",
-    "success": "Gracias por su mensaje. Le responderemos pronto.",
+    "success": "Hemos recibido su informe.",
     "failed": "No se pudo enviar el mensaje. Inténtelo de nuevo más tarde.",
     "email_hint": "Solo usamos su dirección para responder a este mensaje.",
     "disabled": "El formulario de contacto está desactivado actualmente.",
@@ -210,8 +210,40 @@
     "security_title": "Problemas de seguridad",
     "security_body_before": "Para informar de una vulnerabilidad de seguridad, consulte nuestra política de seguridad en",
     "abuse_title": "Denuncias de abuso",
-    "abuse_body": "Para denunciar contenido abusivo o infracciones de las normas, use este formulario de contacto",
-    "abuse_or_email": "o escriba a {email}"
+    "abuse_body": "Para denunciar contenido abusivo o una infracción de las condiciones, elija arriba Abuso. Para enviar un aviso DMCA, elija DMCA.",
+    "abuse_or_email": "o escriba a {email}",
+    "purpose_notice": "Este formulario es solo para informes de seguridad, infracciones de las condiciones en una URL de este sitio, avisos DMCA y solicitudes de privacidad. No se puede usar para soporte, errores, solicitudes de funciones ni preguntas generales.",
+    "type": "Tipo de informe",
+    "type_choose": "Elija un tipo de informe",
+    "type_abuse": "Abuso o infracción de las condiciones",
+    "type_dmca": "Aviso DMCA",
+    "type_privacy": "Solicitud de privacidad",
+    "reported_url": "URL denunciada",
+    "reported_url_help": "Indique la URL de este sitio a la que se refiere el informe.",
+    "reason": "Motivo",
+    "reason_choose": "Elija un motivo",
+    "reason_illegal_content": "Contenido ilegal",
+    "reason_terms_violation": "Infracción de las condiciones",
+    "reason_harassment": "Acoso",
+    "reason_malware_phishing": "Malware o suplantación",
+    "reason_other": "Otro",
+    "copyrighted_work": "Obra protegida por derechos de autor",
+    "good_faith_statement": "Creo de buena fe que este uso no está autorizado por el titular de los derechos, su agente o la ley.",
+    "accuracy_statement": "La información es exacta y, bajo pena de perjurio, soy el titular o estoy autorizado para actuar en su nombre.",
+    "signature": "Nombre legal completo (firma electrónica)",
+    "request_kind": "Tipo de solicitud de privacidad",
+    "request_kind_choose": "Elija un tipo de solicitud",
+    "request_kind_access": "Acceso",
+    "request_kind_export": "Exportación",
+    "request_kind_deletion": "Eliminación",
+    "request_kind_correction": "Rectificación",
+    "request_kind_opt_out": "Exclusión",
+    "request_kind_other": "Otro",
+    "review_title": "Revisa tu informe",
+    "review_description": "Confirma que esta dirección de correo y el informe sean correctos.",
+    "review_confirm": "Esta dirección de correo es correcta y este es un informe genuino, no un anuncio, una solicitud ni spam.",
+    "review_submit": "Confirmar y enviar",
+    "review_edit": "Editar informe"
   },
   "help": {
     "title": "Ayuda",
@@ -302,7 +334,10 @@
     "default_data_collection": "Recopilamos la URL de destino, una dirección IP anonimizada, el agente de usuario y el referente de cada clic en un enlace, además de las URL y los slugs que envía para acortar.",
     "default_data_security": "Las direcciones IP de los visitantes se anonimizan (poniendo a cero el último octeto o segmento) antes de escribirse en el almacenamiento: la IP original nunca se conserva.",
     "data_sale_title": "Declaración sobre la venta de datos",
-    "data_sale_body": "Algunos datos pueden venderse o compartirse con terceros, tal y como se describe a continuación."
+    "data_sale_body": "Algunos datos pueden venderse o compartirse con terceros, tal y como se describe a continuación.",
+    "contact_title": "Contacto",
+    "contact_fallback": "Para solicitudes de privacidad, consulte",
+    "contact_security_link": "cómo ponerse en contacto"
   },
   "ccpa": {
     "title": "Derechos de privacidad de California (CCPA)",
@@ -329,7 +364,9 @@
     "postal_address": "Dirección postal",
     "see_privacy_before": "Consulte nuestra",
     "privacy_policy_link": "Política de privacidad",
-    "see_privacy_after": "para saber qué recopilamos y por qué."
+    "see_privacy_after": "para saber qué recopilamos y por qué.",
+    "contact_fallback": "No hay un correo del DPO configurado. Consulte",
+    "contact_security_link": "cómo ponerse en contacto"
   },
   "terms": {
     "title": "Términos del servicio",
@@ -393,7 +430,10 @@
     "report_state_confirmed": "Confirmado",
     "report_state_patching": "En reparación",
     "report_state_disclosed": "Divulgado",
-    "report_state_wont_fix": "No se corregirá"
+    "report_state_wont_fix": "No se corregirá",
+    "other_reports": "Otros informes",
+    "other_reports_intro": "Para infracciones de las condiciones, avisos DMCA o solicitudes de privacidad, use",
+    "other_reports_link": "el formulario de informes"
   },
   "security_report": {
     "title": "Informar de una vulnerabilidad",

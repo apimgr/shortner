@@ -13,17 +13,72 @@ import (
 func TestContactFormTokenAgeAndSignature(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	token := issueContactFormToken("installation-secret", now.Add(-4*time.Second))
-	if !verifyContactFormToken("installation-secret", token, now, 3, 60) {
+	if _, ok := verifyContactFormToken("installation-secret", token, now, 3, 60); !ok {
 		t.Fatal("valid token was rejected")
 	}
-	if verifyContactFormToken("wrong-secret", token, now, 3, 60) {
+	if _, ok := verifyContactFormToken("wrong-secret", token, now, 3, 60); ok {
 		t.Fatal("token signed with another secret was accepted")
 	}
-	if verifyContactFormToken("installation-secret", token, now.Add(-2*time.Second), 3, 60) {
+	if _, ok := verifyContactFormToken("installation-secret", token, now.Add(-2*time.Second), 3, 60); ok {
 		t.Fatal("token younger than minimum fill time was accepted")
 	}
-	if verifyContactFormToken("installation-secret", token, now.Add(2*time.Minute), 3, 60) {
+	if _, ok := verifyContactFormToken("installation-secret", token, now.Add(2*time.Minute), 3, 60); ok {
 		t.Fatal("expired token was accepted")
+	}
+}
+
+func TestContactFormTokenIsSingleUseAndFitsFieldLimit(t *testing.T) {
+	fd := &frontendDeps{cfg: config.Default("unused"), installSecret: "single-use-contact-token-test"}
+	token := issueContactFormToken(fd.installSecret, time.Now().Add(-4*time.Second))
+	if len(token) > 100 {
+		t.Fatalf("form token length = %d, exceeds field limit", len(token))
+	}
+	if reason := fd.contactTokenValidationReason(token, time.Now()); reason != "" {
+		t.Fatalf("first token use rejected: %s", reason)
+	}
+	if reason := fd.contactTokenValidationReason(token, time.Now()); reason != "replay" {
+		t.Fatalf("reused token reason = %q, want replay", reason)
+	}
+}
+
+func TestContactReviewTokenBindsFieldsAndAge(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	values := url.Values{"email": {"ada@example.com"}, "subject": {"Report"}, "message": {"Details"}}
+	token := issueContactReviewToken("review-secret", values, now, "")
+	if len(token) > 300 {
+		t.Fatalf("review token length = %d, exceeds field limit", len(token))
+	}
+	if _, ok := verifyContactReviewToken("review-secret", token, values, now.Add(3*time.Second), 2, 900); !ok {
+		t.Fatal("valid review token was rejected")
+	}
+	changed := cloneURLValues(values)
+	changed.Set("message", "changed")
+	if _, ok := verifyContactReviewToken("review-secret", token, changed, now.Add(3*time.Second), 2, 900); ok {
+		t.Fatal("review token accepted changed fields")
+	}
+	if _, ok := verifyContactReviewToken("review-secret", token, values, now.Add(time.Hour), 2, 900); ok {
+		t.Fatal("expired review token was accepted")
+	}
+}
+
+func TestContactOriginRequiresSameSiteContext(t *testing.T) {
+	fd := &frontendDeps{resolver: NewProxyResolver(nil)}
+	request := httptest.NewRequest("POST", "http://example.test/server/contact", nil)
+	if fd.contactOriginValid(request) {
+		t.Fatal("request without Origin, Referer, or Sec-Fetch-Site was accepted")
+	}
+	request.Header.Set("Origin", "https://elsewhere.test")
+	request.Header.Set("Sec-Fetch-Site", "same-origin")
+	if fd.contactOriginValid(request) {
+		t.Fatal("request with mismatched Origin was accepted")
+	}
+	request.Header.Set("Origin", "http://example.test")
+	if !fd.contactOriginValid(request) {
+		t.Fatal("same-origin request was rejected")
+	}
+	request.Header.Del("Origin")
+	if !fd.contactOriginValid(request) {
+		t.Fatal("same-origin Sec-Fetch-Site request was rejected")
 	}
 }
 
@@ -31,6 +86,7 @@ func TestContactShapeValidation(t *testing.T) {
 	valid := url.Values{
 		"name": {"Ada"}, "email": {"ada@example.com"}, "subject": {"Hello"},
 		"message": {"Message"}, "form_token": {"token"}, "captcha_id": {"id"},
+		"type": {"abuse"}, "reported_url": {"https://example.test/short"}, "reason": {"terms_violation"},
 		"captcha_answer": {"12"}, "website": {""},
 	}
 	if reason, ok := contactShapeValid(valid, false, false); !ok {
@@ -67,25 +123,38 @@ func cloneURLValues(values url.Values) url.Values {
 
 func TestContactContentRules(t *testing.T) {
 	fd := &frontendDeps{cfg: config.Default("unused"), installSecret: "content-test"}
-	if fd.contactContentBlocked("Ada", "ada@example.com", "Question", "Two https:// links https://example.com") {
+	request := httptest.NewRequest("POST", "http://example.test/server/contact", nil)
+	values := url.Values{"name": {"Ada"}, "email": {"ada@example.com"}, "subject": {"Question"}, "message": {"Two https:// links https://example.test"}}
+	if fd.contactContentReason(request, values) != "" {
 		t.Fatal("message within max_links was blocked")
 	}
-	if !fd.contactContentBlocked("Ada", "ada@example.com", "Question", "https://one.test https://two.test https://three.test") {
+	values.Set("message", "https://one.test https://two.test https://three.test https://four.test https://five.test https://six.test https://seven.test https://eight.test https://nine.test https://ten.test https://eleven.test")
+	if fd.contactContentReason(request, values) == "" {
 		t.Fatal("message above max_links was accepted")
 	}
 	for _, message := range []string{"<a href=\"https://example.com\">link</a>", "[url=https://example.com]link[/url]", "&lt;script&gt;"} {
-		if got := fd.contactContentReason("Ada", "ada@example.com", "Question", message); got != "markup" {
+		values.Set("message", message)
+		if got := fd.contactContentReason(request, values); got != "markup" {
 			t.Errorf("contactContentReason(%q) = %q, want markup", message, got)
 		}
 	}
-	if got := fd.contactContentReason("Ada", "ada@example.com", "Question", "Visit one.test two.example three.shop"); got != "content" {
-		t.Errorf("bare-domain link count reason = %q, want content", got)
+	values.Set("message", "Visit external.example")
+	if got := fd.contactContentReason(request, values); got != "content" {
+		t.Errorf("external host reason = %q, want content", got)
 	}
-	settings := fd.cfg.Server.Contact.Antispam
-	settings.BlockedLinkDomains = []string{"example.shop"}
+	settings := fd.contactAntispam()
+	settings.BlockedEmailDomains = []string{"blocked.test"}
+	settings.BlockedWords = []string{"forbidden phrase"}
 	fd.setContactAntispam(settings)
-	if got := fd.contactContentReason("Ada", "ada@example.com", "Question", "Visit a.example.shop"); got != "content" {
-		t.Errorf("blocked suffix domain reason = %q, want content", got)
+	values.Set("email", "ada@blocked.test")
+	values.Set("message", "A normal report")
+	if got := fd.contactContentReason(request, values); got != "content" {
+		t.Errorf("blocked email domain reason = %q, want content", got)
+	}
+	values.Set("email", "ada@example.test")
+	values.Set("message", "This contains a forbidden phrase")
+	if got := fd.contactContentReason(request, values); got != "content" {
+		t.Errorf("blocked word reason = %q, want content", got)
 	}
 	if fd.contactDuplicateKey(" ADA@example.com ", " Hello ", "one  two") != fd.contactDuplicateKey("ada@example.com", "hello", "one two") {
 		t.Fatal("duplicate hashing did not normalize case and whitespace")

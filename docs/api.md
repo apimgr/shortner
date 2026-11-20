@@ -509,9 +509,8 @@ be attributed to the proxy.
 `X-RateLimit-*` response headers are not currently emitted on successful
 requests.
 
-Rate limiting can be disabled entirely with
-`server.rate_limit.enabled: false`. See
-[Configuration](configuration.md#rate-limiting).
+Rate limiting is always enabled. There is no configuration switch to turn
+it off. See [Configuration](configuration.md#rate-limiting).
 
 ## Errors
 

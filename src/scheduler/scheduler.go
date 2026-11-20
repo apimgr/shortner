@@ -256,18 +256,20 @@ func (s *Scheduler) runTask(id string) {
 		}
 		s.metrics.SchedulerLastRunTimestamp.WithLabelValues(id).Set(float64(finished.Unix()))
 	}
-	if status == "failed" {
+	switch status {
+	case "failed":
 		s.notifySchedulerError(id, task.Name, errMsg, nextRun)
 	}
 	if err := db.RecordSchedulerRun(context.Background(), s.sqlDB, id, run.startedAt, finished, nextRun, status, errMsg); err != nil && s.logger != nil {
 		_ = s.logger.WriteLine(applog.LevelError, fmt.Sprintf("scheduler: record run for %s: %v\n", id, err))
 	}
 	if s.logger != nil {
-		if status == "failed" {
+		switch status {
+		case "failed":
 			_ = s.logger.WriteLine(applog.LevelError, fmt.Sprintf("scheduler: task %s failed after %s: %s\n", id, finished.Sub(run.startedAt), errMsg))
-		} else if status == "skipped" {
+		case "skipped":
 			_ = s.logger.WriteLine(applog.LevelInfo, fmt.Sprintf("scheduler: task %s skipped (disabled)\n", id))
-		} else {
+		default:
 			_ = s.logger.WriteLine(applog.LevelInfo, fmt.Sprintf("scheduler: task %s completed in %s\n", id, finished.Sub(run.startedAt)))
 		}
 	}

@@ -116,38 +116,97 @@ func (fd *frontendDeps) securityReportPost(w http.ResponseWriter, r *http.Reques
 		fd.renderSecurityContactFailure(w, r, http.StatusBadRequest, &data, t(r, "errors.form_read_failed"))
 		return
 	}
+	if !fd.contactOriginValid(r) {
+		fd.contactSpamBlock(r, "origin")
+		fd.renderSecurityContactFailure(w, r, http.StatusBadRequest, &data, "Please submit the form from this site")
+		return
+	}
 	data.Form = fd.readSecurityForm(r)
+	step := r.FormValue("step")
+	if step == "" {
+		step = "submit"
+	}
 	if reason, valid := contactShapeValid(r.PostForm, true, false); !valid {
 		fd.contactSpamBlock(r, reason)
 		fd.renderSecurityContactFailure(w, r, http.StatusBadRequest, &data, t(r, "errors.form_read_failed"))
 		return
 	}
-	now := time.Now()
-	if fd.contactAntispam().Honeypot && r.FormValue("website") != "" {
-		fd.contactSpamBlock(r, "honeypot")
-		data.Submitted = true
-		trackingID, err := db.NewTrackingID()
+	if step == "edit" {
+		data.FormToken = fd.contactToken(time.Now())
+		captcha, err := fd.issueCaptcha(r)
 		if err != nil {
-			http.Error(w, "unable to complete submission", http.StatusInternalServerError)
+			http.Error(w, "captcha temporarily unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		data.TrackingID = trackingID
+		data.Captcha = captcha
 		_ = renderPage(w, http.StatusOK, "contact_security", data)
 		return
 	}
-	if !fd.contactTokenValid(r.FormValue("form_token"), now) {
-		fd.contactSpamBlock(r, "fill_time")
-		fd.renderSecurityContactFailure(w, r, http.StatusBadRequest, &data, t(r, "contact.fill_wait"))
-		return
+	now := time.Now()
+	decoy := fd.contactAntispam().Honeypot && r.FormValue("website") != ""
+	if decoy {
+		fd.contactSpamBlock(r, "honeypot")
 	}
-	if !fd.verifyCaptcha(r, r.PostForm) {
-		fd.contactSpamBlock(r, "captcha")
-		fd.renderSecurityContactFailure(w, r, http.StatusBadRequest, &data, t(r, "errors.captcha_failed"))
+	if step == "submit" {
+		if reason := fd.contactTokenValidationReason(r.FormValue("form_token"), now); reason != "" {
+			fd.contactSpamBlock(r, reason)
+			fd.renderSecurityContactFailure(w, r, http.StatusBadRequest, &data, t(r, "contact.fill_wait"))
+			return
+		}
+		if !fd.verifyCaptcha(r, r.PostForm) {
+			fd.contactSpamBlock(r, "captcha")
+			fd.renderSecurityContactFailure(w, r, http.StatusBadRequest, &data, t(r, "errors.captcha_failed"))
+			return
+		}
+	} else if step != "confirm" {
+		fd.renderSecurityContactFailure(w, r, http.StatusBadRequest, &data, t(r, "errors.form_read_failed"))
 		return
 	}
 	if msg := validateSecurityForm(r, data.Form); msg != "" {
 		fd.contactSpamBlock(r, "shape")
 		fd.renderSecurityContactFailure(w, r, http.StatusBadRequest, &data, msg)
+		return
+	}
+	if step == "submit" {
+		if reason, blocked := fd.contactRateReason(r, data.Form.Email, now); blocked {
+			fd.contactSpamBlock(r, reason)
+			fd.setContactRetryAfter(w, r, reason)
+			fd.renderSecurityContactFailure(w, r, http.StatusTooManyRequests, &data, t(r, "errors.captcha_failed"))
+			return
+		}
+		flags := ""
+		if decoy {
+			flags = "d"
+		}
+		data.FormToken = fd.contactToken(now)
+		data.Review, data.ReviewToken, data.ConfirmAfter, data.ReviewValues = true, issueContactReviewToken(fd.installSecret, r.PostForm, now, flags), fd.contactAntispam().ReviewMinSeconds, contactReviewValues(r.PostForm)
+		_ = renderPage(w, http.StatusOK, "contact_security", data)
+		return
+	}
+	settings := fd.contactAntispam()
+	nonce, valid := verifyContactReviewToken(fd.installSecret, r.FormValue("review_token"), r.PostForm, now, settings.ReviewMinSeconds, settings.ReviewMaxSeconds)
+	if !valid || r.FormValue("confirmed") != "true" {
+		fd.contactSpamBlock(r, "review")
+		data.Error = "Please read the details and confirm"
+		data.Review, data.ReviewToken, data.ConfirmAfter, data.ReviewValues = true, issueContactReviewToken(fd.installSecret, r.PostForm, now, contactReviewFlags(r.FormValue("review_token"))), settings.ReviewMinSeconds, contactReviewValues(r.PostForm)
+		_ = renderPage(w, http.StatusBadRequest, "contact_security", data)
+		return
+	}
+	if !fd.consumeContactNonce(nonce, now) {
+		fd.contactSpamBlock(r, "replay")
+		data.Error = "Please read the details and confirm"
+		data.Review, data.ReviewToken, data.ConfirmAfter, data.ReviewValues = true, issueContactReviewToken(fd.installSecret, r.PostForm, now, contactReviewFlags(r.FormValue("review_token"))), settings.ReviewMinSeconds, contactReviewValues(r.PostForm)
+		_ = renderPage(w, http.StatusBadRequest, "contact_security", data)
+		return
+	}
+	if strings.Contains(r.FormValue("review_token"), ".d.") {
+		trackingID, err := db.NewTrackingID()
+		if err != nil {
+			http.Error(w, "unable to complete submission", http.StatusInternalServerError)
+			return
+		}
+		data.Submitted, data.TrackingID = true, trackingID
+		_ = renderPage(w, http.StatusOK, "contact_security", data)
 		return
 	}
 	if reason, blocked := fd.contactRateReason(r, data.Form.Email, now); blocked {
@@ -219,29 +278,42 @@ func (fd *frontendDeps) securityReportAPIPost(w http.ResponseWriter, r *http.Req
 		}
 		writeJSON(w, status, payload)
 	}
+	step := r.FormValue("step")
+	if step == "" {
+		step = "submit"
+	}
 	if reason, valid := contactShapeValid(r.PostForm, true, true); !valid {
 		fd.contactSpamBlock(r, reason)
 		writeError(http.StatusBadRequest, "invalid form", true)
 		return
 	}
-	if fd.contactAntispam().Honeypot && r.FormValue("website") != "" {
-		fd.contactSpamBlock(r, "honeypot")
-		trackingID, err := db.NewTrackingID()
+	if step == "edit" {
+		challenge, err := fd.issueCaptcha(r)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "error": "unable to complete submission"})
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "error": "captcha unavailable"})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": map[string]string{"tracking_id": trackingID}})
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": map[string]any{"fields": contactReviewValues(r.PostForm), "form_token": fd.contactToken(time.Now()), "captcha": challenge}})
 		return
 	}
-	if !fd.contactTokenValid(r.FormValue("form_token"), time.Now()) {
-		fd.contactSpamBlock(r, "fill_time")
-		writeError(http.StatusBadRequest, t(r, "contact.fill_wait"), true)
-		return
+	decoy := fd.contactAntispam().Honeypot && r.FormValue("website") != ""
+	if decoy {
+		fd.contactSpamBlock(r, "honeypot")
 	}
-	if !fd.verifyCaptcha(r, r.PostForm) {
-		fd.contactSpamBlock(r, "captcha")
-		writeError(http.StatusBadRequest, "validation failed", true)
+	if step == "submit" {
+		if reason := fd.contactTokenValidationReason(r.FormValue("form_token"), time.Now()); reason != "" {
+			fd.contactSpamBlock(r, reason)
+			writeError(http.StatusBadRequest, t(r, "contact.fill_wait"), true)
+			return
+		}
+		if !fd.verifyCaptcha(r, r.PostForm) {
+			fd.contactSpamBlock(r, "captcha")
+			writeError(http.StatusBadRequest, "validation failed", true)
+			return
+		}
+	} else if step != "confirm" {
+		fd.contactSpamBlock(r, "shape")
+		writeError(http.StatusBadRequest, "invalid form", true)
 		return
 	}
 	form := fd.readSecurityForm(r)
@@ -250,6 +322,42 @@ func (fd *frontendDeps) securityReportAPIPost(w http.ResponseWriter, r *http.Req
 		return
 	}
 	now := time.Now()
+	if step == "submit" {
+		if reason, blocked := fd.contactRateReason(r, form.Email, now); blocked {
+			fd.contactSpamBlock(r, reason)
+			fd.setContactRetryAfter(w, r, reason)
+			writeError(http.StatusTooManyRequests, "rate limited", true)
+			return
+		}
+		flags := ""
+		if decoy {
+			flags = "d"
+		}
+		token := issueContactReviewToken(fd.installSecret, r.PostForm, now, flags)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": map[string]any{"review": map[string]string{"type": "security", "email": form.Email, "subject": form.Summary}, "review_token": token, "confirm_after_seconds": fd.contactAntispam().ReviewMinSeconds}})
+		return
+	}
+	settings := fd.contactAntispam()
+	nonce, valid := verifyContactReviewToken(fd.installSecret, r.FormValue("review_token"), r.PostForm, now, settings.ReviewMinSeconds, settings.ReviewMaxSeconds)
+	if !valid || r.FormValue("confirmed") != "true" {
+		fd.contactSpamBlock(r, "review")
+		writeError(http.StatusBadRequest, "Please read the details and confirm", true)
+		return
+	}
+	if !fd.consumeContactNonce(nonce, now) {
+		fd.contactSpamBlock(r, "replay")
+		writeError(http.StatusBadRequest, "Please read the details and confirm", true)
+		return
+	}
+	if strings.Contains(r.FormValue("review_token"), ".d.") {
+		trackingID, err := db.NewTrackingID()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "error": "unable to complete submission"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": map[string]string{"tracking_id": trackingID}})
+		return
+	}
 	if reason, blocked := fd.contactRateReason(r, form.Email, now); blocked {
 		fd.contactSpamBlock(r, reason)
 		fd.setContactRetryAfter(w, r, reason)

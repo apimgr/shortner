@@ -612,7 +612,7 @@ func (m model) statsView() string {
 	if len(m.stats.TimeSeries) > 0 {
 		b.WriteString("\n" + m.styles.Muted.Render("Recent days") + "\n")
 		for _, point := range m.stats.TimeSeries {
-			b.WriteString(fmt.Sprintf("  %-12s %s %d\n", point.Date, m.symbols.Bullet, point.Count))
+			fmt.Fprintf(&b, "  %-12s %s %d\n", point.Date, m.symbols.Bullet, point.Count)
 		}
 	}
 	if len(m.stats.Referrers) > 0 {
@@ -628,13 +628,13 @@ func (m model) statsView() string {
 			return keys[i] < keys[j]
 		})
 		for _, key := range keys {
-			b.WriteString(fmt.Sprintf("  %-30s %d\n", truncate(key, 30), m.stats.Referrers[key]))
+			fmt.Fprintf(&b, "  %-30s %d\n", truncate(key, 30), m.stats.Referrers[key])
 		}
 	}
 	if len(m.stats.Recent) > 0 {
 		b.WriteString("\n" + m.styles.Muted.Render("Recent clicks") + "\n")
 		for _, click := range m.stats.Recent {
-			b.WriteString(fmt.Sprintf("  %-24s %-16s %s\n", click.Timestamp, click.Country, truncate(click.Referrer, 40)))
+			fmt.Fprintf(&b, "  %-24s %-16s %s\n", click.Timestamp, click.Country, truncate(click.Referrer, 40))
 		}
 	}
 	return b.String()

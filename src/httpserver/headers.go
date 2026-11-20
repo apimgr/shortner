@@ -32,7 +32,7 @@ func newHeaderDeps(cfg *config.Config, resolver *ProxyResolver) *headerDeps {
 	return &headerDeps{
 		cfg:               cfg,
 		resolver:          resolver,
-		permissionsPolicy: buildPermissionsPolicy(cfg.Web.PermissionsPolicy),
+		permissionsPolicy: buildPermissionsPolicy(config.DefaultPermissionsPolicy()),
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 
 func testRateLimitConfig() config.RateLimit {
 	return config.RateLimit{
-		Enabled:     true,
 		Read:        config.RateLimitClass{Requests: 2, Window: 60},
 		Write:       config.RateLimitClass{Requests: 1, Window: 60},
 		Health:      config.RateLimitClass{Requests: 5, Window: 60},
@@ -68,22 +67,8 @@ func TestRateLimiterIndependentPerClass(t *testing.T) {
 	}
 }
 
-func TestRateLimiterDisabledAlwaysAllows(t *testing.T) {
-	cfg := testRateLimitConfig()
-	cfg.Enabled = false
-	rl := NewRateLimiter(cfg)
-
-	for i := 0; i < 100; i++ {
-		allowed, _ := rl.Allow("1.2.3.4", rlRead)
-		if !allowed {
-			t.Fatal("disabled rate limiter should always allow")
-		}
-	}
-}
-
 func TestRateLimiterGlobalBurst(t *testing.T) {
 	cfg := config.RateLimit{
-		Enabled:     true,
 		Read:        config.RateLimitClass{Requests: 1000, Window: 60},
 		Write:       config.RateLimitClass{Requests: 1000, Window: 60},
 		Health:      config.RateLimitClass{Requests: 1000, Window: 60},

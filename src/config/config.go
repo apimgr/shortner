@@ -1,8 +1,9 @@
-// Package config loads and saves server.yml, the sole source of truth for
+// Package config loads and saves the merged server.yml, yaml.d, and secrets.yml
 // operator configuration. See AI.md PART 5 for the authoritative schema.
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,7 +16,7 @@ import (
 	"github.com/apimgr/shortner/src/security"
 )
 
-// Config is the root of server.yml.
+// Config is the root of the merged configuration.
 type Config struct {
 	Server Server `yaml:"server"`
 	Web    Web    `yaml:"web"`
@@ -42,6 +43,7 @@ type Server struct {
 	Compression    Compression    `yaml:"compression"`
 	TrustedProxies TrustedProxies `yaml:"trusted_proxies"`
 	RateLimit      RateLimit      `yaml:"rate_limit"`
+	Logs           Logs           `yaml:"logs"`
 	Cache          CacheConfig    `yaml:"cache"`
 	Healthz        Healthz        `yaml:"healthz"`
 	TLS            TLS            `yaml:"tls"`
@@ -408,9 +410,8 @@ type Feed struct {
 }
 
 // Contact holds `server.contact`, per AI.md PART 16 "/server/contact" ->
-// "Configuration". Admin.Email is never rendered on the public contact
-// page — only General.Email and Abuse.Email are, per the page's spec'd
-// "Abuse Reports" section.
+// "Configuration". Admin.Email is never rendered publicly. General.Email
+// is a private-recipient fallback and appears only on approved report pages.
 type Contact struct {
 	General  ContactRecipient `yaml:"general"`
 	Admin    ContactRecipient `yaml:"admin"`
@@ -427,11 +428,13 @@ type Contact struct {
 }
 
 // ContactAntispam controls the server-side layers protecting anonymous
-// contact and security-report submissions, per AI.md PART 16.
+// report and security-report submissions, per AI.md PART 16.
 type ContactAntispam struct {
 	Honeypot             bool     `yaml:"honeypot"`
 	MinFillSeconds       int      `yaml:"min_fill_seconds"`
 	MaxAgeSeconds        int      `yaml:"max_age_seconds"`
+	ReviewMinSeconds     int      `yaml:"review_min_seconds"`
+	ReviewMaxSeconds     int      `yaml:"review_max_seconds"`
 	PerIP                int      `yaml:"per_ip"`
 	PerEmail             int      `yaml:"per_email"`
 	Global               int      `yaml:"global"`
@@ -440,7 +443,6 @@ type ContactAntispam struct {
 	RejectMarkup         bool     `yaml:"reject_markup"`
 	BlockedWords         []string `yaml:"blocked_words"`
 	BlockedEmailDomains  []string `yaml:"blocked_email_domains"`
-	BlockedLinkDomains   []string `yaml:"blocked_link_domains"`
 	Strikes              int      `yaml:"strikes"`
 	BanHours             int      `yaml:"ban_hours"`
 	DuplicateWindowHours int      `yaml:"duplicate_window_hours"`
@@ -464,7 +466,6 @@ type Privacy struct {
 	Data       PrivacyData       `yaml:"data"`
 	Consent    PrivacyConsent    `yaml:"consent"`
 	Cookies    PrivacyCookies    `yaml:"cookies"`
-	Content    PrivacyContent    `yaml:"content"`
 	Retention  PrivacyRetention  `yaml:"retention"`
 	ThirdParty PrivacyThirdParty `yaml:"third_party"`
 }
@@ -529,25 +530,6 @@ type PrivacyCookieCategory struct {
 	Description string `yaml:"description"`
 }
 
-// PrivacyContent holds `server.privacy.content` (Markdown-flagged fields;
-// rendered as plain paragraphs — a Markdown renderer is not wired yet, see
-// TODO.AI.md).
-type PrivacyContent struct {
-	DataCollection  string `yaml:"data_collection"`
-	DataUsage       string `yaml:"data_usage"`
-	DataUsageIfSold string `yaml:"data_usage_if_sold"`
-	DataSecurity    string `yaml:"data_security"`
-}
-
-// GetDataUsageContent returns DataUsageIfSold when Data.Sold is true, else
-// DataUsage, per AI.md PART 16 "Dynamic Fields" -> "content.data_usage".
-func (p Privacy) GetDataUsageContent() string {
-	if p.Data.Sold && p.Content.DataUsageIfSold != "" {
-		return p.Content.DataUsageIfSold
-	}
-	return p.Content.DataUsage
-}
-
 // PrivacyRetention holds `server.privacy.retention`.
 type PrivacyRetention struct {
 	Period            string `yaml:"period"`
@@ -571,29 +553,19 @@ type PrivacyThirdPartyService struct {
 // Web holds the top-level `web:` block of server.yml, per AI.md PART 16
 // "Footer Customization" and "Announcements".
 type Web struct {
-	Footer        WebFooter        `yaml:"footer"`
 	Announcements WebAnnouncements `yaml:"announcements"`
 	Theme         string           `yaml:"theme"`
 
 	// The PART 11 header/well-known blocks. See src/config/security.go for
 	// each type's spec reference.
-	HSTS              HSTS              `yaml:"hsts"`
-	PermissionsPolicy map[string]string `yaml:"permissions_policy"`
-	Headers           Headers           `yaml:"headers"`
-	CSP               CSP               `yaml:"csp"`
-	Reports           Reports           `yaml:"reports"`
-	Robots            Robots            `yaml:"robots"`
-	Security          WebSecurity       `yaml:"security"`
-	LLMs              LLMs              `yaml:"llms"`
-	WellKnown         WellKnown         `yaml:"well_known"`
-}
-
-// WebFooter holds `web.footer`.
-type WebFooter struct {
-	// CustomHTML is sanitized via src/common/sanitize.SanitizeFooterHTML
-	// before every render — never trust this field directly in a
-	// template. "" = default branding; " " = branding disabled.
-	CustomHTML string `yaml:"custom_html"`
+	HSTS      HSTS        `yaml:"hsts"`
+	Headers   Headers     `yaml:"headers"`
+	CSP       CSP         `yaml:"csp"`
+	Reports   Reports     `yaml:"reports"`
+	Robots    Robots      `yaml:"robots"`
+	Security  WebSecurity `yaml:"security"`
+	LLMs      LLMs        `yaml:"llms"`
+	WellKnown WellKnown   `yaml:"well_known"`
 }
 
 // WebAnnouncements holds `web.announcements`, per AI.md PART 16
@@ -617,15 +589,11 @@ type Announcement struct {
 // Pages holds the top-level `pages:` block of server.yml, per AI.md
 // PART 16 "Pages Configuration (config file)".
 type Pages struct {
-	About   PageContent `yaml:"about"`
-	Privacy PageContent `yaml:"privacy"`
 	Contact ContactPage `yaml:"contact"`
 	Help    PageContent `yaml:"help"`
-	Terms   PageContent `yaml:"terms"`
 }
 
-// PageContent is a simple operator-overridable content block (Markdown-
-// flagged; see PrivacyContent's doc comment on Markdown rendering status).
+// PageContent is the Markdown source for server-rendered help content.
 type PageContent struct {
 	Content string `yaml:"content"`
 }
@@ -691,7 +659,6 @@ type TrustedProxies struct {
 
 // RateLimit holds `server.rate_limit`, per AI.md PART 12 "Rate Limiting".
 type RateLimit struct {
-	Enabled     bool           `yaml:"enabled"`
 	Read        RateLimitClass `yaml:"read"`
 	Write       RateLimitClass `yaml:"write"`
 	Health      RateLimitClass `yaml:"health"`
@@ -702,6 +669,68 @@ type RateLimit struct {
 type RateLimitClass struct {
 	Requests int `yaml:"requests"`
 	Window   int `yaml:"window"`
+}
+
+// Logs describes the named log streams and their shared defaults.
+type Logs struct {
+	Level    string      `yaml:"level"`
+	Defaults LogDefaults `yaml:"defaults"`
+	Access   LogKind     `yaml:"access"`
+	Server   LogKind     `yaml:"server"`
+	Error    LogKind     `yaml:"error"`
+	Audit    LogKind     `yaml:"audit"`
+	Security LogKind     `yaml:"security"`
+	Debug    LogKind     `yaml:"debug"`
+}
+
+type LogDefaults struct {
+	Custom string `yaml:"custom"`
+	Rotate string `yaml:"rotate"`
+	Keep   string `yaml:"keep"`
+}
+
+type LogKind struct {
+	Enabled  *bool  `yaml:"enabled,omitempty"`
+	Format   string `yaml:"format,omitempty"`
+	Custom   string `yaml:"custom,omitempty"`
+	Rotate   string `yaml:"rotate,omitempty"`
+	Keep     string `yaml:"keep,omitempty"`
+	Compress bool   `yaml:"compress,omitempty"`
+}
+
+// EffectiveLogKind overlays per-kind values on the shared defaults.
+func (l Logs) EffectiveLogKind(kind string) (LogKind, bool) {
+	var value LogKind
+	switch kind {
+	case "access":
+		value = l.Access
+	case "server":
+		value = l.Server
+	case "error":
+		value = l.Error
+	case "audit":
+		value = l.Audit
+	case "security":
+		value = l.Security
+	case "debug":
+		value = l.Debug
+	default:
+		return LogKind{}, false
+	}
+	if value.Custom == "" {
+		value.Custom = l.Defaults.Custom
+	}
+	if value.Rotate == "" {
+		value.Rotate = l.Defaults.Rotate
+	}
+	if value.Keep == "" {
+		value.Keep = l.Defaults.Keep
+	}
+	return value, true
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }
 
 // CacheConfig holds `server.cache`, per AI.md PART 12 "Cache
@@ -768,11 +797,20 @@ func Default(dbPath string) *Config {
 				},
 			},
 			RateLimit: RateLimit{
-				Enabled:     true,
 				Read:        RateLimitClass{Requests: 120, Window: 60},
 				Write:       RateLimitClass{Requests: 10, Window: 60},
 				Health:      RateLimitClass{Requests: 120, Window: 60},
 				GlobalBurst: 240,
+			},
+			Logs: Logs{
+				Level:    "warn",
+				Defaults: LogDefaults{Rotate: "weekly,50MB", Keep: "none"},
+				Access:   LogKind{Format: "apache", Rotate: "monthly"},
+				Server:   LogKind{Format: "text"},
+				Error:    LogKind{Format: "text"},
+				Audit:    LogKind{Enabled: boolPtr(true), Format: "json", Rotate: "daily"},
+				Security: LogKind{Format: "fail2ban"},
+				Debug:    LogKind{Enabled: boolPtr(false), Format: "text"},
 			},
 			Cache: CacheConfig{
 				Type:     "memory",
@@ -804,9 +842,9 @@ func Default(dbPath string) *Config {
 				Feed:    Feed{MaxItems: 50},
 			},
 			Contact: Contact{Antispam: ContactAntispam{
-				Honeypot: true, MinFillSeconds: 3, MaxAgeSeconds: 43200,
+				Honeypot: true, MinFillSeconds: 3, MaxAgeSeconds: 43200, ReviewMinSeconds: 2, ReviewMaxSeconds: 900,
 				PerIP: 5, PerEmail: 3, Global: 60, Window: "1h",
-				MaxLinks: 2, RejectMarkup: true, Strikes: 3, BanHours: 24, DuplicateWindowHours: 24,
+				MaxLinks: 10, RejectMarkup: true, Strikes: 3, BanHours: 24, DuplicateWindowHours: 24,
 			}},
 			GeoIP: GeoIP{
 				Enabled:        true,
@@ -917,16 +955,15 @@ func Default(dbPath string) *Config {
 		Web: Web{
 			// Dark is the required default per AI.md PART 16's "Three
 			// Required Themes" table (Dark: Default = YES, Auto: No).
-			Theme:             "dark",
-			HSTS:              DefaultHSTS(),
-			PermissionsPolicy: DefaultPermissionsPolicy(),
-			Headers:           DefaultHeaders(),
-			CSP:               DefaultCSP(),
-			Reports:           DefaultReports(),
-			Robots:            DefaultRobots(),
-			Security:          DefaultWebSecurity(),
-			LLMs:              DefaultLLMs(),
-			WellKnown:         DefaultWellKnown(),
+			Theme:     "dark",
+			HSTS:      DefaultHSTS(),
+			Headers:   DefaultHeaders(),
+			CSP:       DefaultCSP(),
+			Reports:   DefaultReports(),
+			Robots:    DefaultRobots(),
+			Security:  DefaultWebSecurity(),
+			LLMs:      DefaultLLMs(),
+			WellKnown: DefaultWellKnown(),
 		},
 		Pages: Pages{
 			Contact: ContactPage{
@@ -944,17 +981,24 @@ func Default(dbPath string) *Config {
 // Default(dbPath) without writing anything — callers decide when to persist
 // a first-run config via Save.
 func Load(path, dbPath string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return Default(dbPath), nil
-	}
+	data, err := readMergedConfig(path)
 	if err != nil {
-		return nil, fmt.Errorf("config: read %s: %w", path, err)
+		return nil, err
 	}
-
+	baseData, baseErr := os.ReadFile(path)
+	if baseErr != nil && !os.IsNotExist(baseErr) {
+		return nil, fmt.Errorf("config: read %s: %w", path, baseErr)
+	}
 	cfg := Default(dbPath)
+	var legacy Config
+	if baseErr == nil {
+		if err := yaml.Unmarshal(baseData, &legacy); err != nil {
+			return nil, fmt.Errorf("config: parse %s: %w", path, err)
+		}
+	}
+	legacyToken, legacyKey := legacy.Server.Token, legacy.Server.Security.EncryptionKey
 	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("config: parse %s: %w", path, err)
+		return nil, fmt.Errorf("config: parse merged configuration: %w", err)
 	}
 	var addressProbe struct {
 		Server struct {
@@ -963,13 +1007,323 @@ func Load(path, dbPath string) (*Config, error) {
 		} `yaml:"server"`
 	}
 	if err := yaml.Unmarshal(data, &addressProbe); err != nil {
-		return nil, fmt.Errorf("config: parse %s: %w", path, err)
+		return nil, fmt.Errorf("config: parse merged configuration: %w", err)
 	}
 	if addressProbe.Server.Address == nil && addressProbe.Server.Listen != nil {
 		cfg.Server.Listen = *addressProbe.Server.Listen
 	}
 	cfg.Web.CSP.ModeExplicit = cspModeIsExplicit(data)
+	secretsPath := filepath.Join(filepath.Dir(path), "secrets.yml")
+	secretData, secretErr := os.ReadFile(secretsPath)
+	if secretErr != nil && !os.IsNotExist(secretErr) {
+		return nil, fmt.Errorf("config: read %s: %w", secretsPath, secretErr)
+	}
+	secretToken, secretKey := "", ""
+	if secretErr == nil {
+		var secretValues Config
+		if err := yaml.Unmarshal(secretData, &secretValues); err != nil {
+			return nil, fmt.Errorf("config: parse %s: %w", secretsPath, err)
+		}
+		secretToken = secretValues.Server.Token
+		secretKey = secretValues.Server.Security.EncryptionKey
+		merged, mergeErr := mergeYAML(data, secretData)
+		if mergeErr != nil {
+			return nil, fmt.Errorf("config: merge %s: %w", secretsPath, mergeErr)
+		}
+		cfg = Default(dbPath)
+		if err := yaml.Unmarshal(merged, cfg); err != nil {
+			return nil, fmt.Errorf("config: parse merged configuration: %w", err)
+		}
+	}
+	needsMigration := false
+	if secretToken == "" && legacyToken != "" {
+		cfg.Server.Token = legacyToken
+		needsMigration = true
+	}
+	if secretKey == "" && legacyKey != "" {
+		cfg.Server.Security.EncryptionKey = legacyKey
+		needsMigration = true
+	}
+	if needsMigration {
+		migration := &Config{}
+		if secretToken == "" {
+			migration.Server.Token = legacyToken
+		}
+		if secretKey == "" {
+			migration.Server.Security.EncryptionKey = legacyKey
+		}
+		if err := SaveSecrets(path, migration); err != nil {
+			return nil, fmt.Errorf("config: migrate secrets: %w", err)
+		}
+		if err := removeMigratedSecrets(path, migration); err != nil {
+			return nil, fmt.Errorf("config: remove migrated secrets: %w", err)
+		}
+	}
 	return cfg, nil
+}
+
+// readMergedConfig reads server.yml, ordered yaml.d drop-ins, then secrets.yml.
+func readMergedConfig(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("config: read %s: %w", path, err)
+	}
+	if err != nil {
+		data = []byte("{}\n")
+	}
+	if _, err := parseConfigDocument(data); err != nil {
+		return nil, fmt.Errorf("config: parse %s: %w", path, err)
+	}
+	configDir := filepath.Dir(path)
+	dropDir := filepath.Join(configDir, "yaml.d")
+	entries, err := os.ReadDir(dropDir)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("config: read %s: %w", dropDir, err)
+	}
+	merged := data
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") || (!strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml")) {
+			continue
+		}
+		candidate := filepath.Join(dropDir, name)
+		info, statErr := os.Stat(candidate)
+		if statErr != nil {
+			return nil, fmt.Errorf("config: inspect %s: %w", candidate, statErr)
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		real, realErr := filepath.EvalSymlinks(candidate)
+		if realErr != nil {
+			return nil, fmt.Errorf("config: resolve %s: %w", candidate, realErr)
+		}
+		realDir, dirErr := filepath.EvalSymlinks(dropDir)
+		if dirErr != nil {
+			return nil, fmt.Errorf("config: resolve %s: %w", dropDir, dirErr)
+		}
+		rel, relErr := filepath.Rel(realDir, real)
+		if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		part, readErr := os.ReadFile(candidate)
+		if readErr != nil {
+			return nil, fmt.Errorf("config: read %s: %w", candidate, readErr)
+		}
+		if _, parseErr := parseConfigDocument(part); parseErr != nil {
+			return nil, fmt.Errorf("config: parse %s: %w", candidate, parseErr)
+		}
+		merged, err = mergeYAML(merged, part)
+		if err != nil {
+			return nil, fmt.Errorf("config: merge %s: %w", candidate, err)
+		}
+	}
+	return merged, nil
+}
+
+func parseConfigDocument(data []byte) (*yaml.Node, error) {
+	var document yaml.Node
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		return nil, err
+	}
+	if len(document.Content) == 0 {
+		return &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}, nil
+	}
+	if document.Content[0].Kind != yaml.MappingNode {
+		return nil, errors.New("configuration root must be a mapping")
+	}
+	if err := validateConfigNode(document.Content[0]); err != nil {
+		return nil, err
+	}
+	return &document, nil
+}
+
+func removeMigratedSecrets(path string, migrated *Config) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	document, err := parseConfigDocument(data)
+	if err != nil {
+		return err
+	}
+	root := document.Content[0]
+	server := yamlMapValue(root, "server")
+	if server == nil {
+		return nil
+	}
+	if migrated.Server.Token != "" {
+		yamlRemoveMapKey(server, "token")
+	}
+	if migrated.Server.Security.EncryptionKey != "" {
+		security := yamlMapValue(server, "security")
+		if security != nil {
+			yamlRemoveMapKey(security, "encryption_key")
+			if len(security.Content) == 0 {
+				yamlRemoveMapKey(server, "security")
+			}
+		}
+	}
+	var output strings.Builder
+	encoder := yaml.NewEncoder(&output)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(document); err != nil {
+		return err
+	}
+	if err := encoder.Close(); err != nil {
+		return err
+	}
+	return writeAtomic(path, []byte(strings.TrimRight(output.String(), "\n")+"\n"), 0o600)
+}
+
+func yamlMapValue(mapping *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key && mapping.Content[i+1].Kind == yaml.MappingNode {
+			return mapping.Content[i+1]
+		}
+	}
+	return nil
+}
+
+func yamlRemoveMapKey(mapping *yaml.Node, key string) {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key {
+			mapping.Content = append(mapping.Content[:i], mapping.Content[i+2:]...)
+			return
+		}
+	}
+}
+
+func validateConfigNode(node *yaml.Node) error {
+	if node.Tag == "!!null" {
+		return errors.New("explicit null values are not allowed")
+	}
+	if node.Kind == yaml.MappingNode {
+		seen := make(map[string]struct{}, len(node.Content)/2)
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			key := node.Content[i]
+			if _, exists := seen[key.Value]; exists {
+				return fmt.Errorf("duplicate key %q", key.Value)
+			}
+			seen[key.Value] = struct{}{}
+			if err := validateConfigNode(node.Content[i+1]); err != nil {
+				return fmt.Errorf("key %q: %w", key.Value, err)
+			}
+		}
+	} else {
+		for _, child := range node.Content {
+			if err := validateConfigNode(child); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func mergeYAML(base, overlay []byte) ([]byte, error) {
+	left, err := parseConfigDocument(base)
+	if err != nil {
+		return nil, err
+	}
+	right, err := parseConfigDocument(overlay)
+	if err != nil {
+		return nil, err
+	}
+	mergeYAMLNode(left.Content[0], right.Content[0])
+	var output strings.Builder
+	encoder := yaml.NewEncoder(&output)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(left); err != nil {
+		return nil, err
+	}
+	if err := encoder.Close(); err != nil {
+		return nil, err
+	}
+	return []byte(output.String()), nil
+}
+
+func mergeYAMLNode(base, overlay *yaml.Node) {
+	for i := 0; i+1 < len(overlay.Content); i += 2 {
+		key, value := overlay.Content[i], overlay.Content[i+1]
+		found := -1
+		for j := 0; j+1 < len(base.Content); j += 2 {
+			if base.Content[j].Value == key.Value {
+				found = j + 1
+				break
+			}
+		}
+		if found >= 0 && base.Content[found].Kind == yaml.MappingNode && value.Kind == yaml.MappingNode {
+			mergeYAMLNode(base.Content[found], value)
+			continue
+		}
+		copyKey, copyValue := *key, *value
+		if found >= 0 {
+			base.Content[found] = &copyValue
+		} else {
+			base.Content = append(base.Content, &copyKey, &copyValue)
+		}
+	}
+}
+
+// EnforcePrivatePaths creates the config directory and applies the private
+// modes required for server.yml, secrets.yml, yaml.d, and operator HTML.
+func EnforcePrivatePaths(configDir string) error {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		return fmt.Errorf("config: create private directory %s: %w", configDir, err)
+	}
+	if err := os.Chmod(configDir, 0o700); err != nil {
+		return fmt.Errorf("config: secure private directory %s: %w", configDir, err)
+	}
+	for _, name := range []string{"server.yml", "secrets.yml"} {
+		path := filepath.Join(configDir, name)
+		if _, err := os.Lstat(path); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return fmt.Errorf("config: inspect private file %s: %w", path, err)
+		}
+		if err := os.Chmod(path, 0o600); err != nil {
+			return fmt.Errorf("config: secure private file %s: %w", path, err)
+		}
+	}
+	for _, name := range []string{"yaml.d", "html"} {
+		root := filepath.Join(configDir, name)
+		if _, err := os.Lstat(root); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return fmt.Errorf("config: inspect private directory %s: %w", root, err)
+		}
+		if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			info, err := os.Lstat(path)
+			if err != nil {
+				return err
+			}
+			if entry.Type()&os.ModeSymlink != 0 {
+				target, err := filepath.EvalSymlinks(path)
+				if err != nil {
+					return err
+				}
+				rel, err := filepath.Rel(root, target)
+				if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+					return fmt.Errorf("symlink escapes private directory: %s", path)
+				}
+				info, err = os.Stat(path)
+				if err != nil {
+					return err
+				}
+			}
+			perm := os.FileMode(0o600)
+			if info.IsDir() {
+				perm = 0o700
+			}
+			return os.Chmod(path, perm)
+		}); err != nil {
+			return fmt.Errorf("config: secure private directory %s: %w", root, err)
+		}
+	}
+	return nil
 }
 
 // PeekServerPort reads only server.port for the root startup phase, before
@@ -1035,18 +1389,31 @@ func cspModeIsExplicit(data []byte) bool {
 //
 // The write is atomic: the new content goes to a temporary file in the
 // same directory and is renamed over path only once it is completely
-// written and fsync'd. server.yml holds the operator token, so a crash or
-// full disk part-way through an in-place truncate-and-write would leave
-// the server with no way to authenticate.
+// written and fsync'd. A crash or full disk part-way through an in-place
+// truncate-and-write would leave the server with invalid configuration.
 func Save(path string, cfg *Config) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("config: create dir for %s: %w", path, err)
 	}
-	data, err := yaml.Marshal(cfg)
-	if err != nil {
+	if cfg.Server.Token != "" || cfg.Server.Security.EncryptionKey != "" {
+		if err := SaveSecrets(path, cfg); err != nil {
+			return err
+		}
+	}
+	var indented strings.Builder
+	enc := yaml.NewEncoder(&indented)
+	enc.SetIndent(2)
+	fileConfig := *cfg
+	fileConfig.Server.Token = ""
+	fileConfig.Server.Security.EncryptionKey = ""
+	if err := enc.Encode(&fileConfig); err != nil {
 		return fmt.Errorf("config: marshal: %w", err)
 	}
+	if err := enc.Close(); err != nil {
+		return fmt.Errorf("config: marshal: %w", err)
+	}
+	data := []byte(strings.TrimRight(indented.String(), "\n") + "\n")
 
 	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
 	if err != nil {
@@ -1056,15 +1423,92 @@ func Save(path string, cfg *Config) error {
 	defer os.Remove(tmpName)
 
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("config: chmod %s: %w", tmpName, err)
 	}
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("config: write %s: %w", tmpName, err)
 	}
 	if err := tmp.Sync(); err != nil {
 		tmp.Close()
+		return fmt.Errorf("config: sync %s: %w", tmpName, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("config: close %s: %w", tmpName, err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("config: replace %s: %w", path, err)
+	}
+	return nil
+}
+
+// SaveSecrets atomically writes the server-generated credentials to the
+// private secrets.yml file beside server.yml.
+func SaveSecrets(configPath string, cfg *Config) error {
+	dir := filepath.Dir(configPath)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("config: create secrets dir %s: %w", dir, err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return fmt.Errorf("config: secure secrets dir %s: %w", dir, err)
+	}
+	secrets := map[string]any{}
+	if existing, err := os.ReadFile(filepath.Join(dir, "secrets.yml")); err == nil {
+		if err := yaml.Unmarshal(existing, &secrets); err != nil {
+			return fmt.Errorf("config: parse secrets.yml: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("config: read secrets.yml: %w", err)
+	}
+	server, _ := secrets["server"].(map[string]any)
+	if server == nil {
+		server = map[string]any{}
+	}
+	if cfg.Server.Token != "" {
+		server["token"] = cfg.Server.Token
+	}
+	security, _ := server["security"].(map[string]any)
+	if security == nil {
+		security = map[string]any{}
+	}
+	if cfg.Server.Security.EncryptionKey != "" {
+		security["encryption_key"] = cfg.Server.Security.EncryptionKey
+	}
+	if len(security) > 0 {
+		server["security"] = security
+	}
+	secrets["server"] = server
+	var output strings.Builder
+	enc := yaml.NewEncoder(&output)
+	enc.SetIndent(2)
+	if err := enc.Encode(secrets); err != nil {
+		return fmt.Errorf("config: encode secrets: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return fmt.Errorf("config: encode secrets: %w", err)
+	}
+	return writeAtomic(filepath.Join(dir, "secrets.yml"), []byte(strings.TrimRight(output.String(), "\n")+"\n"), 0o600)
+}
+
+func writeAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("config: create temp file in %s: %w", dir, err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("config: chmod %s: %w", tmpName, err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("config: write %s: %w", tmpName, err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
 		return fmt.Errorf("config: sync %s: %w", tmpName, err)
 	}
 	if err := tmp.Close(); err != nil {

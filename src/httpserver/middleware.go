@@ -39,16 +39,17 @@ import (
 // deps bundles the shared state every middleware needs, built once by
 // New() and closed over by each middleware function.
 type deps struct {
-	sqlDB       db.Handle
-	resolver    *ProxyResolver
-	rateLimiter *RateLimiter
-	stats       *Stats
-	access      *applog.Logger
-	operatorTok string
-	cors        config.CORS
-	csrf        config.CSRF
-	geo         *geoip.Manager
-	geoCfg      config.GeoIP
+	sqlDB           db.Handle
+	resolver        *ProxyResolver
+	rateLimiter     *RateLimiter
+	stats           *Stats
+	access          *applog.Logger
+	accessLogFormat string
+	operatorTok     string
+	cors            config.CORS
+	csrf            config.CSRF
+	geo             *geoip.Manager
+	geoCfg          config.GeoIP
 	// metrics is nil when server.metrics.enabled is false — every metrics
 	// call site below checks for nil first.
 	metrics *metrics.Metrics
@@ -601,7 +602,7 @@ func (d *deps) loggingMiddleware(next http.Handler) http.Handler {
 			}
 		}
 
-		if d.access != nil {
+		if d.access != nil && (!isHealthProbe(r) || rec.status < 200 || rec.status >= 300) {
 			entry := applog.AccessLogEntry{
 				IP:        d.resolver.ResolveClientIP(r),
 				Time:      start,
@@ -613,7 +614,29 @@ func (d *deps) loggingMiddleware(next http.Handler) http.Handler {
 				Referer:   r.Header.Get("Referer"),
 				UserAgent: r.Header.Get("User-Agent"),
 			}
-			_ = d.access.WriteLine(applog.LevelInfo, applog.FormatApache(entry))
+			_ = d.access.WriteLine(applog.LevelInfo, formatAccessLog(d.accessLogFormat, entry))
 		}
 	})
+}
+
+func formatAccessLog(format string, entry applog.AccessLogEntry) string {
+	switch format {
+	case "nginx":
+		return applog.FormatNginx(entry)
+	case "json":
+		return applog.FormatAccessJSON(entry)
+	default:
+		return applog.FormatApache(entry)
+	}
+}
+
+func isHealthProbe(r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	switch r.URL.Path {
+	case "/server/healthz", "/healthz", "/api/healthz":
+		return true
+	}
+	return strings.HasPrefix(r.URL.Path, "/api/") && strings.HasSuffix(r.URL.Path, "/server/healthz")
 }

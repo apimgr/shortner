@@ -37,6 +37,7 @@ type securityPageData struct {
 	// ContactFormURL carries the current {security_id}, so following it
 	// puts the contact form in security-report mode.
 	ContactFormURL string
+	ReportFormURL  string
 	ContactEmail   string
 	Expires        string
 	HasPGPKey      bool
@@ -64,8 +65,13 @@ func (fd *frontendDeps) securityHandler(w http.ResponseWriter, r *http.Request) 
 		PolicyURL:      "/server/security/policy",
 		ThanksURL:      "/server/security/thanks",
 	}
-	if id := security.SecurityID(fd.installSecret, time.Now()); id != "" {
+	if fd.cfg.Pages.Contact.Enabled {
+		data.ReportFormURL = "/server/contact"
+	}
+	if fd.cfg.Pages.Contact.Enabled {
+		if id := security.SecurityID(fd.installSecret, time.Now()); id != "" {
 		data.ContactFormURL = "/server/contact?security_id=" + id
+		}
 	}
 	_ = renderPage(w, http.StatusOK, "security", data)
 }
@@ -127,7 +133,7 @@ func (fd *frontendDeps) dpoHandler(w http.ResponseWriter, r *http.Request) {
 	data := dpoPageData{
 		Base:    fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "dpo.title"), fd.cfg.Server.SEO.Description),
 		Name:    dpo.Name,
-		Email:   dpo.Email,
+		Email:   firstNonEmpty(dpo.Email, fd.cfg.Server.Contact.General.Email),
 		Address: dpo.Address,
 	}
 	_ = renderPage(w, http.StatusOK, "dpo", data)

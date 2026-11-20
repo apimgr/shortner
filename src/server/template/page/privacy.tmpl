@@ -1,9 +1,6 @@
 {{define "content"}}{{$lang := .Base.Lang}}<article class="privacy-page">
 <h1>{{t $lang "privacy.title"}}</h1>
 
-{{if .Content}}
-<div class="privacy-custom">{{.Content}}</div>
-{{else}}
 <section>
 <h2>{{t $lang "privacy.data_we_collect"}}</h2>
 <p>{{if .DataCollection}}{{.DataCollection}}{{else}}{{t $lang "privacy.default_data_collection"}}{{end}}</p>
@@ -65,6 +62,12 @@
 <h2>{{t $lang "privacy.data_retention"}}</h2>
 <p>{{.RetentionPeriod}}</p>
 </section>
-{{end}}
+
+{{if .Extension}}<section id="operator-extension">{{.Extension}}</section>{{end}}
+
+<section id="contact">
+<h2>{{t $lang "privacy.contact_title"}}</h2>
+{{if .ContactEmail}}<p><a href="mailto:{{.ContactEmail}}">{{.ContactEmail}}</a></p>{{else}}<p>{{t $lang "privacy.contact_fallback"}} <a href="/server/security">{{t $lang "privacy.contact_security_link"}}</a>.</p>{{end}}
+</section>
 </article>
 {{end}}

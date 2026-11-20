@@ -109,9 +109,9 @@ binary, `alpine:latest` runs it under `tini` as PID 1 with
 ```
 
 On first run the binary creates its configuration and data directories,
-writes `server.yml` with defaults, generates the operator token, and prints
-the startup banner. See [Configuration](configuration.md) for where those
-files land on each platform.
+writes `server.yml` and private `secrets.yml`, generates the operator token,
+and prints the startup banner. See [Configuration](configuration.md) for
+where those files land on each platform.
 
 To run against a throwaway directory instead of the system paths:
 

@@ -110,6 +110,7 @@ func (c *instrumentedConn) BeginTx(ctx context.Context, opts driver.TxOptions) (
 		// Begin is the only method the plain driver.Conn interface offers
 		// in that case, so the deprecation warning does not apply here.
 		//lint:ignore SA1019 required fallback for drivers without ConnBeginTx
+		//nolint:staticcheck // driver.Conn has no non-deprecated fallback method.
 		return c.Conn.Begin()
 	}
 	return b.BeginTx(ctx, opts)
@@ -118,7 +119,7 @@ func (c *instrumentedConn) BeginTx(ctx context.Context, opts driver.TxOptions) (
 func (c *instrumentedConn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
 	p, ok := c.Conn.(driver.ConnPrepareContext)
 	if !ok {
-		return c.Conn.Prepare(query)
+		return c.Prepare(query)
 	}
 	return p.PrepareContext(ctx, query)
 }

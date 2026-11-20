@@ -263,7 +263,7 @@ type aboutPageData struct {
 func (fd *frontendDeps) aboutHandler(w http.ResponseWriter, r *http.Request) {
 	data := aboutPageData{
 		Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "about.title"), fd.cfg.Server.SEO.Description),
-		AboutContent: sanitize.RenderMarkdown(fd.cfg.Pages.About.Content, r.Host),
+		AboutContent: fd.operatorHTML(r, "about", fd.operatorVariables(r)),
 	}
 	_ = renderPage(w, http.StatusOK, "about", data)
 }
@@ -289,14 +289,9 @@ type termsPageData struct {
 }
 
 func (fd *frontendDeps) termsHandler(w http.ResponseWriter, r *http.Request) {
-	custom := fd.cfg.Pages.Terms.Content
-	var content template.HTML
-	if custom != "" {
-		content = sanitize.RenderMarkdown(custom, r.Host)
-	}
 	data := termsPageData{
 		Base:    fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "terms.title"), fd.cfg.Server.SEO.Description),
-		Content: content,
+		Content: fd.operatorHTML(r, "terms", fd.operatorVariables(r)),
 	}
 	_ = renderPage(w, http.StatusOK, "terms", data)
 }
@@ -305,8 +300,9 @@ func (fd *frontendDeps) termsHandler(w http.ResponseWriter, r *http.Request) {
 // server.privacy in server.yml (auto-generated privacy page, per AI.md
 // PART 16 "/server/privacy").
 type privacyPageData struct {
-	Base    PageData
-	Content template.HTML
+	Base         PageData
+	Extension    template.HTML
+	ContactEmail string
 
 	DataCollection template.HTML
 	DataUsage      template.HTML
@@ -326,19 +322,15 @@ type privacyPageData struct {
 
 func (fd *frontendDeps) privacyHandler(w http.ResponseWriter, r *http.Request) {
 	priv := fd.cfg.Server.Privacy
-	custom := fd.cfg.Pages.Privacy.Content
-	var content template.HTML
-	if custom != "" {
-		content = sanitize.RenderMarkdown(custom, r.Host)
-	}
 
 	data := privacyPageData{
-		Base:    fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "privacy.title"), fd.cfg.Server.SEO.Description),
-		Content: content,
+		Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "privacy.title"), fd.cfg.Server.SEO.Description),
+		Extension:    fd.operatorHTML(r, "privacy", fd.operatorVariables(r)),
+		ContactEmail: strings.TrimSpace(fd.cfg.Server.Contact.DPO.Email),
 
-		DataCollection: sanitize.RenderMarkdown(priv.Content.DataCollection, r.Host),
-		DataUsage:      sanitize.RenderMarkdown(priv.GetDataUsageContent(), r.Host),
-		DataSecurity:   sanitize.RenderMarkdown(priv.Content.DataSecurity, r.Host),
+		DataCollection: "",
+		DataUsage:      "This information is used to create and redirect short links, measure aggregate usage, and prevent abuse.",
+		DataSecurity:   "",
 
 		CookieEssentialEnabled:       priv.Cookies.Essential.Enabled,
 		CookieEssentialDescription:   priv.Cookies.Essential.Description,
@@ -356,19 +348,37 @@ func (fd *frontendDeps) privacyHandler(w http.ResponseWriter, r *http.Request) {
 
 // contactPageData is the data bound to page/contact.tmpl.
 type contactPageData struct {
-	Base           PageData
-	Enabled        bool
-	Submitted      bool
-	SuccessMessage string
-	Error          string
-	Name           string
-	Email          string
-	Subject        string
-	Message        string
-	AbuseEmail     string
-	FormToken      string
-	Captcha        captchaDescriptor
+	Base            PageData
+	Enabled         bool
+	Submitted       bool
+	SuccessMessage  string
+	Error           string
+	Name            string
+	Email           string
+	Subject         string
+	Message         string
+	AbuseEmail      string
+	Type            string
+	Types           []string
+	ReportedURL     string
+	Reason          string
+	Reasons         []string
+	CopyrightedWork string
+	GoodFaith       bool
+	Accuracy        bool
+	Signature       string
+	RequestKind     string
+	RequestKinds    []string
+	FormToken       string
+	Review          bool
+	ReviewToken     string
+	ConfirmAfter    int
+	Captcha         captchaDescriptor
 }
+
+var contactReportTypes = []string{"abuse", "dmca", "privacy"}
+var contactAbuseReasons = []string{"illegal_content", "terms_violation", "harassment", "malware_phishing", "other"}
+var contactPrivacyKinds = []string{"access", "export", "deletion", "correction", "opt_out", "other"}
 
 // securityContactPageData is the data bound to page/contact_security.tmpl
 // — the security-report mode of /server/contact, per AI.md PART 11
@@ -378,6 +388,10 @@ type securityContactPageData struct {
 	SecurityMode bool
 	SecurityID   string
 	FormToken    string
+	Review       bool
+	ReviewToken  string
+	ConfirmAfter int
+	ReviewValues url.Values
 	Captcha      captchaDescriptor
 	Severities   []string
 	Components   []string
@@ -389,9 +403,15 @@ type securityContactPageData struct {
 }
 
 func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
-	// AI.md PART 11: a valid {security_id} switches the form into security
-	// mode; an absent or invalid one falls through to standard contact.
-	if fd.cfg.Pages.Contact.Enabled && fd.securityMode(r) {
+	if !fd.cfg.Pages.Contact.Enabled {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	if r.Method == http.MethodPost {
+		r.Body = http.MaxBytesReader(w, r.Body, contactFormBodyLimit)
+	}
+	if fd.securityMode(r) {
 		if r.Method == http.MethodPost {
 			fd.securityReportPost(w, r)
 			return
@@ -415,6 +435,10 @@ func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
 		_ = renderPage(w, http.StatusOK, "contact_security", data)
 		return
 	}
+	if r.FormValue("security_id") != "" {
+		r.Form.Del("security_id")
+		r.PostForm.Del("security_id")
+	}
 	if r.Method == http.MethodPost {
 		fd.contactPost(w, r)
 		return
@@ -425,11 +449,14 @@ func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := contactPageData{
-		Base:       fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "contact.title"), fd.cfg.Server.SEO.Description),
-		Enabled:    fd.cfg.Pages.Contact.Enabled,
-		AbuseEmail: fd.cfg.Server.Contact.Abuse.Email,
-		FormToken:  fd.contactToken(time.Now()),
-		Captcha:    captcha,
+		Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "contact.title"), fd.cfg.Server.SEO.Description),
+		Enabled:      true,
+		AbuseEmail:   fd.contactAbuseEmail(),
+		Types:        contactReportTypes,
+		Reasons:      contactAbuseReasons,
+		RequestKinds: contactPrivacyKinds,
+		FormToken:    fd.contactToken(time.Now()),
+		Captcha:      captcha,
 	}
 	_ = renderPage(w, http.StatusOK, "contact", data)
 }
@@ -441,11 +468,8 @@ func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
 func (fd *frontendDeps) contactPost(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, contactFormBodyLimit)
 	base := fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "contact.title"), fd.cfg.Server.SEO.Description)
-	abuseEmail := fd.cfg.Server.Contact.Abuse.Email
-
 	if !fd.cfg.Pages.Contact.Enabled {
-		data := contactPageData{Base: base, Enabled: false, AbuseEmail: abuseEmail}
-		_ = renderPage(w, http.StatusOK, "contact", data)
+		http.NotFound(w, r)
 		return
 	}
 
@@ -455,8 +479,18 @@ func (fd *frontendDeps) contactPost(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "captcha temporarily unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		data := contactPageData{Base: base, Enabled: true, AbuseEmail: abuseEmail, Error: t(r, "errors.form_read_failed"), FormToken: fd.contactToken(time.Now()), Captcha: captcha}
+		data := fd.newContactPageData(r, base, t(r, "errors.form_read_failed"), captcha)
 		_ = renderPage(w, http.StatusBadRequest, "contact", data)
+		return
+	}
+	if !fd.contactOriginValid(r) {
+		fd.contactSpamBlock(r, "origin")
+		captcha, issueErr := fd.issueCaptcha(r)
+		if issueErr != nil {
+			http.Error(w, "captcha temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		_ = renderPage(w, http.StatusBadRequest, "contact", fd.newContactPageData(r, base, "Please submit the form from this site", captcha))
 		return
 	}
 	if reason, valid := contactShapeValid(r.PostForm, false, false); !valid {
@@ -466,7 +500,7 @@ func (fd *frontendDeps) contactPost(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "captcha temporarily unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		_ = renderPage(w, http.StatusBadRequest, "contact", contactPageData{Base: base, Enabled: true, AbuseEmail: abuseEmail, Error: t(r, "errors.form_read_failed"), FormToken: fd.contactToken(time.Now()), Captcha: captcha})
+		_ = renderPage(w, http.StatusBadRequest, "contact", fd.newContactPageData(r, base, t(r, "errors.form_read_failed"), captcha))
 		return
 	}
 
@@ -474,42 +508,109 @@ func (fd *frontendDeps) contactPost(w http.ResponseWriter, r *http.Request) {
 	email := strings.TrimSpace(r.FormValue("email"))
 	subject := strings.TrimSpace(r.FormValue("subject"))
 	message := strings.TrimSpace(r.FormValue("message"))
-	data := contactPageData{
-		Base: base, Enabled: true, AbuseEmail: abuseEmail,
-		Name: name, Email: email, Subject: subject, Message: message,
-		FormToken: fd.contactToken(time.Now()),
-	}
+	data := fd.newContactPageData(r, base, "", captchaDescriptor{})
+	data.Name, data.Email, data.Subject, data.Message = name, email, subject, message
+	data.Type = r.FormValue("type")
+	data.ReportedURL = r.FormValue("reported_url")
+	data.Reason = r.FormValue("reason")
+	data.CopyrightedWork = r.FormValue("copyrighted_work")
+	data.GoodFaith = r.FormValue("good_faith_statement") == "true"
+	data.Accuracy = r.FormValue("accuracy_statement") == "true"
+	data.Signature = r.FormValue("signature")
+	data.RequestKind = r.FormValue("request_kind")
 	now := time.Now()
-	if fd.contactAntispam().Honeypot && r.FormValue("website") != "" {
+	step := r.FormValue("step")
+	if step == "" {
+		step = "submit"
+	}
+	decoy := fd.contactAntispam().Honeypot && r.FormValue("website") != ""
+	if decoy {
 		fd.contactSpamBlock(r, "honeypot")
-		data.Submitted = true
-		data.SuccessMessage = fd.contactSuccessMessage(r)
-		_ = renderPage(w, http.StatusOK, "contact", data)
-		return
 	}
 
+	if step == "submit" {
+		if reason := fd.contactTokenValidationReason(r.FormValue("form_token"), now); reason != "" {
+			fd.contactSpamBlock(r, reason)
+			fd.renderContactFailure(w, r, http.StatusBadRequest, &data, t(r, "contact.fill_wait"))
+			return
+		}
+	}
 	switch {
 	case name == "" || email == "" || subject == "" || message == "":
 		fd.renderContactFailure(w, r, http.StatusBadRequest, &data, t(r, "errors.all_fields_required"))
 		return
-	case !fd.contactTokenValid(r.FormValue("form_token"), now):
-		fd.contactSpamBlock(r, "fill_time")
-		fd.renderContactFailure(w, r, http.StatusBadRequest, &data, t(r, "contact.fill_wait"))
-		return
-	case !fd.verifyCaptcha(r, r.PostForm):
+	case step == "submit" && !fd.verifyCaptcha(r, r.PostForm):
 		fd.contactSpamBlock(r, "captcha")
 		fd.renderContactFailure(w, r, http.StatusBadRequest, &data, t(r, "errors.captcha_failed"))
+		return
+	}
+	if step == "edit" {
+		data.FormToken = fd.contactToken(now)
+		captcha, err := fd.issueCaptcha(r)
+		if err != nil {
+			http.Error(w, "captcha temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		data.Captcha = captcha
+		_ = renderPage(w, http.StatusOK, "contact", data)
+		return
+	}
+	if step != "submit" && step != "confirm" {
+		fd.renderContactFailure(w, r, http.StatusBadRequest, &data, t(r, "errors.form_read_failed"))
+		return
+	}
+	if step == "submit" {
+		if reason, blocked := fd.contactRateReason(r, email, now); blocked {
+			fd.contactSpamBlock(r, reason)
+			fd.setContactRetryAfter(w, r, reason)
+			fd.renderContactFailure(w, r, http.StatusTooManyRequests, &data, t(r, "errors.captcha_failed"))
+			return
+		}
+		if !decoy {
+			if reason := fd.contactContentReason(r, r.PostForm); reason != "" {
+				fd.contactSpamBlock(r, reason)
+				fd.renderContactFailure(w, r, http.StatusBadRequest, &data, "Your message could not be sent")
+				return
+			}
+			if !fd.validReportTarget(r, r.PostForm) {
+				fd.contactSpamBlock(r, "content")
+				fd.renderContactFailure(w, r, http.StatusBadRequest, &data, "Your message could not be sent")
+				return
+			}
+		}
+		flags := ""
+		if decoy {
+			flags = "d"
+		}
+		data.Review, data.ReviewToken, data.ConfirmAfter = true, issueContactReviewToken(fd.installSecret, r.PostForm, now, flags), fd.contactAntispam().ReviewMinSeconds
+		_ = renderPage(w, http.StatusOK, "contact", data)
+		return
+	}
+	settings := fd.contactAntispam()
+	nonce, valid := verifyContactReviewToken(fd.installSecret, r.FormValue("review_token"), r.PostForm, now, settings.ReviewMinSeconds, settings.ReviewMaxSeconds)
+	if !valid || r.FormValue("confirmed") != "true" {
+		fd.contactSpamBlock(r, "review")
+		data.Error = "Please read the details and confirm"
+		data.Review, data.ReviewToken, data.ConfirmAfter = true, issueContactReviewToken(fd.installSecret, r.PostForm, now, contactReviewFlags(r.FormValue("review_token"))), settings.ReviewMinSeconds
+		_ = renderPage(w, http.StatusBadRequest, "contact", data)
+		return
+	}
+	if !fd.consumeContactNonce(nonce, now) {
+		fd.contactSpamBlock(r, "replay")
+		data.Error = "Please read the details and confirm"
+		data.Review, data.ReviewToken, data.ConfirmAfter = true, issueContactReviewToken(fd.installSecret, r.PostForm, now, contactReviewFlags(r.FormValue("review_token"))), settings.ReviewMinSeconds
+		_ = renderPage(w, http.StatusBadRequest, "contact", data)
+		return
+	}
+	if strings.Contains(r.FormValue("review_token"), ".d.") {
+		data.Submitted, data.SuccessMessage = true, fd.contactSuccessMessage(r)
+		_ = renderPage(w, http.StatusOK, "contact", data)
 		return
 	}
 	if reason, blocked := fd.contactRateReason(r, email, now); blocked {
 		fd.contactSpamBlock(r, reason)
 		fd.setContactRetryAfter(w, r, reason)
 		fd.renderContactFailure(w, r, http.StatusTooManyRequests, &data, t(r, "errors.captcha_failed"))
-		return
-	}
-	if reason := fd.contactContentReason(name, email, subject, message); reason != "" {
-		fd.contactSpamBlock(r, reason)
-		fd.renderContactFailure(w, r, http.StatusBadRequest, &data, "Your message could not be sent")
 		return
 	}
 	if reason, blocked := fd.contactRecordAccepted(r, email, subject, message, now, true); blocked {
@@ -525,11 +626,48 @@ func (fd *frontendDeps) contactPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fd.relayContactMessage(name, email, subject, message)
+	fd.relayReportMessage(r.PostForm)
 
 	data.Submitted = true
 	data.SuccessMessage = fd.contactSuccessMessage(r)
 	_ = renderPage(w, http.StatusOK, "contact", data)
+}
+
+func (fd *frontendDeps) consumeContactNonce(nonce string, now time.Time) bool {
+	state := contactSpamStateFor(fd.installSecret)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	for key, expires := range state.usedTokens {
+		if !expires.After(now) {
+			delete(state.usedTokens, key)
+		}
+	}
+	if _, exists := state.usedTokens[nonce]; exists {
+		return false
+	}
+	if len(state.usedTokens) >= 50000 {
+		for key := range state.usedTokens {
+			delete(state.usedTokens, key)
+			break
+		}
+	}
+	state.usedTokens[nonce] = now.Add(15 * time.Minute)
+	return true
+}
+
+func (fd *frontendDeps) newContactPageData(r *http.Request, base PageData, message string, captcha captchaDescriptor) contactPageData {
+	return contactPageData{
+		Base: base, Enabled: true, AbuseEmail: fd.contactAbuseEmail(), Types: contactReportTypes,
+		Reasons: contactAbuseReasons, RequestKinds: contactPrivacyKinds,
+		FormToken: fd.contactToken(time.Now()), Captcha: captcha, Error: message,
+		Type: r.FormValue("type"), ReportedURL: r.FormValue("reported_url"), Reason: r.FormValue("reason"),
+		CopyrightedWork: r.FormValue("copyrighted_work"), GoodFaith: r.FormValue("good_faith_statement") == "true",
+		Accuracy: r.FormValue("accuracy_statement") == "true", Signature: r.FormValue("signature"), RequestKind: r.FormValue("request_kind"),
+	}
+}
+
+func (fd *frontendDeps) contactAbuseEmail() string {
+	return firstNonEmpty(fd.cfg.Server.Contact.Abuse.Email, fd.cfg.Server.Contact.General.Email)
 }
 
 func (fd *frontendDeps) contactSuccessMessage(r *http.Request) string {
@@ -541,11 +679,12 @@ func (fd *frontendDeps) contactSuccessMessage(r *http.Request) string {
 
 func (fd *frontendDeps) contactAPIHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if !fd.cfg.Pages.Contact.Enabled {
+		sendError(w, r, apperr.New(apperr.CodeNotFound))
+		return
+	}
 	if r.Method == http.MethodGet {
-		abuseEmail := strings.TrimSpace(fd.cfg.Server.Contact.Abuse.Email)
-		if abuseEmail == "" {
-			abuseEmail = strings.TrimSpace(fd.cfg.Server.Contact.General.Email)
-		}
+		securityMode := fd.securityMode(r)
 		captcha, err := fd.issueCaptcha(r)
 		if err != nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "error": "captcha unavailable"})
@@ -558,7 +697,9 @@ func (fd *frontendDeps) contactAPIHandler(w http.ResponseWriter, r *http.Request
 			{"name": "message", "type": "textarea", "required": true, "max_length": 5000},
 			{"name": "captcha", "type": "captcha", "required": true, "max_length": nil},
 		}
-		if fd.securityMode(r) {
+		types := contactReportTypes
+		if securityMode {
+			types = []string{"security"}
 			fields = append(fields,
 				map[string]any{"name": "security_id", "type": "hidden", "required": true, "max_length": 100},
 				map[string]any{"name": "researcher_gpg", "type": "text", "required": false, "max_length": 16384, "max_length_when": []map[string]any{{"prefix": "https://", "max_length": 2048}}},
@@ -579,13 +720,16 @@ func (fd *frontendDeps) contactAPIHandler(w http.ResponseWriter, r *http.Request
 				map[string]any{"name": "timestamp", "type": "hidden", "required": false, "max_length": nil},
 				map[string]any{"name": "request_user_agent", "type": "hidden", "required": false, "max_length": nil},
 			)
+		} else {
+			fields = append(fields, contactReportFieldDescriptors()...)
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"fields":       fields,
+			"types":        types,
 			"captcha":      captcha,
 			"form_token":   fd.contactToken(time.Now()),
 			"security_url": fd.resolver.BuildURL(r, "/server/security"),
-			"abuse_email":  abuseEmail,
+			"abuse_email":  fd.contactAbuseEmail(),
 		})
 		return
 	}
@@ -598,38 +742,94 @@ func (fd *frontendDeps) contactAPIHandler(w http.ResponseWriter, r *http.Request
 		fd.securityReportAPIPost(w, r)
 		return
 	}
+	if r.FormValue("security_id") != "" {
+		r.Form.Del("security_id")
+		r.PostForm.Del("security_id")
+	}
 	if reason, valid := contactShapeValid(r.PostForm, false, true); !valid {
 		fd.contactSpamBlock(r, reason)
 		fd.writeAPIContactFailure(w, r, http.StatusBadRequest, "invalid form", true)
 		return
 	}
-	if fd.contactAntispam().Honeypot && r.FormValue("website") != "" {
+	if r.FormValue("step") == "edit" {
+		challenge, err := fd.issueCaptcha(r)
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "error": "captcha unavailable"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": map[string]any{"fields": contactReviewValues(r.PostForm), "form_token": fd.contactToken(time.Now()), "captcha": challenge}})
+		return
+	}
+	step := r.FormValue("step")
+	if step == "" {
+		step = "submit"
+	}
+	decoy := fd.contactAntispam().Honeypot && r.FormValue("website") != ""
+	if decoy {
 		fd.contactSpamBlock(r, "honeypot")
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": map[string]string{"message": fd.contactSuccessMessage(r)}})
-		return
 	}
-	if !fd.contactTokenValid(r.FormValue("form_token"), time.Now()) {
-		fd.contactSpamBlock(r, "fill_time")
-		fd.writeAPIContactFailure(w, r, http.StatusBadRequest, t(r, "contact.fill_wait"), true)
-		return
+	now := time.Now()
+	if step == "submit" {
+		if reason := fd.contactTokenValidationReason(r.FormValue("form_token"), now); reason != "" {
+			fd.contactSpamBlock(r, reason)
+			fd.writeAPIContactFailure(w, r, http.StatusBadRequest, t(r, "contact.fill_wait"), true)
+			return
+		}
 	}
-	if !fd.verifyCaptcha(r, r.PostForm) {
+	if step == "submit" && !fd.verifyCaptcha(r, r.PostForm) {
 		fd.contactSpamBlock(r, "captcha")
 		fd.writeAPIContactFailure(w, r, http.StatusBadRequest, "validation failed", true)
 		return
 	}
-	name, email := strings.TrimSpace(r.FormValue("name")), strings.TrimSpace(r.FormValue("email"))
+	email := strings.TrimSpace(r.FormValue("email"))
 	subject, message := strings.TrimSpace(r.FormValue("subject")), strings.TrimSpace(r.FormValue("message"))
-	now := time.Now()
+	if step == "submit" {
+		if reason, blocked := fd.contactRateReason(r, email, now); blocked {
+			fd.contactSpamBlock(r, reason)
+			fd.setContactRetryAfter(w, r, reason)
+			fd.writeAPIContactFailure(w, r, http.StatusTooManyRequests, "rate limited", true)
+			return
+		}
+		if !decoy {
+			if reason := fd.contactContentReason(r, r.PostForm); reason != "" {
+				fd.contactSpamBlock(r, reason)
+				fd.writeAPIContactFailure(w, r, http.StatusBadRequest, "Your message could not be sent", true)
+				return
+			}
+			if !fd.validReportTarget(r, r.PostForm) {
+				fd.contactSpamBlock(r, "content")
+				fd.writeAPIContactFailure(w, r, http.StatusBadRequest, "Your message could not be sent", true)
+				return
+			}
+		}
+		flags := ""
+		if decoy {
+			flags = "d"
+		}
+		token := issueContactReviewToken(fd.installSecret, r.PostForm, now, flags)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": map[string]any{"review": map[string]string{"type": r.FormValue("type"), "email": email, "subject": subject}, "review_token": token, "confirm_after_seconds": fd.contactAntispam().ReviewMinSeconds}})
+		return
+	}
+	settings := fd.contactAntispam()
+	nonce, valid := verifyContactReviewToken(fd.installSecret, r.FormValue("review_token"), r.PostForm, now, settings.ReviewMinSeconds, settings.ReviewMaxSeconds)
+	if step != "confirm" || !valid || r.FormValue("confirmed") != "true" {
+		fd.contactSpamBlock(r, "review")
+		fd.writeAPIContactFailure(w, r, http.StatusBadRequest, "Please read the details and confirm", true)
+		return
+	}
+	if !fd.consumeContactNonce(nonce, now) {
+		fd.contactSpamBlock(r, "replay")
+		fd.writeAPIContactFailure(w, r, http.StatusBadRequest, "Please read the details and confirm", true)
+		return
+	}
+	if strings.Contains(r.FormValue("review_token"), ".d.") {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": map[string]string{"message": fd.contactSuccessMessage(r)}})
+		return
+	}
 	if reason, blocked := fd.contactRateReason(r, email, now); blocked {
 		fd.contactSpamBlock(r, reason)
 		fd.setContactRetryAfter(w, r, reason)
 		fd.writeAPIContactFailure(w, r, http.StatusTooManyRequests, "rate limited", true)
-		return
-	}
-	if reason := fd.contactContentReason(name, email, subject, message); reason != "" {
-		fd.contactSpamBlock(r, reason)
-		fd.writeAPIContactFailure(w, r, http.StatusBadRequest, "Your message could not be sent", true)
 		return
 	}
 	if reason, blocked := fd.contactRecordAccepted(r, email, subject, message, now, true); blocked {
@@ -642,8 +842,21 @@ func (fd *frontendDeps) contactAPIHandler(w http.ResponseWriter, r *http.Request
 		fd.writeAPIContactFailure(w, r, http.StatusTooManyRequests, "rate limited", true)
 		return
 	}
-	fd.relayContactMessage(name, email, subject, message)
+	fd.relayReportMessage(r.PostForm)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": map[string]string{"message": fd.contactSuccessMessage(r)}})
+}
+
+func contactReportFieldDescriptors() []map[string]any {
+	return []map[string]any{
+		{"name": "type", "type": "enum", "required": true, "max_length": nil, "enum": contactReportTypes},
+		{"name": "reported_url", "type": "url", "required": false, "max_length": 2048, "required_when": map[string]any{"field": "type", "in": []string{"abuse", "dmca"}}},
+		{"name": "reason", "type": "enum", "required": false, "max_length": nil, "enum": contactAbuseReasons, "required_when": map[string]string{"field": "type", "equals": "abuse"}},
+		{"name": "copyrighted_work", "type": "textarea", "required": false, "max_length": 2000, "required_when": map[string]string{"field": "type", "equals": "dmca"}},
+		{"name": "good_faith_statement", "type": "checkbox", "required": false, "max_length": nil, "required_when": map[string]string{"field": "type", "equals": "dmca"}},
+		{"name": "accuracy_statement", "type": "checkbox", "required": false, "max_length": nil, "required_when": map[string]string{"field": "type", "equals": "dmca"}},
+		{"name": "signature", "type": "text", "required": false, "max_length": 100, "required_when": map[string]string{"field": "type", "equals": "dmca"}},
+		{"name": "request_kind", "type": "enum", "required": false, "max_length": nil, "enum": contactPrivacyKinds, "required_when": map[string]string{"field": "type", "equals": "privacy"}},
+	}
 }
 
 func (fd *frontendDeps) writeAPIContactFailure(w http.ResponseWriter, r *http.Request, status int, message string, refresh bool) {
@@ -689,30 +902,40 @@ func setContactRetryAfter(w http.ResponseWriter, window string) {
 	w.Header().Set("Retry-After", strconv.Itoa(seconds))
 }
 
-// relayContactMessage forwards a validated contact submission to the
-// operator's general contact address. It is best-effort by design: the
-// visitor has already been told their message was accepted, and per AI.md
-// PART 17 "SMTP Requirement" there is no queue — with no working SMTP the
-// message is simply not relayed, and nothing is logged as "would have
-// sent".
-func (fd *frontendDeps) relayContactMessage(name, email, subject, message string) {
+// relayReportMessage sends one accepted report to the role selected by its type.
+// Delivery is best-effort; the SMTP layer never queues or logs the report body.
+func (fd *frontendDeps) relayReportMessage(values url.Values) {
 	if !fd.notifier.Enabled() {
 		return
 	}
-	to := strings.TrimSpace(fd.cfg.Server.Contact.General.Email)
-	if to == "" {
-		to = strings.TrimSpace(fd.cfg.Server.Contact.Admin.Email)
+	var to string
+	switch values.Get("type") {
+	case "abuse", "dmca":
+		to = firstNonEmpty(fd.cfg.Server.Contact.Abuse.Email, fd.cfg.Server.Contact.General.Email, fd.cfg.Server.Contact.Admin.Email)
+	case "privacy":
+		to = firstNonEmpty(fd.cfg.Server.Contact.DPO.Email, fd.cfg.Server.Contact.General.Email, fd.cfg.Server.Contact.Admin.Email)
 	}
 	if to == "" {
 		return
 	}
-	body := fmt.Sprintf("A message was submitted through the contact form.\n\nFrom: %s <%s>\nSubject: %s\n\n%s\n",
-		name, email, subject, message)
+	var body strings.Builder
+	fmt.Fprintf(&body, "A %s report was submitted through the report form.\n\nFrom: %s <%s>\nSubject: %s\n",
+		values.Get("type"), values.Get("name"), values.Get("email"), values.Get("subject"))
+	for _, field := range []struct{ key, label string }{
+		{"reported_url", "Reported URL"}, {"reason", "Reason"}, {"copyrighted_work", "Copyrighted work"},
+		{"good_faith_statement", "Good-faith statement"}, {"accuracy_statement", "Accuracy statement"},
+		{"signature", "Signature"}, {"request_kind", "Privacy request"},
+	} {
+		if value := values.Get(field.key); value != "" {
+			fmt.Fprintf(&body, "%s: %s\n", field.label, value)
+		}
+	}
+	fmt.Fprintf(&body, "\n%s\n", values.Get("message"))
 	appName := strings.TrimSpace(fd.cfg.Server.Branding.SiteName)
 	if appName == "" {
 		appName = "Shortner"
 	}
-	_ = fd.notifier.SendRawReplyTo([]string{to}, email, "["+appName+" contact] "+subject, body)
+	_ = fd.notifier.SendRawReplyTo([]string{to}, values.Get("email"), "["+appName+" contact] "+values.Get("subject"), body.String())
 }
 
 // consentCookieName is the granular cookie-consent cookie, per AI.md

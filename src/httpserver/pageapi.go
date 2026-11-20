@@ -2,10 +2,12 @@ package httpserver
 
 import (
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/apimgr/shortner/src/apperr"
+	"github.com/apimgr/shortner/src/common/sanitize"
 	"github.com/apimgr/shortner/src/pgp"
 	"github.com/apimgr/shortner/src/security"
 )
@@ -13,27 +15,46 @@ import (
 func (fd *frontendDeps) pageContentAPIHandler(page string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var title, content string
+		format := "markdown"
 		switch page {
 		case "about":
-			title, content = t(r, "about.title"), fd.cfg.Pages.About.Content
+			title = t(r, "about.title")
+			var err error
+			content, format, err = sanitize.OperatorContentSource(filepath.Join(fd.configDir, "html"), "about", langFromContext(r))
+			if err != nil {
+				content, format = "", "markdown"
+			}
+			content = expandFooterVariables(content, fd.operatorVariables(r))
 		case "help":
 			title, content = t(r, "help.title"), fd.cfg.Pages.Help.Content
 		case "terms":
-			title, content = t(r, "terms.title"), fd.cfg.Pages.Terms.Content
+			title = t(r, "terms.title")
+			var err error
+			content, format, err = sanitize.OperatorContentSource(filepath.Join(fd.configDir, "html"), "terms", langFromContext(r))
+			if err != nil {
+				content, format = "", "markdown"
+			}
+			if format == "markdown" && content == "" {
+				content = strings.Join([]string{
+					"## " + t(r, "terms.acceptance_title") + "\n\n" + tf(r, "terms.acceptance_body", map[string]string{"site": projectInfo.Name}),
+					"## " + t(r, "terms.acceptable_use") + "\n\n" + t(r, "terms.acceptable_use_body"),
+					"## " + t(r, "terms.liability_title") + "\n\n" + t(r, "terms.liability_body"),
+					"## " + t(r, "terms.changes_title") + "\n\n" + t(r, "terms.changes_body"),
+					"## " + t(r, "terms.governing_law") + "\n\n" + t(r, "terms.governing_law_body"),
+				}, "\n\n")
+			}
 		default:
 			http.NotFound(w, r)
 			return
 		}
-		apperr.SendOK(w, map[string]string{"title": title, "content": content, "format": "markdown"})
+		apperr.SendOK(w, map[string]string{"title": title, "content": content, "format": format})
 	}
 }
 
 func (fd *frontendDeps) privacyAPIHandler(w http.ResponseWriter, r *http.Request) {
 	privacy := fd.cfg.Server.Privacy
 	apperr.SendOK(w, map[string]any{
-		"title": t(r, "privacy.title"), "content": fd.cfg.Pages.Privacy.Content,
-		"data_collection": privacy.Content.DataCollection,
-		"data_usage":      privacy.GetDataUsageContent(), "data_security": privacy.Content.DataSecurity,
+		"title":   t(r, "privacy.title"),
 		"cookies": privacy.Cookies, "sold": privacy.Data.Sold,
 		"third_party_services": privacy.ThirdParty.Services, "retention_period": privacy.Retention.Period,
 	})
@@ -45,8 +66,10 @@ func (fd *frontendDeps) securityAPIHandler(w http.ResponseWriter, r *http.Reques
 	if strings.TrimSpace(sec.ReportURL) != "" {
 		contacts = append(contacts, map[string]string{"type": "github", "value": sec.ReportURL})
 	}
-	if id := security.SecurityID(fd.installSecret, time.Now()); id != "" {
-		contacts = append(contacts, map[string]string{"type": "contact_form", "value": fd.resolver.BuildURL(r, "/server/contact?security_id="+id)})
+	if fd.cfg.Pages.Contact.Enabled {
+		if id := security.SecurityID(fd.installSecret, time.Now()); id != "" {
+			contacts = append(contacts, map[string]string{"type": "contact_form", "value": fd.resolver.BuildURL(r, "/server/contact?security_id="+id)})
+		}
 	}
 	if email := fd.securityContactEmail(r); email != "" {
 		contacts = append(contacts, map[string]string{"type": "email", "value": email})
@@ -64,11 +87,15 @@ func (fd *frontendDeps) securityAPIHandler(w http.ResponseWriter, r *http.Reques
 	if pgpInfo == nil {
 		pgpInfo = map[string]any{"available": false, "url": nil, "fingerprint": nil}
 	}
-	apperr.SendOK(w, map[string]any{
+	data := map[string]any{
 		"contacts": contacts, "expires": fd.securityExpires(), "pgp": pgpInfo,
 		"policy_url": fd.resolver.BuildURL(r, "/server/security/policy"),
 		"thanks_url": fd.resolver.BuildURL(r, "/server/security/thanks"),
-	})
+	}
+	if fd.cfg.Pages.Contact.Enabled {
+		data["report_url"] = fd.resolver.BuildURL(r, "/server/contact")
+	}
+	apperr.SendOK(w, data)
 }
 
 func (fd *frontendDeps) securityThanksAPIHandler(w http.ResponseWriter, r *http.Request) {

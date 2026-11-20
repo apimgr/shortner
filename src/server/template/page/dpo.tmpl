@@ -12,5 +12,6 @@
 <p>{{t $lang "dpo.see_privacy_before"}}
 <a href="/server/privacy">{{t $lang "dpo.privacy_policy_link"}}</a>
 {{t $lang "dpo.see_privacy_after"}}</p>
+{{if not .Email}}<p>{{t $lang "dpo.contact_fallback"}} <a href="/server/security">{{t $lang "dpo.contact_security_link"}}</a>.</p>{{end}}
 </article>
 {{end}}

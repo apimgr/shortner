@@ -66,6 +66,7 @@ var createServiceAccount = service.CreateServiceAccount
 var setRuntimeOwnership = service.SetRuntimeOwnership
 var dropPrivileges = service.DropPrivileges
 var bindPrivilegedPorts = bindRootPorts
+var downloadGeoIP = geoip.Download
 var ipv4FallbackWarning sync.Once
 
 func run(args []string) int {
@@ -167,6 +168,10 @@ func run(args []string) int {
 	p.Backup = paths.GetBackupDir(*backupDir, p.Data)
 	p.PIDFile = paths.GetPIDFile(*pidFile, p.PIDFile)
 	p.DB = paths.GetDatabaseDir(p.Data, dockerPaths)
+	if err := config.EnforcePrivatePaths(p.Config); err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
 
 	if *statusFlag {
 		return runStatus(binaryName, p)
@@ -361,9 +366,8 @@ func run(args []string) int {
 		return 1
 	}
 	// server.security.encryption_key is the canonical at-rest AES-256-GCM
-	// key (AI.md PART 11 "Cryptographic Keys"). It lives in server.yml, not
-	// in server.db, and is generated on first run alongside the operator
-	// token so both land in the same Save below.
+	// key (AI.md PART 11 "Cryptographic Keys"). It is stored in secrets.yml
+	// and generated on first run alongside the operator token.
 	keyGenerated, err := config.EnsureEncryptionKey(cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
@@ -451,7 +455,8 @@ func run(args []string) int {
 		}
 		_ = accessLog.WriteLine(applog.LevelWarn, fmt.Sprintf("db.busy wait_ms=%d caller=%s", wait.Milliseconds(), caller))
 	})
-	if err := accessLog.SetRotationPolicy("monthly", "none", false); err != nil {
+	accessPolicy, _ := cfg.Server.Logs.EffectiveLogKind("access")
+	if err := accessLog.SetRotationPolicy(accessPolicy.Rotate, accessPolicy.Keep, accessPolicy.Compress); err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
@@ -462,7 +467,8 @@ func run(args []string) int {
 		return 1
 	}
 	defer schedulerLog.Close()
-	if err := schedulerLog.SetRotationPolicy("weekly,50MB", "none", false); err != nil {
+	serverPolicy, _ := cfg.Server.Logs.EffectiveLogKind("server")
+	if err := schedulerLog.SetRotationPolicy(serverPolicy.Rotate, serverPolicy.Keep, serverPolicy.Compress); err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
@@ -498,10 +504,17 @@ func run(args []string) int {
 	// config instead of blocking startup on a network fetch.
 	geoManager := geoip.Open(cfg.Server.GeoIP.Dir, cfg.Server.GeoIP.Enabled, cfg.Server.GeoIP.Databases)
 	if cfg.Server.GeoIP.Enabled {
+		geoDownloadCtx, cancelGeoDownload := context.WithCancel(context.Background())
+		geoDownloadDone := make(chan struct{})
+		defer func() {
+			cancelGeoDownload()
+			<-geoDownloadDone
+		}()
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer close(geoDownloadDone)
+			ctx, cancel := context.WithTimeout(geoDownloadCtx, 5*time.Minute)
 			defer cancel()
-			if err := geoip.Download(ctx, cfg.Server.GeoIP.Dir, cfg.Server.GeoIP.Databases); err != nil {
+			if err := downloadGeoIP(ctx, cfg.Server.GeoIP.Dir, cfg.Server.GeoIP.Databases); err != nil {
 				_ = accessLog.WriteLine(applog.LevelError, "geoip: initial download failed: "+err.Error())
 				return
 			}

@@ -4,7 +4,7 @@
 // API", "Content Security Policy", "Well-Known Files", "Security Reports",
 // "Abuse Detection", and "IP Block Management".
 //
-// Everything here is operator-configurable from server.yml alone: there is
+// Everything here is operator-configurable from the merged config files: there is
 // no admin web UI and no admin API route for any of it, per AI.md PART 11
 // "Security Administration (config file)".
 package config
@@ -532,7 +532,7 @@ func DefaultWellKnown() WellKnown {
 
 // EnsureEncryptionKey generates the 32-byte AES-256-GCM at-rest key when
 // cfg.Server.Security.EncryptionKey is empty, per AI.md PART 11
-// "Cryptographic Keys" -> "Pre-existing key (auto-generated in server.yml
+// "Cryptographic Keys" -> "Pre-existing key (auto-generated in secrets.yml
 // on first run)". Returns true when a new key was generated so the caller
 // knows the config needs saving.
 func EnsureEncryptionKey(cfg *Config) (bool, error) {

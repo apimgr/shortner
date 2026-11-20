@@ -27,6 +27,12 @@ func testFrontendDeps(t *testing.T) (*frontendDeps, *linkDeps) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	fd := &frontendDeps{cfg: cfg, version: "test", buildDate: "2026-01-01", ld: ld, resolver: NewProxyResolver(nil), store: store, installSecret: "test-install-secret"}
+	fd.routeMatch = func(path string) (string, map[string]string, bool) {
+		if path == "/server/about" {
+			return "/server/about", nil, true
+		}
+		return "", nil, false
+	}
 	fd.setContactAntispam(cfg.Server.Contact.Antispam)
 	return fd, ld
 }
@@ -40,6 +46,14 @@ func htmlRequest(method, target string, form url.Values) *http.Request {
 		req = httptest.NewRequest(method, target, nil)
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0")
+	if method == http.MethodPost {
+		scheme := req.URL.Scheme
+		if scheme == "" {
+			scheme = "http"
+		}
+		req.Header.Set("Origin", scheme+"://"+req.Host)
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+	}
 	rctx := chi.NewRouteContext()
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 	return req
@@ -183,12 +197,23 @@ func TestContactHandler_POSTSuccess(t *testing.T) {
 	form.Set("subject", "Hello")
 	form.Set("message", "A message")
 	rec := httptest.NewRecorder()
-	fd.contactHandler(rec, htmlRequest(http.MethodPost, "/server/contact", form))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, body: %s", rec.Code, rec.Body.String())
+	req := htmlRequest(http.MethodPost, "/server/contact", form)
+	if !fd.contactOriginValid(req) {
+		proto, host, port := fd.resolver.GetURLVars(req)
+		t.Fatalf("test origin rejected: origin=%q fetch=%q resolved=%s %s %s request_host=%q", req.Header.Get("Origin"), req.Header.Get("Sec-Fetch-Site"), proto, host, port, req.Host)
 	}
-	if !strings.Contains(rec.Body.String(), "Thank you") {
-		t.Errorf("expected success message, got: %s", rec.Body.String())
+	fd.contactHandler(rec, req)
+	if rec.Code != http.StatusOK {
+		body := rec.Body.String()
+		start := strings.Index(body, `class="form-error"`)
+		if start >= 0 {
+			end := min(len(body), start+220)
+			t.Fatalf("status = %d, form error: %s", rec.Code, body[start:end])
+		}
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "contact-review") {
+		t.Errorf("expected review step, got: %s", rec.Body.String())
 	}
 }
 
@@ -216,6 +241,7 @@ func contactTestForm(t *testing.T, fd *frontendDeps, email string) url.Values {
 	return url.Values{
 		"name": {"Jane"}, "email": {email},
 		"subject": {"Hello"}, "message": {"A message"}, "captcha_id": {id},
+		"type": {"abuse"}, "reported_url": {"https://example.com/server/about"}, "reason": {"terms_violation"},
 		"captcha_answer": {"7"}, "website": {""},
 		"form_token": {issueContactFormToken(fd.installSecret, now.Add(-4*time.Second))},
 	}
@@ -226,11 +252,8 @@ func TestContactHandler_Disabled(t *testing.T) {
 	fd.cfg.Pages.Contact.Enabled = false
 	rec := httptest.NewRecorder()
 	fd.contactHandler(rec, htmlRequest(http.MethodGet, "/server/contact", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
-	if !strings.Contains(rec.Body.String(), "disabled") {
-		t.Errorf("expected disabled message, got: %s", rec.Body.String())
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
 	}
 }
 
