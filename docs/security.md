@@ -282,8 +282,9 @@ State these plainly rather than assuming they are covered:
 - **Overlay metrics.** Tor and I2P managers are wired, but their metric
   values are not populated.
 - **Researcher status email.** The status page and operator triage commands
-  are available; email updates remain blocked on the report contact
-  encryption contract documented in `TODO.API.md`.
+  are available; email updates remain open because the report record does
+  not yet store the separately encrypted researcher contact required by
+  AI.md. See `TODO.AI.md`.
 
 ## Operational Recommendations
 

@@ -8,6 +8,11 @@ bootstrap is complete.
 
 ## Foundation follow-ups (small, do first)
 
+- The config watcher currently hot-reloads branding/SEO only. AI.md PART 8
+  "Smart Config Reload" also requires live rate-limit, CORS, logging-level,
+  notification, and security-header updates, plus warnings when restart-only
+  settings change. Implement those paths in `src/httpserver` and the runtime
+  log/notifier dependencies.
 - Windows admin-token detection in `src/paths/paths_windows.go` is a
   minimal probe (`\\.\PHYSICALDRIVE0` open test) — verify against real
   Windows UAC behavior and harden if needed.
@@ -112,9 +117,9 @@ Still open under PART 9-11:
   Read: AI.md PART 11 "Submission Flow", PART 17
 - Operator `--maintenance security list|show|update` is implemented,
   including forward-only status updates and content-free audit events.
-  Researcher contact status notifications remain blocked by the
-  `contact_enc` storage-contract issue recorded in the parent
-  `TODO.API.md`.
+  Researcher contact status notifications remain unimplemented because the
+  report record does not yet persist the separately encrypted `contact_enc`
+  field required by AI.md.
 - Security-report database storage still uses AES-256-GCM even when a
   project PGP key exists; AI.md requires PGP-at-rest in that case. Status
   email also needs the missing, separately encrypted `contact_enc` field
