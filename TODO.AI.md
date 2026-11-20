@@ -257,17 +257,18 @@ Still open under PART 9-11:
   management routes, and API endpoints are excluded. Sitemap generation is
   covered by `src/httpserver/sitemap_test.go`.
 - Dynamic SEO metadata and site-verification meta tags are implemented in
-  `head.tmpl`. Remote branding/SEO image fetching and resizing remain
-  unimplemented; remote URLs are restricted to HTTPS, and overlay requests
-  suppress external images.
+  `head.tmpl`. Remote branding images use HTTPS with DNS/redirect validation,
+  content limits, and a daily local cache; logo, favicon, and OpenGraph
+  variants are generated and cached locally. Overlay visitors only request
+  same-origin assets.
 - `/favicon.ico` — implemented: embedded default icon set generated from
   the Dracula theme palette (`src/server/static/favicon.ico` multi-res
   ICO plus `icons/favicon-{16,32,48}.png`, `icons/apple-touch-icon.png`,
   `icons/icon-{180,192,512}.png`), served by `faviconHandler` in
   `src/httpserver/sitemap.go`, with icon `<link>` tags in `head.tmpl`.
-  Configured local branding images are served through `/branding/favicon`
-  and `/branding/logo`; remote HTTPS URLs are used directly where safe.
-  Remote fetch/resize remains deferred (see above).
+  Configured local branding images are served through `/branding/favicon`,
+  `/branding/logo`, and `/branding/og-image`; remote images use the same
+  routes after validation and daily caching.
 - `Web.Announcements` is rendered from `web.announcements.messages` via
   `PageData` and the public layout partial; active date windows, dismissal
   cookies, form submission, and configuration validation are implemented.

@@ -33,8 +33,9 @@ list.
 
 ## Hot Reload
 
-Contact anti-spam settings reload when `server.yml` changes. Other settings
-take effect on the next restart. `SIGHUP` is ignored.
+Contact anti-spam settings reload when `server.yml` changes. Branding and
+the visitor theme reload when `server.yml` or a YAML file in `yaml.d/`
+changes. Other settings take effect on the next restart. `SIGHUP` is ignored.
 
 ## Modes and Debug
 
@@ -395,8 +396,10 @@ Public HTML pages emit route-specific robots directives, canonical URLs,
 Open Graph and Twitter metadata, and JSON-LD. SEO verification values are
 validated before rendering; invalid entries are omitted with a startup
 warning. Same-origin image paths are expanded to request-specific absolute
-URLs. Remote image URLs are used only over HTTPS and are omitted on Tor and
-I2P requests to avoid disclosing overlay visitors to third parties.
+URLs. Remote branding images are fetched over HTTPS with DNS, redirect,
+content-type, and size checks, then served from a daily cache on the same
+origin. Logo, favicon, and OpenGraph variants are resized locally, so Tor and
+I2P visitors do not contact third-party image hosts.
 
 Atom 1.0 and RSS 2.0 feeds are always available at `/feed.xml` and
 `/rss.xml`. Both contain the same newest public, unexpired links.
