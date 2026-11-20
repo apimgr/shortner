@@ -7628,6 +7628,7 @@ server:
     # For remote libsql:
     # driver: libsql
     # url: libsql://your-db-name.turso.io?authToken=${TURSO_AUTH_TOKEN}
+    # token: ${TURSO_AUTH_TOKEN} is the alternative to authToken in the URL; it is a secret, so it lives in secrets.yml as server.database.token
 ```
 
 ### Full Database Schema Summary
@@ -7939,7 +7940,7 @@ Only the sections a project has apply. Each key has exactly one home, and the ar
 
 Wherever this specification says a setting is set "in `server.yml`", it means that dotted path in the merged configuration, in whichever file the table assigns it to.
 
-**Header comment.** Every `server.yml` the server writes starts with this fixed comment, which the writer emits itself because comments are not kept when a file is rewritten: `# Settings of this node only (listen, identity, database, cache, ssl). Everything else lives in yaml.d/: branding.yml, web.yml, pages.yml, contact.yml, privacy.yml, security.yml, logs.yml, metrics.yml, notifications.yml, tor.yml, i2p.yml, maintenance.yml, accounts.yml, app.yml. Credentials live in secrets.yml.`
+**Header comment.** Every `server.yml` the server writes starts with this fixed comment, which the writer emits itself because comments are not kept when a file is rewritten: `# Settings of this node only (listen, identity, database, cache, ssl). Everything else lives in yaml.d/: branding.yml, web.yml, pages.yml, contact.yml, privacy.yml, security.yml, logs.yml, metrics.yml, notifications.yml, tor.yml, i2p.yml, maintenance.yml, app.yml. Credentials live in secrets.yml.`
 
 **Automatic migration (every start).** An operator may keep using one big `server.yml`; the binary splits it:
 
@@ -7986,7 +7987,7 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 | `server.https_port` | when `server.port` is a single number and `https_port` is greater than 0, folded into `server.port` as the quoted string `"{port},{https_port}"` ("Dual Port Support"); otherwise removed. An already-dual `server.port` is kept as written, and `server.ssl.enabled` is never changed by the migration |
 | `server.ssl.dns01.*`, `server.ssl.letsencrypt.provider`, `.credentials_encrypted` | `server.ssl.letsencrypt.dns_provider`, `server.ssl.letsencrypt.dns_credentials` (`validated_at`, `domain` and `domains` are removed) |
 | `server.security.installation_secret`, `.installation_secret_previous`, `.installation_secret_previous_expires`, `.encryption_key_previous`, `.encryption_key_previous_expires` | imported into the database `app_secrets` row of the same name when that row is missing, then removed from the file (PART 11 → "Rotation contract") |
-| Settings that no longer exist | removed: `server.privacy.content.*`, `server.mcp`, `server.rate_limit.enabled`, `server.rate_limit.requests`, `server.rate_limit.window`, `server.maintenance_mode`, `server.i18n.auto_detect`, `.rtl_languages`, `.show_selector`, `.translations_dir`, `server.geoip.dir`, `.databases`, `.country_mode`, `server.database.sqlite`, `server.metrics.endpoint`, `server.notifications.email_enabled`, `.webhook_enabled`, `server.secret_key`, `web.permissions_policy`, `web.honor_dnt`, `web.robots.ai_bots` |
+| Settings that no longer exist | removed: `server.privacy.content.*`, `server.mcp`, `server.rate_limit.enabled`, `server.rate_limit.requests`, `server.rate_limit.window`, `server.scheduler.enabled`, `server.maintenance_mode`, `server.i18n.auto_detect`, `.rtl_languages`, `.show_selector`, `.translations_dir`, `server.geoip.dir`, `.databases`, `.country_mode`, `server.database.sqlite`, `server.metrics.endpoint`, `server.notifications.email_enabled`, `.webhook_enabled`, `server.secret_key`, `web.permissions_policy`, `web.honor_dnt`, `web.robots.ai_bots` |
 
 **Scheduler tasks.** A task under `server.scheduler.tasks` has exactly the keys `enabled`, `schedule`, `retry_on_fail` and `retry_delay` (and `retention` for `backup`). Any other per-task key is removed by the migration, and a built-in task that still has its default values is not written at all.
 
@@ -7994,7 +7995,7 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 
 ### Secrets File (`secrets.yml`)
 
-**Credentials live in `{config_dir}/secrets.yml`, never in `server.yml`, so `server.yml` can be read, shared, diffed and kept in configuration management without exposing anything.** It is the same YAML with the same dotted paths, and it is merged LAST.
+**Credentials live at rest in `{config_dir}/secrets.yml`, never in `server.yml` (a secret hand-written there is moved to `secrets.yml` at the next start, "Operator-set values"), so `server.yml` can be read, shared, diffed and kept in configuration management without exposing anything.** It is the same YAML with the same dotted paths, and it is merged LAST.
 
 | Rule | Behavior |
 |------|----------|
@@ -8802,7 +8803,6 @@ server:
 
   # Scheduler - manages all background tasks
   scheduler:
-    enabled: true
     # Built-in tasks with sane defaults (all enabled by default)
     tasks:
       # Security database updates
@@ -14039,6 +14039,7 @@ server:
     # For Turso remote:
     # driver: libsql
     # url: libsql://your-db-name.turso.io?authToken=${TURSO_AUTH_TOKEN}
+    # token: ${TURSO_AUTH_TOKEN} is the alternative to authToken in the URL; it is a secret, so it lives in secrets.yml as server.database.token
 
     # Connection pool settings. SQLite: max_open sizes the READ pool only; the write pool is always exactly 1 connection (see "SQLite Concurrency Contract"). libsql: adjust as needed
     pool:
@@ -17984,7 +17985,7 @@ server:
 
     # Connection: Use EITHER url OR host/port/password (not both)
     # url takes precedence if both are specified
-    # Format: redis://user:password@host:port/db or valkey://...
+    # Format: redis://{user}:{password}@host:port/db or valkey://...
     url: ""
 
     # Individual connection settings (alternative to url)
@@ -18034,7 +18035,7 @@ rediss://...  # Redis with TLS
 server:
   cache:
     type: valkey
-    # valkey://user:pass@valkey.example.com:6379/0
+    # valkey://{user}:{password}@valkey.example.com:6379/0
     url: ${CACHE_URL}
     prefix: "{project_name}:"
 ```
@@ -18388,7 +18389,7 @@ type StatsInfo struct {
 
 **Database/cache checks MUST be vague:**
 - ✅ `"database": "ok"` or `"database": "error"`
-- ❌ `"database": "libsql://user:token@host/db"` (exposes credentials)
+- ❌ `"database": "libsql://{user}:{token}@host/db"` (exposes credentials)
 - ❌ `"database": {"path": "/var/lib/{project_name}/db.sqlite"}` (exposes filesystem layout)
 
 ### /server/healthz Response Formats
