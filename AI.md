@@ -7870,7 +7870,7 @@ func (req *CreateResourceRequest) Parse() (*Resource, error) {
 | `DATABASE_URL` | First run: the full database connection string, saved to `secrets.yml` (when it carries a credential) or `server.yml`; ignored afterwards ("Connection Strings") |
 | `CACHE_URL` | First run: the full cache connection string (`valkey://`, `redis://`), saved the same way |
 
-**Init-only variables are used ONCE during first run to seed `server.yml` (and `secrets.yml` for a credential), then ignored.** The database and cache connection variables are init-only because the saved connection belongs to the node's setup: a node that is added to a cluster receives its database connection in the join payload, and a database migrated from the admin panel must not be reverted by an environment variable at the next start.
+**Init-only variables are used ONCE during first run to seed `server.yml` (and `secrets.yml` for a credential), then ignored.** The database and cache connection variables are init-only because the saved connections belong to the node's setup: a node added to a cluster receives the cluster's database and cache connections, not its environment's, and a database migrated from the admin panel must not be reverted by an environment variable at the next start.
 
 ---
 
