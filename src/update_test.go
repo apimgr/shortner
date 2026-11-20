@@ -201,12 +201,12 @@ func TestRunUpdateBranchPersists(t *testing.T) {
 		t.Errorf("output = %q, want confirmation message", out)
 	}
 
-	data, err := os.ReadFile(p.ConfigFile)
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(p.ConfigFile), "yaml.d", "maintenance.yml"))
 	if err != nil {
-		t.Fatalf("read config: %v", err)
+		t.Fatalf("read maintenance area file: %v", err)
 	}
 	if !strings.Contains(string(data), "branch: beta") {
-		t.Errorf("server.yml = %q, want branch: beta persisted", string(data))
+		t.Errorf("maintenance.yml = %q, want branch: beta persisted", string(data))
 	}
 
 	// A second switch to the same channel is a no-op, not an error.

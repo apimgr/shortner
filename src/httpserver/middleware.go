@@ -39,6 +39,7 @@ import (
 // deps bundles the shared state every middleware needs, built once by
 // New() and closed over by each middleware function.
 type deps struct {
+	runtimeConfig   *brandingStateStore
 	sqlDB           db.Handle
 	resolver        *ProxyResolver
 	rateLimiter     *RateLimiter
@@ -72,6 +73,15 @@ type deps struct {
 	// i18n is the operator's `server.i18n` block, used by
 	// languageMiddleware to resolve every request's language.
 	i18n config.I18N
+}
+
+func (d *deps) currentConfig() *config.Config {
+	if d.runtimeConfig != nil {
+		if current := d.runtimeConfig.load(nil); current != nil && current.Config != nil {
+			return current.Config
+		}
+	}
+	return nil
 }
 
 // setupMiddleware wraps handler with the full PART 12 chain, per AI.md
@@ -299,15 +309,19 @@ func (d *deps) corsMiddleware(next http.Handler) http.Handler {
 		"X-Access-Token, X-Token, Token, Content-Type, X-CSRF-Token, X-Request-ID"
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cors := d.cors
+		if cfg := d.currentConfig(); cfg != nil {
+			cors = cfg.Server.CORS
+		}
 		origin := r.Header.Get("Origin")
 		if origin != "" {
 			h := w.Header()
-			allowed, explicit := d.originAllowed(origin)
+			allowed, explicit := originAllowed(cors, origin)
 			if allowed {
 				if explicit {
 					h.Set("Access-Control-Allow-Origin", origin)
 					h.Set("Vary", "Origin")
-					if d.cors.AllowCredentials {
+					if cors.AllowCredentials {
 						h.Set("Access-Control-Allow-Credentials", "true")
 					}
 				} else {
@@ -315,8 +329,8 @@ func (d *deps) corsMiddleware(next http.Handler) http.Handler {
 				}
 				h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 				h.Set("Access-Control-Allow-Headers", allowHeaders)
-				if d.cors.MaxAge > 0 {
-					h.Set("Access-Control-Max-Age", strconv.Itoa(d.cors.MaxAge))
+				if cors.MaxAge > 0 {
+					h.Set("Access-Control-Max-Age", strconv.Itoa(cors.MaxAge))
 				}
 			}
 		}
@@ -332,13 +346,13 @@ func (d *deps) corsMiddleware(next http.Handler) http.Handler {
 // originAllowed reports whether origin may receive CORS headers, and
 // whether the match was an explicit origin (vs. the "*" wildcard) — an
 // explicit match is required before Allow-Credentials can ever be set.
-func (d *deps) originAllowed(origin string) (allowed, explicit bool) {
-	if len(d.cors.AllowedOrigins) == 0 {
+func originAllowed(cors config.CORS, origin string) (allowed, explicit bool) {
+	if len(cors.AllowedOrigins) == 0 {
 		return true, false
 	}
-	for _, o := range d.cors.AllowedOrigins {
+	for _, o := range cors.AllowedOrigins {
 		if o == "*" {
-			if d.cors.AllowCredentials {
+			if cors.AllowCredentials {
 				continue // "*" never pairs with credentials; skip to an explicit match
 			}
 			return true, false
@@ -476,7 +490,7 @@ func (d *deps) geoIPMiddleware(next http.Handler) http.Handler {
 func (d *deps) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := ExtractToken(r)
-		isOperator := token != "" && security.CompareServerToken(token, d.operatorTok)
+		isOperator := strings.HasPrefix(token, "adm_") && security.CompareServerToken(token, d.operatorTok)
 		var ownerToken *db.APIToken
 		if token != "" && !isOperator && d.sqlDB != nil {
 			ownerToken, _ = db.LookupTokenByRaw(r.Context(), d.sqlDB, token)
@@ -589,7 +603,9 @@ func (d *deps) loggingMiddleware(next http.Handler) http.Handler {
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
 
-		d.stats.RecordRequest()
+		if !isHealthProbe(r) && !isMetricsScrape(r) {
+			d.stats.RecordRequest()
+		}
 
 		if d.metrics != nil {
 			path := metrics.NormalizePath(r.URL.Path)
@@ -617,6 +633,10 @@ func (d *deps) loggingMiddleware(next http.Handler) http.Handler {
 			_ = d.access.WriteLine(applog.LevelInfo, formatAccessLog(d.accessLogFormat, entry))
 		}
 	})
+}
+
+func isMetricsScrape(r *http.Request) bool {
+	return r != nil && (r.URL.Path == "/server/metrics" || strings.HasSuffix(r.URL.Path, "/server/metrics"))
 }
 
 func formatAccessLog(format string, entry applog.AccessLogEntry) string {

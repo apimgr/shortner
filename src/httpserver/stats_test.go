@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -16,6 +17,48 @@ func TestStatsRecordRequest(t *testing.T) {
 	}
 	if last24h != 2 {
 		t.Errorf("last24h = %d, want 2", last24h)
+	}
+}
+
+func TestStatsPersistenceSurvivesRestart(t *testing.T) {
+	sqlDB := openTestDB(t)
+	for _, stmt := range []string{
+		`CREATE TABLE server_stats (id INTEGER PRIMARY KEY, requests_total INTEGER NOT NULL DEFAULT 0)`,
+		`CREATE TABLE server_stats_hourly (hour_start INTEGER PRIMARY KEY, requests INTEGER NOT NULL DEFAULT 0)`,
+		`INSERT INTO server_stats (id, requests_total) VALUES (1, 10)`,
+	} {
+		if _, err := sqlDB.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hour := time.Now().Unix() / 3600 * 3600
+	if _, err := sqlDB.Exec(`INSERT INTO server_stats_hourly (hour_start, requests) VALUES (?, ?)`, hour, 10); err != nil {
+		t.Fatal(err)
+	}
+
+	first := NewStats()
+	if err := first.AttachDB(sqlDB); err != nil {
+		t.Fatal(err)
+	}
+	first.RecordRequest()
+	first.RecordRequest()
+	if err := first.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	second := NewStats()
+	if err := second.AttachDB(sqlDB); err != nil {
+		t.Fatal(err)
+	}
+	total, last24h, _ := second.Snapshot()
+	if total != 12 || last24h != 12 {
+		t.Fatalf("restored request counters = (%d, %d), want (12, 12)", total, last24h)
+	}
+	if err := second.Stop(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
 

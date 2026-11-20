@@ -62,7 +62,7 @@ func htmlRequest(method, target string, form url.Values) *http.Request {
 func TestHomeHandler_GETRendersForm(t *testing.T) {
 	fd, _ := testFrontendDeps(t)
 	fd.cfg.Server.Branding.Title = "Shortner Test"
-	fd.cfg.Server.SEO.Description = "A configured description"
+	fd.cfg.Server.Branding.Description = "A configured description"
 	fd.cfg.Server.SEO.Keywords = []string{"short links", "privacy"}
 	fd.cfg.Server.SEO.Verification.Google = "abc_123"
 	rec := httptest.NewRecorder()
@@ -249,7 +249,7 @@ func contactTestForm(t *testing.T, fd *frontendDeps, email string) url.Values {
 
 func TestContactHandler_Disabled(t *testing.T) {
 	fd, _ := testFrontendDeps(t)
-	fd.cfg.Pages.Contact.Enabled = false
+	fd.cfg.Server.Pages.Contact.Enabled = false
 	rec := httptest.NewRecorder()
 	fd.contactHandler(rec, htmlRequest(http.MethodGet, "/server/contact", nil))
 	if rec.Code != http.StatusNotFound {

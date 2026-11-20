@@ -1,22 +1,29 @@
 {{define "head"}}<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{.Base.Title}} · {{.Base.SiteName}}</title>
+<title>{{.Base.Title}}{{.Base.TitleSeparator}}{{.Base.Tagline}}</title>
 <meta name="description" content="{{.Base.Description}}">
 {{if .Base.Keywords}}<meta name="keywords" content="{{.Base.Keywords}}">{{end}}
 {{if .Base.Author}}<meta name="author" content="{{.Base.Author}}">{{end}}
 <meta name="robots" content="{{.Base.Robots}}">
 <link rel="canonical" href="{{.Base.CanonicalURL}}">
+{{range .Base.MetaTags}}<meta name="{{.Name}}" content="{{.Content}}">{{end}}
+{{if .Base.OpenGraph.Enabled}}
 <meta property="og:title" content="{{.Base.Title}}">
 <meta property="og:description" content="{{.Base.Description}}">
-<meta property="og:type" content="website">
+{{if .Base.OGImage}}<meta property="og:image" content="{{.Base.OGImage}}">{{end}}
+<meta property="og:type" content="{{.Base.OpenGraph.Type}}">
 <meta property="og:url" content="{{.Base.CanonicalURL}}">
-<meta property="og:site_name" content="{{.Base.SiteName}}">
-{{if .Base.OGImage}}<meta property="og:image" content="{{.Base.OGImage}}"><meta name="twitter:image" content="{{.Base.OGImage}}">{{end}}
-<meta name="twitter:card" content="summary_large_image">
+<meta property="og:site_name" content="{{.Base.OpenGraph.SiteName}}">
+{{end}}
+{{if .Base.Twitter.Enabled}}
+<meta name="twitter:card" content="{{.Base.Twitter.Card}}">
 <meta name="twitter:title" content="{{.Base.Title}}">
 <meta name="twitter:description" content="{{.Base.Description}}">
+{{if .Base.OGImage}}<meta name="twitter:image" content="{{.Base.OGImage}}">{{end}}
 {{if .Base.TwitterHandle}}<meta name="twitter:site" content="{{.Base.TwitterHandle}}">{{end}}
+{{if .Base.Twitter.Creator}}<meta name="twitter:creator" content="{{.Base.Twitter.Creator}}">{{end}}
+{{end}}
 <script type="application/ld+json">{{.Base.StructuredData}}</script>
 {{with .Base.Verification}}
 {{if .Google}}<meta name="google-site-verification" content="{{.Google}}">{{end}}
@@ -29,12 +36,18 @@
 {{end}}
 <meta name="color-scheme" content="dark light">
 <meta name="build-stamp" content="{{.Base.AssetStamp}}">
+{{if .Base.FaviconURL}}
+<link rel="icon" sizes="16x16" href="{{.Base.FaviconURL}}?size=16">
+<link rel="icon" sizes="32x32" href="{{.Base.FaviconURL}}?size=32">
+<link rel="icon" sizes="48x48" href="{{.Base.FaviconURL}}?size=48">
+{{else}}
 <link rel="icon" type="image/png" sizes="16x16" href="{{asset "/static/icons/favicon-16.png" .Base.AssetStamp}}">
 <link rel="icon" type="image/png" sizes="32x32" href="{{asset "/static/icons/favicon-32.png" .Base.AssetStamp}}">
 <link rel="icon" type="image/png" sizes="48x48" href="{{asset "/static/icons/favicon-48.png" .Base.AssetStamp}}">
+{{end}}
 <link rel="icon" href="/favicon.ico">
 {{if .Base.FaviconURL}}<link rel="icon" href="{{.Base.FaviconURL}}">{{end}}
-<link rel="apple-touch-icon" sizes="180x180" href="{{asset "/static/icons/icon-180.png" .Base.AssetStamp}}">
+{{if .Base.FaviconURL}}<link rel="apple-touch-icon" sizes="180x180" href="{{.Base.FaviconURL}}?size=180">{{else}}<link rel="apple-touch-icon" sizes="180x180" href="{{asset "/static/icons/icon-180.png" .Base.AssetStamp}}">{{end}}
 <link rel="apple-touch-startup-image" href="{{asset "/static/splash/iphone-1179x2556.png" .Base.AssetStamp}}" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)">
 <link rel="apple-touch-startup-image" href="{{asset "/static/splash/iphone-1284x2778.png" .Base.AssetStamp}}" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)">
 <link rel="manifest" href="/manifest.json">
@@ -45,5 +58,6 @@
 <link rel="stylesheet" href="{{asset "/static/css/common.css" .Base.AssetStamp}}">
 <link rel="stylesheet" href="{{asset "/static/css/components.css" .Base.AssetStamp}}">
 <link rel="stylesheet" href="{{asset "/static/css/public.css" .Base.AssetStamp}}">
+{{if .Base.AccentEnabled}}<link rel="stylesheet" href="/static/css/accent.css">{{end}}
 </head>
 {{end}}

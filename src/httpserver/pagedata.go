@@ -44,6 +44,11 @@ type PageData struct {
 	TwitterHandle  string
 	LogoURL        string
 	FaviconURL     string
+	TitleSeparator string
+	OpenGraph      config.SEOOpenGraph
+	Twitter        config.SEOTwitter
+	MetaTags       []SEOMetaTag
+	AccentEnabled  bool
 	StructuredData template.JS
 	Verification   config.SEOVerification
 	SiteName       string
@@ -110,6 +115,11 @@ type PageData struct {
 	Announcements                []announcementView
 }
 
+type SEOMetaTag struct {
+	Name    string
+	Content string
+}
+
 type announcementView struct {
 	ID          string
 	Type        string
@@ -143,6 +153,7 @@ type frontendDeps struct {
 	metrics    *metrics.Metrics
 	antispam   atomic.Pointer[config.ContactAntispam]
 	store      *db.Store
+	branding   *brandingStateStore
 	routeMatch func(string) (string, map[string]string, bool)
 }
 
@@ -172,25 +183,48 @@ func (fd *frontendDeps) setContactAntispam(settings config.ContactAntispam) {
 // requestTheme in theme.go and AI.md PART 16 "Theme Detection Flow".
 func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, description string) PageData {
 	cfg := fd.cfg
+	settings := fd.branding.load(cfg)
+	brandConfig, seoConfig := settings.Branding, settings.SEO
 	resolver := fd.resolver
 	if resolver == nil {
 		resolver = NewProxyResolver(nil)
 	}
 	overlay := resolver.IsOverlay(r)
-	siteName := firstNonEmpty(cfg.Server.Branding.Title, cfg.Server.Branding.SiteName, projectInfo.Name)
-	tagline := cfg.Server.Branding.Tagline
+	siteName := firstNonEmpty(brandConfig.Title, projectInfo.Name)
+	tagline := brandConfig.Tagline
 	if tagline == "" {
 		tagline = projectInfo.Tagline
 	}
-	description = firstNonEmpty(cfg.Server.SEO.Description, cfg.Server.Branding.Description, description)
-	canonical := resolver.BuildURL(r, r.URL.Path)
-	robots := pageRobots(r.URL.Path)
-	ogImage := pageAssetURL(r, resolver, cfg.Server.SEO.OGImage, overlay)
-	logoURL := configuredBrandAssetURL(r, resolver, cfg.Server.Branding.Logo, "/branding/logo", overlay, false)
-	if logoURL == "" {
-		logoURL = configuredBrandAssetURL(r, resolver, cfg.Server.Branding.LogoURL, "/branding/logo", overlay, true)
+	description = firstNonEmpty(brandConfig.Description, description)
+	if description == cfg.Server.Branding.Description {
+		description = brandConfig.Description
 	}
-	faviconURL := configuredBrandAssetURL(r, resolver, cfg.Server.Branding.Favicon, "/branding/favicon", overlay, false)
+	canonical := resolver.BuildURL(r, r.URL.Path)
+	if seoConfig.Canonical != "" {
+		canonical = canonicalSEOURL(seoConfig.Canonical, r.URL.Path)
+	}
+	robots := pageRobots(r.URL.Path)
+	if seoConfig.NoIndex {
+		robots = "noindex,nofollow"
+	}
+	ogImage := configuredBrandAssetURL(r, resolver, seoConfig.OGImage, "/branding/og-image", overlay, false)
+	if ogImage != "" {
+		ogImage += "?size=1200x630"
+	}
+	logoURL := configuredBrandAssetURL(r, resolver, brandConfig.Logo, "/branding/logo", overlay, false)
+	faviconURL := configuredBrandAssetURL(r, resolver, brandConfig.Favicon, "/branding/favicon", overlay, false)
+	openGraph := seoConfig.OpenGraph
+	if openGraph.SiteName == "" {
+		openGraph.SiteName = siteName
+	}
+	metaTags := make([]SEOMetaTag, 0, len(seoConfig.MetaTags))
+	for name, content := range seoConfig.MetaTags {
+		metaTags = append(metaTags, SEOMetaTag{Name: name, Content: content})
+	}
+	separator := seoConfig.TitleSeparator
+	if separator == "" {
+		separator = " - "
+	}
 	seoData, _ := json.Marshal(map[string]string{"@context": "https://schema.org", "@type": "WebSite", "name": siteName, "description": description, "url": canonical})
 	onionAddress := resolver.overlayHost(OverlayTor)
 	i2pAddress := resolver.overlayHost(OverlayI2P)
@@ -216,16 +250,21 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 	return PageData{
 		Title:                  title,
 		Description:            description,
-		Keywords:               strings.Join(cfg.Server.SEO.Keywords, ", "),
-		Author:                 cfg.Server.SEO.Author,
+		Keywords:               strings.Join(seoConfig.Keywords, ", "),
+		Author:                 seoConfig.Author,
 		CanonicalURL:           canonical,
 		Robots:                 robots,
 		OGImage:                ogImage,
-		TwitterHandle:          cfg.Server.SEO.TwitterHandle,
+		TwitterHandle:          seoConfig.TwitterHandle,
 		LogoURL:                logoURL,
 		FaviconURL:             faviconURL,
+		TitleSeparator:         separator,
+		OpenGraph:              openGraph,
+		Twitter:                seoConfig.Twitter,
+		MetaTags:               metaTags,
+		AccentEnabled:          config.IsValidAccent(settings.Accent) && settings.Accent != "",
 		StructuredData:         template.JS(seoData),
-		Verification:           cfg.Server.SEO.Verification,
+		Verification:           seoConfig.Verification,
 		SiteName:               siteName,
 		Tagline:                tagline,
 		ProjectOrg:             "apimgr",
@@ -235,7 +274,7 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 		BuildDateTime:          footerBuildDateTime(fd.buildDate, overlay),
 		RepoURL:                footerRepoURL,
 		CurrentYear:            overlayTime(time.Now(), overlay).Year(),
-		Theme:                  requestTheme(r, cfg),
+		Theme:                  requestThemeDefault(r, settings.Theme),
 		CurrentPath:            currentPath,
 		CSRFToken:              csrfToken,
 		CSRFCookieName:         cookieName,
@@ -269,6 +308,16 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 	}
 }
 
+func canonicalSEOURL(base, requestPath string) string {
+	parsed, err := url.Parse(base)
+	if err != nil {
+		return base + requestPath
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/" + strings.TrimLeft(requestPath, "/")
+	parsed.RawQuery, parsed.Fragment = "", ""
+	return parsed.String()
+}
+
 func pageAssetURL(r *http.Request, resolver *ProxyResolver, raw string, overlay bool) string {
 	value := strings.TrimSpace(raw)
 	if value == "" || strings.ContainsAny(value, "\\\r\n\t") {
@@ -297,7 +346,13 @@ func configuredBrandAssetURL(r *http.Request, resolver *ProxyResolver, raw, loca
 		return ""
 	}
 	if parsed.Scheme != "" {
-		return pageAssetURL(r, resolver, value, overlay)
+		if strings.EqualFold(parsed.Scheme, "data") {
+			return resolver.BuildURL(r, localRoute)
+		}
+		if !strings.EqualFold(parsed.Scheme, "https") || parsed.Host == "" || parsed.User != nil {
+			return ""
+		}
+		return resolver.BuildURL(r, localRoute)
 	}
 	if allowRootURL && strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "//") {
 		return pageAssetURL(r, resolver, value, overlay)

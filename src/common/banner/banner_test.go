@@ -89,15 +89,15 @@ func TestPrintStartupBannerMicro(t *testing.T) {
 	t.Run("with URL", func(t *testing.T) {
 		cfg := BannerConfig{AppName: "shortner", Version: "1.0.0", URLs: []string{"http://x/"}}
 		out := captureStdout(t, func() { printStartupBannerMicro(cfg) })
-		if !strings.Contains(out, "shortner 1.0.0 http://x/") {
+		if !strings.Contains(out, "shortner · 1.0.0 http://x/") {
 			t.Errorf("micro banner output = %q, want to contain URL", out)
 		}
 	})
 	t.Run("without URL", func(t *testing.T) {
 		cfg := BannerConfig{AppName: "shortner", Version: "1.0.0"}
 		out := captureStdout(t, func() { printStartupBannerMicro(cfg) })
-		if strings.TrimSpace(out) != "shortner 1.0.0" {
-			t.Errorf("micro banner output = %q, want %q", strings.TrimSpace(out), "shortner 1.0.0")
+		if strings.TrimSpace(out) != "shortner · 1.0.0" {
+			t.Errorf("micro banner output = %q, want %q", strings.TrimSpace(out), "shortner · 1.0.0")
 		}
 	})
 }

@@ -19,6 +19,7 @@ import (
 
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/backup"
+	"github.com/apimgr/shortner/src/cache"
 	"github.com/apimgr/shortner/src/certmgr"
 	"github.com/apimgr/shortner/src/common/banner"
 	"github.com/apimgr/shortner/src/common/color"
@@ -322,6 +323,9 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
+	for _, warning := range config.ApplyConnectionEnvironment(cfg) {
+		fmt.Fprintln(os.Stderr, binaryName+": warning: "+warning)
+	}
 	if earlyPortWarning != "" {
 		cfg.Server.Port = portSetting
 	}
@@ -330,6 +334,10 @@ func run(args []string) int {
 	// Validation Rule".
 	for _, warning := range config.Validate(cfg) {
 		fmt.Fprintln(os.Stderr, binaryName+": warning: "+warning)
+	}
+	if !config.DatabaseConnectionURLValid(cfg) {
+		fmt.Fprintln(os.Stderr, binaryName+": database connection failed")
+		return 1
 	}
 	if err := config.ValidateContactCaptcha(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
@@ -365,6 +373,7 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
+	keyVersionWasMissing := cfg.Server.Security.EncryptionKey != "" && cfg.Server.Security.EncryptionKeyVersion == 0
 	// server.security.encryption_key is the canonical at-rest AES-256-GCM
 	// key (AI.md PART 11 "Cryptographic Keys"). It is stored in secrets.yml
 	// and generated on first run alongside the operator token.
@@ -373,16 +382,20 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
-	dnsCredentialsChanged, err := config.SealDNSCredentials(cfg)
+	metricsTokenWasEmpty := map[string]bool{
+		"server.metrics.auth.tokens.prometheus": !config.ValidMetricsToken(cfg.Server.Metrics.Auth.Tokens.Prometheus),
+		"server.metrics.auth.tokens.grafana":    !config.ValidMetricsToken(cfg.Server.Metrics.Auth.Tokens.Grafana),
+		"server.metrics.auth.tokens.loki":       !config.ValidMetricsToken(cfg.Server.Metrics.Auth.Tokens.Loki),
+	}
+	metricsTokensGenerated, err := config.EnsureMetricsTokens(cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
-	if generated || keyGenerated || portWasGenerated || dnsCredentialsChanged {
-		if err := config.Save(p.ConfigFile, cfg); err != nil {
-			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
-			return 1
-		}
+	dnsCredentialsChanged, err := config.SealDNSCredentials(cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
 	}
 	if *port != "" {
 		cfg.Server.Port = *port
@@ -400,6 +413,17 @@ func run(args []string) int {
 			return 1
 		}
 		if err := dropPrivileges(serviceUID); err != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+			return 1
+		}
+	}
+	secretMigrationErr := config.MigrateSecretsFiles(p.ConfigFile)
+	areaMigrationErr := config.MigrateAreaFiles(p.ConfigFile)
+	if migrationErr := errors.Join(secretMigrationErr, areaMigrationErr); migrationErr != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": warning: configuration migration skipped; using the merged configuration: "+migrationErr.Error())
+	}
+	if generated || keyGenerated || keyVersionWasMissing || metricsTokensGenerated || portWasGenerated || dnsCredentialsChanged || config.HasSeededConnection(cfg) {
+		if err := config.Save(p.ConfigFile, cfg); err != nil {
 			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 			return 1
 		}
@@ -429,12 +453,38 @@ func run(args []string) int {
 		appMetrics.StartUptimeUpdater(context.Background())
 	}
 
-	sqlDB, err := db.Open(cfg.Server.Database.URL, db.DefaultPool(), appMetrics)
+	sqlDB, err := db.Open(cfg.Server.Database.URL, db.DefaultPool(), appMetrics, cfg.Server.Database.Token)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": database connection failed")
+		return 1
+	}
+	defer sqlDB.Close()
+	legacyAppSecrets, err := config.ReadLegacyAppSecrets(p.ConfigFile)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
-	defer sqlDB.Close()
+	for _, name := range []string{"installation_secret", "installation_secret_previous", "installation_secret_previous_expires", "encryption_key_previous", "encryption_key_previous_expires"} {
+		value, ok := legacyAppSecrets[name]
+		if !ok {
+			continue
+		}
+		if _, err := db.GetSecret(context.Background(), sqlDB, name); err == db.ErrNotFound {
+			if err := db.SetSecret(context.Background(), sqlDB, name, value); err != nil {
+				fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+				return 1
+			}
+		} else if err != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+			return 1
+		}
+	}
+	if len(legacyAppSecrets) > 0 {
+		if err := config.RemoveLegacyAppSecrets(p.ConfigFile); err != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+			return 1
+		}
+	}
 
 	stopMetrics := func() {}
 	if appMetrics != nil {
@@ -473,6 +523,45 @@ func run(args []string) int {
 		return 1
 	}
 
+	var appCache cache.Cache = cache.NewMemory()
+	cacheHealth := func(context.Context) string { return "ok" }
+	var closeCache func()
+	cacheType := strings.ToLower(strings.TrimSpace(cfg.Server.Cache.Type))
+	switch cacheType {
+	case "redis", "valkey":
+		cacheTimeout, parseErr := time.ParseDuration(cfg.Server.Cache.Timeout)
+		if parseErr != nil || cacheTimeout <= 0 {
+			cacheTimeout = 5 * time.Second
+		}
+		cacheCtx, cancelCache := context.WithTimeout(context.Background(), cacheTimeout)
+		redisCache, cacheErr := cache.NewRedis(cacheCtx, cache.RedisOptions{
+			URL: cfg.Server.Cache.URL, Host: cfg.Server.Cache.Host, Port: cfg.Server.Cache.Port,
+			Username: cfg.Server.Cache.Username, Password: cfg.Server.Cache.Password, DB: cfg.Server.Cache.DB,
+			TLS: cfg.Server.Cache.TLS, TLSSkipVerify: cfg.Server.Cache.TLSSkipVerify,
+			TLSCA: cfg.Server.Cache.TLSCA, TLSCert: cfg.Server.Cache.TLSCert, TLSKey: cfg.Server.Cache.TLSKey,
+			PoolSize: cfg.Server.Cache.PoolSize, MinIdle: cfg.Server.Cache.MinIdle,
+			Timeout: cacheTimeout, Prefix: cfg.Server.Cache.Prefix, ConfigDir: p.Config,
+		})
+		cancelCache()
+		if cacheErr != nil {
+			cacheHealth = func(context.Context) string { return "error" }
+			_ = accessLog.WriteLine(applog.LevelWarn, "cache: external cache unavailable; using in-memory cache\n")
+		} else {
+			appCache = redisCache
+			closeCache = func() { _ = redisCache.Close() }
+			cacheHealth = func(parent context.Context) string {
+				ctx, cancel := context.WithTimeout(parent, time.Second)
+				defer cancel()
+				if redisCache.Check(ctx) != nil {
+					return "error"
+				}
+				return "ok"
+			}
+		}
+	case "none":
+		appCache = nil
+	}
+
 	// Audit log (AI.md PART 11 "Audit Log Format"), consumed by the PART 21
 	// backup events.
 	auditLog, err := applog.NewAuditLogger(filepath.Join(p.Logs, "audit.log"))
@@ -481,6 +570,17 @@ func run(args []string) int {
 		return 1
 	}
 	defer auditLog.Close()
+	for key, wasGenerated := range map[string]bool{
+		"server.token":                          generated,
+		"server.security.encryption_key":        keyGenerated,
+		"server.metrics.auth.tokens.prometheus": metricsTokensGenerated && metricsTokenWasEmpty["server.metrics.auth.tokens.prometheus"],
+		"server.metrics.auth.tokens.grafana":    metricsTokensGenerated && metricsTokenWasEmpty["server.metrics.auth.tokens.grafana"],
+		"server.metrics.auth.tokens.loki":       metricsTokensGenerated && metricsTokenWasEmpty["server.metrics.auth.tokens.loki"],
+	} {
+		if wasGenerated {
+			_ = auditLog.Write(applog.Entry{Event: "config.secret_generated", Category: "config", Severity: applog.SeverityInfo, Details: map[string]any{"key": key}, Result: applog.ResultSuccess})
+		}
+	}
 
 	// installation_secret (AI.md PART 11 "Cryptographic Keys") backs the
 	// rotating {security_id} published in security.txt. A failure here is
@@ -583,6 +683,7 @@ func run(args []string) int {
 		DB:                   sqlDB,
 		Store:                sqlDB,
 		DataDir:              p.Data,
+		CacheDir:             p.Cache,
 		AccessLog:            accessLog,
 		Version:              version.Version,
 		CommitID:             version.CommitID,
@@ -595,6 +696,9 @@ func run(args []string) int {
 		Metrics:              appMetrics,
 
 		ConfigDir:             p.Config,
+		Cache:                 appCache,
+		CacheHealth:           cacheHealth,
+		Scheduler:             sched,
 		ContactConfigPath:     filepath.Join(p.Config, "server.yml"),
 		AuditLog:              auditLog,
 		InstallSecret:         installSecret,
@@ -604,11 +708,6 @@ func run(args []string) int {
 		I2P:                   i2pManager,
 	})
 	overlays.set(srv)
-	// Started in the background: bringing Tor to the point where it has a
-	// published descriptor can take minutes (server.tor.bootstrap_timeout
-	// defaults to 180s), and AI.md PART 31.1 makes the hidden service an
-	// addition to the clearnet listener, never a precondition for it.
-	go startOverlays(binaryName, torManager, i2pManager)
 	// Shutdown hooks run in registration order, so they are registered in
 	// the order AI.md PART 8 "Graceful Shutdown Sequence" prescribes: stop
 	// accepting connections and drain in-flight requests (steps 2-4), close
@@ -652,6 +751,9 @@ func run(args []string) int {
 	// still usable.
 	signal.Register(func() { _ = notifier.Send(notify.EventShutdown, nil) })
 	signal.Register(func() { _ = geoManager.Close() })
+	if closeCache != nil {
+		signal.Register(closeCache)
+	}
 	signal.Register(stopMetrics)
 	signal.Register(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -669,7 +771,6 @@ func run(args []string) int {
 	// the shutdown hooks registered above run when a signal arrives.
 	signal.Start()
 
-	fmt.Println(mode.Banner(cliLang))
 	host := cfg.Server.Listen
 	if host == "0.0.0.0" || host == "" {
 		host = "localhost"
@@ -681,7 +782,11 @@ func run(args []string) int {
 		Debug:   mode.IsDebugEnabled(),
 		URLs:    startupURLsForConfiguredPorts(cfg, p, scheme, host),
 		Lang:    cliLang,
+		Setup:   firstRunSetup(generated, cfg.Server.Token, p.ConfigFile),
 	})
+	// Start overlays after the single banner write so their asynchronous
+	// startup messages cannot split the banner.
+	go startOverlays(binaryName, torManager, i2pManager)
 
 	// Start blocks until Shutdown is called by the signal hook above, then
 	// returns nil (http.ErrServerClosed is treated as a clean stop).
@@ -699,6 +804,17 @@ func selectListenAddress(flagAddress, envAddress, configAddress, defaultAddress 
 		}
 	}
 	return defaultListenAddress
+}
+
+func firstRunSetup(firstRun bool, token, configFile string) []string {
+	if !firstRun {
+		return nil
+	}
+	return []string{
+		"First run setup",
+		"Operator token (save this value): " + token,
+		"Configuration: " + configFile,
+	}
 }
 
 func startupURLsForConfiguredPorts(cfg *config.Config, p paths.Paths, scheme, host string) []string {
@@ -932,10 +1048,16 @@ func newBuiltinScheduler(cfg *config.Config, sqlDB db.Handle, schedulerLog, acce
 		I2P: i2pManager,
 	}
 	ctx := context.Background()
-	for _, t := range scheduler.BuiltinTasks(cfg.Server.Scheduler, deps) {
+	registered := scheduler.BuiltinTasks(cfg.Server.Scheduler, deps)
+	taskIDs := make([]string, 0, len(registered))
+	for _, t := range registered {
 		if err := sched.Register(ctx, t); err != nil {
 			return nil, err
 		}
+		taskIDs = append(taskIDs, t.ID)
+	}
+	if schedulerLog != nil {
+		_ = schedulerLog.WriteLine(applog.LevelInfo, "scheduler: registered tasks: "+strings.Join(taskIDs, ", ")+"\n")
 	}
 	return sched, nil
 }

@@ -20,7 +20,7 @@ func newTestClient(t *testing.T, server *httptest.Server) *Client {
 		BaseURL:    server.URL,
 		APIVersion: "v1",
 		UserAgent:  "shortner-cli/test",
-		Token:      "tok_abc",
+		Token:      "own-example",
 		Timeout:    5 * time.Second,
 	})
 }
@@ -105,7 +105,7 @@ func TestCreateLinkSendsRequestAndHeaders(t *testing.T) {
 	if gotUA != "shortner-cli/test" {
 		t.Errorf("User-Agent = %q", gotUA)
 	}
-	if gotAuth != "Bearer tok_abc" {
+	if gotAuth != "Bearer own-example" {
 		t.Errorf("Authorization = %q", gotAuth)
 	}
 	if gotAccept != "application/json" {

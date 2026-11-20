@@ -104,8 +104,12 @@ func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
 		{ID: "backup_daily", Name: "Daily Backup", Run: backupDailyTask(deps)},
 		{ID: "backup_hourly", Name: "Hourly Backup", Run: backupHourlyTask(deps)},
 		{ID: "update_check", Name: "Update Check", Run: updateCheckTask(deps)},
-		{ID: "tor_health", Name: "Tor Health Check", Run: torHealthTask(deps)},
-		{ID: "i2p_health", Name: "I2P Health Check", Run: i2pHealthTask(deps)},
+	}
+	if deps.Tor != nil && deps.Tor.Enabled() {
+		tasks = append(tasks, TaskDef{ID: "tor_health", Name: "Tor Health Check", Run: torHealthTask(deps)})
+	}
+	if deps.I2P != nil && deps.I2P.Enabled() {
+		tasks = append(tasks, TaskDef{ID: "i2p_health", Name: "I2P Health Check", Run: i2pHealthTask(deps)})
 	}
 	for _, p := range pendingBuiltins {
 		tasks = append(tasks, TaskDef{ID: p.id, Name: p.name, Run: pendingTask(p.skipReason)})
@@ -115,6 +119,12 @@ func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
 		s := get(tasks[i].ID)
 		tasks[i].Schedule = s.Schedule
 		tasks[i].Enabled = s.Enabled
+		tasks[i].RetryOnFail = s.RetryOnFail
+		if s.RetryDelay != "" {
+			if delay, err := time.ParseDuration(s.RetryDelay); err == nil {
+				tasks[i].RetryDelay = delay
+			}
+		}
 		if tasks[i].ID == "disk_check" && tasks[i].Schedule == "" {
 			interval := deps.DiskCheckInterval
 			if interval == "" {

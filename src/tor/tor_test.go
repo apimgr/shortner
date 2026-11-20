@@ -148,8 +148,13 @@ func TestBuildTorrc(t *testing.T) {
 	out := BuildTorrc(cfg, hsDir, backendPort)
 
 	mustContain := []string{
-		"SocksPort auto",
+		"SocksPort 127.0.0.1:auto",
 		"ControlPort 127.0.0.1:auto",
+		"ControlPortWriteToFile /data/tor/control_port",
+		"CookieAuthentication 1",
+		"DisableNetwork 1",
+		"__OwningControllerProcess ",
+		"DataDirectory /data/tor",
 		"SafeLogging 1",
 		"BandwidthRate 1 MB",
 		"BandwidthBurst 2 MB",

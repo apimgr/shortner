@@ -1,9 +1,7 @@
 // Package cache implements the caching layer described in AI.md PART 9
 // "Caching". It defines the driver-agnostic Cache interface plus the
 // in-process "memory" driver (default, used in development and small
-// deployments). The "valkey"/"redis" drivers described in the spec depend
-// on the full server.yml cache config schema (AI.md PART 12, not yet
-// implemented) and a client dependency — tracked in TODO.AI.md.
+// deployments) and the Redis/Valkey driver used for shared rate-limit state.
 package cache
 
 import (

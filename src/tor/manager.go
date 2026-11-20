@@ -24,12 +24,13 @@ const monitorInterval = 30 * time.Second
 // one on a host with no tor binary: it reports an empty address and hands
 // out direct HTTP clients.
 type Manager struct {
-	mu      sync.Mutex
-	service *Service
-	config  config.Tor
-	dirs    Dirs
-	ctx     context.Context
-	cancel  context.CancelFunc
+	mu       sync.Mutex
+	service  *Service
+	starting bool
+	config   config.Tor
+	dirs     Dirs
+	ctx      context.Context
+	cancel   context.CancelFunc
 	// serve is called with each newly started service so the HTTP server
 	// can begin serving its backend listener. A restart produces a new
 	// listener on a new port, so this fires on every successful start,
@@ -71,17 +72,42 @@ func (m *Manager) log(format string, args ...any) {
 // tor binary is reported through the returned error but leaves the manager
 // perfectly usable — the caller treats it as INFO and continues.
 func (m *Manager) Start() error {
+	err := m.startUnlocked()
+	go m.monitor()
+	return err
+}
+
+// startUnlocked starts Tor without holding the state lock during process
+// startup. Health requests must keep answering while Tor bootstraps.
+func (m *Manager) startUnlocked() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if err := m.startLocked(); err != nil {
+	if m.starting {
+		m.mu.Unlock()
+		return nil
+	}
+	m.starting = true
+	ctx, cfg, dirs := m.ctx, m.config, m.dirs
+	m.mu.Unlock()
+	service, err := Start(ctx, cfg, dirs)
+	m.mu.Lock()
+	m.starting = false
+	if err != nil {
+		m.lastErr = err
+		m.mu.Unlock()
 		return err
 	}
-	go m.monitor()
+	m.lastErr = nil
+	m.service = service
+	m.mu.Unlock()
+	if m.serve != nil {
+		m.serve(service)
+	}
+	m.log("Tor: %s", service.OnionAddress())
 	return nil
 }
 
-// startLocked starts Tor and publishes the new service to the serve hook.
-// The caller must hold m.mu.
+// startLocked is used by serialized operator lifecycle commands. Initial
+// startup uses startUnlocked so public health requests remain responsive.
 func (m *Manager) startLocked() error {
 	service, err := Start(m.ctx, m.config, m.dirs)
 	if err != nil {
@@ -297,20 +323,28 @@ func (m *Manager) monitor() {
 			return
 		case <-ticker.C:
 			m.mu.Lock()
-			if m.service == nil {
+			service := m.service
+			if service == nil {
 				m.mu.Unlock()
+				if err := m.startUnlocked(); err != nil {
+					m.log("Tor: restart failed: %v", err)
+				}
 				continue
 			}
-			if m.service.Healthy() {
-				m.mu.Unlock()
+			m.mu.Unlock()
+			if service.Healthy() {
 				continue
 			}
 			m.log("Tor: connection lost, reconnecting")
-			m.stopLocked()
-			if err := m.startLocked(); err != nil {
-				m.log("Tor: restart failed: %v", err)
+			m.mu.Lock()
+			if m.service == service {
+				m.service = nil
 			}
 			m.mu.Unlock()
+			_ = service.Close()
+			if err := m.startUnlocked(); err != nil {
+				m.log("Tor: restart failed: %v", err)
+			}
 		}
 	}
 }

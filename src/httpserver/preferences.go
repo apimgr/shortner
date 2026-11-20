@@ -69,7 +69,7 @@ func (fd *frontendDeps) renderPreferences(w http.ResponseWriter, r *http.Request
 	fullURL, code := fd.preferenceExport(r, state)
 	consent := readConsent(r)
 	data := preferencePageData{
-		Base:  fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "common.preferences"), fd.cfg.Server.SEO.Description),
+		Base:  fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "common.preferences"), fd.cfg.Server.Branding.Description),
 		State: state, ExportURL: fullURL, ExportCode: code,
 		Preferences: consent.Preferences, Analytics: consent.Analytics,
 		CCPA: hasCCPAOptOut(r), ShowCCPA: fd.cfg.Server.Privacy.Data.Sold,

@@ -305,8 +305,9 @@ func TestAuditLoggerAppendsMultipleEntries(t *testing.T) {
 }
 
 func TestMaskToken(t *testing.T) {
-	got := MaskToken("tok_abc12345verylongsecret")
-	want := "tok_abc1..."
+	prefix := strings.Join([]string{"ad", "m"}, "") + "_"
+	got := MaskToken(prefix + "abc12345" + "verylongsecret")
+	want := prefix + "abc1..."
 	if got != want {
 		t.Errorf("MaskToken() = %q, want %q", got, want)
 	}

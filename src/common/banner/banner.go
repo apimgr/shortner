@@ -4,12 +4,16 @@ package banner
 
 import (
 	"fmt"
+	"os"
 	"strings"
+	"sync"
 
 	"github.com/apimgr/shortner/src/common/display"
 	"github.com/apimgr/shortner/src/common/i18n"
 	"github.com/apimgr/shortner/src/common/terminal"
 )
+
+var outputMu sync.Mutex
 
 // BannerConfig describes the values shown in the startup banner.
 type BannerConfig struct {
@@ -19,6 +23,8 @@ type BannerConfig struct {
 	AppMode string
 	Debug   bool
 	URLs    []string
+	// Setup contains the first-run setup block, when present.
+	Setup []string
 	// Lang is the resolved output language (AI.md PART 30). An empty or
 	// unsupported value falls back to English, so a zero BannerConfig
 	// still prints a correct banner.
@@ -33,17 +39,25 @@ func label(cfg BannerConfig, key string) string {
 // PrintStartupBanner prints the startup banner, choosing a renderer based
 // on the current terminal size breakpoint.
 func PrintStartupBanner(cfg BannerConfig) {
+	outputMu.Lock()
+	defer outputMu.Unlock()
+	_, _ = os.Stdout.Write([]byte(StartupBanner(cfg)))
+}
+
+// StartupBanner renders the complete banner into one string so startup can
+// write it atomically before asynchronous feature logging begins.
+func StartupBanner(cfg BannerConfig) string {
 	size := terminal.GetTerminalSize()
 
 	switch {
 	case size.Mode >= terminal.SizeModeStandard:
-		printStartupBannerFull(cfg, size)
+		return startupBannerFull(cfg, size)
 	case size.Mode >= terminal.SizeModeCompact:
-		printStartupBannerCompact(cfg)
+		return startupBannerCompact(cfg)
 	case size.Mode >= terminal.SizeModeMinimal:
-		printStartupBannerMinimal(cfg)
+		return startupBannerMinimal(cfg)
 	default:
-		printStartupBannerMicro(cfg)
+		return startupBannerMicro(cfg)
 	}
 }
 
@@ -58,6 +72,11 @@ func useBoxDrawing() bool {
 // printStartupBannerFull renders the banner for SizeModeStandard and above:
 // a bordered box with app name, version, mode, debug flag, and every URL.
 func printStartupBannerFull(cfg BannerConfig, size terminal.TerminalSize) {
+	_, _ = os.Stdout.Write([]byte(startupBannerFull(cfg, size)))
+}
+
+func startupBannerFull(cfg BannerConfig, size terminal.TerminalSize) string {
+	var out strings.Builder
 	width := size.Cols - 2
 	if width > 78 {
 		width = 78
@@ -67,23 +86,30 @@ func printStartupBannerFull(cfg BannerConfig, size terminal.TerminalSize) {
 	}
 
 	if useBoxDrawing() {
-		fmt.Println("┌" + strings.Repeat("─", width) + "┐")
-		printBoxLine(width, fmt.Sprintf("%s %s", cfg.AppName, cfg.Version))
-		printBoxLine(width, label(cfg, "cli.mode_label")+": "+modeLabel(cfg))
+		fmt.Fprintln(&out, "┌"+strings.Repeat("─", width)+"┐")
+		writeBoxLine(&out, width, fmt.Sprintf("%s · %s", cfg.AppName, cfg.Version))
+		writeBoxLine(&out, width, label(cfg, "cli.mode_label")+": "+modeLabel(cfg))
 		for _, u := range cfg.URLs {
-			printBoxLine(width, label(cfg, "cli.url_label")+": "+u)
+			writeBoxLine(&out, width, label(cfg, "cli.url_label")+": "+u)
 		}
-		fmt.Println("└" + strings.Repeat("─", width) + "┘")
-		return
+		for _, line := range cfg.Setup {
+			writeBoxLine(&out, width, line)
+		}
+		fmt.Fprintln(&out, "└"+strings.Repeat("─", width)+"┘")
+		return out.String()
 	}
 
-	fmt.Println("+" + strings.Repeat("-", width) + "+")
-	printBoxLine(width, fmt.Sprintf("%s %s", cfg.AppName, cfg.Version))
-	printBoxLine(width, label(cfg, "cli.mode_label")+": "+modeLabel(cfg))
+	fmt.Fprintln(&out, "+"+strings.Repeat("-", width)+"+")
+	writeBoxLine(&out, width, fmt.Sprintf("%s · %s", cfg.AppName, cfg.Version))
+	writeBoxLine(&out, width, label(cfg, "cli.mode_label")+": "+modeLabel(cfg))
 	for _, u := range cfg.URLs {
-		printBoxLine(width, label(cfg, "cli.url_label")+": "+u)
+		writeBoxLine(&out, width, label(cfg, "cli.url_label")+": "+u)
 	}
-	fmt.Println("+" + strings.Repeat("-", width) + "+")
+	for _, line := range cfg.Setup {
+		writeBoxLine(&out, width, line)
+	}
+	fmt.Fprintln(&out, "+"+strings.Repeat("-", width)+"+")
+	return out.String()
 }
 
 // printBoxLine prints one line padded to width, framed with the vertical
@@ -99,36 +125,74 @@ func printBoxLine(width int, text string) {
 	fmt.Printf("%s %-*s%s\n", bar, width-2, text, bar)
 }
 
+func writeBoxLine(out *strings.Builder, width int, text string) {
+	bar := "│"
+	if !useBoxDrawing() {
+		bar = "|"
+	}
+	if len(text) > width-2 {
+		text = text[:width-2]
+	}
+	fmt.Fprintf(out, "%s %-*s%s\n", bar, width-2, text, bar)
+}
+
 // printStartupBannerCompact renders the banner for SizeModeCompact: a
 // simple bordered block without padding calculations.
 func printStartupBannerCompact(cfg BannerConfig) {
+	_, _ = os.Stdout.Write([]byte(startupBannerCompact(cfg)))
+}
+
+func startupBannerCompact(cfg BannerConfig) string {
+	var out strings.Builder
 	rule := strings.Repeat("-", 40)
-	fmt.Println(rule)
-	fmt.Printf("%s %s (%s)\n", cfg.AppName, cfg.Version, modeLabel(cfg))
+	fmt.Fprintln(&out, rule)
+	fmt.Fprintf(&out, "%s · %s (%s)\n", cfg.AppName, cfg.Version, modeLabel(cfg))
 	for _, u := range cfg.URLs {
-		fmt.Println(label(cfg, "cli.url_label") + ": " + u)
+		fmt.Fprintln(&out, label(cfg, "cli.url_label")+": "+u)
 	}
-	fmt.Println(rule)
+	for _, line := range cfg.Setup {
+		fmt.Fprintln(&out, line)
+	}
+	fmt.Fprintln(&out, rule)
+	return out.String()
 }
 
 // printStartupBannerMinimal renders the banner for SizeModeMinimal: no
 // borders, one line per fact.
 func printStartupBannerMinimal(cfg BannerConfig) {
-	fmt.Printf("%s %s\n", cfg.AppName, cfg.Version)
-	fmt.Println(label(cfg, "cli.mode_label") + ": " + modeLabel(cfg))
+	_, _ = os.Stdout.Write([]byte(startupBannerMinimal(cfg)))
+}
+
+func startupBannerMinimal(cfg BannerConfig) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "%s · %s\n", cfg.AppName, cfg.Version)
+	fmt.Fprintln(&out, label(cfg, "cli.mode_label")+": "+modeLabel(cfg))
 	for _, u := range cfg.URLs {
-		fmt.Println(u)
+		fmt.Fprintln(&out, u)
 	}
+	for _, line := range cfg.Setup {
+		fmt.Fprintln(&out, line)
+	}
+	return out.String()
 }
 
 // printStartupBannerMicro renders the banner for SizeModeMicro: a single
 // terse line, since the terminal is too small for anything else.
 func printStartupBannerMicro(cfg BannerConfig) {
+	_, _ = os.Stdout.Write([]byte(startupBannerMicro(cfg)))
+}
+
+func startupBannerMicro(cfg BannerConfig) string {
 	url := ""
 	if len(cfg.URLs) > 0 {
 		url = " " + cfg.URLs[0]
 	}
-	fmt.Printf("%s %s%s\n", cfg.AppName, cfg.Version, url)
+	var out strings.Builder
+	fmt.Fprintf(&out, "%s · %s%s\n", cfg.AppName, cfg.Version, url)
+	for _, line := range cfg.Setup {
+		fmt.Fprintln(&out, line)
+	}
+	return out.String()
 }
 
 // modeLabel returns the app mode with a debug suffix if enabled.

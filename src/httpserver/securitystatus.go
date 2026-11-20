@@ -82,7 +82,7 @@ func (fd *frontendDeps) securityReportStatusHandler(w http.ResponseWriter, r *ht
 	}
 
 	data := securityReportStatusPageData{
-		Base:        fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security.report_status_title"), fd.cfg.Server.SEO.Description),
+		Base:        fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security.report_status_title"), fd.cfg.Server.Branding.Description),
 		TrackingID:  rep.TrackingID,
 		Status:      status,
 		StatusLabel: t(r, "security.report_state_"+status),

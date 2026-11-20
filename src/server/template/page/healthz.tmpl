@@ -1,12 +1,39 @@
 {{define "content"}}<article class="healthz-page">
-<h1>{{t .Base.Lang "health.title"}}</h1>
+<header class="page-header"><h1>{{.Health.Project.Name}}</h1>{{if .Health.Project.Tagline}}<p class="tagline">{{.Health.Project.Tagline}}</p>{{end}}{{if .Health.Project.Description}}<p>{{.Health.Project.Description}}</p>{{end}}</header>
+<div class="status-banner status-{{if eq .Health.Status "healthy"}}ok{{else if eq .Health.Status "degraded"}}warning{{else}}error{{end}}" role="status">{{t .Base.Lang "health.status"}}: {{.Health.Status}}</div>
 
-<div class="info-list">
-<div class="info-row"><span class="info-label">{{t .Base.Lang "health.status"}}</span><span class="info-value badge badge-{{if eq .Health.Status "healthy"}}success{{else}}warning{{end}}">{{if eq .Health.Status "healthy"}}{{t .Base.Lang "health.healthy"}}{{else if eq .Health.Status "degraded"}}{{t .Base.Lang "health.degraded"}}{{else}}{{t .Base.Lang "health.unhealthy"}}{{end}}</span></div>
-<div class="info-row"><span class="info-label">{{t .Base.Lang "health.version"}}</span><span class="info-value">{{.Health.Version}}</span></div>
-<div class="info-row"><span class="info-label">{{t .Base.Lang "health.uptime"}}</span><span class="info-value">{{.Health.Uptime}}</span></div>
-<div class="info-row"><span class="info-label">{{t .Base.Lang "health.mode"}}</span><span class="info-value">{{if eq .Health.Mode "production"}}{{t .Base.Lang "health.production"}}{{else}}{{t .Base.Lang "health.development"}}{{end}}</span></div>
-<div class="info-row"><span class="info-label">{{t .Base.Lang "health.go_version"}}</span><span class="info-value">{{.Health.GoVersion}}</span></div>
-</div>
-</article>
-{{end}}
+<section class="section-card"><h2>Version</h2><dl class="info-list">
+<div class="info-row"><dt class="info-label">{{t .Base.Lang "health.version"}}</dt><dd class="info-value"><code>{{.Health.Version}}</code></dd></div>
+<div class="info-row"><dt class="info-label">Build</dt><dd class="info-value"><code>{{.Health.Build.Commit}}</code> ({{.BuildDateHuman}})</dd></div>
+<div class="info-row"><dt class="info-label">Go</dt><dd class="info-value"><code>{{.Health.GoVersion}}</code></dd></div>
+</dl></section>
+
+<section class="section-card"><h2>Runtime</h2><dl class="info-list">
+<div class="info-row"><dt class="info-label">{{t .Base.Lang "health.uptime"}}</dt><dd class="info-value">{{.UptimeHuman}}</dd></div>
+<div class="info-row"><dt class="info-label">{{t .Base.Lang "health.mode"}}</dt><dd class="info-value"><span class="badge badge-{{.Health.Mode}}">{{.Health.Mode}}</span></dd></div>
+<div class="info-row"><dt class="info-label">Checked</dt><dd class="info-value"><time datetime="{{.Health.Timestamp.Format "2006-01-02T15:04:05Z07:00"}}">{{.TimestampHuman}}</time></dd></div>
+</dl></section>
+
+<section class="section-card"><h2>Cluster</h2><dl class="info-list"><div class="info-row"><dt class="info-label">Enabled</dt><dd class="info-value">{{if .Health.Cluster.Enabled}}enabled{{else}}disabled{{end}}</dd></div></dl></section>
+
+<section class="section-card"><h2>Features</h2><ul class="feature-list">
+<li class="feature-{{if .Health.Features.Tor.Enabled}}enabled{{else}}disabled{{end}}">Tor: {{.Health.Features.Tor.Status}}{{if .Health.Features.Tor.Hostname}} <code class="code-block">{{.Health.Features.Tor.Hostname}}</code><button type="button" class="copy-button" data-copy="{{.Health.Features.Tor.Hostname}}">Copy</button>{{end}}</li>
+<li class="feature-{{if .Health.Features.I2P.Enabled}}enabled{{else}}disabled{{end}}">I2P: {{.Health.Features.I2P.Status}}{{if .Health.Features.I2P.Hostname}} <code class="code-block">{{.Health.Features.I2P.Hostname}}</code><button type="button" class="copy-button" data-copy="{{.Health.Features.I2P.Hostname}}">Copy</button>{{end}}</li>
+<li class="feature-{{if .Health.Features.GeoIP}}enabled{{else}}disabled{{end}}">GeoIP: {{if .Health.Features.GeoIP}}enabled{{else}}disabled{{end}}</li>
+</ul></section>
+
+<section class="section-card"><h2>Component Status</h2><div class="table-wrapper"><table class="data-table"><thead><tr><th>Component</th><th>Status</th></tr></thead><tbody>
+<tr><th>Database</th><td class="status status-{{.Health.Checks.Database}}">{{.Health.Checks.Database}}</td></tr>
+<tr><th>Cache</th><td class="status status-{{.Health.Checks.Cache}}">{{.Health.Checks.Cache}}</td></tr>
+<tr><th>Disk</th><td class="status status-{{.Health.Checks.Disk}}">{{.Health.Checks.Disk}}</td></tr>
+<tr><th>Scheduler</th><td class="status status-{{.Health.Checks.Scheduler}}">{{.Health.Checks.Scheduler}}</td></tr>
+{{if .Health.Checks.Tor}}<tr><th>Tor</th><td class="status status-{{.Health.Checks.Tor}}">{{.Health.Checks.Tor}}</td></tr>{{end}}
+{{if .Health.Checks.I2P}}<tr><th>I2P</th><td class="status status-{{.Health.Checks.I2P}}">{{.Health.Checks.I2P}}</td></tr>{{end}}
+</tbody></table></div></section>
+
+<section class="section-card"><h2>Server Statistics</h2><dl class="info-list">
+<div class="info-row"><dt class="info-label">Total requests</dt><dd class="info-value">{{.RequestsTotal}}</dd></div>
+<div class="info-row"><dt class="info-label">Requests (24 hours)</dt><dd class="info-value">{{.Requests24h}}</dd></div>
+<div class="info-row"><dt class="info-label">Active connections</dt><dd class="info-value">{{.ActiveConns}}</dd></div>
+</dl></section>
+</article>{{end}}

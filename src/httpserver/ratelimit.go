@@ -1,7 +1,6 @@
 // Per-IP sliding-window rate limiter, per AI.md PART 12 "Rate Limiting".
-// Counters are kept in an in-process map rather than server.db/cache, since
-// neither the rate-limit DB table nor a cache.Cache atomic-increment
-// primitive exists yet — tracked in TODO.AI.md.
+// Redis/Valkey backends use atomic shared counters; other cache backends use
+// a process-local sliding-window map.
 package httpserver
 
 import (
@@ -10,6 +9,10 @@ import (
 
 	"github.com/apimgr/shortner/src/config"
 )
+
+type rateCounter interface {
+	AllowRate(classKey, ip string, classLimit, globalLimit int, classWindow, globalWindow time.Duration) (bool, int, bool)
+}
 
 // rlClass identifies which limit tier a request belongs to.
 type rlClass int
@@ -55,11 +58,12 @@ type RateLimiter struct {
 	byClass   map[rlClass]map[string]*window
 	global    map[string]*window
 	lastSweep time.Time
+	backend   rateCounter
 }
 
 // NewRateLimiter builds a RateLimiter from server.yml's rate_limit config.
-func NewRateLimiter(cfg config.RateLimit) *RateLimiter {
-	return &RateLimiter{
+func NewRateLimiter(cfg config.RateLimit, backend ...rateCounter) *RateLimiter {
+	rl := &RateLimiter{
 		cfg: cfg,
 		byClass: map[rlClass]map[string]*window{
 			rlRead:   {},
@@ -68,6 +72,10 @@ func NewRateLimiter(cfg config.RateLimit) *RateLimiter {
 		},
 		global: map[string]*window{},
 	}
+	if len(backend) > 0 {
+		rl.backend = backend[0]
+	}
+	return rl
 }
 
 // classLimit returns the configured (requests, window) for class.
@@ -85,13 +93,18 @@ func (rl *RateLimiter) classLimit(class rlClass) config.RateLimitClass {
 // Allow reports whether ip may proceed for class, and if not, the number of
 // seconds until the window resets (for the Retry-After header).
 func (rl *RateLimiter) Allow(ip string, class rlClass) (allowed bool, retryAfterSeconds int) {
+	limit := rl.classLimit(class)
+	if rl.backend != nil {
+		if allowed, retry, decided := rl.backend.AllowRate(class.String()+":"+ip, ip, limit.Requests, rl.cfg.GlobalBurst, time.Duration(limit.Window)*time.Second, time.Minute); decided {
+			return allowed, retry
+		}
+	}
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
 	now := time.Now()
 	rl.sweepLocked(now)
 
-	limit := rl.classLimit(class)
 	classWindows := rl.byClass[class]
 	w, ok := classWindows[ip]
 	if !ok || now.Sub(w.windowStart) >= time.Duration(limit.Window)*time.Second {

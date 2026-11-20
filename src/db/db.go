@@ -2,11 +2,10 @@
 // "Database": connection pooling, idempotent self-creating schema, query
 // timeouts, and transaction helpers, plus the Link/Click/api_tokens/
 // app_secrets models required by IDEA.md's business logic and AI.md
-// PART 11's "API Token Model" / "Cryptographic Keys". The only supported
-// driver is modernc.org/sqlite (pure Go, no CGO) — see AI.md PART 10
-// "Connection Pooling" and the backend-rules.md CRITICAL rule against CGO
-// drivers. libsql/Turso support is deferred (tracked in TODO.AI.md; it
-// depends on the full server.yml database schema in AI.md PART 12).
+// PART 11's "API Token Model" / "Cryptographic Keys". SQLite uses
+// modernc.org/sqlite (pure Go, no CGO); remote libSQL uses its pure-Go
+// database/sql client. See AI.md PART 10 "Connection Pooling" and
+// PART 12 "Connection Strings".
 package db
 
 import (
@@ -60,7 +59,45 @@ func escapeDSNPath(path string) string {
 // PART 10 "Implementation" / "Schema Updates". m may be nil (e.g. metrics
 // disabled), in which case the plain "sqlite" driver is used with no
 // instrumentation.
-func Open(path string, pool Pool, m *metrics.Metrics) (*Store, error) {
+func Open(path string, pool Pool, m *metrics.Metrics, authTokens ...string) (*Store, error) {
+	if isWindowsDrivePath(path) {
+		return openAndMigrateSQLite(path, pool, m)
+	}
+	u, parseErr := url.Parse(strings.TrimSpace(path))
+	if parseErr != nil {
+		return nil, errors.New("db: invalid database connection string")
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "":
+		return openAndMigrateSQLite(path, pool, m)
+	case "sqlite", "sqlite2", "sqlite3", "file":
+		filePath, err := sqlitePath(u)
+		if err != nil {
+			return nil, err
+		}
+		return openAndMigrateSQLite(filePath, pool, m)
+	case "libsql", "https", "http":
+		var authToken string
+		if len(authTokens) > 0 {
+			authToken = authTokens[0]
+		}
+		store, err := openLibSQL(path, pool, authToken)
+		if err != nil {
+			return nil, err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := EnsureSchema(ctx, store); err != nil {
+			_ = store.Close()
+			return nil, errors.New("db: database connection failed")
+		}
+		return store, nil
+	default:
+		return nil, errors.New("db: unsupported database connection scheme")
+	}
+}
+
+func openAndMigrateSQLite(path string, pool Pool, m *metrics.Metrics) (*Store, error) {
 	// The path is percent-encoded before interpolation: a raw "?" or "#"
 	// in the configured database path would otherwise terminate the file
 	// component and let the remainder be parsed as extra DSN parameters,
@@ -79,12 +116,48 @@ func Open(path string, pool Pool, m *metrics.Metrics) (*Store, error) {
 	return store, nil
 }
 
+func sqlitePath(u *url.URL) (string, error) {
+	value := u.Path
+	if value == "" {
+		value = u.Opaque
+	}
+	if u.Host != "" {
+		if u.Host != "localhost" {
+			return "", errors.New("db: invalid SQLite file URL")
+		}
+		value = "//localhost" + value
+	}
+	if value == "" {
+		return "", errors.New("db: invalid SQLite file URL")
+	}
+	decoded, err := url.PathUnescape(value)
+	if err != nil {
+		return "", errors.New("db: invalid SQLite file URL")
+	}
+	if rawScheme := strings.ToLower(u.Scheme); rawScheme != "file" && rawScheme != "sqlite" && rawScheme != "sqlite2" && rawScheme != "sqlite3" {
+		return "", errors.New("db: invalid SQLite file URL")
+	}
+	return decoded, nil
+}
+
+func isWindowsDrivePath(path string) bool {
+	return len(path) >= 3 && ((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')) && path[1] == ':' && (path[2] == '\\' || path[2] == '/')
+}
+
 // createStatements are the idempotent CREATE TABLE / CREATE INDEX
 // statements applied on every startup, per AI.md PART 10 "Schema Updates
 // (Idempotent Approach)". Table shapes: links/clicks from IDEA.md
 // "Data models"; api_tokens verbatim from AI.md PART 8 "API Tokens"
 // schema; app_secrets from AI.md PART 11 "Cryptographic Keys".
 var createStatements = []string{
+	`CREATE TABLE IF NOT EXISTS server_stats (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		requests_total INTEGER NOT NULL DEFAULT 0
+	)`,
+	`CREATE TABLE IF NOT EXISTS server_stats_hourly (
+		hour_start INTEGER PRIMARY KEY,
+		requests INTEGER NOT NULL DEFAULT 0
+	)`,
 	`CREATE TABLE IF NOT EXISTS links (
 		id              INTEGER PRIMARY KEY AUTOINCREMENT,
 		short_code      TEXT NOT NULL UNIQUE,

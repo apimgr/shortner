@@ -35,7 +35,7 @@ func newNotifier(cfg *config.Config, p paths.Paths, fqdnHost string) *notify.Not
 // configured site name (AI.md PART 16 "Branding"), falling back to the
 // project name compiled into the binary.
 func appName(cfg *config.Config) string {
-	if n := strings.TrimSpace(cfg.Server.Branding.SiteName); n != "" {
+	if n := strings.TrimSpace(cfg.Server.Branding.Title); n != "" {
 		return n
 	}
 	return internalName

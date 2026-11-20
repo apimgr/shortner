@@ -174,7 +174,7 @@ func (fd *frontendDeps) homeHandler(w http.ResponseWriter, r *http.Request) {
 		fd.homePost(w, r)
 		return
 	}
-	data := homePageData{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "home.title"), fd.cfg.Server.SEO.Description)}
+	data := homePageData{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "home.title"), fd.cfg.Server.Branding.Description)}
 	_ = renderPage(w, http.StatusOK, "home", data)
 }
 
@@ -235,7 +235,7 @@ func (fd *frontendDeps) homePost(w http.ResponseWriter, r *http.Request) {
 
 	shortURL := fd.ld.resolver.BuildURL(r, "/"+link.ShortCode)
 	data := homePageData{
-		Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "home.title"), fd.cfg.Server.SEO.Description),
+		Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "home.title"), fd.cfg.Server.Branding.Description),
 		Link: &homeLinkResult{ShortURL: shortURL, OwnerToken: ownerToken},
 	}
 	_ = renderPage(w, http.StatusCreated, "home", data)
@@ -243,7 +243,7 @@ func (fd *frontendDeps) homePost(w http.ResponseWriter, r *http.Request) {
 
 func (fd *frontendDeps) homeError(w http.ResponseWriter, r *http.Request, msg, dest, slug string, status int) {
 	data := homePageData{
-		Base:        fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "home.title"), fd.cfg.Server.SEO.Description),
+		Base:        fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "home.title"), fd.cfg.Server.Branding.Description),
 		Error:       msg,
 		Destination: dest,
 		CustomSlug:  slug,
@@ -262,7 +262,7 @@ type aboutPageData struct {
 
 func (fd *frontendDeps) aboutHandler(w http.ResponseWriter, r *http.Request) {
 	data := aboutPageData{
-		Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "about.title"), fd.cfg.Server.SEO.Description),
+		Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "about.title"), fd.cfg.Server.Branding.Description),
 		AboutContent: fd.operatorHTML(r, "about", fd.operatorVariables(r)),
 	}
 	_ = renderPage(w, http.StatusOK, "about", data)
@@ -276,22 +276,28 @@ type helpPageData struct {
 
 func (fd *frontendDeps) helpHandler(w http.ResponseWriter, r *http.Request) {
 	data := helpPageData{
-		Base:        fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "help.title"), fd.cfg.Server.SEO.Description),
-		HelpContent: sanitize.RenderMarkdown(fd.cfg.Pages.Help.Content, r.Host),
+		Base:        fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "help.title"), fd.cfg.Server.Branding.Description),
+		HelpContent: sanitize.RenderMarkdown(fd.cfg.Server.Pages.Help.Content, r.Host),
 	}
 	_ = renderPage(w, http.StatusOK, "help", data)
 }
 
 // termsPageData is the data bound to page/terms.tmpl.
 type termsPageData struct {
-	Base    PageData
-	Content template.HTML
+	Base             PageData
+	Content          template.HTML
+	HasCustomContent bool
 }
 
 func (fd *frontendDeps) termsHandler(w http.ResponseWriter, r *http.Request) {
+	entry, hasContent := configuredOperatorContent(fd.branding.load(fd.cfg).Branding.Content, "terms")
+	if hasContent {
+		_, hasContent = entry.Body.Resolve(langFromContext(r))
+	}
 	data := termsPageData{
-		Base:    fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "terms.title"), fd.cfg.Server.SEO.Description),
-		Content: fd.operatorHTML(r, "terms", fd.operatorVariables(r)),
+		Base:             fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "terms.title"), fd.cfg.Server.Branding.Description),
+		Content:          fd.operatorHTML(r, "terms", fd.operatorVariables(r)),
+		HasCustomContent: hasContent,
 	}
 	_ = renderPage(w, http.StatusOK, "terms", data)
 }
@@ -324,7 +330,7 @@ func (fd *frontendDeps) privacyHandler(w http.ResponseWriter, r *http.Request) {
 	priv := fd.cfg.Server.Privacy
 
 	data := privacyPageData{
-		Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "privacy.title"), fd.cfg.Server.SEO.Description),
+		Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "privacy.title"), fd.cfg.Server.Branding.Description),
 		Extension:    fd.operatorHTML(r, "privacy", fd.operatorVariables(r)),
 		ContactEmail: strings.TrimSpace(fd.cfg.Server.Contact.DPO.Email),
 
@@ -403,7 +409,7 @@ type securityContactPageData struct {
 }
 
 func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
-	if !fd.cfg.Pages.Contact.Enabled {
+	if !fd.cfg.Server.Pages.Contact.Enabled {
 		http.NotFound(w, r)
 		return
 	}
@@ -418,7 +424,7 @@ func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		captcha, captchaErr := fd.issueCaptcha(r)
 		data := securityContactPageData{
-			Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security_report.title"), fd.cfg.Server.SEO.Description),
+			Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security_report.title"), fd.cfg.Server.Branding.Description),
 			SecurityMode: true,
 			SecurityID:   r.FormValue("security_id"),
 			FormToken:    fd.contactToken(time.Now()),
@@ -449,7 +455,7 @@ func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := contactPageData{
-		Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "contact.title"), fd.cfg.Server.SEO.Description),
+		Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "contact.title"), fd.cfg.Server.Branding.Description),
 		Enabled:      true,
 		AbuseEmail:   fd.contactAbuseEmail(),
 		Types:        contactReportTypes,
@@ -467,8 +473,8 @@ func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
 // the visitor is shown success either way and nothing is ever queued.
 func (fd *frontendDeps) contactPost(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, contactFormBodyLimit)
-	base := fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "contact.title"), fd.cfg.Server.SEO.Description)
-	if !fd.cfg.Pages.Contact.Enabled {
+	base := fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "contact.title"), fd.cfg.Server.Branding.Description)
+	if !fd.cfg.Server.Pages.Contact.Enabled {
 		http.NotFound(w, r)
 		return
 	}
@@ -671,7 +677,7 @@ func (fd *frontendDeps) contactAbuseEmail() string {
 }
 
 func (fd *frontendDeps) contactSuccessMessage(r *http.Request) string {
-	if message := fd.cfg.Pages.Contact.SuccessMessage; message != "" {
+	if message := fd.cfg.Server.Pages.Contact.SuccessMessage; message != "" {
 		return message
 	}
 	return t(r, "contact.success")
@@ -679,7 +685,7 @@ func (fd *frontendDeps) contactSuccessMessage(r *http.Request) string {
 
 func (fd *frontendDeps) contactAPIHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if !fd.cfg.Pages.Contact.Enabled {
+	if !fd.cfg.Server.Pages.Contact.Enabled {
 		sendError(w, r, apperr.New(apperr.CodeNotFound))
 		return
 	}
@@ -931,7 +937,7 @@ func (fd *frontendDeps) relayReportMessage(values url.Values) {
 		}
 	}
 	fmt.Fprintf(&body, "\n%s\n", values.Get("message"))
-	appName := strings.TrimSpace(fd.cfg.Server.Branding.SiteName)
+	appName := strings.TrimSpace(fd.branding.load(fd.cfg).Branding.Title)
 	if appName == "" {
 		appName = "Shortner"
 	}
@@ -1022,14 +1028,20 @@ func (fd *frontendDeps) ccpaHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	data := struct {
 		Base PageData
-	}{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "ccpa.do_not_sell"), fd.cfg.Server.SEO.Description)}
+	}{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "ccpa.do_not_sell"), fd.cfg.Server.Branding.Description)}
 	_ = renderPage(w, http.StatusOK, "ccpa", data)
 }
 
 // healthzPageData is the data bound to page/healthz.tmpl.
 type healthzPageData struct {
-	Base   PageData
-	Health HealthResponse
+	Base           PageData
+	Health         HealthResponse
+	UptimeHuman    string
+	TimestampHuman string
+	BuildDateHuman string
+	RequestsTotal  string
+	Requests24h    string
+	ActiveConns    string
 }
 
 // healthzHTMLHandler renders the HTML health page for browsers, per AI.md
@@ -1044,12 +1056,18 @@ func (fd *frontendDeps) healthzHTMLHandler(hd *healthDeps) http.HandlerFunc {
 		}
 		resp := hd.buildHealthResponse(r.Context())
 		status := http.StatusOK
-		if resp.Status != "healthy" {
+		if resp.Status == "unhealthy" {
 			status = http.StatusServiceUnavailable
 		}
 		data := healthzPageData{
-			Base:   fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "health.title"), fd.cfg.Server.SEO.Description),
-			Health: resp,
+			Base:           fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "health.title"), fd.cfg.Server.Branding.Description),
+			Health:         resp,
+			UptimeHuman:    formatHumanUptime(parseCompactUptime(resp.Uptime)),
+			TimestampHuman: resp.Timestamp.UTC().Format("January 02, 2006 at 15:04:05 MST"),
+			BuildDateHuman: humanHealthTimestamp(resp.Build.Date),
+			RequestsTotal:  groupHealthCount(resp.Stats.RequestsTotal),
+			Requests24h:    groupHealthCount(resp.Stats.Requests24h),
+			ActiveConns:    groupHealthCount(int64(resp.Stats.ActiveConns)),
 		}
 		_ = renderPage(w, status, "healthz", data)
 	}
@@ -1087,7 +1105,7 @@ func (fd *frontendDeps) statsHTMLHandler(ld *linkDeps) http.HandlerFunc {
 		}
 		resp := buildStatsResponse(link, clicks)
 		data := statsPageData{
-			Base:  fd.newPageData(r, requestCSRFToken(r, fd.cfg), tf(r, "stats.title_short", map[string]string{"code": resp.ShortCode}), fd.cfg.Server.SEO.Description),
+			Base:  fd.newPageData(r, requestCSRFToken(r, fd.cfg), tf(r, "stats.title_short", map[string]string{"code": resp.ShortCode}), fd.cfg.Server.Branding.Description),
 			Stats: resp,
 		}
 		_ = renderPage(w, http.StatusOK, "stats", data)
@@ -1126,7 +1144,7 @@ func (fd *frontendDeps) listHTMLHandler(ld *linkDeps) http.HandlerFunc {
 		}
 
 		data := listPageData{
-			Base:       fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "list.title"), fd.cfg.Server.SEO.Description),
+			Base:       fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "list.title"), fd.cfg.Server.Branding.Description),
 			Links:      resp.Data,
 			Pagination: resp.Pagination,
 			PrevPage:   page - 1,

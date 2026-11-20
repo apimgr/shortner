@@ -271,12 +271,19 @@ func operationTag(path string) string {
 }
 
 // Handler serves the generated JSON specification directly.
-func Handler(serverURL func(*http.Request) string) http.Handler {
+func Handler(serverURL func(*http.Request) string, title ...func(*http.Request) string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var document map[string]any
 		if err := json.Unmarshal(embeddedDocument, &document); err != nil {
 			http.Error(w, "OpenAPI document unavailable", http.StatusInternalServerError)
 			return
+		}
+		if len(title) > 0 && title[0] != nil {
+			if info, ok := document["info"].(map[string]any); ok {
+				if siteName := strings.TrimSpace(title[0](r)); siteName != "" {
+					info["title"] = siteName + " API"
+				}
+			}
 		}
 		document["servers"] = []any{map[string]string{"url": serverURL(r)}}
 		body, err := json.MarshalIndent(document, "", "  ")

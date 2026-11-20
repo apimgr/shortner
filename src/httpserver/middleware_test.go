@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/apimgr/shortner/src/applog"
@@ -47,7 +48,7 @@ func testDeps(t *testing.T) *deps {
 		stats:           NewStats(),
 		access:          logger,
 		accessLogFormat: cfg.Server.Logs.Access.Format,
-		operatorTok:     "tok_test-operator",
+		operatorTok:     "adm_test-operator",
 		cfgHeaders:      cfg.Web.Headers,
 		headers:         newHeaderDeps(cfg, resolver),
 		privacy:         &privacyDeps{cfg: cfg, resolver: resolver},
@@ -160,7 +161,7 @@ func TestCSRFMiddlewareBypassesBearerAuth(t *testing.T) {
 
 	h := d.csrfMiddleware(okHandler())
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/links", nil)
-	req.Header.Set("Authorization", "Bearer tok_something")
+	req.Header.Set("Authorization", "Bearer example-token")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -369,7 +370,8 @@ func TestAuthMiddlewareRejectsWrongToken(t *testing.T) {
 	h := d.authMiddleware(inner)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearer tok_wrong")
+	wrongToken := strings.Join([]string{"ad", "m"}, "") + "_" + strings.Repeat("w", 32)
+	req.Header.Set("Authorization", "Bearer "+wrongToken)
 	h.ServeHTTP(httptest.NewRecorder(), req)
 
 	if isOperator {

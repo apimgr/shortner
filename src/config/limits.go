@@ -5,7 +5,9 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"net"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -77,19 +79,20 @@ func ParseSize(s string, def int64) (int64, error) {
 // message per replacement. Per the "Config Validation Rule": invalid
 // config never fails startup — it is logged and defaulted.
 func Validate(cfg *Config) []string {
-	var warnings []string
+	warnings := ValidateBranding(cfg)
+	warnings = append(warnings, ValidateConnectionSettings(cfg)...)
 	defaults := Default("")
-	contactCaptcha := strings.ToLower(strings.TrimSpace(cfg.Pages.Contact.Captcha))
+	contactCaptcha := strings.ToLower(strings.TrimSpace(cfg.Server.Pages.Contact.Captcha))
 	switch contactCaptcha {
 	case "", "simple":
-		cfg.Pages.Contact.Captcha = "simple"
+		cfg.Server.Pages.Contact.Captcha = "simple"
 	case "recaptcha", "hcaptcha":
-		if strings.TrimSpace(cfg.Pages.Contact.CaptchaSiteKey) == "" || strings.TrimSpace(cfg.Pages.Contact.CaptchaSecretKey) == "" {
-			warnings = append(warnings, "pages.contact.captcha requires pages.contact.captcha_site_key and pages.contact.captcha_secret_key")
+		if strings.TrimSpace(cfg.Server.Pages.Contact.CaptchaSiteKey) == "" || strings.TrimSpace(cfg.Server.Pages.Contact.CaptchaSecretKey) == "" {
+			warnings = append(warnings, "invalid server.pages.contact.captcha configuration: provider keys are required")
 		}
 	default:
-		warnings = append(warnings, "invalid pages.contact.captcha, using default simple")
-		cfg.Pages.Contact.Captcha = defaults.Pages.Contact.Captcha
+		warnings = append(warnings, "invalid server.pages.contact.captcha, using default simple")
+		cfg.Server.Pages.Contact.Captcha = defaults.Server.Pages.Contact.Captcha
 	}
 	diskLow := &cfg.Server.Notifications.DiskLow
 	defaultDiskLow := defaults.Server.Notifications.DiskLow
@@ -191,6 +194,7 @@ func Validate(cfg *Config) []string {
 
 	warnings = append(warnings, validateBackup(cfg, defaults)...)
 	warnings = append(warnings, validateUpdate(cfg, defaults)...)
+	warnings = append(warnings, validateScheduler(cfg, defaults)...)
 	if v := strings.TrimSpace(cfg.Server.APIVersion); v == "" {
 		cfg.Server.APIVersion = defaults.Server.APIVersion
 	} else if strings.ContainsAny(v, "/ ?#") {
@@ -215,18 +219,211 @@ func Validate(cfg *Config) []string {
 	return warnings
 }
 
+func validateScheduler(cfg, defaults *Config) []string {
+	var warnings []string
+	for id, task := range cfg.Server.Scheduler.Tasks {
+		if strings.TrimSpace(task.RetryDelay) == "" {
+			continue
+		}
+		delay, err := time.ParseDuration(task.RetryDelay)
+		if err == nil && delay > 0 {
+			continue
+		}
+		invalid := task.RetryDelay
+		fallback := "5m"
+		if def, ok := defaults.Server.Scheduler.Tasks[id]; ok && strings.TrimSpace(def.RetryDelay) != "" {
+			fallback = def.RetryDelay
+		}
+		task.RetryDelay = fallback
+		cfg.Server.Scheduler.Tasks[id] = task
+		warnings = append(warnings, fmt.Sprintf("invalid server.scheduler.tasks.%s.retry_delay %q, using %q", id, invalid, fallback))
+	}
+	return warnings
+}
+
+// ValidateBranding validates the image-content configuration and visitor
+// accent settings. Invalid values are cleared so rendering uses built-in
+// defaults, per AI.md PART 5 "Invalid → default".
+func ValidateBranding(cfg *Config) []string {
+	if cfg == nil {
+		return nil
+	}
+	var warnings []string
+	if cfg.Web.UI.Accent != "" && !IsValidAccent(cfg.Web.UI.Accent) {
+		warnings = append(warnings, "invalid web.ui.accent: expected a six-digit #RRGGBB color; using built-in color")
+		cfg.Web.UI.Accent = ""
+	}
+	entries := []struct {
+		name  string
+		entry *OperatorPageContent
+	}{
+		{"header", &cfg.Server.Branding.Content.Header},
+		{"about", &cfg.Server.Branding.Content.About},
+		{"privacy", &cfg.Server.Branding.Content.Privacy},
+		{"footer", &cfg.Server.Branding.Content.Footer},
+		{"terms", &cfg.Server.Branding.Content.Terms},
+	}
+	for _, item := range entries {
+		if !item.entry.Body.Has {
+			continue
+		}
+		format := strings.ToLower(strings.TrimSpace(item.entry.Format))
+		if format == "" {
+			format = "md"
+			if item.name == "header" || item.name == "footer" {
+				format = "html"
+			}
+			item.entry.Format = format
+		}
+		validFormat := format == "md" || format == "html" || format == "txt"
+		if (item.name == "header" || item.name == "footer") && format != "html" {
+			validFormat = false
+		}
+		bodyValid := func(value string) bool {
+			return len(value) <= 256*1024 && !strings.Contains(strings.ToLower(value), "/server/contact")
+		}
+		if item.entry.Body.Values == nil {
+			validFormat = validFormat && bodyValid(item.entry.Body.Plain)
+		} else {
+			for _, value := range item.entry.Body.Values {
+				if !bodyValid(value) {
+					validFormat = false
+					break
+				}
+			}
+		}
+		if !validFormat {
+			warnings = append(warnings, fmt.Sprintf("invalid server.branding.content.%s; using built-in content", item.name))
+			*item.entry = OperatorPageContent{}
+		}
+	}
+	return warnings
+}
+
+func parseAccent(value string) (float64, float64, float64, bool) {
+	if len(value) != 7 || value[0] != '#' {
+		return 0, 0, 0, false
+	}
+	color, err := strconv.ParseUint(value[1:], 16, 24)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	return float64((color>>16)&255) / 255, float64((color>>8)&255) / 255, float64(color&255) / 255, true
+}
+
+func accentContrast(value string, bg string) float64 {
+	red, green, blue, valid := parseAccent(value)
+	if !valid {
+		return 0
+	}
+	linear := func(channel float64) float64 {
+		if channel <= 0.04045 {
+			return channel / 12.92
+		}
+		return math.Pow((channel+0.055)/1.055, 2.4)
+	}
+	backgroundRed, backgroundGreen, backgroundBlue, valid := parseAccent(bg)
+	if !valid {
+		return 0
+	}
+	luminance := func(r, g, b float64) float64 { return 0.2126*linear(r) + 0.7152*linear(g) + 0.0722*linear(b) }
+	foreground, background := luminance(red, green, blue), luminance(backgroundRed, backgroundGreen, backgroundBlue)
+	if background > foreground {
+		foreground, background = background, foreground
+	}
+	return (foreground + 0.05) / (background + 0.05)
+}
+
+// IsValidAccent reports whether value is a six-digit hexadecimal accent.
+func IsValidAccent(value string) bool {
+	_, _, _, ok := parseAccent(value)
+	return ok
+}
+
+// AccentForTheme adjusts only lightness until an accent reaches 4.5:1 against
+// the requested shipped theme background, preserving hue and saturation.
+func AccentForTheme(value, theme string) string {
+	red, green, blue, ok := parseAccent(value)
+	if !ok {
+		return ""
+	}
+	background := "#282a36"
+	direction := 1.0
+	if theme == "light" {
+		background, direction = "#ffffff", -1
+	}
+	if accentContrast(value, background) >= 4.5 {
+		return strings.ToUpper(value)
+	}
+	hue, saturation, lightness := rgbToHSL(red, green, blue)
+	for step := 1; step <= 100; step++ {
+		candidateLightness := math.Max(0, math.Min(1, lightness+direction*float64(step)/100))
+		candidate := hslToHex(hue, saturation, candidateLightness)
+		if accentContrast(candidate, background) >= 4.5 {
+			return candidate
+		}
+	}
+	return hslToHex(hue, saturation, map[bool]float64{true: 1, false: 0}[theme == "dark"])
+}
+
+func rgbToHSL(red, green, blue float64) (float64, float64, float64) {
+	maximum, minimum := math.Max(red, math.Max(green, blue)), math.Min(red, math.Min(green, blue))
+	lightness := (maximum + minimum) / 2
+	delta := maximum - minimum
+	if delta == 0 {
+		return 0, 0, lightness
+	}
+	saturation := delta / (1 - math.Abs(2*lightness-1))
+	var hue float64
+	switch maximum {
+	case red:
+		hue = math.Mod((green-blue)/delta, 6)
+	case green:
+		hue = (blue-red)/delta + 2
+	default:
+		hue = (red-green)/delta + 4
+	}
+	hue *= 60
+	if hue < 0 {
+		hue += 360
+	}
+	return hue, saturation, lightness
+}
+
+func hslToHex(hue, saturation, lightness float64) string {
+	chroma := (1 - math.Abs(2*lightness-1)) * saturation
+	x := chroma * (1 - math.Abs(math.Mod(hue/60, 2)-1))
+	m := lightness - chroma/2
+	var red, green, blue float64
+	switch {
+	case hue < 60:
+		red, green = chroma, x
+	case hue < 120:
+		red, green = x, chroma
+	case hue < 180:
+		green, blue = chroma, x
+	case hue < 240:
+		green, blue = x, chroma
+	case hue < 300:
+		red, blue = x, chroma
+	default:
+		red, blue = chroma, x
+	}
+	return fmt.Sprintf("#%02X%02X%02X", int(math.Round((red+m)*255)), int(math.Round((green+m)*255)), int(math.Round((blue+m)*255)))
+}
+
 // ValidateContactCaptcha rejects an external CAPTCHA provider without both
 // required keys, which must fail startup instead of accepting unverified work.
 func ValidateContactCaptcha(cfg *Config) error {
-	provider := strings.ToLower(strings.TrimSpace(cfg.Pages.Contact.Captcha))
+	provider := strings.ToLower(strings.TrimSpace(cfg.Server.Pages.Contact.Captcha))
 	if provider == "" || provider == "simple" {
 		return nil
 	}
 	if provider != "recaptcha" && provider != "hcaptcha" {
-		return fmt.Errorf("pages.contact.captcha must be simple, recaptcha, or hcaptcha")
+		return fmt.Errorf("server.pages.contact.captcha must be simple, recaptcha, or hcaptcha")
 	}
-	if strings.TrimSpace(cfg.Pages.Contact.CaptchaSiteKey) == "" || strings.TrimSpace(cfg.Pages.Contact.CaptchaSecretKey) == "" {
-		return fmt.Errorf("pages.contact.captcha requires pages.contact.captcha_site_key and pages.contact.captcha_secret_key")
+	if strings.TrimSpace(cfg.Server.Pages.Contact.CaptchaSiteKey) == "" || strings.TrimSpace(cfg.Server.Pages.Contact.CaptchaSecretKey) == "" {
+		return fmt.Errorf("server.pages.contact.captcha requires server.pages.contact.captcha_site_key and server.pages.contact.captcha_secret_key")
 	}
 	return nil
 }
@@ -261,6 +458,43 @@ func ValidServerAddress(value string) bool {
 
 func validateSEO(seo *SEO) []string {
 	var warnings []string
+	if len([]rune(seo.TitleSeparator)) > 8 {
+		seo.TitleSeparator = " - "
+		warnings = append(warnings, "invalid server.seo.title_separator; using default")
+	}
+	if seo.TitleSeparator == "" {
+		seo.TitleSeparator = " - "
+	}
+	if seo.Canonical != "" {
+		parsed, err := url.Parse(seo.Canonical)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
+			seo.Canonical = ""
+			warnings = append(warnings, "invalid server.seo.canonical; using request origin")
+		}
+	}
+	if seo.OpenGraph.Type == "" {
+		seo.OpenGraph.Type = "website"
+	}
+	if seo.Twitter.Card != "summary" && seo.Twitter.Card != "summary_large_image" {
+		seo.Twitter.Card = "summary_large_image"
+		warnings = append(warnings, "invalid server.seo.twitter.card; using default")
+	}
+	if len(seo.MetaTags) > 20 {
+		warnings = append(warnings, "server.seo.meta_tags exceeds 20 entries; excess entries omitted")
+	}
+	if seo.MetaTags != nil {
+		validMeta := make(map[string]string)
+		reserved := map[string]bool{"description": true, "keywords": true, "author": true, "robots": true, "viewport": true}
+		for name, content := range seo.MetaTags {
+			name = strings.ToLower(strings.TrimSpace(name))
+			if len(name) > 256 || name == "" || !regexp.MustCompile(`^[a-z0-9:_.-]+$`).MatchString(name) || reserved[name] || len(content) > 1024 || len(validMeta) >= 20 {
+				warnings = append(warnings, "invalid server.seo.meta_tags entry; omitting meta tag")
+				continue
+			}
+			validMeta[name] = content
+		}
+		seo.MetaTags = validMeta
+	}
 	providers := []struct {
 		name, pattern string
 		max           int

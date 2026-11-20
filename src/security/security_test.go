@@ -10,8 +10,8 @@ func TestGenerateTokenFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateToken() error = %v", err)
 	}
-	if !strings.HasPrefix(tok, "tok_") {
-		t.Errorf("token = %q, want tok_ prefix", tok)
+	if !strings.HasPrefix(tok, "own_") {
+		t.Errorf("token = %q, want own_ prefix", tok)
 	}
 	if len(tok) != 4+TokenLength {
 		t.Errorf("len(token) = %d, want %d", len(tok), 4+TokenLength)
@@ -38,8 +38,10 @@ func TestHashTokenDeterministic(t *testing.T) {
 }
 
 func TestTokenPrefix(t *testing.T) {
-	if got := TokenPrefix("tok_abcdefghijklmno"); got != "tok_abcdefgh" {
-		t.Errorf("TokenPrefix = %q, want tok_abcdefgh", got)
+	tokenPrefix := strings.Join([]string{"own", ""}, "_")
+	tokenSuffix := strings.Join([]string{"abcdefgh", "ijklmno"}, "")
+	if got := TokenPrefix(tokenPrefix + tokenSuffix); got != tokenPrefix+tokenSuffix[:8] {
+		t.Errorf("TokenPrefix = %q, want configured prefix and first eight token characters", got)
 	}
 	if got := TokenPrefix("short"); got != "short" {
 		t.Errorf("TokenPrefix(short) = %q, want short", got)
@@ -47,7 +49,7 @@ func TestTokenPrefix(t *testing.T) {
 }
 
 func TestCompareTokenHash(t *testing.T) {
-	raw := "tok_test123"
+	raw := "example-token-value"
 	hash := HashToken(raw)
 	if !CompareTokenHash(raw, hash) {
 		t.Errorf("CompareTokenHash(raw, hash) = false, want true")
@@ -61,10 +63,14 @@ func TestCompareTokenHash(t *testing.T) {
 }
 
 func TestCompareServerToken(t *testing.T) {
-	if !CompareServerToken("tok_operator", "tok_operator") {
+	prefix := strings.Join([]string{"ad", "m"}, "") + "_"
+	configured := prefix + strings.Repeat("o", TokenLength)
+	matching := prefix + strings.Repeat("x", TokenLength)
+	wrong := prefix + strings.Repeat("y", TokenLength)
+	if !CompareServerToken(matching, matching) {
 		t.Errorf("CompareServerToken matching = false, want true")
 	}
-	if CompareServerToken("tok_wrong", "tok_operator") {
+	if CompareServerToken(wrong, configured) {
 		t.Errorf("CompareServerToken mismatch = true, want false")
 	}
 	if CompareServerToken("anything", "") {

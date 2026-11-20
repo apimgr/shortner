@@ -134,6 +134,7 @@ func collectSources(opts Options) ([]sourceFile, error) {
 		{"theme", filepath.Join(opts.ConfigDir, "theme"), true},
 		{"yaml.d", filepath.Join(opts.ConfigDir, "yaml.d"), true},
 		{"html", filepath.Join(opts.ConfigDir, "html"), true},
+		{"assets", filepath.Join(opts.ConfigDir, "assets"), true},
 		{"ssl", filepath.Join(opts.ConfigDir, "ssl"), opts.IncludeSSL},
 		{"data", opts.DataDir, opts.IncludeData},
 	}

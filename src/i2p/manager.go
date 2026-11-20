@@ -39,7 +39,8 @@ type Manager struct {
 	// "error:{short message}" status vocabulary instead of a bare "error"
 	// with no explanation. ErrDisabled is never recorded here — it is the
 	// normal opt-out state, not a failure.
-	lastErr error
+	lastErr       error
+	probeFailures int
 }
 
 // NewManager creates an I2P manager. serve is invoked for every service
@@ -76,11 +77,9 @@ func (m *Manager) Start() error {
 	if !m.config.Enabled {
 		return ErrDisabled
 	}
-	if err := m.startLocked(); err != nil {
-		return err
-	}
+	err := m.startLocked()
 	go m.monitor()
-	return nil
+	return err
 }
 
 // startLocked starts the provider and publishes the new service to the
@@ -93,6 +92,7 @@ func (m *Manager) startLocked() error {
 	}
 	m.lastErr = nil
 	m.service = service
+	m.probeFailures = 0
 	if m.serve != nil {
 		m.serve(service)
 	}
@@ -194,6 +194,9 @@ func (m *Manager) Provider() Provider {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.service == nil {
+		return ProviderNone
+	}
 	return m.service.Provider()
 }
 
@@ -214,11 +217,23 @@ func (m *Manager) Healthy() bool {
 	}
 	m.mu.Lock()
 	service := m.service
-	m.mu.Unlock()
 	if service == nil {
+		m.mu.Unlock()
 		return false
 	}
-	return service.Healthy()
+	if service.Provider() != ProviderSAM {
+		m.mu.Unlock()
+		return service.Healthy()
+	}
+	if service.Healthy() {
+		m.probeFailures = 0
+		m.mu.Unlock()
+		return true
+	}
+	m.probeFailures++
+	healthy := m.probeFailures < 3
+	m.mu.Unlock()
+	return healthy
 }
 
 // Err returns the most recent start/restart failure's message, or an empty
@@ -277,9 +292,21 @@ func (m *Manager) monitor() {
 			return
 		case <-ticker.C:
 			m.mu.Lock()
-			if m.service == nil || m.service.Healthy() {
+			if m.service == nil {
 				m.mu.Unlock()
 				continue
+			}
+			if m.service.Healthy() {
+				m.probeFailures = 0
+				m.mu.Unlock()
+				continue
+			}
+			if m.service.Provider() == ProviderSAM {
+				m.probeFailures++
+				if m.probeFailures < 3 {
+					m.mu.Unlock()
+					continue
+				}
 			}
 			m.log("I2P: provider unresponsive, restarting")
 			m.stopLocked()

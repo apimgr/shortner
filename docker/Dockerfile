@@ -53,7 +53,9 @@ RUN apk add --no-cache \
     tini \
     shadow \
     tor \
-    i2pd
+    i2pd \
+    tzdata \
+    ca-certificates
 
 # NO directory creation - binary handles ALL setup based on env vars
 # This allows users to override CONFIG_DIR, DATA_DIR, etc.

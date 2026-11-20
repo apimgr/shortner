@@ -58,7 +58,7 @@ last_body=""
 last_headers=""
 __request() {
   local raw
-  raw="$(curl -sS -D "$root/.headers" -w '\n%{http_code}' "$@" 2>/dev/null || true)"
+  raw="$(curl --max-time "${CURL_TIMEOUT:-10}" -sS -D "$root/.headers" -w '\n%{http_code}' "$@" 2>/dev/null || true)"
   last_status="${raw##*$'\n'}"
   last_body="${raw%$'\n'*}"
   last_headers="$(cat "$root/.headers" 2>/dev/null || true)"
@@ -66,7 +66,7 @@ __request() {
 
 # __status_of {curl args...} — echoes only the HTTP status code.
 __status_of() {
-  curl -sS -o /dev/null -w '%{http_code}' "$@" 2>/dev/null || echo 000
+  curl --max-time "${CURL_TIMEOUT:-10}" -sS -o /dev/null -w '%{http_code}' "$@" 2>/dev/null || echo 000
 }
 
 # __header_of {name} — echoes a response header from the last request.
@@ -135,29 +135,49 @@ __stop_server() {
   server_pid=""
 }
 
-# Turns off the per-IP rate limiter and the abuse detector in the generated
-# config so the functional phase is deterministic. Both blocks keep
-# `enabled` as their first key (src/config/config.go), so the edit is
-# scoped to the first `enabled:` line inside each block and never touches
-# any other `enabled:` in the file.
+# Raises rate limits and disables abuse detection in yaml.d/security.yml, then
+# enables GDPR/privacy settings in yaml.d/privacy.yml for deterministic
+# functional checks. These domains live outside server.yml.
 __relax_config() {
-  local block tmp
-  for block in rate_limit abuse_detection; do
-    tmp="$root/.server.yml.$block"
-    awk -v blk="$block" '
-      $0 ~ "^[[:space:]]*" blk ":[[:space:]]*$" { inblk = 1; print; next }
-      inblk && /^[[:space:]]*enabled:/ {
-        match($0, /^[[:space:]]*/)
-        printf "%senabled: false\n", substr($0, 1, RLENGTH)
-        inblk = 0
-        next
-      }
-      { print }
-    ' "$config_file" >"$tmp"
-    mv "$tmp" "$config_file"
-  done
+  local tmp config_dir security_file privacy_file
+  config_dir="$(dirname "$config_file")"
+  security_file="$config_dir/yaml.d/security.yml"
+  privacy_file="$config_dir/yaml.d/privacy.yml"
+  tmp="$root/.security.yml.limits"
+  awk '
+    /^  rate_limit:[[:space:]]*$/ { in_rate = 1; print; next }
+    in_rate && /^    (read|write|health):[[:space:]]*$/ { in_class = 1; print; next }
+    in_rate && in_class && /^      requests:/ {
+      sub(/[0-9]+/, "10000")
+      print
+      in_class = 0
+      next
+    }
+    in_rate && /^    global_burst:/ {
+      sub(/[0-9]+/, "100000")
+      print
+      in_rate = 0
+      next
+    }
+    { print }
+  ' "$security_file" >"$tmp"
+  mv "$tmp" "$security_file"
 
-  tmp="$root/.server.yml.gdpr"
+  tmp="$root/.security.yml.abuse"
+  awk '
+    /^  security:[[:space:]]*$/ { in_security = 1; print; next }
+    in_security && /^    abuse_detection:[[:space:]]*$/ { in_abuse = 1; print; next }
+    in_abuse && /^      enabled:/ {
+      sub(/true|false/, "false")
+      print
+      in_abuse = 0
+      next
+    }
+    { print }
+  ' "$security_file" >"$tmp"
+  mv "$tmp" "$security_file"
+
+  tmp="$root/.privacy.yml.gdpr"
   awk '
     /^[[:space:]]*compliance:[[:space:]]*$/ { in_compliance = 1; print; next }
     in_compliance && /^[[:space:]]*gdpr:/ {
@@ -169,9 +189,9 @@ __relax_config() {
     }
     { print }
     END { if (!found) exit 1 }
-  ' "$config_file" >"$tmp" && mv "$tmp" "$config_file"
+  ' "$privacy_file" >"$tmp" && mv "$tmp" "$privacy_file"
 
-  tmp="$root/.server.yml.privacy"
+  tmp="$root/.privacy.yml.sold"
   awk '
     /^[[:space:]]*privacy:[[:space:]]*$/ { in_privacy = 1; print; next }
     in_privacy && /^[[:space:]]*data:[[:space:]]*$/ { in_data = 1; print; next }
@@ -185,7 +205,7 @@ __relax_config() {
     }
     { print }
     END { if (!found) exit 1 }
-  ' "$config_file" >"$tmp" && mv "$tmp" "$config_file"
+  ' "$privacy_file" >"$tmp" && mv "$tmp" "$privacy_file"
 }
 
 # ---------------------------------------------------------------------------
@@ -257,8 +277,10 @@ __test_first_run() {
     return 0
   fi
 
-  operator_token="$(awk '/^[[:space:]]*token:[[:space:]]*[^[:space:]]/ { sub(/^[[:space:]]*token:[[:space:]]*/, ""); gsub(/["'"'"']/, ""); print; exit }' "$config_file")"
-  __assert_nonempty "server.token generated in server.yml" "$operator_token"
+  local secrets_file
+  secrets_file="$(dirname "$config_file")/secrets.yml"
+  operator_token="$(awk '/^[[:space:]]*token:[[:space:]]*[^[:space:]]/ { sub(/^[[:space:]]*token:[[:space:]]*/, ""); gsub(/["'"'"']/, ""); print; exit }' "$secrets_file")"
+  __assert_nonempty "server.token generated in secrets.yml" "$operator_token"
 }
 
 __test_health_endpoints() {
@@ -272,7 +294,7 @@ __test_health_endpoints() {
 
   __request "$base_url/server/healthz" -H 'Accept: text/plain'
   __assert_status "GET /server/healthz returns 200" 200
-  __assert_contains "plain-text health carries a status line" "status" "$last_body"
+  __assert_contains "plain-text health carries a status line" "Status:" "$last_body"
 }
 
 __test_content_negotiation() {

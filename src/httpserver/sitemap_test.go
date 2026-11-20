@@ -74,15 +74,15 @@ func TestFaviconHandler(t *testing.T) {
 
 func TestBrandingAssetHandlerServesConfiguredImageAndRejectsTraversal(t *testing.T) {
 	configDir := t.TempDir()
-	if err := os.Mkdir(filepath.Join(configDir, "branding"), 0o700); err != nil {
+	if err := os.Mkdir(filepath.Join(configDir, "assets"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	imagePath := filepath.Join(configDir, "branding", "logo.png")
+	imagePath := filepath.Join(configDir, "assets", "logo.png")
 	if err := os.WriteFile(imagePath, []byte("png-data"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.Default("")
-	cfg.Server.Branding.Logo = "branding/logo.png"
+	cfg.Server.Branding.Logo = "logo.png"
 	sd := &sitemapDeps{cfg: cfg, configDir: configDir}
 	rec := httptest.NewRecorder()
 	sd.brandingAssetHandler("logo")(rec, httptest.NewRequest(http.MethodGet, "/branding/logo", nil))

@@ -1,9 +1,11 @@
 package httpserver
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -12,13 +14,16 @@ import (
 	"github.com/apimgr/shortner/src/server"
 )
 
-func registerPWARoutes(r chi.Router, version, commitID string) {
-	r.Get("/manifest.json", func(w http.ResponseWriter, req *http.Request) {
-		serveEmbeddedAsset(w, req, "static/manifest.json", "application/manifest+json")
+func registerPWARoutes(r chi.Router, version, commitID string, branding ...*brandingStateStore) {
+	var brandState *brandingStateStore
+	if len(branding) > 0 {
+		brandState = branding[0]
+	}
+	manifest := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		serveManifest(w, req, brandState)
 	})
-	r.Head("/manifest.json", func(w http.ResponseWriter, req *http.Request) {
-		serveEmbeddedAsset(w, req, "static/manifest.json", "application/manifest+json")
-	})
+	r.Get("/manifest.json", manifest)
+	r.Head("/manifest.json", manifest)
 	r.Get("/offline.html", func(w http.ResponseWriter, req *http.Request) {
 		serveEmbeddedAsset(w, req, "static/offline.html", "text/html; charset=utf-8")
 	})
@@ -42,6 +47,46 @@ func registerPWARoutes(r chi.Router, version, commitID string) {
 	})
 	r.Get("/sw.js", worker)
 	r.Head("/sw.js", worker)
+}
+
+func serveManifest(w http.ResponseWriter, r *http.Request, branding *brandingStateStore) {
+	body, err := fs.ReadFile(server.StaticFS, "static/manifest.json")
+	if err != nil {
+		sendError(w, r, apperr.New(apperr.CodeNotFound))
+		return
+	}
+	if branding != nil {
+		settings := branding.load(nil)
+		if strings.TrimSpace(settings.Branding.Favicon) != "" {
+			var manifest struct {
+				Icons []map[string]any `json:"icons"`
+			}
+			if err := json.Unmarshal(body, &manifest); err == nil {
+				for _, icon := range manifest.Icons {
+					size, _ := icon["sizes"].(string)
+					if size == "180x180" || size == "192x192" || size == "512x512" {
+						querySize := strings.SplitN(size, "x", 2)[0]
+						icon["src"] = "/branding/favicon?size=" + querySize
+						delete(icon, "type")
+						if strings.EqualFold(filepath.Ext(settings.Branding.Favicon), ".svg") {
+							icon["sizes"] = "any"
+						}
+					}
+				}
+				if updated, err := json.Marshal(manifest); err == nil {
+					body = updated
+				}
+			}
+		}
+	}
+	w.Header().Set("Content-Type", "application/manifest+json")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Length", fmt.Sprint(len(body)))
+	w.WriteHeader(http.StatusOK)
+	if r.Method != http.MethodHead {
+		_, _ = w.Write(body)
+	}
 }
 
 func serviceWorkerBody(version, commitID string) ([]byte, error) {

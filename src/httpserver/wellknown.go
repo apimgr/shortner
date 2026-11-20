@@ -27,6 +27,7 @@ type wellKnownDeps struct {
 	resolver              *ProxyResolver
 	dataDir               string
 	configDir             string
+	branding              *brandingStateStore
 	installSecret         string
 	previousInstallSecret string
 }
@@ -241,7 +242,7 @@ func (wd *wellKnownDeps) securityTxt(r *http.Request) string {
 	if url := strings.TrimSpace(sec.ReportURL); url != "" {
 		fmt.Fprintf(&b, "Contact: %s\n", url)
 	}
-	if wd.cfg.Pages.Contact.Enabled {
+	if wd.cfg.Server.Pages.Contact.Enabled {
 		if id := security.SecurityID(wd.installSecret, time.Now()); id != "" {
 			fmt.Fprintf(&b, "Contact: %s\n", wd.resolver.BuildURL(r, "/server/contact?security_id="+id))
 		}
@@ -329,11 +330,12 @@ var llmsEndpoints = []struct {
 // table.
 func (wd *wellKnownDeps) llmsTxt(r *http.Request) string {
 	cfg := wd.cfg
+	branding := wd.branding.load(cfg)
 	apiBase := wd.resolver.BuildURL(r, "/api/"+cfg.Server.APIVersion)
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "# %s\n", firstNonEmpty(cfg.Server.Branding.Title, cfg.Server.Branding.SiteName, "shortner"))
-	if desc := strings.TrimSpace(cfg.Server.SEO.Description); desc != "" {
+	fmt.Fprintf(&b, "# %s\n", firstNonEmpty(branding.Branding.Title, "shortner"))
+	if desc := strings.TrimSpace(branding.Branding.Description); desc != "" {
 		fmt.Fprintf(&b, "> %s\n", desc)
 	}
 

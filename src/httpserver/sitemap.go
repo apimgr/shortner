@@ -3,15 +3,18 @@
 package httpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -32,6 +35,9 @@ type sitemapDeps struct {
 	startTime time.Time
 	sqlDB     db.Handle
 	configDir string
+	cacheDir  string
+	brandMu   sync.Mutex
+	branding  *brandingStateStore
 }
 
 // registerSitemapRoutes mounts the embedded favicon and sitemap index pages.
@@ -42,6 +48,8 @@ func (sd *sitemapDeps) registerSitemapRoutes(r chi.Router) {
 	r.Head("/branding/favicon", sd.brandingAssetHandler("favicon"))
 	r.Get("/branding/logo", sd.brandingAssetHandler("logo"))
 	r.Head("/branding/logo", sd.brandingAssetHandler("logo"))
+	r.Get("/branding/og-image", sd.brandingAssetHandler("og-image"))
+	r.Head("/branding/og-image", sd.brandingAssetHandler("og-image"))
 	sd.registerFeedRoutes(r)
 	r.Get("/sitemap.xml", sd.sitemapHandler)
 	r.Head("/sitemap.xml", sd.sitemapHandler)
@@ -51,66 +59,157 @@ func (sd *sitemapDeps) registerSitemapRoutes(r chi.Router) {
 
 func (sd *sitemapDeps) brandingAssetHandler(kind string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		value := sd.cfg.Server.Branding.Favicon
-		if kind == "logo" {
-			value = sd.cfg.Server.Branding.Logo
-			if value == "" {
-				value = sd.cfg.Server.Branding.LogoURL
+		settings := sd.branding.load(sd.cfg)
+		var value string
+		switch kind {
+		case "logo":
+			value = settings.Branding.Logo
+		case "og-image":
+			value = settings.SEO.OGImage
+		default:
+			value = settings.Branding.Favicon
+		}
+		var body io.ReadSeeker
+		var modTime time.Time
+		var contentType string
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "https://") {
+			data, mimeType, modified, err := sd.remoteBrandingImage(r.Context(), value)
+			if err != nil {
+				data, mimeType, err = embeddedBrandingFallback(kind)
+				if err != nil {
+					sendError(w, r, apperr.New(apperr.CodeNotFound))
+					return
+				}
+				modified = time.Time{}
+			}
+			body, contentType, modTime = bytes.NewReader(data), mimeType, modified
+		} else if strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "data:") {
+			data, mimeType, err := decodeBrandingDataURI(value)
+			if err != nil {
+				sendError(w, r, apperr.New(apperr.CodeNotFound))
+				return
+			}
+			body, contentType = bytes.NewReader(data), mimeType
+		} else {
+			path, err := configuredBrandingPath(sd.configDir, value)
+			if err != nil {
+				sendError(w, r, apperr.New(apperr.CodeNotFound))
+				return
+			}
+			file, err := os.Open(path)
+			if err != nil {
+				sendError(w, r, apperr.New(apperr.CodeNotFound))
+				return
+			}
+			defer func() { _ = file.Close() }()
+			info, err := file.Stat()
+			if err != nil || !info.Mode().IsRegular() || info.Size() > 2<<20 {
+				sendError(w, r, apperr.New(apperr.CodeNotFound))
+				return
+			}
+			contentType = mimeTypeForBranding(path)
+			if contentType == "" {
+				sendError(w, r, apperr.New(apperr.CodeNotFound))
+				return
+			}
+			body, modTime = file, info.ModTime()
+		}
+		variant, validVariant := requestedBrandingVariant(kind, r)
+		if !validVariant {
+			sendError(w, r, apperr.New(apperr.CodeNotFound))
+			return
+		}
+		if variant != "" {
+			if data, err := io.ReadAll(io.LimitReader(body, (10<<20)+1)); err == nil && len(data) <= 10<<20 {
+				if scaled, scaleErr := sd.scaledBrandingImage(data, variant); scaleErr == nil {
+					body, contentType = bytes.NewReader(scaled), "image/png"
+				} else if contentType != "image/svg+xml" && contentType != "image/x-icon" {
+					sendError(w, r, apperr.New(apperr.CodeNotFound))
+					return
+				} else {
+					body = bytes.NewReader(data)
+				}
+			} else {
+				sendError(w, r, apperr.New(apperr.CodeNotFound))
+				return
 			}
 		}
-		path, err := configuredBrandingPath(sd.configDir, value)
-		if err != nil {
-			sendError(w, r, apperr.New(apperr.CodeNotFound))
-			return
-		}
-		file, err := os.Open(path)
-		if err != nil {
-			sendError(w, r, apperr.New(apperr.CodeNotFound))
-			return
-		}
-		defer file.Close()
-		info, err := file.Stat()
-		if err != nil || !info.Mode().IsRegular() || info.Size() > 5<<20 {
-			sendError(w, r, apperr.New(apperr.CodeNotFound))
-			return
-		}
-		contentType := mimeTypeForBranding(path)
-		if contentType == "" {
-			sendError(w, r, apperr.New(apperr.CodeNotFound))
-			return
-		}
 		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 		w.Header().Set("Cache-Control", "public, max-age=3600")
-		http.ServeContent(w, r, filepath.Base(path), info.ModTime(), file)
+		http.ServeContent(w, r, "branding-image", modTime, body)
 	}
+}
+
+func requestedBrandingVariant(kind string, r *http.Request) (string, bool) {
+	if value := r.URL.Query().Get("width"); value != "" {
+		return "width=" + value, kind == "logo" && (value == "50" || value == "200")
+	}
+	if value := r.URL.Query().Get("size"); value != "" {
+		if kind == "og-image" {
+			return "size=" + value, value == "1200x630"
+		}
+		valid := value == "16" || value == "32" || value == "48" || value == "180" || value == "192" || value == "512"
+		return "size=" + value, kind == "favicon" && valid
+	}
+	return "", true
+}
+
+func embeddedBrandingFallback(kind string) ([]byte, string, error) {
+	path, contentType := "static/icons/icon-192.png", "image/png"
+	switch kind {
+	case "favicon":
+		path, contentType = "static/favicon.ico", "image/x-icon"
+	case "og-image":
+		path = "static/icons/icon-512.png"
+	}
+	body, err := fs.ReadFile(server.StaticFS, path)
+	return body, contentType, err
 }
 
 func configuredBrandingPath(configDir, value string) (string, error) {
 	value = strings.TrimSpace(value)
-	if value == "" {
+	if value == "" || filepath.Base(value) != value || strings.ContainsAny(value, `/\\`) {
 		return "", os.ErrNotExist
 	}
-	if filepath.IsAbs(value) {
-		return filepath.Clean(value), nil
-	}
-	if configDir == "" || !filepath.IsLocal(value) {
+	ext := strings.ToLower(filepath.Ext(value))
+	switch ext {
+	case ".svg", ".png", ".ico", ".webp", ".jpg":
+	default:
 		return "", os.ErrNotExist
 	}
-	return filepath.Join(configDir, filepath.Clean(value)), nil
+	if configDir == "" {
+		return "", os.ErrNotExist
+	}
+	root, err := filepath.EvalSymlinks(filepath.Join(configDir, "assets"))
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(root, value)
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", os.ErrNotExist
+	}
+	return resolved, nil
 }
 
 func mimeTypeForBranding(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".ico":
 		return "image/x-icon"
+	case ".svg":
+		return "image/svg+xml"
 	case ".png":
 		return "image/png"
 	case ".jpg", ".jpeg":
 		return "image/jpeg"
 	case ".webp":
 		return "image/webp"
-	case ".gif":
-		return "image/gif"
 	default:
 		return ""
 	}

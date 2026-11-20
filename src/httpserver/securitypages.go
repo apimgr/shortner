@@ -54,7 +54,7 @@ type securityPageData struct {
 func (fd *frontendDeps) securityHandler(w http.ResponseWriter, r *http.Request) {
 	sec := fd.cfg.Web.Security
 	data := securityPageData{
-		Base:           fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security.title"), fd.cfg.Server.SEO.Description),
+		Base:           fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security.title"), fd.cfg.Server.Branding.Description),
 		ReportURL:      sec.ReportURL,
 		ContactEmail:   fd.securityContactEmail(r),
 		Expires:        fd.securityExpires(),
@@ -65,12 +65,12 @@ func (fd *frontendDeps) securityHandler(w http.ResponseWriter, r *http.Request) 
 		PolicyURL:      "/server/security/policy",
 		ThanksURL:      "/server/security/thanks",
 	}
-	if fd.cfg.Pages.Contact.Enabled {
+	if fd.cfg.Server.Pages.Contact.Enabled {
 		data.ReportFormURL = "/server/contact"
 	}
-	if fd.cfg.Pages.Contact.Enabled {
+	if fd.cfg.Server.Pages.Contact.Enabled {
 		if id := security.SecurityID(fd.installSecret, time.Now()); id != "" {
-		data.ContactFormURL = "/server/contact?security_id=" + id
+			data.ContactFormURL = "/server/contact?security_id=" + id
 		}
 	}
 	_ = renderPage(w, http.StatusOK, "security", data)
@@ -89,7 +89,7 @@ func (fd *frontendDeps) securityPolicyHandler(w http.ResponseWriter, r *http.Req
 		policy = defaultDisclosurePolicy
 	}
 	data := securityPolicyPageData{
-		Base:   fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security.disclosure_policy_title"), fd.cfg.Server.SEO.Description),
+		Base:   fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security.disclosure_policy_title"), fd.cfg.Server.Branding.Description),
 		Policy: sanitize.RenderMarkdown(policy, r.Host),
 	}
 	_ = renderPage(w, http.StatusOK, "security_policy", data)
@@ -106,7 +106,7 @@ type securityThanksPageData struct {
 // be credited simply has no entry.
 func (fd *frontendDeps) securityThanksHandler(w http.ResponseWriter, r *http.Request) {
 	data := securityThanksPageData{
-		Base:   fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security.acknowledgments_title"), fd.cfg.Server.SEO.Description),
+		Base:   fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security.acknowledgments_title"), fd.cfg.Server.Branding.Description),
 		Thanks: fd.cfg.Web.Security.Thanks,
 	}
 	_ = renderPage(w, http.StatusOK, "security_thanks", data)
@@ -131,7 +131,7 @@ func (fd *frontendDeps) dpoHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	dpo := fd.cfg.Server.Contact.DPO
 	data := dpoPageData{
-		Base:    fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "dpo.title"), fd.cfg.Server.SEO.Description),
+		Base:    fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "dpo.title"), fd.cfg.Server.Branding.Description),
 		Name:    dpo.Name,
 		Email:   firstNonEmpty(dpo.Email, fd.cfg.Server.Contact.General.Email),
 		Address: dpo.Address,

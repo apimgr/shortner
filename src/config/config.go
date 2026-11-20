@@ -5,6 +5,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,16 +19,21 @@ import (
 
 // Config is the root of the merged configuration.
 type Config struct {
-	Server Server `yaml:"server"`
-	Web    Web    `yaml:"web"`
-	Pages  Pages  `yaml:"pages"`
+	Server                Server `yaml:"server"`
+	Web                   Web    `yaml:"web"`
+	databaseURLEnv        bool
+	cacheURLEnv           bool
+	databaseURLConfigured bool
+	cacheURLConfigured    bool
+	databaseURLSeeded     bool
+	cacheURLSeeded        bool
 }
 
 // Server holds the top-level `server:` block of server.yml.
 type Server struct {
 	// Mode is the persisted operational mode, overridden by MODE and --mode.
 	Mode string `yaml:"mode"`
-	// Token is the global operator token (tok_ prefix). Auto-generated on
+	// Token is the global operator token (adm_ prefix). Auto-generated on
 	// first run if empty. See AI.md PART 11 "API Token Model".
 	Token   string `yaml:"token"`
 	Listen  string `yaml:"address"`
@@ -65,6 +71,7 @@ type Server struct {
 	Tor            Tor            `yaml:"tor"`
 	I2P            I2P            `yaml:"i2p"`
 	Tokens         Tokens         `yaml:"tokens"`
+	Pages          Pages          `yaml:"pages"`
 }
 
 type Tokens struct {
@@ -331,8 +338,11 @@ type Scheduler struct {
 
 // SchedulerTaskYAML is one entry under `server.scheduler.tasks`.
 type SchedulerTaskYAML struct {
-	Schedule string `yaml:"schedule"`
-	Enabled  bool   `yaml:"enabled"`
+	Schedule    string `yaml:"schedule"`
+	Enabled     bool   `yaml:"enabled"`
+	RetryOnFail bool   `yaml:"retry_on_fail"`
+	RetryDelay  string `yaml:"retry_delay"`
+	Retention   int    `yaml:"retention,omitempty"`
 }
 
 // CORS holds `server.cors`, per AI.md PART 16 "CORS" -> "Configuration".
@@ -355,30 +365,99 @@ type CSRF struct {
 	ExemptPaths []string `yaml:"exempt_paths"`
 }
 
-// Branding holds `server.branding`, per AI.md PART 16 "Branding & SEO".
-// Remote image fetching/scaling is not implemented yet (see TODO.AI.md) —
-// only the static local/URL fields are wired.
+// Branding holds `server.branding`, per AI.md PART 16 "Branding File".
 type Branding struct {
-	Title       string `yaml:"title"`
-	SiteName    string `yaml:"site_name"`
-	Tagline     string `yaml:"tagline"`
-	Description string `yaml:"description"`
-	Favicon     string `yaml:"favicon"`
-	Logo        string `yaml:"logo"`
-	LogoURL     string `yaml:"logo_url"`
+	Title       string          `yaml:"title"`
+	Tagline     string          `yaml:"tagline"`
+	Description string          `yaml:"description"`
+	Favicon     string          `yaml:"favicon"`
+	Logo        string          `yaml:"logo"`
+	Content     BrandingContent `yaml:"content"`
 }
 
-// SEO holds `server.seo`, per AI.md PART 16 "SEO Meta Tags". Site-
-// verification meta tags are not implemented yet (see TODO.AI.md).
+type BrandingContent struct {
+	Header  OperatorPageContent `yaml:"header"`
+	About   OperatorPageContent `yaml:"about"`
+	Privacy OperatorPageContent `yaml:"privacy"`
+	Footer  OperatorPageContent `yaml:"footer"`
+	Terms   OperatorPageContent `yaml:"terms"`
+}
+
+type OperatorPageContent struct {
+	Format string            `yaml:"format"`
+	Body   LocalizedPageBody `yaml:"body"`
+}
+
+type LocalizedPageBody struct {
+	Plain  string
+	Values map[string]string
+	Has    bool
+}
+
+func (body *LocalizedPageBody) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		body.Plain = node.Value
+		body.Values = nil
+		body.Has = true
+		return nil
+	}
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("page body must be a string or language map")
+	}
+	values := make(map[string]string, len(node.Content)/2)
+	for index := 0; index+1 < len(node.Content); index += 2 {
+		key, value := node.Content[index], node.Content[index+1]
+		if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
+			return fmt.Errorf("page body language %q must be a string", key.Value)
+		}
+		values[key.Value] = value.Value
+	}
+	body.Values = values
+	body.Has = true
+	return nil
+}
+
+func (body LocalizedPageBody) Resolve(language string) (string, bool) {
+	if !body.Has {
+		return "", false
+	}
+	if body.Values == nil {
+		return body.Plain, true
+	}
+	if value, ok := body.Values[language]; ok {
+		return value, true
+	}
+	value, ok := body.Values["default"]
+	return value, ok
+}
+
+// SEO holds `server.seo`, per AI.md PART 16.
 type SEO struct {
-	Description   string          `yaml:"description"`
-	Keywords      []string        `yaml:"keywords"`
-	Author        string          `yaml:"author"`
-	OGImage       string          `yaml:"og_image"`
-	TwitterHandle string          `yaml:"twitter_handle"`
-	Verification  SEOVerification `yaml:"verification"`
-	Sitemap       Sitemap         `yaml:"sitemap"`
-	Feed          Feed            `yaml:"feed"`
+	Keywords       []string          `yaml:"keywords"`
+	Author         string            `yaml:"author"`
+	OGImage        string            `yaml:"og_image"`
+	TwitterHandle  string            `yaml:"twitter_handle"`
+	TitleSeparator string            `yaml:"title_separator"`
+	MetaTags       map[string]string `yaml:"meta_tags"`
+	Canonical      string            `yaml:"canonical"`
+	NoIndex        bool              `yaml:"noindex"`
+	OpenGraph      SEOOpenGraph      `yaml:"opengraph"`
+	Twitter        SEOTwitter        `yaml:"twitter"`
+	Verification   SEOVerification   `yaml:"verification"`
+	Sitemap        Sitemap           `yaml:"sitemap"`
+	Feed           Feed              `yaml:"feed"`
+}
+
+type SEOOpenGraph struct {
+	Enabled  bool   `yaml:"enabled"`
+	Type     string `yaml:"type"`
+	SiteName string `yaml:"site_name"`
+}
+
+type SEOTwitter struct {
+	Enabled bool   `yaml:"enabled"`
+	Card    string `yaml:"card"`
+	Creator string `yaml:"creator"`
 }
 
 type SEOVerification struct {
@@ -554,7 +633,7 @@ type PrivacyThirdPartyService struct {
 // "Footer Customization" and "Announcements".
 type Web struct {
 	Announcements WebAnnouncements `yaml:"announcements"`
-	Theme         string           `yaml:"theme"`
+	UI            WebUI            `yaml:"ui"`
 
 	// The PART 11 header/well-known blocks. See src/config/security.go for
 	// each type's spec reference.
@@ -566,6 +645,11 @@ type Web struct {
 	Security  WebSecurity `yaml:"security"`
 	LLMs      LLMs        `yaml:"llms"`
 	WellKnown WellKnown   `yaml:"well_known"`
+}
+
+type WebUI struct {
+	Theme  string `yaml:"theme"`
+	Accent string `yaml:"accent"`
 }
 
 // WebAnnouncements holds `web.announcements`, per AI.md PART 16
@@ -586,7 +670,7 @@ type Announcement struct {
 	Dismissible bool   `yaml:"dismissible"`
 }
 
-// Pages holds the top-level `pages:` block of server.yml, per AI.md
+// Pages holds `server.pages`, per AI.md
 // PART 16 "Pages Configuration (config file)".
 type Pages struct {
 	Contact ContactPage `yaml:"contact"`
@@ -598,7 +682,7 @@ type PageContent struct {
 	Content string `yaml:"content"`
 }
 
-// ContactPage holds `pages.contact`.
+// ContactPage holds `server.pages.contact`.
 type ContactPage struct {
 	Enabled          bool   `yaml:"enabled"`
 	Captcha          string `yaml:"captcha"`
@@ -627,6 +711,7 @@ type Database struct {
 	// Driver is "sqlite" (default, pure Go modernc.org/sqlite) or "libsql".
 	Driver string `yaml:"driver"`
 	URL    string `yaml:"url"`
+	Token  string `yaml:"token"`
 }
 
 // Limits holds `server.limits`, per AI.md PART 12 "Request Limits".
@@ -738,20 +823,24 @@ func boolPtr(value bool) *bool {
 // implemented — "valkey"/"redis" depend on a client dependency not yet
 // added (tracked in TODO.AI.md).
 type CacheConfig struct {
-	Type          string `yaml:"type"`
-	URL           string `yaml:"url"`
-	Host          string `yaml:"host"`
-	Port          int    `yaml:"port"`
-	Username      string `yaml:"username"`
-	Password      string `yaml:"password"`
-	DB            int    `yaml:"db"`
-	TLS           bool   `yaml:"tls"`
-	TLSSkipVerify bool   `yaml:"tls_skip_verify"`
-	PoolSize      int    `yaml:"pool_size"`
-	MinIdle       int    `yaml:"min_idle"`
-	Timeout       string `yaml:"timeout"`
-	Prefix        string `yaml:"prefix"`
-	TTL           string `yaml:"ttl"`
+	Type             string `yaml:"type"`
+	URL              string `yaml:"url"`
+	Host             string `yaml:"host"`
+	Port             int    `yaml:"port"`
+	Username         string `yaml:"username"`
+	Password         string `yaml:"password"`
+	DB               int    `yaml:"db"`
+	TLS              bool   `yaml:"tls"`
+	TLSSkipVerify    bool   `yaml:"tls_skip_verify"`
+	TLSCA            string `yaml:"tls_ca"`
+	TLSCert          string `yaml:"tls_cert"`
+	TLSKey           string `yaml:"tls_key"`
+	tlsSkipVerifySet bool
+	PoolSize         int    `yaml:"pool_size"`
+	MinIdle          int    `yaml:"min_idle"`
+	Timeout          string `yaml:"timeout"`
+	Prefix           string `yaml:"prefix"`
+	TTL              string `yaml:"ttl"`
 }
 
 // Healthz holds `server.healthz`, per AI.md PART 13 "Health Checks".
@@ -838,8 +927,11 @@ func Default(dbPath string) *Config {
 				Secure:      "auto",
 			},
 			SEO: SEO{
-				Sitemap: Sitemap{Enabled: true, MaxURLs: 50000},
-				Feed:    Feed{MaxItems: 50},
+				TitleSeparator: " - ",
+				OpenGraph:      SEOOpenGraph{Enabled: true, Type: "website"},
+				Twitter:        SEOTwitter{Enabled: true, Card: "summary_large_image"},
+				Sitemap:        Sitemap{Enabled: true, MaxURLs: 50000},
+				Feed:           Feed{MaxItems: 50},
 			},
 			Contact: Contact{Antispam: ContactAntispam{
 				Honeypot: true, MinFillSeconds: 3, MaxAgeSeconds: 43200, ReviewMinSeconds: 2, ReviewMaxSeconds: 900,
@@ -951,11 +1043,20 @@ func Default(dbPath string) *Config {
 					DeletionAvailable: false,
 				},
 			},
+			Pages: Pages{
+				Contact: ContactPage{
+					Enabled:          true,
+					Captcha:          "simple",
+					CaptchaSiteKey:   "",
+					CaptchaSecretKey: "",
+					SuccessMessage:   "Thank you for your message. We'll respond soon.",
+				},
+			},
 		},
 		Web: Web{
 			// Dark is the required default per AI.md PART 16's "Three
 			// Required Themes" table (Dark: Default = YES, Auto: No).
-			Theme:     "dark",
+			UI:        WebUI{Theme: "dark"},
 			HSTS:      DefaultHSTS(),
 			Headers:   DefaultHeaders(),
 			CSP:       DefaultCSP(),
@@ -964,15 +1065,6 @@ func Default(dbPath string) *Config {
 			Security:  DefaultWebSecurity(),
 			LLMs:      DefaultLLMs(),
 			WellKnown: DefaultWellKnown(),
-		},
-		Pages: Pages{
-			Contact: ContactPage{
-				Enabled:          true,
-				Captcha:          "simple",
-				CaptchaSiteKey:   "",
-				CaptchaSecretKey: "",
-				SuccessMessage:   "Thank you for your message. We'll respond soon.",
-			},
 		},
 	}
 }
@@ -987,13 +1079,15 @@ func Load(path, dbPath string) (*Config, error) {
 	}
 	baseData, baseErr := os.ReadFile(path)
 	if baseErr != nil && !os.IsNotExist(baseErr) {
-		return nil, fmt.Errorf("config: read %s: %w", path, baseErr)
+		log.Printf("config: ignoring unreadable server.yml %s: %v", path, baseErr)
+		baseData, baseErr = nil, os.ErrNotExist
 	}
 	cfg := Default(dbPath)
 	var legacy Config
 	if baseErr == nil {
 		if err := yaml.Unmarshal(baseData, &legacy); err != nil {
-			return nil, fmt.Errorf("config: parse %s: %w", path, err)
+			log.Printf("config: ignoring invalid server.yml %s: %v", path, err)
+			legacy = Config{}
 		}
 	}
 	legacyToken, legacyKey := legacy.Server.Token, legacy.Server.Security.EncryptionKey
@@ -1016,23 +1110,27 @@ func Load(path, dbPath string) (*Config, error) {
 	secretsPath := filepath.Join(filepath.Dir(path), "secrets.yml")
 	secretData, secretErr := os.ReadFile(secretsPath)
 	if secretErr != nil && !os.IsNotExist(secretErr) {
-		return nil, fmt.Errorf("config: read %s: %w", secretsPath, secretErr)
+		log.Printf("config: ignoring unreadable secrets file %s: %v", secretsPath, secretErr)
 	}
 	secretToken, secretKey := "", ""
 	if secretErr == nil {
 		var secretValues Config
 		if err := yaml.Unmarshal(secretData, &secretValues); err != nil {
-			return nil, fmt.Errorf("config: parse %s: %w", secretsPath, err)
-		}
-		secretToken = secretValues.Server.Token
-		secretKey = secretValues.Server.Security.EncryptionKey
-		merged, mergeErr := mergeYAML(data, secretData)
-		if mergeErr != nil {
-			return nil, fmt.Errorf("config: merge %s: %w", secretsPath, mergeErr)
-		}
-		cfg = Default(dbPath)
-		if err := yaml.Unmarshal(merged, cfg); err != nil {
-			return nil, fmt.Errorf("config: parse merged configuration: %w", err)
+			log.Printf("config: ignoring invalid secrets file %s: %v", secretsPath, err)
+		} else {
+			secretToken = secretValues.Server.Token
+			secretKey = secretValues.Server.Security.EncryptionKey
+			merged, mergeErr := mergeYAML(data, secretData)
+			if mergeErr != nil {
+				log.Printf("config: ignoring unmergeable secrets file %s: %v", secretsPath, mergeErr)
+			} else {
+				cfg = Default(dbPath)
+				if err := yaml.Unmarshal(merged, cfg); err != nil {
+					log.Printf("config: ignoring invalid merged secrets file %s: %v", secretsPath, err)
+				} else {
+					cfg.Web.CSP.ModeExplicit = cspModeIsExplicit(data)
+				}
+			}
 		}
 	}
 	needsMigration := false
@@ -1059,6 +1157,21 @@ func Load(path, dbPath string) (*Config, error) {
 			return nil, fmt.Errorf("config: remove migrated secrets: %w", err)
 		}
 	}
+	if cfg.Web.UI.Theme == "" {
+		cfg.Web.UI.Theme = "dark"
+	}
+	if document, parseErr := parseConfigDocument(data); parseErr == nil {
+		cfg.Server.Cache.tlsSkipVerifySet = yamlPathValue(document.Content[0], "server.cache.tls_skip_verify") != nil
+		cfg.databaseURLConfigured = yamlPathValue(document.Content[0], "server.database.url") != nil
+		cfg.cacheURLConfigured = yamlPathValue(document.Content[0], "server.cache.url") != nil
+	}
+	if secretErr == nil {
+		if document, parseErr := parseConfigDocument(secretData); parseErr == nil {
+			cfg.databaseURLConfigured = cfg.databaseURLConfigured || yamlPathValue(document.Content[0], "server.database.url") != nil
+			cfg.cacheURLConfigured = cfg.cacheURLConfigured || yamlPathValue(document.Content[0], "server.cache.url") != nil
+		}
+	}
+	ApplyConnectionEnvironment(cfg)
 	return cfg, nil
 }
 
@@ -1066,19 +1179,21 @@ func Load(path, dbPath string) (*Config, error) {
 func readMergedConfig(path string) ([]byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("config: read %s: %w", path, err)
+		log.Printf("config: ignoring unreadable server.yml %s: %v", path, err)
+		data = []byte("{}\n")
 	}
 	if err != nil {
 		data = []byte("{}\n")
 	}
 	if _, err := parseConfigDocument(data); err != nil {
-		return nil, fmt.Errorf("config: parse %s: %w", path, err)
+		log.Printf("config: ignoring invalid server.yml %s: %v", path, err)
+		data = []byte("{}\n")
 	}
 	configDir := filepath.Dir(path)
 	dropDir := filepath.Join(configDir, "yaml.d")
 	entries, err := os.ReadDir(dropDir)
 	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("config: read %s: %w", dropDir, err)
+		log.Printf("config: ignoring unreadable drop-in directory %s: %v", dropDir, err)
 	}
 	merged := data
 	for _, entry := range entries {
@@ -1089,18 +1204,21 @@ func readMergedConfig(path string) ([]byte, error) {
 		candidate := filepath.Join(dropDir, name)
 		info, statErr := os.Stat(candidate)
 		if statErr != nil {
-			return nil, fmt.Errorf("config: inspect %s: %w", candidate, statErr)
+			log.Printf("config: ignoring unreadable drop-in %s: %v", candidate, statErr)
+			continue
 		}
 		if !info.Mode().IsRegular() {
 			continue
 		}
 		real, realErr := filepath.EvalSymlinks(candidate)
 		if realErr != nil {
-			return nil, fmt.Errorf("config: resolve %s: %w", candidate, realErr)
+			log.Printf("config: ignoring unresolvable drop-in %s: %v", candidate, realErr)
+			continue
 		}
 		realDir, dirErr := filepath.EvalSymlinks(dropDir)
 		if dirErr != nil {
-			return nil, fmt.Errorf("config: resolve %s: %w", dropDir, dirErr)
+			log.Printf("config: ignoring drop-in %s: %v", candidate, dirErr)
+			continue
 		}
 		rel, relErr := filepath.Rel(realDir, real)
 		if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
@@ -1108,14 +1226,17 @@ func readMergedConfig(path string) ([]byte, error) {
 		}
 		part, readErr := os.ReadFile(candidate)
 		if readErr != nil {
-			return nil, fmt.Errorf("config: read %s: %w", candidate, readErr)
+			log.Printf("config: ignoring unreadable drop-in %s: %v", candidate, readErr)
+			continue
 		}
 		if _, parseErr := parseConfigDocument(part); parseErr != nil {
-			return nil, fmt.Errorf("config: parse %s: %w", candidate, parseErr)
+			log.Printf("config: ignoring invalid drop-in %s: %v", candidate, parseErr)
+			continue
 		}
 		merged, err = mergeYAML(merged, part)
 		if err != nil {
-			return nil, fmt.Errorf("config: merge %s: %w", candidate, err)
+			log.Printf("config: ignoring unmergeable drop-in %s: %v", candidate, err)
+			continue
 		}
 	}
 	return merged, nil
@@ -1162,6 +1283,21 @@ func removeMigratedSecrets(path string, migrated *Config) error {
 			if len(security.Content) == 0 {
 				yamlRemoveMapKey(server, "security")
 			}
+		}
+	}
+	if connectionHasCredentials(migrated.Server.Database.URL) {
+		if database := yamlMapValue(server, "database"); database != nil {
+			yamlRemoveMapKey(database, "url")
+		}
+	}
+	if migrated.Server.Database.Token != "" {
+		if database := yamlMapValue(server, "database"); database != nil {
+			yamlRemoveMapKey(database, "token")
+		}
+	}
+	if connectionHasCredentials(migrated.Server.Cache.URL) {
+		if cache := yamlMapValue(server, "cache"); cache != nil {
+			yamlRemoveMapKey(cache, "url")
 		}
 	}
 	var output strings.Builder
@@ -1266,13 +1402,21 @@ func mergeYAMLNode(base, overlay *yaml.Node) {
 }
 
 // EnforcePrivatePaths creates the config directory and applies the private
-// modes required for server.yml, secrets.yml, yaml.d, and operator HTML.
+// modes required for server.yml, secrets.yml, yaml.d, legacy operator HTML,
+// and the branding assets directory.
 func EnforcePrivatePaths(configDir string) error {
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return fmt.Errorf("config: create private directory %s: %w", configDir, err)
 	}
 	if err := os.Chmod(configDir, 0o700); err != nil {
 		return fmt.Errorf("config: secure private directory %s: %w", configDir, err)
+	}
+	assetsDir := filepath.Join(configDir, "assets")
+	if err := os.MkdirAll(assetsDir, 0o700); err != nil {
+		return fmt.Errorf("config: create branding assets directory %s: %w", assetsDir, err)
+	}
+	if err := os.Chmod(assetsDir, 0o700); err != nil {
+		return fmt.Errorf("config: secure branding assets directory %s: %w", assetsDir, err)
 	}
 	for _, name := range []string{"server.yml", "secrets.yml"} {
 		path := filepath.Join(configDir, name)
@@ -1285,7 +1429,7 @@ func EnforcePrivatePaths(configDir string) error {
 			return fmt.Errorf("config: secure private file %s: %w", path, err)
 		}
 	}
-	for _, name := range []string{"yaml.d", "html"} {
+	for _, name := range []string{"yaml.d", "html", "assets"} {
 		root := filepath.Join(configDir, name)
 		if _, err := os.Lstat(root); os.IsNotExist(err) {
 			continue
@@ -1329,29 +1473,53 @@ func EnforcePrivatePaths(configDir string) error {
 // PeekServerPort reads only server.port for the root startup phase, before
 // the full configuration is loaded after privileged ports have been bound.
 func PeekServerSettings(path string) (address, port string, err error) {
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return "", "", nil
-	}
-	if err != nil {
-		return "", "", fmt.Errorf("config: read server startup settings from %s: %w", path, err)
-	}
-	var probe struct {
+	type startupProbe struct {
 		Server struct {
 			Address *string `yaml:"address"`
 			Listen  *string `yaml:"listen"`
-			Port    string  `yaml:"port"`
+			Port    *string `yaml:"port"`
 		} `yaml:"server"`
 	}
-	if err := yaml.Unmarshal(data, &probe); err != nil {
-		return "", "", fmt.Errorf("config: parse server startup settings from %s: %w", path, err)
+	files := []string{path}
+	dropDir := filepath.Join(filepath.Dir(path), "yaml.d")
+	entries, readErr := os.ReadDir(dropDir)
+	if readErr == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") && (filepath.Ext(entry.Name()) == ".yml" || filepath.Ext(entry.Name()) == ".yaml") {
+				files = append(files, filepath.Join(dropDir, entry.Name()))
+			}
+		}
+	}
+	probe := startupProbe{}
+	for _, file := range files {
+		data, fileErr := os.ReadFile(file)
+		if fileErr != nil {
+			continue
+		}
+		var overlay startupProbe
+		if yaml.Unmarshal(data, &overlay) != nil {
+			continue
+		}
+		if overlay.Server.Address != nil {
+			probe.Server.Address = overlay.Server.Address
+			probe.Server.Listen = nil
+		} else if overlay.Server.Listen != nil {
+			probe.Server.Listen = overlay.Server.Listen
+			probe.Server.Address = nil
+		}
+		if overlay.Server.Port != nil {
+			probe.Server.Port = overlay.Server.Port
+		}
 	}
 	if probe.Server.Address != nil {
 		address = *probe.Server.Address
 	} else if probe.Server.Listen != nil {
 		address = *probe.Server.Listen
 	}
-	return strings.TrimSpace(address), strings.TrimSpace(probe.Server.Port), nil
+	if probe.Server.Port != nil {
+		port = *probe.Server.Port
+	}
+	return strings.TrimSpace(address), strings.TrimSpace(port), nil
 }
 
 // PeekServerPort remains a narrow convenience for callers that need only
@@ -1396,7 +1564,7 @@ func Save(path string, cfg *Config) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("config: create dir for %s: %w", path, err)
 	}
-	if cfg.Server.Token != "" || cfg.Server.Security.EncryptionKey != "" {
+	if cfg.Server.Token != "" || cfg.Server.Security.EncryptionKey != "" || cfg.Server.Database.Token != "" || cfg.Server.Metrics.Auth.Tokens.Prometheus != "" || cfg.Server.Metrics.Auth.Tokens.Grafana != "" || cfg.Server.Metrics.Auth.Tokens.Loki != "" || ((!cfg.databaseURLEnv || cfg.databaseURLSeeded) && connectionHasCredentials(cfg.Server.Database.URL)) || ((!cfg.cacheURLEnv || cfg.cacheURLSeeded) && connectionHasCredentials(cfg.Server.Cache.URL)) {
 		if err := SaveSecrets(path, cfg); err != nil {
 			return err
 		}
@@ -1407,6 +1575,13 @@ func Save(path string, cfg *Config) error {
 	fileConfig := *cfg
 	fileConfig.Server.Token = ""
 	fileConfig.Server.Security.EncryptionKey = ""
+	fileConfig.Server.Database.Token = ""
+	if cfg.databaseURLEnv && !cfg.databaseURLSeeded || connectionHasCredentials(cfg.Server.Database.URL) {
+		fileConfig.Server.Database.URL = ""
+	}
+	if cfg.cacheURLEnv && !cfg.cacheURLSeeded || connectionHasCredentials(cfg.Server.Cache.URL) {
+		fileConfig.Server.Cache.URL = ""
+	}
 	if err := enc.Encode(&fileConfig); err != nil {
 		return fmt.Errorf("config: marshal: %w", err)
 	}
@@ -1414,6 +1589,11 @@ func Save(path string, cfg *Config) error {
 		return fmt.Errorf("config: marshal: %w", err)
 	}
 	data := []byte(strings.TrimRight(indented.String(), "\n") + "\n")
+	data, err := stripBrandingConfig(data)
+	if err != nil {
+		return fmt.Errorf("config: remove branding from server.yml: %w", err)
+	}
+	data = append([]byte(serverConfigHeader), data...)
 
 	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
 	if err != nil {
@@ -1440,7 +1620,48 @@ func Save(path string, cfg *Config) error {
 	if err := os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("config: replace %s: %w", path, err)
 	}
-	return nil
+	if err := MigrateSecretsFiles(path); err != nil {
+		return err
+	}
+	return MigrateAreaFiles(path)
+}
+
+func stripBrandingConfig(data []byte) ([]byte, error) {
+	document, err := parseConfigDocument(data)
+	if err != nil {
+		return nil, err
+	}
+	root := document.Content[0]
+	if server := yamlMapValue(root, "server"); server != nil {
+		yamlRemoveMapKey(server, "branding")
+		if seo := yamlMapValue(server, "seo"); seo != nil {
+			for _, key := range []string{"keywords", "author", "og_image", "twitter_handle", "verification"} {
+				yamlRemoveMapKey(seo, key)
+			}
+			if len(seo.Content) == 0 {
+				yamlRemoveMapKey(server, "seo")
+			}
+		}
+	}
+	if web := yamlMapValue(root, "web"); web != nil {
+		if ui := yamlMapValue(web, "ui"); ui != nil {
+			yamlRemoveMapKey(ui, "theme")
+			yamlRemoveMapKey(ui, "accent")
+			if len(ui.Content) == 0 {
+				yamlRemoveMapKey(web, "ui")
+			}
+		}
+	}
+	var output strings.Builder
+	encoder := yaml.NewEncoder(&output)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(document); err != nil {
+		return nil, err
+	}
+	if err := encoder.Close(); err != nil {
+		return nil, err
+	}
+	return []byte(strings.TrimRight(output.String(), "\n") + "\n"), nil
 }
 
 // SaveSecrets atomically writes the server-generated credentials to the
@@ -1475,8 +1696,57 @@ func SaveSecrets(configPath string, cfg *Config) error {
 	if cfg.Server.Security.EncryptionKey != "" {
 		security["encryption_key"] = cfg.Server.Security.EncryptionKey
 	}
+	if (!cfg.databaseURLEnv || cfg.databaseURLSeeded) && connectionHasCredentials(cfg.Server.Database.URL) {
+		database, _ := server["database"].(map[string]any)
+		if database == nil {
+			database = map[string]any{}
+		}
+		database["url"] = cfg.Server.Database.URL
+		server["database"] = database
+	}
+	if cfg.Server.Database.Token != "" {
+		database, _ := server["database"].(map[string]any)
+		if database == nil {
+			database = map[string]any{}
+		}
+		database["token"] = cfg.Server.Database.Token
+		server["database"] = database
+	}
+	if (!cfg.cacheURLEnv || cfg.cacheURLSeeded) && connectionHasCredentials(cfg.Server.Cache.URL) {
+		cache, _ := server["cache"].(map[string]any)
+		if cache == nil {
+			cache = map[string]any{}
+		}
+		cache["url"] = cfg.Server.Cache.URL
+		server["cache"] = cache
+	}
+	if cfg.Server.Security.EncryptionKeyVersion > 0 {
+		security["encryption_key_version"] = cfg.Server.Security.EncryptionKeyVersion
+	}
 	if len(security) > 0 {
 		server["security"] = security
+	}
+	metrics, _ := server["metrics"].(map[string]any)
+	if metrics == nil {
+		metrics = map[string]any{}
+	}
+	auth, _ := metrics["auth"].(map[string]any)
+	if auth == nil {
+		auth = map[string]any{}
+	}
+	tokens, _ := auth["tokens"].(map[string]any)
+	if tokens == nil {
+		tokens = map[string]any{}
+	}
+	for key, value := range map[string]string{"prometheus": cfg.Server.Metrics.Auth.Tokens.Prometheus, "grafana": cfg.Server.Metrics.Auth.Tokens.Grafana, "loki": cfg.Server.Metrics.Auth.Tokens.Loki} {
+		if value != "" {
+			tokens[key] = value
+		}
+	}
+	if len(tokens) > 0 {
+		auth["tokens"] = tokens
+		metrics["auth"] = auth
+		server["metrics"] = metrics
 	}
 	secrets["server"] = server
 	var output strings.Builder
@@ -1520,14 +1790,14 @@ func writeAtomic(path string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
-// EnsureToken generates a fresh operator token (`tok_` + 32 URL-safe base62
+// EnsureToken generates a fresh operator token (`adm_` + 32 URL-safe base62
 // chars) when cfg.Server.Token is empty, per AI.md PART 11 "API Token
 // Model". Returns true when a new token was generated.
 func EnsureToken(cfg *Config) (bool, error) {
-	if cfg.Server.Token != "" {
+	if validGeneratedToken(cfg.Server.Token, "adm") {
 		return false, nil
 	}
-	tok, err := generateToken()
+	tok, err := generateToken("adm")
 	if err != nil {
 		return false, err
 	}
@@ -1535,8 +1805,44 @@ func EnsureToken(cfg *Config) (bool, error) {
 	return true, nil
 }
 
-func generateToken() (string, error) {
-	tok, err := security.GenerateToken()
+// EnsureMetricsTokens creates missing bearer tokens for each metrics service.
+func EnsureMetricsTokens(cfg *Config) (bool, error) {
+	generated := false
+	values := []*string{&cfg.Server.Metrics.Auth.Tokens.Prometheus, &cfg.Server.Metrics.Auth.Tokens.Grafana, &cfg.Server.Metrics.Auth.Tokens.Loki}
+	for _, value := range values {
+		if validGeneratedToken(*value, "mtr") {
+			continue
+		}
+		token, err := generateToken("mtr")
+		if err != nil {
+			return false, err
+		}
+		*value = token
+		generated = true
+	}
+	return generated, nil
+}
+
+func validGeneratedToken(token, prefix string) bool {
+	if len(token) != len(prefix)+1+security.TokenLength || !strings.HasPrefix(token, prefix+"_") {
+		return false
+	}
+	for _, char := range token[len(prefix)+1:] {
+		switch {
+		case char >= 'a' && char <= 'z', char >= 'A' && char <= 'Z', char >= '0' && char <= '9':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// ValidMetricsToken reports whether a configured metrics credential uses the
+// required mtr_ prefix and 32-character base62 token format.
+func ValidMetricsToken(token string) bool { return validGeneratedToken(token, "mtr") }
+
+func generateToken(prefix string) (string, error) {
+	tok, err := security.GenerateTokenWithPrefix(prefix)
 	if err != nil {
 		return "", fmt.Errorf("config: generate token: %w", err)
 	}

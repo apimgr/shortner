@@ -99,7 +99,7 @@ func TestSecFetchMiddlewareAllowsCrossSiteWithBearerToken(t *testing.T) {
 	h := d.secFetchMiddleware(okHandler())
 	req := httptest.NewRequest(http.MethodPost, "/server/consent", nil)
 	req.Header.Set("Sec-Fetch-Site", "cross-site")
-	req.Header.Set("Authorization", "Bearer tok_something")
+	req.Header.Set("Authorization", "Bearer example-token")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 

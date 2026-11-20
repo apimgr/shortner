@@ -20,11 +20,16 @@ func testHealthDeps(t *testing.T, sqlDB *sql.DB) *healthDeps {
 		dataDir:   t.TempDir(),
 		startTime: time.Now().Add(-90 * time.Minute),
 		stats:     NewStats(),
+		scheduler: testSchedulerReporter(true),
 		version:   "1.2.3",
 		commit:    "abc123",
 		buildDate: "2026-01-01",
 	}
 }
+
+type testSchedulerReporter bool
+
+func (r testSchedulerReporter) Healthy() bool { return bool(r) }
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
@@ -80,10 +85,11 @@ func TestFormatUptime(t *testing.T) {
 		d    time.Duration
 		want string
 	}{
-		{0, "0d 0h 0m"},
-		{90 * time.Minute, "0d 1h 30m"},
-		{25 * time.Hour, "1d 1h 0m"},
-		{48*time.Hour + 5*time.Minute, "2d 0h 5m"},
+		{0, "0s"},
+		{45 * time.Second, "45s"},
+		{90 * time.Minute, "1h 30m"},
+		{25 * time.Hour, "1d 1h"},
+		{48*time.Hour + 5*time.Minute, "2d 5m"},
 	}
 	for _, tt := range tests {
 		if got := formatUptime(tt.d); got != tt.want {
@@ -124,6 +130,48 @@ func TestBuildHealthResponseUnhealthyOnDBFailure(t *testing.T) {
 	}
 }
 
+type testI2PReporter struct {
+	enabled  bool
+	provider string
+}
+
+func (r testI2PReporter) Enabled() bool        { return r.enabled }
+func (testI2PReporter) Running() bool          { return false }
+func (testI2PReporter) Healthy() bool          { return false }
+func (testI2PReporter) EepsiteAddress() string { return "" }
+func (r testI2PReporter) ProviderName() string { return r.provider }
+func (testI2PReporter) Err() string            { return "" }
+
+func TestI2PNoProviderReportsDisabled(t *testing.T) {
+	h := &healthDeps{i2p: testI2PReporter{enabled: true, provider: "none"}}
+	info, check := h.i2pInfo()
+	if info.Enabled || info.Running || info.Status != "disabled" || info.Provider != "none" {
+		t.Errorf("i2pInfo() = %#v, want disabled no-provider state", info)
+	}
+	if check != "" {
+		t.Errorf("i2pInfo() check = %q, want omitted", check)
+	}
+}
+
+func TestSchedulerHealthCheck(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		reporter  SchedulerReporter
+		wantCheck string
+	}{
+		{name: "running", reporter: testSchedulerReporter(true), wantCheck: "ok"},
+		{name: "stopped", reporter: testSchedulerReporter(false), wantCheck: "error"},
+		{name: "missing", reporter: nil, wantCheck: "error"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			h := &healthDeps{scheduler: test.reporter}
+			if got := h.schedulerHealth(); got != test.wantCheck {
+				t.Errorf("schedulerHealth() = %q, want %q", got, test.wantCheck)
+			}
+		})
+	}
+}
+
 func TestHealthHandlerJSON(t *testing.T) {
 	h := testHealthDeps(t, openTestDB(t))
 	req := httptest.NewRequest(http.MethodGet, "/server/healthz", nil)
@@ -151,7 +199,7 @@ func TestHealthHandlerJSON(t *testing.T) {
 
 func TestHealthHandlerText(t *testing.T) {
 	h := testHealthDeps(t, openTestDB(t))
-	req := httptest.NewRequest(http.MethodGet, "/server/healthz", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/healthz", nil)
 	req.Header.Set("User-Agent", "curl/8.0")
 	rec := httptest.NewRecorder()
 
@@ -187,15 +235,9 @@ func TestFormatHealthTextCanonicalOrder(t *testing.T) {
 		"uptime: ",
 		"mode: ",
 		"timestamp: ",
-		"features.tor.enabled: ",
-		"features.tor.running: ",
-		"features.tor.status: ",
-		"features.tor.hostname: ",
-		"features.i2p.enabled: ",
-		"features.i2p.running: ",
-		"features.i2p.status: ",
-		"features.i2p.hostname: ",
-		"features.i2p.provider: ",
+		"cluster.enabled: ",
+		"features.tor: ",
+		"features.i2p: ",
 		"features.geoip: ",
 		"checks.database: ",
 		"checks.cache: ",

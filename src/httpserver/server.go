@@ -22,6 +22,7 @@ import (
 
 	"github.com/apimgr/shortner/src/apperr"
 	"github.com/apimgr/shortner/src/applog"
+	"github.com/apimgr/shortner/src/cache"
 	"github.com/apimgr/shortner/src/common/netutil"
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/db"
@@ -32,18 +33,22 @@ import (
 
 // Server wraps the chi router and the underlying *http.Server.
 type Server struct {
-	httpServer           *http.Server
-	servers              []*http.Server
-	portErr              error
-	apiRoutes            []registeredAPIRoute
-	listeners            map[string]net.Listener
-	stats                *Stats
-	blocks               *BlockStore
-	allowlist            *AllowlistLookup
-	resolver             *ProxyResolver
-	contactDeps          *frontendDeps
-	contactWatcherCancel context.CancelFunc
-	contactWatcherDone   chan struct{}
+	httpServer            *http.Server
+	servers               []*http.Server
+	portErr               error
+	apiRoutes             []registeredAPIRoute
+	listeners             map[string]net.Listener
+	stats                 *Stats
+	blocks                *BlockStore
+	allowlist             *AllowlistLookup
+	resolver              *ProxyResolver
+	contactDeps           *frontendDeps
+	contactWatcherCancel  context.CancelFunc
+	contactWatcherDone    chan struct{}
+	brandingWatcherCancel context.CancelFunc
+	brandingWatcherDone   chan struct{}
+	brandingState         *brandingStateStore
+	runtimeDeps           *deps
 	// overlayServers tracks the AI.md PART 31 overlay backend listeners
 	// (Tor, I2P) started by ServeOverlay so Shutdown can stop them with the
 	// clearnet listener rather than leaving onion traffic being served by a
@@ -54,15 +59,19 @@ type Server struct {
 
 // Options configures New.
 type Options struct {
-	Config    *config.Config
-	DB        db.Handle
-	Store     *db.Store
-	DataDir   string
-	AccessLog *applog.Logger
-	Version   string
-	CommitID  string
-	BuildDate string
-	StartTime time.Time
+	Config      *config.Config
+	DB          db.Handle
+	Store       *db.Store
+	Cache       cache.Cache
+	CacheHealth func(context.Context) string
+	Scheduler   SchedulerReporter
+	DataDir     string
+	CacheDir    string
+	AccessLog   *applog.Logger
+	Version     string
+	CommitID    string
+	BuildDate   string
+	StartTime   time.Time
 	// TLSConfig, when non-nil, configures HTTPS for the selected listener or
 	// the second listener in an HTTP,HTTPS pair. Built via
 	// src/certmgr.NewTLSConfig using the FQDN resolved from src/fqdn.
@@ -118,6 +127,9 @@ type Options struct {
 func New(opts Options) *Server {
 	cfg := opts.Config
 	stats := NewStats()
+	if err := stats.AttachDB(opts.DB); err != nil && opts.AccessLog != nil {
+		_ = opts.AccessLog.WriteLine(applog.LevelWarn, "health: request statistics persistence unavailable\n")
+	}
 
 	resolver := NewProxyResolver(cfg.Server.TrustedProxies.Additional)
 	allowlist := NewAllowlistLookup(cfg.Server.Security.Allowlist)
@@ -125,7 +137,7 @@ func New(opts Options) *Server {
 	d := &deps{
 		sqlDB:           opts.DB,
 		resolver:        resolver,
-		rateLimiter:     NewRateLimiter(cfg.Server.RateLimit),
+		rateLimiter:     newRateLimiter(cfg.Server.RateLimit, opts.Cache),
 		stats:           stats,
 		access:          opts.AccessLog,
 		accessLogFormat: cfg.Server.Logs.Access.Format,
@@ -149,18 +161,22 @@ func New(opts Options) *Server {
 	if cfg.Server.Compression.Enabled {
 		r.Use(chimw.Compress(cfg.Server.Compression.Level, cfg.Server.Compression.Types...))
 	}
+	brandState := newBrandingStateStore(cfg)
 
 	hd := &healthDeps{
-		sqlDB:     opts.DB,
-		dataDir:   opts.DataDir,
-		startTime: opts.StartTime,
-		stats:     stats,
-		version:   opts.Version,
-		commit:    opts.CommitID,
-		buildDate: opts.BuildDate,
-		geoip:     opts.GeoIP != nil,
-		tor:       opts.Tor,
-		i2p:       opts.I2P,
+		sqlDB:       opts.DB,
+		cacheStatus: opts.CacheHealth,
+		scheduler:   opts.Scheduler,
+		dataDir:     opts.DataDir,
+		startTime:   opts.StartTime,
+		stats:       stats,
+		version:     opts.Version,
+		commit:      opts.CommitID,
+		buildDate:   opts.BuildDate,
+		geoip:       cfg.Server.GeoIP.Enabled,
+		tor:         opts.Tor,
+		i2p:         opts.I2P,
+		branding:    brandState,
 	}
 
 	// /server/healthz itself is registered below by
@@ -176,6 +192,8 @@ func New(opts Options) *Server {
 		ld.tokenKey = tokenKey
 	}
 
+	d.headers.branding = brandState
+	d.runtimeConfig = brandState
 	rd := newReportDeps(cfg, resolver, opts.AuditLog)
 	fd := &frontendDeps{
 		cfg:                   cfg,
@@ -191,6 +209,7 @@ func New(opts Options) *Server {
 		notifier:              opts.Notifier,
 		metrics:               opts.Metrics,
 		store:                 opts.Store,
+		branding:              brandState,
 	}
 	fd.setContactAntispam(cfg.Server.Contact.Antispam)
 
@@ -246,11 +265,12 @@ func New(opts Options) *Server {
 		configDir:             opts.ConfigDir,
 		installSecret:         opts.InstallSecret,
 		previousInstallSecret: opts.PreviousInstallSecret,
+		branding:              brandState,
 	}
 	wk.registerWellKnownRoutes(r)
 
-	(&sitemapDeps{cfg: cfg, resolver: resolver, startTime: opts.StartTime, sqlDB: opts.DB, configDir: opts.ConfigDir}).registerSitemapRoutes(r)
-	registerPWARoutes(r, opts.Version, opts.CommitID)
+	(&sitemapDeps{cfg: cfg, resolver: resolver, startTime: opts.StartTime, sqlDB: opts.DB, configDir: opts.ConfigDir, cacheDir: opts.CacheDir, branding: brandState}).registerSitemapRoutes(r)
+	registerPWARoutes(r, opts.Version, opts.CommitID, brandState)
 
 	fd.registerFrontendRoutes(r, hd, ld)
 	r.Get("/server/preferences", fd.preferencesHandler)
@@ -268,6 +288,8 @@ func New(opts Options) *Server {
 	r.Post("/server/preferences/tokens/{id}/update", fd.tokenLinkedUpdateHandler)
 	r.Post("/server/preferences/tokens/{id}/revoke", fd.tokenLinkedRevokeHandler)
 
+	r.Get("/static/css/accent.css", fd.accentCSSHandler)
+	r.Head("/static/css/accent.css", fd.accentCSSHandler)
 	r.Handle("/static/*", staticAssetHandler(assetStamp(opts.Version, opts.CommitID)))
 
 	// AI.md PART 30: the WebUI's JavaScript reads the same embedded locale
@@ -319,14 +341,16 @@ func New(opts Options) *Server {
 		}
 	}
 	s := &Server{
-		stats:       stats,
-		blocks:      blocks,
-		allowlist:   allowlist,
-		resolver:    resolver,
-		portErr:     portErr,
-		listeners:   opts.BoundListeners,
-		apiRoutes:   collectAPIRoutes(r),
-		contactDeps: fd,
+		stats:         stats,
+		blocks:        blocks,
+		allowlist:     allowlist,
+		resolver:      resolver,
+		portErr:       portErr,
+		listeners:     opts.BoundListeners,
+		apiRoutes:     collectAPIRoutes(r),
+		contactDeps:   fd,
+		brandingState: brandState,
+		runtimeDeps:   d,
 	}
 	appHandler := http.Handler(buildStampMiddleware(assetStamp(opts.Version, opts.CommitID), limitedHandler))
 	switch {
@@ -361,8 +385,16 @@ func New(opts Options) *Server {
 	}
 	if opts.ContactConfigPath != "" {
 		s.startContactConfigWatcher(opts.ContactConfigPath, cfg.Server.Database.URL)
+		s.startBrandingConfigWatcher(opts.ContactConfigPath, cfg.Server.Database.URL)
 	}
 	return s
+}
+
+func newRateLimiter(cfg config.RateLimit, backend cache.Cache) *RateLimiter {
+	if counter, ok := backend.(rateCounter); ok {
+		return NewRateLimiter(cfg, counter)
+	}
+	return NewRateLimiter(cfg)
 }
 
 type registeredAPIRoute struct {
@@ -479,11 +511,18 @@ func (s *Server) Shutdown() error {
 		s.contactWatcherCancel()
 		<-s.contactWatcherDone
 	}
+	if s.brandingWatcherCancel != nil {
+		s.brandingWatcherCancel()
+		<-s.brandingWatcherDone
+	}
 	var errs []error
 	for _, server := range s.servers {
 		if err := server.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errs = append(errs, err)
 		}
+	}
+	if err := s.stats.Stop(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("flush request statistics: %w", err))
 	}
 	return errors.Join(errs...)
 }

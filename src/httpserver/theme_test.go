@@ -31,8 +31,8 @@ func TestRequestTheme(t *testing.T) {
 
 	t.Run("no cookie falls back to config default", func(t *testing.T) {
 		req := htmlRequest(http.MethodGet, "/", nil)
-		if got := requestTheme(req, fd.cfg); got != fd.cfg.Web.Theme {
-			t.Errorf("requestTheme() = %q, want config default %q", got, fd.cfg.Web.Theme)
+		if got := requestTheme(req, fd.cfg); got != fd.cfg.Web.UI.Theme {
+			t.Errorf("requestTheme() = %q, want config default %q", got, fd.cfg.Web.UI.Theme)
 		}
 	})
 
@@ -47,16 +47,16 @@ func TestRequestTheme(t *testing.T) {
 	t.Run("invalid cookie falls back to config default", func(t *testing.T) {
 		req := htmlRequest(http.MethodGet, "/", nil)
 		req.AddCookie(&http.Cookie{Name: themeCookieName, Value: "bogus"})
-		if got := requestTheme(req, fd.cfg); got != fd.cfg.Web.Theme {
-			t.Errorf("requestTheme() = %q, want config default %q", got, fd.cfg.Web.Theme)
+		if got := requestTheme(req, fd.cfg); got != fd.cfg.Web.UI.Theme {
+			t.Errorf("requestTheme() = %q, want config default %q", got, fd.cfg.Web.UI.Theme)
 		}
 	})
 
 	t.Run("invalid config default falls back to dark", func(t *testing.T) {
 		req := htmlRequest(http.MethodGet, "/", nil)
-		orig := fd.cfg.Web.Theme
-		fd.cfg.Web.Theme = "bogus"
-		defer func() { fd.cfg.Web.Theme = orig }()
+		orig := fd.cfg.Web.UI.Theme
+		fd.cfg.Web.UI.Theme = "bogus"
+		defer func() { fd.cfg.Web.UI.Theme = orig }()
 		if got := requestTheme(req, fd.cfg); got != "dark" {
 			t.Errorf("requestTheme() = %q, want %q", got, "dark")
 		}

@@ -11,17 +11,17 @@ import (
 	"github.com/apimgr/shortner/src/geoip"
 )
 
-func TestBuiltinTasksRegistersAllThirteen(t *testing.T) {
+func TestBuiltinTasksOmitsModeBoundTasksWhenDisabled(t *testing.T) {
 	cfg := config.Default("").Server.Scheduler
 	tasks := BuiltinTasks(cfg, Deps{})
-	if len(tasks) != 13 {
-		t.Fatalf("len(BuiltinTasks()) = %d, want 13 (AI.md PART 18 'Built-in Tasks (Required)')", len(tasks))
+	if len(tasks) != 11 {
+		t.Fatalf("len(BuiltinTasks()) = %d, want 11 with overlay features disabled", len(tasks))
 	}
 	want := map[string]bool{
 		"ssl_renewal": true, "geoip_update": true, "blocklist_update": true,
 		"cve_update": true, "update_check": true, "token_cleanup": true,
 		"log_rotation": true, "disk_check": true, "backup_daily": true, "backup_hourly": true,
-		"healthcheck_self": true, "tor_health": true, "i2p_health": true,
+		"healthcheck_self": true,
 	}
 	for _, task := range tasks {
 		if !want[task.ID] {
@@ -37,6 +37,24 @@ func TestBuiltinTasksRegistersAllThirteen(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Errorf("missing task ids: %v", want)
+	}
+}
+
+type enabledOverlay struct{}
+
+func (enabledOverlay) Enabled() bool  { return true }
+func (enabledOverlay) Running() bool  { return true }
+func (enabledOverlay) Healthy() bool  { return true }
+func (enabledOverlay) Restart() error { return nil }
+
+func TestBuiltinTasksRegistersEnabledOverlayTasks(t *testing.T) {
+	tasks := BuiltinTasks(config.Default("").Server.Scheduler, Deps{Tor: enabledOverlay{}, I2P: enabledOverlay{}})
+	found := map[string]bool{}
+	for _, task := range tasks {
+		found[task.ID] = true
+	}
+	if !found["tor_health"] || !found["i2p_health"] {
+		t.Fatalf("enabled overlay tasks missing: %#v", found)
 	}
 }
 

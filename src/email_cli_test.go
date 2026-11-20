@@ -339,7 +339,7 @@ func TestAppName(t *testing.T) {
 	if got := appName(cfg); got != internalName {
 		t.Errorf("appName() = %q, want the compiled-in project name %q", got, internalName)
 	}
-	cfg.Server.Branding.SiteName = "  My Links  "
+	cfg.Server.Branding.Title = "  My Links  "
 	if got := appName(cfg); got != "My Links" {
 		t.Errorf("appName() = %q, want the trimmed site name", got)
 	}

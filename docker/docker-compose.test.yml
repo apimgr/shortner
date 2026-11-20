@@ -30,7 +30,7 @@ services:
       - '${CONFIG_PATH:-./volumes/config}:/config:z'
       - '${DATA_PATH:-./volumes/data}:/data:z'
     ports:
-      - '${BIND_ADDRESS:-172.17.0.1}:${PORT:-64581}:80'
+      - '172.17.0.1:${PORT:-64581}:80'
     healthcheck:
       test: ['CMD', '/usr/local/bin/shortner', '--status']
       interval: 10s

@@ -174,3 +174,21 @@ func TestValidateSEOVerification(t *testing.T) {
 		t.Errorf("custom verification tags = %+v, want only valid entry", cfg.Server.SEO.Verification.Custom)
 	}
 }
+
+func TestValidateBrandingAdjustsAccentForEachTheme(t *testing.T) {
+	cfg := Default("")
+	cfg.Web.UI.Accent = "#888888"
+	warnings := ValidateBranding(cfg)
+	if cfg.Web.UI.Accent != "#888888" || len(warnings) != 0 {
+		t.Fatalf("accent validation = %q, %v", cfg.Web.UI.Accent, warnings)
+	}
+	for theme, background := range map[string]string{"dark": "#282a36", "light": "#ffffff"} {
+		adjusted := AccentForTheme(cfg.Web.UI.Accent, theme)
+		if accentContrast(adjusted, background) < 4.5 {
+			t.Errorf("%s accent %s does not meet 4.5:1 contrast against %s", theme, adjusted, background)
+		}
+	}
+	if AccentForTheme("invalid", "dark") != "" {
+		t.Fatal("invalid accent produced a theme color")
+	}
+}

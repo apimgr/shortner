@@ -101,7 +101,7 @@ func (fd *frontendDeps) securityMode(r *http.Request) bool {
 // sealed in the database at that point.
 func (fd *frontendDeps) securityReportPost(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, contactFormBodyLimit)
-	base := fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security_report.title"), fd.cfg.Server.SEO.Description)
+	base := fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "security_report.title"), fd.cfg.Server.Branding.Description)
 	data := securityContactPageData{
 		Base:         base,
 		SecurityMode: true,

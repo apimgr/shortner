@@ -260,11 +260,52 @@ func serviceAction(binaryName, pastTense string, action func() error) int {
 	return 0
 }
 
-// runServiceInstall performs PART 23 "Service Installation Logic": write
-// the service file, enable auto-start, and start the service. User,
-// group, directory, and permission setup deliberately do NOT happen here
-// — the server does that during normal startup.
+// runServiceInstall performs PART 23 "Service Installation Logic": prepare
+// the system account and runtime paths before writing service files, then
+// enable auto-start and start the service.
 func runServiceInstall(binaryName string, mgr service.Manager, params service.Params) int {
+	if !params.UserLevel {
+		uid, err := service.CreateServiceAccount(params)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", binaryName, err)
+			return 1
+		}
+		for _, dir := range []string{params.ConfigDir, params.DataDir, params.CacheDir, params.LogDir, params.BackupDir, params.DBDir} {
+			if dir == "" {
+				continue
+			}
+			if err := paths.EnsureDir(dir); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: %s\n", binaryName, err)
+				return 1
+			}
+		}
+		if err := paths.EnsurePIDFile(params.PIDFile); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", binaryName, err)
+			return 1
+		}
+		if err := service.SetRuntimeOwnership(params, uid); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", binaryName, err)
+			return 1
+		}
+	} else {
+		for _, dir := range []string{params.ConfigDir, params.DataDir, params.CacheDir, params.LogDir, params.BackupDir, params.DBDir} {
+			if dir == "" {
+				continue
+			}
+			if err := paths.EnsureDir(dir); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: %s\n", binaryName, err)
+				return 1
+			}
+		}
+		if err := paths.EnsurePIDFile(params.PIDFile); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", binaryName, err)
+			return 1
+		}
+		if err := service.EnforceRuntimeModes(params, false); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", binaryName, err)
+			return 1
+		}
+	}
 	if err := service.Install(mgr); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", binaryName, err)
 		return 1

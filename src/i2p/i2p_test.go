@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base32"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -235,7 +236,7 @@ func TestProviderName(t *testing.T) {
 
 // TunnelsConf must carry every value it was given through into the rendered
 // text, per AI.md PART 31.2 "tunnels.conf Generation".
-func TestTunnelsConf(t *testing.T) {
+func TestTunnelsConfIsEmpty(t *testing.T) {
 	cfg := config.I2P{
 		InboundLength:    4,
 		OutboundLength:   5,
@@ -245,20 +246,8 @@ func TestTunnelsConf(t *testing.T) {
 	}
 	out := TunnelsConf(cfg, "/data/i2p/site/site-keys.dat", 4242)
 
-	for _, want := range []string{
-		"host = 127.0.0.1",
-		"port = 4242",
-		"keys = /data/i2p/site/site-keys.dat",
-		"inbound.length = 4",
-		"outbound.length = 5",
-		"inbound.quantity = 6",
-		"outbound.quantity = 7",
-		"signaturetype = 7",
-		"type = server",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("TunnelsConf output missing %q; got:\n%s", want, out)
-		}
+	if out != "" {
+		t.Errorf("TunnelsConf = %q, want an empty tunnel file", out)
 	}
 }
 
@@ -396,8 +385,8 @@ func TestSplitSAMFields(t *testing.T) {
 	}
 }
 
-// readSAMReply must parse KEY=VALUE fields on success and turn a non-OK
-// RESULT into an error carrying the router's MESSAGE.
+// readSAMReply must parse KEY=VALUE fields on success and keep router
+// MESSAGE text out of errors.
 func TestReadSAMReply(t *testing.T) {
 	t.Run("ok reply", func(t *testing.T) {
 		reader := bufio.NewReader(strings.NewReader("HELLO REPLY RESULT=OK VERSION=3.3\n"))
@@ -416,8 +405,8 @@ func TestReadSAMReply(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected an error for a non-OK RESULT")
 		}
-		if !strings.Contains(err.Error(), "router is down") {
-			t.Errorf("error %q does not carry the router MESSAGE", err)
+		if strings.Contains(err.Error(), "router is down") {
+			t.Errorf("error %q leaked the router MESSAGE", err)
 		}
 	})
 
@@ -451,40 +440,27 @@ func handleFakeSAMConn(conn net.Conn, failSession bool) {
 	// persisted on disk yet); on a Restart/RegenerateAddress reconnect it
 	// goes straight to SESSION CREATE, so branch on what actually arrives
 	// rather than assuming a fixed message order.
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		return
-	}
-	if strings.HasPrefix(line, "DEST GENERATE") {
-		if _, err := conn.Write([]byte(
-			"DEST REPLY PUB=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA PRIV=BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n",
-		)); err != nil {
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
 			return
 		}
-		// SESSION CREATE ...
-		if _, err := reader.ReadString('\n'); err != nil {
+		switch {
+		case strings.HasPrefix(line, "DEST GENERATE"):
+			priv := i2pBase64.EncodeToString(make([]byte, 387))
+			_, _ = fmt.Fprintf(conn, "DEST REPLY PRIV=%s\n", priv)
+		case strings.HasPrefix(line, "SESSION CREATE"):
+			if failSession {
+				_, _ = conn.Write([]byte("SESSION STATUS RESULT=I2P_ERROR MESSAGE=unavailable\n"))
+				return
+			}
+			_, _ = conn.Write([]byte("SESSION STATUS RESULT=OK\n"))
+		case strings.HasPrefix(line, "STREAM FORWARD"):
+			_, _ = conn.Write([]byte("STREAM STATUS RESULT=OK\n"))
+		case strings.HasPrefix(line, "QUIT"):
 			return
 		}
 	}
-	if failSession {
-		_, _ = conn.Write([]byte(`SESSION STATUS RESULT=I2P_ERROR MESSAGE="no tunnels available"` + "\n"))
-		return
-	}
-	if _, err := conn.Write([]byte("SESSION STATUS RESULT=OK\n")); err != nil {
-		return
-	}
-
-	// STREAM FORWARD ...
-	if _, err := reader.ReadString('\n'); err != nil {
-		return
-	}
-	if _, err := conn.Write([]byte("STREAM STATUS RESULT=OK\n")); err != nil {
-		return
-	}
-
-	// Keep the connection open for the caller's Healthy()/Close() checks.
-	buf := make([]byte, 1)
-	_, _ = conn.Read(buf)
 }
 
 // fakeSAMServer accepts exactly one connection and drives it through
@@ -496,11 +472,13 @@ func fakeSAMServer(t *testing.T, failSession bool) net.Listener {
 		t.Fatalf("Listen: %v", err)
 	}
 	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go handleFakeSAMConn(conn, failSession)
 		}
-		handleFakeSAMConn(conn, failSession)
 	}()
 	return ln
 }
@@ -540,7 +518,7 @@ func TestStartSAMEepsiteHappyPath(t *testing.T) {
 
 	cfg := config.I2P{SAMAddress: ln.Addr().String()}.Normalized()
 	svc := &Service{}
-	address, err := startSAMEepsite(cfg, dirs, 4242, svc)
+	address, err := startSAMEepsite(context.Background(), cfg, dirs, 4242, svc)
 	if err != nil {
 		t.Fatalf("startSAMEepsite: %v", err)
 	}
@@ -572,12 +550,12 @@ func TestStartSAMEepsiteSessionError(t *testing.T) {
 
 	cfg := config.I2P{SAMAddress: ln.Addr().String()}.Normalized()
 	svc := &Service{}
-	_, err := startSAMEepsite(cfg, dirs, 4242, svc)
+	_, err := startSAMEepsite(context.Background(), cfg, dirs, 4242, svc)
 	if err == nil {
 		t.Fatal("expected an error when SESSION CREATE fails")
 	}
-	if !strings.Contains(err.Error(), "no tunnels available") {
-		t.Errorf("error %q does not carry the router MESSAGE", err)
+	if !strings.Contains(err.Error(), "I2P_ERROR") {
+		t.Errorf("error %q does not identify the SAM result", err)
 	}
 }
 
@@ -586,7 +564,8 @@ func TestStartSAMEepsiteSessionError(t *testing.T) {
 func TestLoadOrCreateSAMDestinationReusesPersisted(t *testing.T) {
 	dir := t.TempDir()
 	keysPath := filepath.Join(dir, "site-keys.dat")
-	if err := os.WriteFile(keysPath, []byte("PUBVALUE\nPRIVVALUE\n"), 0600); err != nil {
+	priv := i2pBase64.EncodeToString(make([]byte, 387))
+	if err := os.WriteFile(keysPath, []byte(priv+"\n"), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -596,8 +575,8 @@ func TestLoadOrCreateSAMDestinationReusesPersisted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadOrCreateSAMDestination: %v", err)
 	}
-	if dest.pub != "PUBVALUE" || dest.priv != "PRIVVALUE" {
-		t.Errorf("dest = %+v, want pub=PUBVALUE priv=PRIVVALUE", dest)
+	if dest != priv {
+		t.Errorf("dest = %q, want persisted PRIV value", dest)
 	}
 }
 

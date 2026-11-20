@@ -1,0 +1,3 @@
+^AI\.md$
+^go\.sum$
+(^|/)testdata/

@@ -2,8 +2,28 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 )
+
+func TestInvokeWithRetryUsesExponentialAttempts(t *testing.T) {
+	sched := &Scheduler{}
+	attempts := 0
+	task := &TaskDef{RetryOnFail: true, RetryDelay: time.Nanosecond, Run: func(context.Context) error {
+		attempts++
+		if attempts < 4 {
+			return errors.New("temporary failure")
+		}
+		return nil
+	}}
+	if err := sched.invokeWithRetry(context.Background(), task); err != nil {
+		t.Fatalf("invokeWithRetry() error = %v", err)
+	}
+	if attempts != 4 {
+		t.Fatalf("attempts = %d, want 4", attempts)
+	}
+}
 
 func TestRunNowRecoversTaskPanicAndRecordsFailure(t *testing.T) {
 	sqlDB := openTestDB(t)

@@ -481,20 +481,20 @@ func TestHealthDepsTorInfoConnectedAndError(t *testing.T) {
 
 	unhealthy := &healthDeps{tor: &fakeTorReporter{enabled: true, running: true, healthy: false, address: "abc123.onion"}}
 	info2, check2 := unhealthy.torInfo()
-	if info2.Status != "error:control connection unresponsive" {
-		t.Errorf("torInfo().Status = %q, want error:control connection unresponsive", info2.Status)
+	if info2.Status != "unavailable" {
+		t.Errorf("torInfo().Status = %q, want unavailable", info2.Status)
 	}
-	if check2 != "error" {
-		t.Errorf("torInfo() check = %q, want error when unhealthy", check2)
+	if check2 != "degraded" {
+		t.Errorf("torInfo() check = %q, want degraded when unhealthy", check2)
 	}
 
 	withErr := &healthDeps{tor: &fakeTorReporter{enabled: true, running: false, err: "tor binary exited: signal: killed"}}
 	info3, check3 := withErr.torInfo()
-	if info3.Status != "error:tor binary exited: signal: killed" {
-		t.Errorf("torInfo().Status = %q, want the manager's own error message", info3.Status)
+	if info3.Status != "unavailable" {
+		t.Errorf("torInfo().Status = %q, want unavailable", info3.Status)
 	}
-	if check3 != "error" {
-		t.Errorf("torInfo() check = %q, want error", check3)
+	if check3 != "degraded" {
+		t.Errorf("torInfo() check = %q, want degraded", check3)
 	}
 }
 
@@ -531,10 +531,10 @@ func TestHealthDepsI2PInfoRunningAndError(t *testing.T) {
 
 	unhealthy := &healthDeps{i2p: &fakeI2PReporter{enabled: true, running: true, healthy: false, address: "xyz.b32.i2p", provider: "i2pd"}}
 	info2, check2 := unhealthy.i2pInfo()
-	if info2.Status != "error:provider unresponsive" {
-		t.Errorf("i2pInfo().Status = %q, want error:provider unresponsive", info2.Status)
+	if info2.Status != "unavailable" {
+		t.Errorf("i2pInfo().Status = %q, want unavailable", info2.Status)
 	}
-	if check2 != "error" {
-		t.Errorf("i2pInfo() check = %q, want error when unhealthy", check2)
+	if check2 != "degraded" {
+		t.Errorf("i2pInfo() check = %q, want degraded when unhealthy", check2)
 	}
 }

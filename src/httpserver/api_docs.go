@@ -56,7 +56,10 @@ func (fd *frontendDeps) graphqlPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func openAPIHandler(fd *frontendDeps) http.Handler {
-	return swagger.Handler(func(r *http.Request) string { return fd.resolver.BuildURL(r, "") })
+	return swagger.Handler(
+		func(r *http.Request) string { return fd.resolver.BuildURL(r, "") },
+		func(r *http.Request) string { return fd.branding.load(fd.cfg).Branding.Title },
+	)
 }
 
 func graphQLHandler(ld *linkDeps, apiRouter http.Handler) http.Handler {

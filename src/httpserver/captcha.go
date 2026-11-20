@@ -24,7 +24,7 @@ type captchaDescriptor struct {
 }
 
 func (fd *frontendDeps) issueCaptcha(r *http.Request) (captchaDescriptor, error) {
-	provider := strings.ToLower(strings.TrimSpace(fd.cfg.Pages.Contact.Captcha))
+	provider := strings.ToLower(strings.TrimSpace(fd.cfg.Server.Pages.Contact.Captcha))
 	if provider == "" {
 		provider = "simple"
 	}
@@ -34,14 +34,14 @@ func (fd *frontendDeps) issueCaptcha(r *http.Request) (captchaDescriptor, error)
 	if provider != "recaptcha" && provider != "hcaptcha" {
 		return fd.issueSimpleCaptcha(r)
 	}
-	if strings.TrimSpace(fd.cfg.Pages.Contact.CaptchaSiteKey) == "" || strings.TrimSpace(fd.cfg.Pages.Contact.CaptchaSecretKey) == "" {
+	if strings.TrimSpace(fd.cfg.Server.Pages.Contact.CaptchaSiteKey) == "" || strings.TrimSpace(fd.cfg.Server.Pages.Contact.CaptchaSecretKey) == "" {
 		return captchaDescriptor{}, fmt.Errorf("contact CAPTCHA provider configuration is incomplete")
 	}
 	fallback, err := fd.issueSimpleCaptcha(r)
 	if err != nil {
 		return captchaDescriptor{}, err
 	}
-	return captchaDescriptor{Provider: provider, SiteKey: fd.cfg.Pages.Contact.CaptchaSiteKey, Fallback: &fallback}, nil
+	return captchaDescriptor{Provider: provider, SiteKey: fd.cfg.Server.Pages.Contact.CaptchaSiteKey, Fallback: &fallback}, nil
 }
 
 func (fd *frontendDeps) issueSimpleCaptcha(r *http.Request) (captchaDescriptor, error) {
@@ -97,7 +97,7 @@ func captchaAnswerHash(id, answer string) string {
 }
 
 func (fd *frontendDeps) verifyCaptcha(r *http.Request, values url.Values) bool {
-	provider := strings.ToLower(strings.TrimSpace(fd.cfg.Pages.Contact.Captcha))
+	provider := strings.ToLower(strings.TrimSpace(fd.cfg.Server.Pages.Contact.Captcha))
 	if provider == "" {
 		provider = "simple"
 	}
@@ -132,7 +132,7 @@ func (fd *frontendDeps) verifyProviderCaptcha(r *http.Request, provider, respons
 	if provider == "hcaptcha" {
 		endpoint = "https://api.hcaptcha.com/siteverify"
 	}
-	form := url.Values{"secret": {fd.cfg.Pages.Contact.CaptchaSecretKey}, "response": {response}}
+	form := url.Values{"secret": {fd.cfg.Server.Pages.Contact.CaptchaSecretKey}, "response": {response}}
 	if fd.resolver != nil && !fd.resolver.IsOverlay(r) {
 		form.Set("remoteip", fd.resolver.ResolveClientIP(r))
 	}

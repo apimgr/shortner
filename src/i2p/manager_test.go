@@ -89,6 +89,9 @@ func TestManagerStartDisabled(t *testing.T) {
 	if m.ProviderName() != "none" {
 		t.Errorf("ProviderName = %q, want %q", m.ProviderName(), "none")
 	}
+	if m.Provider() != ProviderNone {
+		t.Errorf("Provider() = %v, want ProviderNone", m.Provider())
+	}
 	if m.VirtualPort() != config.DefaultI2P().VirtualPort {
 		t.Errorf("VirtualPort = %d, want the configured default when nothing is running", m.VirtualPort())
 	}

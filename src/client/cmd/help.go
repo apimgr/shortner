@@ -133,7 +133,7 @@ func helpLine(syntax, description string) string {
 
 // printHelp writes the client --help output.
 func printHelp(w io.Writer, binaryName, lang string) {
-	fmt.Fprint(w, helpText(binaryName, lang))
+	_, _ = fmt.Fprint(w, helpText(binaryName, lang))
 }
 
 // printVersion writes the client --version output. AI.md PART 32 requires

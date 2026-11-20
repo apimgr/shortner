@@ -51,7 +51,7 @@ func MaskAPIToken(t *APIToken) string {
 	if len(tail) > 4 {
 		tail = tail[len(tail)-4:]
 	}
-	return "tok_••••••••••••••••••••••••" + tail
+	return "own_••••••••••••••••••••••••" + tail
 }
 
 func CreateOwner(ctx context.Context, sqlDB Handle) (string, error) {
@@ -149,7 +149,7 @@ func createToken(ctx context.Context, sqlDB Handle, ownerID, kind, name string, 
 }
 
 func LookupTokenByRaw(ctx context.Context, sqlDB Handle, raw string) (*APIToken, error) {
-	if !strings.HasPrefix(raw, "tok_") {
+	if !strings.HasPrefix(raw, "own_") {
 		return nil, ErrNotFound
 	}
 	tok, err := tokenByHash(ctx, sqlDB, security.TokenPrefix(raw), security.HashToken(raw))

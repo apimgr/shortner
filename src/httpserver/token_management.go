@@ -43,7 +43,7 @@ type tokenPageData struct {
 func (fd *frontendDeps) tokenPageHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	owner, primary, ok := fd.webPrimaryOwner(w, r)
-	data := tokenPageData{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "token_page.title"), fd.cfg.Server.SEO.Description), Restore: !ok, ResourceLabel: "items"}
+	data := tokenPageData{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "token_page.title"), fd.cfg.Server.Branding.Description), Restore: !ok, ResourceLabel: "items"}
 	if ok {
 		data.OwnerID = owner.ID
 		data.Primary = tokenCardFor(primary, "")
@@ -419,7 +419,7 @@ func (fd *frontendDeps) renderTokenPageWithReveal(w http.ResponseWriter, r *http
 		primary, _ = db.GetPrimaryToken(r.Context(), fd.ld.sqlDB, owner.ID)
 	}
 	items, _ := db.ListOwnerTokens(r.Context(), fd.ld.sqlDB, owner.ID)
-	data := tokenPageData{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "token_page.title"), fd.cfg.Server.SEO.Description), ResourceLabel: "items", OwnerID: owner.ID, Primary: tokenCardFor(primary, "")}
+	data := tokenPageData{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "token_page.title"), fd.cfg.Server.Branding.Description), ResourceLabel: "items", OwnerID: owner.ID, Primary: tokenCardFor(primary, "")}
 	if primary != nil && revealID == 0 {
 		data.Primary.Revealed = revealed
 	}
@@ -440,7 +440,7 @@ func (fd *frontendDeps) renderTokenPageWithReveal(w http.ResponseWriter, r *http
 
 func (fd *frontendDeps) renderTokensNotice(w http.ResponseWriter, r *http.Request, key string, status int) {
 	owner, primary, ok := fd.webPrimaryOwner(w, r)
-	data := tokenPageData{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "token_page.title"), fd.cfg.Server.SEO.Description), Restore: !ok, ResourceLabel: "items", Notice: t(r, key)}
+	data := tokenPageData{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "token_page.title"), fd.cfg.Server.Branding.Description), Restore: !ok, ResourceLabel: "items", Notice: t(r, key)}
 	if ok {
 		data.OwnerID = owner.ID
 		data.Primary = tokenCardFor(primary, "")

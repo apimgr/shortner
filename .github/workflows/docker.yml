@@ -118,6 +118,26 @@ jobs:
             manifest:org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}
             manifest:org.opencontainers.image.licenses=MIT
 
+      - name: Verify standard image runtime contract
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.COMMIT_ID }}
+        run: |
+          docker pull "$IMAGE"
+          docker run --rm --entrypoint sh "$IMAGE" -c 'for c in bash curl tor i2pd tini; do command -v "$c" || exit 1; done'
+          docker run -d --rm --name shortner-image-check -p 18080:80 "$IMAGE"
+          trap 'docker rm -f shortner-image-check >/dev/null 2>&1 || true' EXIT
+          health_deadline=$((SECONDS + 60))
+          while [[ "$SECONDS" -lt "$health_deadline" ]]; do
+            response=$(curl -fsS --max-time 2 -H 'Accept: application/json' http://127.0.0.1:18080/server/healthz 2>/dev/null || true)
+            if printf '%s' "$response" | jq -e '(.status == "healthy" or .status == "degraded") and .checks.database == "ok" and .features.tor.enabled == true and (.features.tor.status == "starting" or .features.tor.status == "healthy" or .features.tor.status == "unavailable")' >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          printf '%s\n' "$response"
+          docker logs shortner-image-check 2>&1 | sed -E 's/(Operator token[^:]*: ).*/\1[REDACTED]/'
+          exit 1
+
   build-devel:
     runs-on: ubuntu-26.04
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/'))
@@ -185,3 +205,23 @@ jobs:
             manifest:org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             manifest:org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}
             manifest:org.opencontainers.image.licenses=MIT
+
+      - name: Verify devel image runtime contract
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:devel
+        run: |
+          docker pull "$IMAGE"
+          docker run --rm --entrypoint sh "$IMAGE" -c 'for c in bash curl tor i2pd tini; do command -v "$c" || exit 1; done'
+          docker run -d --rm --name shortner-devel-image-check -p 18081:80 "$IMAGE"
+          trap 'docker rm -f shortner-devel-image-check >/dev/null 2>&1 || true' EXIT
+          health_deadline=$((SECONDS + 60))
+          while [[ "$SECONDS" -lt "$health_deadline" ]]; do
+            response=$(curl -fsS --max-time 2 -H 'Accept: application/json' http://127.0.0.1:18081/server/healthz 2>/dev/null || true)
+            if printf '%s' "$response" | jq -e '(.status == "healthy" or .status == "degraded") and .checks.database == "ok" and .features.tor.enabled == true and (.features.tor.status == "starting" or .features.tor.status == "healthy" or .features.tor.status == "unavailable")' >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          printf '%s\n' "$response"
+          docker logs shortner-devel-image-check 2>&1 | sed -E 's/(Operator token[^:]*: ).*/\1[REDACTED]/'
+          exit 1

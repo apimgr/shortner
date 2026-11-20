@@ -21,6 +21,7 @@ import (
 type headerDeps struct {
 	cfg      *config.Config
 	resolver *ProxyResolver
+	branding *brandingStateStore
 	// permissionsPolicy is the joined `feature=value, ...` string. It has
 	// no host-dependent parts, so it is built once at startup per AI.md
 	// PART 11 "Generation rule".
@@ -84,6 +85,9 @@ func (hd *headerDeps) securityHeadersMiddleware(next http.Handler) http.Handler 
 func (hd *headerDeps) apply(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	cfg := hd.cfg
+	if current := hd.branding.load(cfg); current != nil && current.Config != nil {
+		cfg = current.Config
+	}
 
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Frame-Options", "SAMEORIGIN")
@@ -91,6 +95,10 @@ func (hd *headerDeps) apply(w http.ResponseWriter, r *http.Request) {
 	// AI.md PART 11 "Deprecated / Legacy Headers".
 	h.Set("X-XSS-Protection", "1; mode=block")
 	h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+	noIndex := cfg.Server.SEO.NoIndex
+	if noIndex {
+		h.Set("X-Robots-Tag", "noindex, nofollow")
+	}
 
 	hc := cfg.Web.Headers
 	h.Set("X-Permitted-Cross-Domain-Policies", defaultString(hc.CrossDomainPolicies, "none"))
@@ -213,7 +221,7 @@ func (hd *headerDeps) buildCSP(r *http.Request) (string, string) {
 			}
 		}
 		if r.URL.Path == "/server/contact" && (hd.resolver == nil || !hd.resolver.IsOverlay(r)) {
-			switch strings.ToLower(strings.TrimSpace(hd.cfg.Pages.Contact.Captcha)) {
+			switch strings.ToLower(strings.TrimSpace(hd.cfg.Server.Pages.Contact.Captcha)) {
 			case "recaptcha":
 				if d.name == "script-src" {
 					value += " https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/"

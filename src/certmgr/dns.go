@@ -56,6 +56,8 @@ func NewDNSChallengeProvider(name string, credentials map[string]string) (challe
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("certmgr: DNS provider name is required")
 	}
+	name = strings.ToLower(strings.TrimSpace(name))
+	credentials = dnsProviderCredentials(name, credentials)
 	for key := range credentials {
 		if !dnsEnvironmentName.MatchString(key) {
 			return nil, fmt.Errorf("certmgr: invalid DNS credential variable name %q", key)
@@ -82,6 +84,13 @@ func NewDNSChallengeProvider(name string, credentials map[string]string) (challe
 		}
 	}
 	provider, err := dns.NewDNSChallengeProviderByName(name)
+	if err != nil && (name == "rfc2136" || name == "dnsupdate") {
+		alias := "rfc2136"
+		if name == "rfc2136" {
+			alias = "dnsupdate"
+		}
+		provider, err = dns.NewDNSChallengeProviderByName(alias)
+	}
 	if err != nil {
 		if match := dnsCredentialName.FindString(err.Error()); match != "" {
 			return nil, fmt.Errorf("certmgr: DNS provider %s rejected credential variable %s", name, match)
@@ -91,11 +100,34 @@ func NewDNSChallengeProvider(name string, credentials map[string]string) (challe
 	return provider, nil
 }
 
+func dnsProviderCredentials(provider string, credentials map[string]string) map[string]string {
+	values := make(map[string]string, len(credentials)+8)
+	for name, value := range credentials {
+		values[name] = value
+	}
+	if provider != "rfc2136" && provider != "dnsupdate" {
+		return values
+	}
+	for _, name := range []string{"NAMESERVER", "TSIG_KEY", "TSIG_SECRET", "TSIG_ALGORITHM", "TSIG_FILE", "ZONES", "TTL", "PROPAGATION_TIMEOUT", "POLLING_INTERVAL", "SEQUENCE_INTERVAL", "DNS_TIMEOUT", "TSIG_GSS_REALM", "TSIG_GSS_USERNAME", "TSIG_GSS_PASSWORD", "TSIG_GSS_KEYTAB_FILE"} {
+		legacy, canonical := "RFC2136_"+name, "DNSUPDATE_"+name
+		if value, ok := values[canonical]; ok {
+			values[legacy] = value
+		} else if value, ok := values[legacy]; ok {
+			values[canonical] = value
+		}
+	}
+	return values
+}
+
 // NewDNSTLSConfig returns a TLS config that issues and renews certificates
 // using lego's DNS-01 solver. Provider validation occurs at construction and
 // again immediately before each certificate request.
 func NewDNSTLSConfig(configDir, fqdn, providerName string, credentials map[string]string, onIssued func(time.Time, bool)) (*tls.Config, error) {
-	if _, err := NewDNSChallengeProvider(providerName, credentials); err != nil {
+	providerCredentials, err := dnsProviderCredentialsForConfig(configDir, providerName, credentials)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := NewDNSChallengeProvider(providerName, providerCredentials); err != nil {
 		return nil, err
 	}
 	var issueMu sync.Mutex
@@ -112,7 +144,7 @@ func NewDNSTLSConfig(configDir, fqdn, providerName string, credentials map[strin
 			issueMu.Lock()
 			defer issueMu.Unlock()
 			previous, _ := FindCertificate(configDir, fqdn)
-			resource, err := obtainDNSCertificate(configDir, fqdn, providerName, credentials)
+			resource, err := obtainDNSCertificate(configDir, fqdn, providerName, providerCredentials)
 			if err != nil {
 				return nil, err
 			}
@@ -158,7 +190,11 @@ type dnsACMEAccount struct {
 }
 
 func obtainDNSCertificate(configDir, fqdn, providerName string, credentials map[string]string) (*certificate.Resource, error) {
-	provider, err := NewDNSChallengeProvider(providerName, credentials)
+	providerCredentials, err := dnsProviderCredentialsForConfig(configDir, providerName, credentials)
+	if err != nil {
+		return nil, err
+	}
+	provider, err := NewDNSChallengeProvider(providerName, providerCredentials)
 	if err != nil {
 		return nil, err
 	}
@@ -199,6 +235,27 @@ func obtainDNSCertificate(configDir, fqdn, providerName string, credentials map[
 		return nil, sanitizedDNSError(providerName, err)
 	}
 	return resource, nil
+}
+
+func dnsProviderCredentialsForConfig(configDir, provider string, credentials map[string]string) (map[string]string, error) {
+	values := dnsProviderCredentials(provider, credentials)
+	for _, name := range []string{"DNSUPDATE_TSIG_FILE", "RFC2136_TSIG_FILE"} {
+		value := strings.TrimSpace(values[name])
+		if value == "" {
+			continue
+		}
+		if filepath.IsAbs(value) || filepath.Clean(value) != value || value == "." || value == ".." || strings.HasPrefix(value, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("certmgr: invalid DNS credential path %s", name)
+		}
+		resolved := filepath.Join(configDir, "ssl", value)
+		values[name] = resolved
+		if name == "DNSUPDATE_TSIG_FILE" {
+			values["RFC2136_TSIG_FILE"] = resolved
+		} else {
+			values["DNSUPDATE_TSIG_FILE"] = resolved
+		}
+	}
+	return values, nil
 }
 
 func loadDNSACMEUser(path string) (*dnsACMEUser, error) {

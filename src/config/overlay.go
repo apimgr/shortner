@@ -17,6 +17,8 @@ type Tor struct {
 	UseNetwork bool `yaml:"use_network"`
 	// MaxCircuits caps concurrent circuits (1-128).
 	MaxCircuits int `yaml:"max_circuits"`
+	// StartupTimeout bounds Tor's control-port startup wait, in seconds (10-300).
+	StartupTimeout int `yaml:"startup_timeout"`
 	// CircuitTimeout is the per-circuit build timeout in seconds (10-300).
 	CircuitTimeout int `yaml:"circuit_timeout"`
 	// BootstrapTimeout is how long to wait for Tor to reach the network,
@@ -57,6 +59,7 @@ func DefaultTor() Tor {
 		Binary:                    "",
 		UseNetwork:                false,
 		MaxCircuits:               32,
+		StartupTimeout:            60,
 		CircuitTimeout:            60,
 		BootstrapTimeout:          180,
 		SafeLogging:               true,
@@ -79,6 +82,9 @@ func (c Tor) Normalized() Tor {
 	d := DefaultTor()
 	if c.MaxCircuits < 1 || c.MaxCircuits > 128 {
 		c.MaxCircuits = d.MaxCircuits
+	}
+	if c.StartupTimeout < 10 || c.StartupTimeout > 300 {
+		c.StartupTimeout = d.StartupTimeout
 	}
 	if c.CircuitTimeout < 10 || c.CircuitTimeout > 300 {
 		c.CircuitTimeout = d.CircuitTimeout
@@ -176,7 +182,7 @@ func (c I2P) Normalized() I2P {
 	if c.OutboundQuantity < 1 || c.OutboundQuantity > 16 {
 		c.OutboundQuantity = d.OutboundQuantity
 	}
-	if c.SignatureType < 0 {
+	if c.SignatureType != 7 {
 		c.SignatureType = d.SignatureType
 	}
 	if c.BootstrapTimeout < 30 || c.BootstrapTimeout > 600 {
@@ -201,6 +207,9 @@ func ValidateTor(c Tor) []string {
 	d := DefaultTor()
 	if c.MaxCircuits < 1 || c.MaxCircuits > 128 {
 		warnings = append(warnings, "server.tor.max_circuits: must be between 1 and 128, using the default")
+	}
+	if c.StartupTimeout < 10 || c.StartupTimeout > 300 {
+		warnings = append(warnings, "server.tor.startup_timeout: must be between 10 and 300 seconds, using the default")
 	}
 	if c.CircuitTimeout < 10 || c.CircuitTimeout > 300 {
 		warnings = append(warnings, "server.tor.circuit_timeout: must be between 10 and 300 seconds, using the default")
@@ -265,8 +274,8 @@ func ValidateI2P(c I2P) []string {
 	if c.OutboundQuantity < 1 || c.OutboundQuantity > 16 {
 		warnings = append(warnings, "server.i2p.outbound_quantity: must be between 1 and 16, using the default")
 	}
-	if c.SignatureType < 0 {
-		warnings = append(warnings, "server.i2p.signature_type: must not be negative, using the default")
+	if c.SignatureType != 7 {
+		warnings = append(warnings, "server.i2p.signature_type: only signature type 7 is supported, using the default")
 	}
 	if c.BootstrapTimeout < 30 || c.BootstrapTimeout > 600 {
 		warnings = append(warnings, "server.i2p.bootstrap_timeout: must be between 30 and 600 seconds, using the default")

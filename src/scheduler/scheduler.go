@@ -9,8 +9,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/apimgr/shortner/src/applog"
+	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/metrics"
 	"github.com/apimgr/shortner/src/notify"
@@ -19,11 +21,13 @@ import (
 type TaskFunc func(ctx context.Context) error
 
 type TaskDef struct {
-	ID       string
-	Name     string
-	Schedule string
-	Enabled  bool
-	Run      TaskFunc
+	ID          string
+	Name        string
+	Schedule    string
+	Enabled     bool
+	RetryOnFail bool
+	RetryDelay  time.Duration
+	Run         TaskFunc
 }
 
 type Scheduler struct {
@@ -52,10 +56,36 @@ type taskRun struct {
 
 func (s *Scheduler) SetMetrics(m *metrics.Metrics) { s.metrics = m }
 
+// Healthy reports whether the scheduler loop has started and is not stopping.
+func (s *Scheduler) Healthy() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.started && !s.stopping
+}
+
 func New(sqlDB db.Handle, logger *applog.Logger, timezone, catchUpWindow string) (*Scheduler, error) {
+	defaultTimezone := config.Default("").Server.Scheduler.Timezone
+	if defaultTimezone == "" {
+		defaultTimezone = "UTC"
+	}
+	configuredTimezone := timezone
+	if timezone == "" {
+		timezone = defaultTimezone
+	}
 	loc, err := time.LoadLocation(timezone)
-	if err != nil || timezone == "" {
-		loc = time.UTC
+	if err != nil {
+		loc, err = time.LoadLocation(defaultTimezone)
+		if err != nil {
+			loc = time.UTC
+			if logger != nil {
+				_ = logger.WriteLine(applog.LevelWarn, "scheduler: invalid server.scheduler.timezone and default; using UTC\n")
+			}
+		} else if configuredTimezone != "" && logger != nil {
+			_ = logger.WriteLine(applog.LevelWarn, fmt.Sprintf("scheduler: invalid server.scheduler.timezone; using default %s\n", defaultTimezone))
+		}
 	}
 	window, err := time.ParseDuration(catchUpWindow)
 	if err != nil || window <= 0 {
@@ -224,7 +254,7 @@ func (s *Scheduler) runTask(id string) {
 	}
 	status, errMsg := "skipped", ""
 	if enabled {
-		err := invokeTask(ctx, task.Run)
+		err := s.invokeWithRetry(ctx, task)
 		status = "success"
 		if err != nil {
 			status, errMsg = "failed", err.Error()
@@ -266,16 +296,47 @@ func (s *Scheduler) runTask(id string) {
 	if s.logger != nil {
 		switch status {
 		case "failed":
-			_ = s.logger.WriteLine(applog.LevelError, fmt.Sprintf("scheduler: task %s failed after %s: %s\n", id, finished.Sub(run.startedAt), errMsg))
+			level := applog.LevelWarn
+			if task.RetryOnFail {
+				level = applog.LevelError
+			}
+			_ = s.logger.WriteLine(level, fmt.Sprintf("scheduler: task %s failed after %s: %s\n", id, finished.Sub(run.startedAt), errMsg))
 		case "skipped":
-			_ = s.logger.WriteLine(applog.LevelInfo, fmt.Sprintf("scheduler: task %s skipped (disabled)\n", id))
+			_ = s.logger.WriteLine(applog.LevelDebug, fmt.Sprintf("scheduler: task %s skipped (disabled)\n", id))
 		default:
-			_ = s.logger.WriteLine(applog.LevelInfo, fmt.Sprintf("scheduler: task %s completed in %s\n", id, finished.Sub(run.startedAt)))
+			_ = s.logger.WriteLine(applog.LevelDebug, fmt.Sprintf("scheduler: task %s completed in %s\n", id, finished.Sub(run.startedAt)))
 		}
 	}
 	s.mu.Lock()
 	delete(s.running, id)
 	s.mu.Unlock()
+}
+
+// invokeWithRetry applies PART 18's three-attempt exponential retry policy.
+// Retry waits are cancellable so shutdown never waits out a backoff.
+func (s *Scheduler) invokeWithRetry(ctx context.Context, task *TaskDef) error {
+	var err error
+	for attempt := 0; attempt <= 3; attempt++ {
+		if attempt > 0 {
+			delay := task.RetryDelay
+			if delay <= 0 {
+				delay = 5 * time.Minute
+			}
+			delay *= time.Duration(1 << (attempt - 1))
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+		err = invokeTask(ctx, task.Run)
+		if err == nil || !task.RetryOnFail || attempt == 3 {
+			return err
+		}
+	}
+	return err
 }
 
 func invokeTask(ctx context.Context, fn TaskFunc) (err error) {
@@ -308,7 +369,7 @@ func (s *Scheduler) RunNow(ctx context.Context, id string) error {
 	s.mu.Unlock()
 	defer cancel()
 
-	err := invokeTask(runCtx, task.Run)
+	err := s.invokeWithRetry(runCtx, task)
 	finished := time.Now()
 	s.mu.Lock()
 	interrupted := run.interrupted

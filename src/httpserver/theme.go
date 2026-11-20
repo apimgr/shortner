@@ -29,11 +29,15 @@ func isValidTheme(v string) bool {
 // operator's configured default, then "dark" (step 4: "Default to dark if
 // all detection fails").
 func requestTheme(r *http.Request, cfg *config.Config) string {
+	return requestThemeDefault(r, cfg.Web.UI.Theme)
+}
+
+func requestThemeDefault(r *http.Request, defaultTheme string) string {
 	if c, err := r.Cookie(themeCookieName); err == nil && isValidTheme(c.Value) {
 		return c.Value
 	}
-	if isValidTheme(cfg.Web.Theme) {
-		return cfg.Web.Theme
+	if isValidTheme(defaultTheme) {
+		return defaultTheme
 	}
 	return "dark"
 }

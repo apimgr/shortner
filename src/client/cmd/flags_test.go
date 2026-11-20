@@ -63,7 +63,7 @@ func TestParseFlagsDebugDoesNotConsumeACommand(t *testing.T) {
 func TestParseFlagsClientFlags(t *testing.T) {
 	got, err := ParseFlags([]string{
 		"--server", "https://example.com",
-		"--token", "tok_abc",
+		"--token", "owner-example",
 		"--output", "json",
 		"--slug", "my-slug",
 		"--url", "https://dest.example.com",
@@ -81,7 +81,7 @@ func TestParseFlagsClientFlags(t *testing.T) {
 	if got.Server != "https://example.com" {
 		t.Errorf("Server = %q", got.Server)
 	}
-	if got.Token != "tok_abc" {
+	if got.Token != "owner-example" {
 		t.Errorf("Token = %q", got.Token)
 	}
 	if got.Output != "json" {

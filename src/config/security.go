@@ -23,7 +23,8 @@ type Security struct {
 	// (standard encoding) of 32 random bytes. Auto-generated on first run
 	// by EnsureEncryptionKey. NEVER returned by any API response and never
 	// logged, per AI.md PART 11 "Cryptographic Keys".
-	EncryptionKey string `yaml:"encryption_key"`
+	EncryptionKey        string `yaml:"encryption_key"`
+	EncryptionKeyVersion int    `yaml:"encryption_key_version"`
 	// Allowlist entries bypass blocklists, rate limiting, GeoIP country
 	// blocking, and auto-blocking — never CSRF, path security, or TLS.
 	Allowlist []AllowlistEntry `yaml:"allowlist"`
@@ -537,6 +538,9 @@ func DefaultWellKnown() WellKnown {
 // knows the config needs saving.
 func EnsureEncryptionKey(cfg *Config) (bool, error) {
 	if cfg.Server.Security.EncryptionKey != "" {
+		if cfg.Server.Security.EncryptionKeyVersion == 0 {
+			cfg.Server.Security.EncryptionKeyVersion = 1
+		}
 		return false, nil
 	}
 	buf := make([]byte, 32)
@@ -544,6 +548,7 @@ func EnsureEncryptionKey(cfg *Config) (bool, error) {
 		return false, fmt.Errorf("config: generate encryption key: %w", err)
 	}
 	cfg.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString(buf)
+	cfg.Server.Security.EncryptionKeyVersion = 1
 	return true, nil
 }
 

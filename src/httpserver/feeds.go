@@ -10,7 +10,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/db"
 )
 
@@ -86,7 +85,7 @@ func (sd *sitemapDeps) atomFeedHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base := sd.resolver.BuildURL(r, "/")
-	title := feedTitle(sd.cfg)
+	title := sd.feedTitle()
 	updated := lastUpdated
 	if updated.IsZero() {
 		updated = sd.startTime.UTC()
@@ -130,7 +129,7 @@ func (sd *sitemapDeps) rssFeedHandler(w http.ResponseWriter, r *http.Request) {
 		lastBuild = sd.startTime.UTC()
 	}
 	feed := rssFeed{Version: "2.0", Channel: rssChannel{
-		Title: feedTitle(sd.cfg), Link: base, Description: feedDescription,
+		Title: sd.feedTitle(), Link: base, Description: feedDescription,
 		LastBuild: lastBuild.UTC().Format(time.RFC1123Z),
 	}}
 	for _, entry := range entries {
@@ -198,14 +197,11 @@ func (sd *sitemapDeps) serveFeed(w http.ResponseWriter, r *http.Request, content
 	http.ServeContent(w, r, "feed.xml", modified, bytes.NewReader(body))
 }
 
-func feedTitle(cfg *config.Config) string {
-	if title := strings.TrimSpace(cfg.Server.SEO.Feed.Title); title != "" {
+func (sd *sitemapDeps) feedTitle() string {
+	if title := strings.TrimSpace(sd.cfg.Server.SEO.Feed.Title); title != "" {
 		return truncateXMLText(title, 140)
 	}
-	if title := strings.TrimSpace(cfg.Server.Branding.Title); title != "" {
-		return truncateXMLText(title, 140)
-	}
-	if title := strings.TrimSpace(cfg.Server.Branding.SiteName); title != "" {
+	if title := strings.TrimSpace(sd.branding.load(sd.cfg).Branding.Title); title != "" {
 		return truncateXMLText(title, 140)
 	}
 	return "Shortner"

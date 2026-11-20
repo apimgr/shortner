@@ -92,7 +92,7 @@ func TestEnsureSchemaMigratesResourceTokensToOwners(t *testing.T) {
 		`CREATE TABLE clicks (id INTEGER PRIMARY KEY AUTOINCREMENT, link_id INTEGER NOT NULL REFERENCES links(id), timestamp INTEGER NOT NULL)`,
 		`CREATE TABLE api_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, token_hash TEXT NOT NULL UNIQUE, token_prefix TEXT NOT NULL, resource_type TEXT NOT NULL, resource_id TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), expires_at INTEGER, last_used_at INTEGER, revoked_at INTEGER, revoked_reason TEXT)`,
 		`INSERT INTO links (id, short_code, destination_url) VALUES (1, 'legacy', 'https://example.com')`,
-		`INSERT INTO api_tokens (id, token_hash, token_prefix, resource_type, resource_id) VALUES (7, 'hash-value', 'tok_prefix', 'link', '1')`,
+		`INSERT INTO api_tokens (id, token_hash, token_prefix, resource_type, resource_id) VALUES (7, 'hash-value', 'old_prefix', 'link', '1')`,
 	} {
 		if _, err := sqlDB.Exec(statement); err != nil {
 			t.Fatalf("legacy schema/data: %v", err)
@@ -443,7 +443,7 @@ func TestOwnerTokenLifecycle(t *testing.T) {
 		t.Errorf("LookupTokenByRaw ID = %d, want %d", found.ID, tok.ID)
 	}
 
-	if _, err := LookupTokenByRaw(ctx, sqlDB, "tok_wrongwrongwrongwrongwrongwrong"); err != ErrNotFound {
+	if _, err := LookupTokenByRaw(ctx, sqlDB, "old_"+strings.Repeat("x", 32)); err != ErrNotFound {
 		t.Errorf("LookupTokenByRaw(wrong) error = %v, want ErrNotFound", err)
 	}
 

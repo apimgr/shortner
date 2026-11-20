@@ -1,7 +1,7 @@
 {{define "content"}}{{$lang := .Base.Lang}}<article class="terms-page">
 <h1>{{t $lang "terms.title"}}</h1>
 
-{{if .Content}}
+{{if .HasCustomContent}}
 <div class="terms-custom">{{.Content}}</div>
 {{else}}
 <section>

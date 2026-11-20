@@ -176,6 +176,9 @@ type Service struct {
 	virtualPort int
 	i2pd        *exec.Cmd
 	samConn     net.Conn
+	forwardConn net.Conn
+	samAddress  string
+	samConnLost chan struct{}
 	// exited is closed by the reaper goroutine when the i2pd child process
 	// terminates. Waiting in the background both reaps the zombie and gives
 	// Healthy a race-free liveness answer without signalling the process.
@@ -243,19 +246,15 @@ func (s *Service) Healthy() bool {
 			return true
 		}
 	case ProviderSAM:
-		if s.samConn == nil {
+		if s.samConn == nil || s.forwardConn == nil || !probeSAM(s.samAddress) {
 			return false
 		}
-		// The router sends nothing on an idle control connection, so a read
-		// that times out means the session is alive and any other outcome
-		// (EOF, reset) means the router hung up and the session is gone.
-		if err := s.samConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		select {
+		case <-s.samConnLost:
 			return false
+		default:
+			return true
 		}
-		_, err := s.samConn.Read(make([]byte, 1))
-		_ = s.samConn.SetReadDeadline(time.Time{})
-		var netErr net.Error
-		return errors.As(err, &netErr) && netErr.Timeout()
 	default:
 		return false
 	}
@@ -270,14 +269,23 @@ func (s *Service) Close() error {
 		_ = s.backend.Close()
 		s.backend = nil
 	}
+	if s.forwardConn != nil {
+		_ = s.forwardConn.Close()
+		s.forwardConn = nil
+	}
 	if s.samConn != nil {
 		_ = s.samConn.Close()
 		s.samConn = nil
 	}
 	if s.i2pd != nil && s.i2pd.Process != nil {
-		err := s.i2pd.Process.Signal(os.Interrupt)
+		_ = s.i2pd.Process.Signal(os.Interrupt)
+		select {
+		case <-s.exited:
+		case <-time.After(10 * time.Second):
+			_ = s.i2pd.Process.Kill()
+			<-s.exited
+		}
 		s.i2pd = nil
-		return err
 	}
 	s.i2pd = nil
 	return nil
@@ -306,14 +314,19 @@ func Start(ctx context.Context, raw config.I2P, dirs Dirs) (*Service, error) {
 		return nil, fmt.Errorf("allocate i2p backend port: %w", err)
 	}
 
-	svc := &Service{provider: provider, backend: backend, backendPort: port, virtualPort: cfg.VirtualPort}
+	svc := &Service{provider: provider, backend: backend, backendPort: port, virtualPort: cfg.VirtualPort, samAddress: cfg.SAMAddress}
 
 	switch provider {
 	case ProviderI2PD:
-		svc.address, err = startI2PD(ctx, cfg, dirs, binary, port, svc)
+		cfg.SAMAddress, err = startI2PD(ctx, cfg, dirs, binary, svc)
 	case ProviderSAM:
-		svc.address, err = startSAMEepsite(cfg, dirs, port, svc)
+		err = nil
 	}
+	if err != nil {
+		_ = svc.Close()
+		return nil, err
+	}
+	svc.address, err = startSAMEepsite(ctx, cfg, dirs, port, svc)
 	if err != nil {
 		_ = svc.Close()
 		return nil, err
@@ -326,38 +339,42 @@ func Start(ctx context.Context, raw config.I2P, dirs Dirs) (*Service, error) {
 	return svc, nil
 }
 
-// TunnelsConf renders the i2pd server-tunnel definition from AI.md
-// PART 31.2 "tunnels.conf Generation". It is derived state, regenerated on
-// every start; the identity lives in keysPath, never here.
-func TunnelsConf(cfg config.I2P, keysPath string, backendPort int) string {
-	return fmt.Sprintf(`[site]
-type = server
-host = 127.0.0.1
-port = %d
-keys = %s
-inbound.length = %d
-outbound.length = %d
-inbound.quantity = %d
-outbound.quantity = %d
-signaturetype = %d
-`, backendPort, keysPath,
-		cfg.InboundLength, cfg.OutboundLength,
-		cfg.InboundQuantity, cfg.OutboundQuantity, cfg.SignatureType)
+// TunnelsConf is deliberately empty: both provider models create the eepsite through SAM.
+func TunnelsConf(config.I2P, string, int) string {
+	return ""
 }
 
-// startI2PD is Model A: regenerate tunnels.conf, spawn a dedicated i2pd,
-// and wait for it to persist the destination so the address can be derived.
-func startI2PD(ctx context.Context, cfg config.I2P, dirs Dirs, binary string, backendPort int, svc *Service) (string, error) {
-	if err := writeSecret(dirs.TunnelsPath(), []byte(TunnelsConf(cfg, dirs.KeysPath(), backendPort))); err != nil {
+// startI2PD is Model A: run a private router with only its private SAM bridge enabled.
+func startI2PD(ctx context.Context, cfg config.I2P, dirs Dirs, binary string, svc *Service) (string, error) {
+	if err := writeSecret(dirs.TunnelsPath(), nil); err != nil {
 		return "", fmt.Errorf("failed to write tunnels.conf: %w", err)
 	}
-
-	cmd := exec.CommandContext(ctx, binary,
+	tunnelsDir := filepath.Join(dirs.ConfigPath(), "tunnels.d")
+	if err := os.MkdirAll(tunnelsDir, 0700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(tunnelsDir, 0700); err != nil {
+		return "", err
+	}
+	portListener, samPort, err := netutil.ListenLoopback()
+	if err != nil {
+		return "", err
+	}
+	_ = portListener.Close()
+	confPath := filepath.Join(dirs.ConfigPath(), "i2pd.conf")
+	conf := fmt.Sprintf("daemon = false\nipv4 = true\nipv6 = false\nnotransit = true\nfloodfill = false\nlog = file\nlogfile = %s\nloglevel = warn\n[http]\nenabled = false\n[httpproxy]\nenabled = false\n[socksproxy]\nenabled = false\n[sam]\nenabled = true\naddress = 127.0.0.1\nport = %d\n[bob]\nenabled = false\n[i2cp]\nenabled = false\n[i2pcontrol]\nenabled = false\n[upnp]\nenabled = false\n", dirs.LogPath(), samPort)
+	if err := writeSecret(confPath, []byte(conf)); err != nil {
+		return "", err
+	}
+	pidPath := filepath.Join(dirs.DataPath(), "i2pd.pid")
+	cmd := exec.Command(binary,
+		"--conf", confPath,
 		"--datadir", dirs.DataPath(),
 		"--tunconf", dirs.TunnelsPath(),
-		"--log", "file",
-		"--logfile", dirs.LogPath(),
+		"--tunnelsdir", tunnelsDir,
+		"--pidfile", pidPath,
 	)
+	setParentDeathSignal(cmd)
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("failed to start i2pd: %w", err)
 	}
@@ -368,35 +385,22 @@ func startI2PD(ctx context.Context, cfg config.I2P, dirs Dirs, binary string, ba
 		close(exited)
 	}(svc.exited)
 
-	address, err := waitForI2PDAddress(ctx, dirs.KeysPath(), time.Duration(cfg.BootstrapTimeout)*time.Second)
-	if err != nil {
-		_ = cmd.Process.Signal(os.Interrupt)
-		return "", err
-	}
-	return address, nil
-}
-
-// waitForI2PDAddress polls until i2pd has written a complete destination to
-// keysPath, then derives the .b32.i2p address from it. i2pd creates the file
-// before it is fully written, so a short-read is treated as "not ready yet"
-// rather than as a failure.
-func waitForI2PDAddress(ctx context.Context, keysPath string, timeout time.Duration) (string, error) {
-	deadline := time.Now().Add(timeout)
-	for {
-		if data, err := os.ReadFile(keysPath); err == nil {
-			if dest, err := DestinationFromKeys(data); err == nil {
-				return B32Address(dest), nil
-			}
-		}
-		if time.Now().After(deadline) {
-			return "", fmt.Errorf("i2pd did not publish a destination within %s", timeout)
+	address := fmt.Sprintf("127.0.0.1:%d", samPort)
+	deadline := time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
+		if conn, err := net.DialTimeout("tcp", address, time.Second); err == nil {
+			_ = conn.Close()
+			return address, nil
 		}
 		select {
+		case <-svc.exited:
+			return "", errors.New("i2pd exited before its SAM port opened")
 		case <-ctx.Done():
 			return "", ctx.Err()
-		case <-time.After(time.Second):
+		case <-time.After(250 * time.Millisecond):
 		}
 	}
+	return "", errors.New("i2pd SAM port did not become ready within 60 seconds")
 }
 
 // DestinationFromKeys extracts the public Destination from an i2pd keys
@@ -424,24 +428,19 @@ func B32Address(destination []byte) string {
 	return strings.ToLower(b32Encoding.EncodeToString(sum[:])) + ".b32.i2p"
 }
 
-// samDestination is a SAMv3 destination: the public destination and the
-// private key blob that reproduces it, both in I2P base64.
-type samDestination struct {
-	pub  string
-	priv string
-}
-
 // startSAMEepsite is Model B: handshake with the router's SAM bridge, load
 // or mint the persisted destination, open a STREAM session, and forward
 // incoming eepsite streams to the plain backend port.
-func startSAMEepsite(cfg config.I2P, dirs Dirs, backendPort int, svc *Service) (string, error) {
+func startSAMEepsite(ctx context.Context, cfg config.I2P, dirs Dirs, backendPort int, svc *Service) (string, error) {
+	_ = ctx
+	svc.samAddress = cfg.SAMAddress
 	conn, err := net.DialTimeout("tcp", cfg.SAMAddress, 5*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("failed to dial SAM %s: %w", cfg.SAMAddress, err)
 	}
 	reader := bufio.NewReader(conn)
 
-	if _, err := fmt.Fprint(conn, "HELLO VERSION MIN=3.0 MAX=3.3\n"); err != nil {
+	if _, err := fmt.Fprint(conn, "HELLO VERSION MIN=3.1 MAX=3.3\n"); err != nil {
 		_ = conn.Close()
 		return "", err
 	}
@@ -450,71 +449,167 @@ func startSAMEepsite(cfg config.I2P, dirs Dirs, backendPort int, svc *Service) (
 		return "", err
 	}
 
-	dest, err := loadOrCreateSAMDestination(conn, reader, dirs.KeysPath(), cfg.SignatureType)
+	priv, err := loadOrCreateSAMDestination(conn, reader, dirs.KeysPath(), cfg.SignatureType)
 	if err != nil {
 		_ = conn.Close()
 		return "", err
 	}
 
-	if _, err := fmt.Fprintf(conn, "SESSION CREATE STYLE=STREAM ID=site DESTINATION=%s "+
-		"inbound.length=%d outbound.length=%d inbound.quantity=%d outbound.quantity=%d\n",
-		dest.priv, cfg.InboundLength, cfg.OutboundLength, cfg.InboundQuantity, cfg.OutboundQuantity); err != nil {
+	if err := conn.SetDeadline(time.Now().Add(time.Duration(cfg.BootstrapTimeout) * time.Second)); err != nil {
 		_ = conn.Close()
 		return "", err
 	}
-	if _, err := readSAMReply(reader, "SESSION STATUS"); err != nil {
-		_ = conn.Close()
-		return "", err
+	id := fmt.Sprintf("site-%d", os.Getpid())
+	for attempt := 0; attempt < 2; attempt++ {
+		if _, err := fmt.Fprintf(conn, "SESSION CREATE STYLE=STREAM ID=%s DESTINATION=%s i2cp.leaseSetEncType=4 "+
+			"inbound.length=%d outbound.length=%d inbound.quantity=%d outbound.quantity=%d\n",
+			id, priv, cfg.InboundLength, cfg.OutboundLength, cfg.InboundQuantity, cfg.OutboundQuantity); err != nil {
+			_ = conn.Close()
+			return "", err
+		}
+		_, err = readSAMReply(reader, "SESSION STATUS")
+		if err == nil {
+			break
+		}
+		if attempt != 0 || !strings.Contains(err.Error(), "DUPLICATED_ID") {
+			_ = conn.Close()
+			return "", err
+		}
+		id = fmt.Sprintf("site-%d-%d", os.Getpid(), time.Now().UnixNano())
 	}
+	_ = conn.SetDeadline(time.Time{})
 
-	if _, err := fmt.Fprintf(conn, "STREAM FORWARD ID=site PORT=%d HOST=127.0.0.1\n", backendPort); err != nil {
+	forward, err := net.DialTimeout("tcp", cfg.SAMAddress, 5*time.Second)
+	if err != nil {
 		_ = conn.Close()
 		return "", err
 	}
-	if _, err := readSAMReply(reader, "STREAM STATUS"); err != nil {
+	forwardReader := bufio.NewReader(forward)
+	if _, err := fmt.Fprint(forward, "HELLO VERSION MIN=3.1 MAX=3.3\n"); err != nil {
+		_ = forward.Close()
 		_ = conn.Close()
 		return "", err
 	}
+	if _, err := readSAMReply(forwardReader, "HELLO REPLY"); err != nil {
+		_ = forward.Close()
+		_ = conn.Close()
+		return "", err
+	}
+	_ = forward.SetDeadline(time.Now().Add(10 * time.Second))
+	if _, err := fmt.Fprintf(forward, "STREAM FORWARD ID=%s PORT=%d HOST=127.0.0.1 SILENT=true\n", id, backendPort); err != nil {
+		_ = forward.Close()
+		_ = conn.Close()
+		return "", err
+	}
+	if _, err := readSAMReply(forwardReader, "STREAM STATUS"); err != nil {
+		_ = forward.Close()
+		_ = conn.Close()
+		return "", err
+	}
+	_ = forward.SetDeadline(time.Time{})
 
 	// The session lives exactly as long as this control connection, so it is
 	// held open for the lifetime of the service.
 	svc.samConn = conn
+	svc.forwardConn = forward
+	svc.samConnLost = make(chan struct{})
+	go func() {
+		var one [1]byte
+		for {
+			if _, err := conn.Read(one[:]); err != nil {
+				close(svc.samConnLost)
+				return
+			}
+		}
+	}()
 
-	raw, err := i2pBase64.DecodeString(dest.pub)
+	raw, err := i2pBase64.DecodeString(priv)
 	if err != nil {
-		_ = conn.Close()
 		return "", fmt.Errorf("SAM returned an undecodable destination: %w", err)
 	}
-	return B32Address(raw), nil
+	if len(raw) < 387 {
+		return "", errors.New("SAM returned an invalid destination key")
+	}
+	length := 387 + ((int(raw[385]) << 8) + int(raw[386]))
+	if length > len(raw) {
+		return "", errors.New("SAM returned a truncated destination key")
+	}
+	return B32Address(raw[:length]), nil
+}
+
+func probeSAM(address string) bool {
+	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	r := bufio.NewReader(conn)
+	if _, err := fmt.Fprint(conn, "HELLO VERSION MIN=3.1 MAX=3.3\n"); err != nil {
+		return false
+	}
+	if _, err := readSAMReply(r, "HELLO REPLY"); err != nil {
+		return false
+	}
+	if _, err := fmt.Fprint(conn, "QUIT\n"); err != nil {
+		return false
+	}
+	return true
 }
 
 // loadOrCreateSAMDestination returns the persisted destination, generating
 // and persisting one the first time. The private blob is stored verbatim
 // because it is what SESSION CREATE takes; the public half is derived from
 // it by the router on every subsequent run.
-func loadOrCreateSAMDestination(conn net.Conn, reader *bufio.Reader, keysPath string, signatureType int) (samDestination, error) {
+func loadOrCreateSAMDestination(conn net.Conn, reader *bufio.Reader, keysPath string, signatureType int) (string, error) {
 	if data, err := os.ReadFile(keysPath); err == nil {
-		fields := strings.Fields(string(data))
-		if len(fields) == 2 {
-			return samDestination{pub: fields[0], priv: fields[1]}, nil
+		priv := strings.TrimSpace(string(data))
+		decoded, decodeErr := i2pBase64.DecodeString(priv)
+		if decodeErr != nil || len(decoded) < 387 || 387+((int(decoded[385])<<8)+int(decoded[386])) > len(decoded) {
+			return "", fmt.Errorf("invalid destination key file %s", keysPath)
 		}
+		return priv, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
 	}
 
 	if _, err := fmt.Fprintf(conn, "DEST GENERATE SIGNATURE_TYPE=%d\n", signatureType); err != nil {
-		return samDestination{}, err
+		return "", err
 	}
 	fields, err := readSAMReply(reader, "DEST REPLY")
 	if err != nil {
-		return samDestination{}, err
+		return "", err
 	}
-	dest := samDestination{pub: fields["PUB"], priv: fields["PRIV"]}
-	if dest.pub == "" || dest.priv == "" {
-		return samDestination{}, errors.New("SAM DEST REPLY did not carry PUB and PRIV")
+	priv := fields["PRIV"]
+	if priv == "" {
+		return "", errors.New("SAM DEST REPLY did not carry PRIV")
 	}
-	if err := writeSecret(keysPath, []byte(dest.pub+"\n"+dest.priv+"\n")); err != nil {
-		return samDestination{}, err
+	if _, err := i2pBase64.DecodeString(priv); err != nil {
+		return "", errors.New("SAM returned an invalid destination key")
 	}
-	return dest, nil
+	tmp := keysPath + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+	if err != nil {
+		return "", err
+	}
+	if _, err = fmt.Fprintln(f, priv); err == nil {
+		err = f.Sync()
+	}
+	closeErr := f.Close()
+	if err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Rename(tmp, keysPath)
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+		return "", err
+	}
+	if err := chownSelf(keysPath); err != nil {
+		return "", err
+	}
+	return priv, nil
 }
 
 // readSAMReply reads one SAM control line, verifies it is the expected
@@ -528,7 +623,7 @@ func readSAMReply(reader *bufio.Reader, expect string) (map[string]string, error
 	}
 	line = strings.TrimRight(line, "\r\n")
 	if !strings.HasPrefix(line, expect) {
-		return nil, fmt.Errorf("expected %s, got %q", expect, line)
+		return nil, fmt.Errorf("unexpected SAM reply while waiting for %s", expect)
 	}
 
 	fields := map[string]string{}
@@ -540,9 +635,6 @@ func readSAMReply(reader *bufio.Reader, expect string) (map[string]string, error
 		fields[key] = strings.Trim(value, `"`)
 	}
 	if result, ok := fields["RESULT"]; ok && result != "OK" {
-		if message := fields["MESSAGE"]; message != "" {
-			return nil, fmt.Errorf("%s: %s (%s)", expect, result, message)
-		}
 		return nil, fmt.Errorf("%s: %s", expect, result)
 	}
 	return fields, nil

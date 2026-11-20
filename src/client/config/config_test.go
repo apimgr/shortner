@@ -285,7 +285,7 @@ func TestValidateToken(t *testing.T) {
 		want  bool
 	}{
 		{"", false},
-		{"tok_abc123", true},
+		{"example-token", true},
 		{"has space", false},
 		{"has\ttab", false},
 		{"has\nnewline", false},
