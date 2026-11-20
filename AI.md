@@ -4572,7 +4572,7 @@ Content-Type: application/json
 | **Private functions/types** | `camelCase` | `validateInput()`, `dbConnection` |
 | **Constants** | `PascalCase` or `SCREAMING_SNAKE` | `MaxRetries`, `DEFAULT_TIMEOUT` |
 | **Variables** | `camelCase` | `userEmail`, `isValid`, `retryCount` |
-| **Rendering** | One helper returns the final, sanitized, language-resolved HTML for a request: `operatorHTML(r, name)`, where `name` is `header`, `about`, `privacy`, `terms` or `footer`. It returns an empty string when there is no usable file, and then the built-in content applies. Every template calls it; no handler reads these files itself |
+| **Rendering** | One helper returns the final, sanitized, language-resolved HTML for a request: `operatorHTML(r *http.Request, name string) template.HTML`, where `name` is `header`, `about`, `privacy`, `terms` or `footer`. It returns an empty string when there is no usable file, and then the built-in content applies. Every template calls it; no handler reads these files itself |
 | **Interfaces** | `PascalCase` + `-er` suffix | `Reader`, `UserStore`, `Authenticator` |
 
 ### Naming Rules
@@ -26878,7 +26878,7 @@ server:
 | **Variables** | The placeholders of "Footer Customization → Available Footer Variables" work in every body |
 | **Links** | A body MUST NOT link `/server/contact` (PART 16 → "Who can reach the form"). Scripts, styles, forms and frames are stripped by the sanitizer |
 | **Limits** | At most 256 KiB per body. A larger body, an unknown `format` or any other unusable value is ignored, one warning names the key, and the built-in content is used (the "Invalid → default" rule, PART 5) |
-| **Rendering** | One helper returns the final, sanitized, language-resolved HTML for a request: `operatorHTML(r, name)`, where `name` is `header`, `about`, `privacy`, `terms` or `footer`. It returns an empty string when there is no usable entry, and then the built-in content applies. Every template calls it; no handler reads the configuration itself |
+| **Rendering** | One helper returns the final, sanitized, language-resolved HTML for a request: `operatorHTML(r *http.Request, name string) template.HTML`, where `name` is `header`, `about`, `privacy`, `terms` or `footer`. It returns an empty string when there is no usable entry, and then the built-in content applies. Every template calls it; no handler reads the configuration itself |
 | **Overlay hosts** | Bodies are served as written. The Tor and I2P privacy rules apply to built-in content only, so an operator must not put clearnet identity into a body that is also shown on `.onion` or `.i2p` |
 
 ### Image Files (`{config_dir}/assets/`)
@@ -26904,8 +26904,14 @@ SVG is rendered only through `<img>`, never inline. `assets/` is optional, `0700
 | `author` | Meta author tag |
 | `og_image` | OpenGraph/Twitter card image |
 | `twitter_handle` | Twitter card attribution |
+| `title_separator` | `<title>` (between title and tagline) |
+| `meta_tags` | Extra `<meta name>` tags |
+| `canonical` | `<link rel="canonical">` and `og:url` |
+| `noindex` | Meta robots and `X-Robots-Tag` on every route |
+| `opengraph.*` | `og:*` tags (`type`, `site_name`, on/off) |
+| `twitter.*` | `twitter:*` tags (`card`, `creator`, on/off) |
 
-**`branding` and `seo` hold exactly the keys above.** Project facts (feature lists, compatibility lists, links, long marketing copy) are project data defined by `IDEA.md` and built into the binary; they are never written to `server.yml`.
+**`branding` and `seo` hold exactly the keys in this table and in the `branding.yml` example ("Branding File").** Project facts (feature lists, compatibility lists, links, long marketing copy) are project data defined by `IDEA.md` and built into the binary; they are never written to `server.yml`.
 
 ### SEO Meta Tags (Generated)
 
