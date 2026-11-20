@@ -3220,7 +3220,7 @@ Implemented core server functionality and API.
 - third-party actions pinned to full SHA
 - no secrets/write tokens exposed to fork PRs
 - ci.yml security jobs (secret-scan, vuln-scan, workflow-policy) exist and block on failures
-- `.github/trufflehog-exclude.txt` exists and lists only `AI.md` and `go.sum` (plus any other file the project does not author, with a reason in its commit)
+- `.github/trufflehog-exclude.txt` exists and lists only `AI.md`, `go.sum` and the fixtures directory `testdata/` (plus any other non-production file, with a reason in its commit)
 
 ### Step 4: AI Tool Configuration (Rule Files)
 **Do AI rule files exist and follow the required format?**
@@ -8002,7 +8002,7 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 | Rule | Behavior |
 |------|----------|
 | **Keys** | Only these, for every one the project has: `server.token`; `server.security.encryption_key` and `server.security.encryption_key_version`; `server.notifications.email.smtp.password`; `server.cache.password`; `server.database.token` (libsql only); `server.database.url` and `server.cache.url` (each only while the URL carries a credential); `server.pages.contact.captcha_secret_key`; `server.ssl.letsencrypt.dns_credentials`; `data.cve.api_key`; `server.backup.encryption_password`; `server.metrics.auth.tokens.*`; every webhook URL and its `_secret` under `server.contact.{role}.webhooks`; `server.auth.ldap.providers[].bind_password`; `server.auth.oidc.providers[].client_secret`. `server.tokens.*` is token policy, not a secret. Every other key stays in its area file |
-| **Generated** | When one of these keys is empty or missing at start, the server generates it BEFORE it serves anything, writes it to `secrets.yml` (atomic, `0600`) and records `config.secret_generated` (the key name only) in `audit.log`: `server.token`; `server.security.encryption_key` (with `encryption_key_version: 1`); `server.metrics.auth.tokens.prometheus`, `.grafana` and `.loki`; and a `webhooks.<name>_secret` whenever its webhook URL is set. Bearer tokens use the spec's token format (`tok_` plus 32 random base62 characters) and the encryption key is 32 random bytes. Only `server.token` is printed, once, at first creation; every other value is read from `secrets.yml` |
+| **Generated** | When one of these keys is empty or missing at start, the server generates it BEFORE it serves anything, writes it to `secrets.yml` (atomic, `0600`) and records `config.secret_generated` (the key name only) in `audit.log`: `server.token`; `server.security.encryption_key` (with `encryption_key_version: 1`); `server.metrics.auth.tokens.prometheus`, `.grafana` and `.loki`; and a `webhooks.<name>_secret` whenever its webhook URL is set. `server.token` is an `adm_` token and each metrics token an `mtr_` token, each plus 32 random base62 characters ("Token Catalogue") and the encryption key is 32 random bytes. Only `server.token` is printed, once, at first creation; every other value is read from `secrets.yml` |
 | **Never generated** | Credentials that someone else issues stay empty until the operator sets them: `server.notifications.email.smtp.password`, `server.cache.password`, `server.database.token`, `server.database.url` and `server.cache.url` with a credential in them, `server.pages.contact.captcha_secret_key`, `server.ssl.letsencrypt.dns_credentials`, `data.cve.api_key`, `server.backup.encryption_password`, the LDAP bind password, the OIDC client secret and the webhook URLs |
 | **Rotation** | Blank a generated key in `secrets.yml` and restart: a new value is generated. `--maintenance secret rotate {name}` rotates the encryption key and the HMAC secrets with their grace periods (PART 11) |
 | **Written by** | The server writes generated, rotated and moved secrets to `secrets.yml` and ONLY there, never to `server.yml` and never to a drop-in (this limits what the server writes; an operator may still hand-write a value elsewhere, see "Operator-set values"): the first-run `server.token`, `server.security.encryption_key` with its version, and every rotation (`--maintenance secret rotate encryption_key`) |
@@ -12142,7 +12142,7 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     name          TEXT,
     -- SHA-256 of raw token; used for lookup and validation
     token_hash    TEXT NOT NULL UNIQUE,
-    -- First 12 chars for log identification (tok_xxxxxxxx)
+    -- First 12 chars for log identification (own_xxxxxxxx)
     token_prefix  TEXT NOT NULL,
     -- AES-256-GCM (server.security.encryption_key) ciphertext of the raw token,
     -- so the owner can view it again; only read by the reveal action
@@ -12198,27 +12198,40 @@ INSERT INTO config (key, value, type) VALUES
 
 | Tier | Source | Scope | Purpose |
 |------|--------|-------|---------|
-| **`server.token`** | `secrets.yml` (auto-generated on first run) | Global — all resources, separate tier | Operator actions: delete any resource, enforce TOS, revoke tokens |
-| **Owner token (primary)** | Server-generated when an owner is first issued a resource | Every resource the owner has created, now and later | Owner reads, edits, deletes their resources; manages their linked tokens on `/server/preferences/tokens` |
-| **Linked token** | Created by the owner on `/server/preferences/tokens` | The same owner's resources — identical to the primary, minus token management | Automation: CLI, CI, scripts, MCP clients — revocable one by one without touching the primary |
+| **Operator (admin) token** `adm_` (`server.token`) | `secrets.yml` (auto-generated on first run) | Global — all resources, separate tier | Operator actions: delete any resource, enforce TOS, revoke tokens |
+| **Owner token (primary)** `own_` | Server-generated when an owner is first issued a resource | Every resource the owner has created, now and later | Owner reads, edits, deletes their resources; manages their linked tokens on `/server/preferences/tokens` |
+| **Linked token** `own_` | Created by the owner on `/server/preferences/tokens` | The same owner's resources — identical to the primary, minus token management | Automation: CLI, CI, scripts, MCP clients — revocable one by one without touching the primary |
 
-Clients send any of them as:
+Clients send any of them as (the prefix tells which kind):
 ```
-Authorization: Bearer tok_xxxxxxxxxxxxxxxxxxxx
+Authorization: Bearer adm_xxxxxxxxxxxxxxxxxxxx   (operator)
+Authorization: Bearer own_xxxxxxxxxxxxxxxxxxxx   (owner)
 ```
 
-**Token format:** `tok_` prefix + 32 URL-safe random base62 chars, the same for every tier. The server stores `SHA-256(token)` for lookup and an AES-256-GCM encrypted copy (`token_enc`, key: `server.security.encryption_key`) so the owner can **view the token again at any time** — masked by default, revealed on request. The raw token is never logged, never in a backup in plaintext, and never in any list/detail response. The operator token is the exception: it lives in `secrets.yml`, is only compared by hash, and is never shown by the server.
+**Token format:** `{prefix}_` + 32 URL-safe random base62 chars: `adm_` for `server.token`, `own_` for owner and linked tokens ("Token Catalogue"). The server stores `SHA-256(token)` for lookup and an AES-256-GCM encrypted copy (`token_enc`, key: `server.security.encryption_key`) so the owner can **view the token again at any time** — masked by default, revealed on request. The raw token is never logged, never in a backup in plaintext, and never in any list/detail response. The operator token is the exception: it lives in `secrets.yml`, is only compared by hash, and is never shown by the server.
 
 ---
 
+### Token Catalogue
+
+**Every bearer credential is `{prefix}_{32 base62 characters}`. The PREFIX says who holds it; the SCOPE (read, read-write, global) says what it may do.**
+
+| Prefix | Holder | Lives in | Shown | Notes |
+|--------|--------|----------|-------|-------|
+| `adm_` | Server admin | The OPERATOR token `server.token`, kept in `secrets.yml` (never in the database) | Printed once at first start | The operator token IS the admin token: this project has no admin accounts, so it is the only `adm_` token. It works without the database, so it also authorizes `/debug/*`, `--maintenance` confirmations and secret rotation |
+| `own_` | Owner (primary or linked) | `api_tokens` table | Recoverable: an encrypted copy (`token_enc`) lets the owner view it again | An owner is the anonymous holder of resources; the primary token manages the owner's linked tokens, a linked token is identical minus token management |
+| `mtr_` | Metrics scraper | `server.metrics.auth.tokens.*` in `secrets.yml` | Read from the file | `GET /server/metrics` only |
+
+**Not bearer credentials:** `sec_{16 hex}` report tracking ids (an identifier, not a secret), the rotating `{security_id}`, the contact `form_token` and `review_token`, the `owner_token` cookie (it carries an owner token and is only a transport), and one-shot link tokens in emailed links ("Auth Token Presentation").
+
 #### `server.token` — Global Operator Token
 
-Declared in `secrets.yml` under `server.token`. Auto-generated and written back to `secrets.yml` on first run if absent or empty. Grants full access to every resource and every server management endpoint.
+The operator token is the ADMIN token: the one admin credential that lives in `secrets.yml`, not the database. Declared in `secrets.yml` under `server.token`. Auto-generated and written back to `secrets.yml` on first run if absent or empty. Grants full access to every resource and every server management endpoint.
 
 ```yaml
 server:
   # auto-generated if blank
-  token: tok_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  token: adm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 **Not stored in `api_tokens` DB table.** Validated by SHA-256-hashing the inbound token and comparing against `SHA-256(server.token)` with `subtle.ConstantTimeCompare`. The hash is cached in memory at startup — never written to the DB.
@@ -12253,11 +12266,11 @@ POST /pastes                       (no token)
     "data": {
       "id": "abc123",
       "url": "/pastes/abc123",
-      "owner_token": "tok_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      "owner_token": "own_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
     }
   }
 
-POST /pastes                       (Authorization: Bearer tok_...)
+POST /pastes                       (Authorization: Bearer own_...)
 → 201 Created   { "ok": true, "data": { "id": "def456", "url": "/pastes/def456" } }
 ```
 The server creates the owner and its primary token (hash + encrypted copy), stores the resource with `owner_id`, and returns the raw token in the creation response so API clients can save it. Browsers get **dual delivery**: the web-form create response shows the token (copy button) AND sets the owner cookie, so web management works with JS disabled; JS may additionally save a convenience copy to `localStorage` — never load-bearing. The token is not "shown once": it remains viewable on `/server/preferences/tokens` (see "Token Management").
@@ -12265,7 +12278,7 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 **Naming:** the JSON response field `owner_token` is fixed across all projects — never rename it. Browser storage names are project-unique: both the cookie and the localStorage key are `{project_name}_owner_token_XXXXXX`, where `XXXXXX` is a random suffix generated once at project creation and recorded verbatim in IDEA.md (e.g. `owner_token: pastebin_owner_token_5qvQQyc5`) — fixed for the project's lifetime so the server always knows which cookie to read, and unique so apps, forks, or sibling deployments on one domain never collide. The suffix is not a secret (cookie names are visible); HttpOnly protects the value. Spec text uses `owner_token` as shorthand for that cookie.
 
 **Ownership check (every read-of-private / write / delete on a resource):**
-1. Extract `Authorization: Bearer tok_...` (API routes), or fall back to the owner cookie (web forms only, see below)
+1. Extract `Authorization: Bearer own_...` (API routes), or fall back to the owner cookie (web forms only, see below)
 2. If it matches the `server.token` hash → **operator access, allow unconditionally**
 3. Otherwise: SHA-256 hash, look up in `api_tokens`
 4. Verify `revoked_at IS NULL` and `expires_at IS NULL OR expires_at > now()`
@@ -12282,7 +12295,7 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 
 | Control | Behavior |
 |---------|----------|
-| **Primary token** (masked) | Shown as `tok_••••••••••••••••••••••••XXXX` (last 4 characters visible). **Reveal** (POST, CSRF-protected) decrypts and renders the full token in that one response (`Cache-Control: no-store`); **Copy** copies it; masked again on the next page load. Works with JS disabled (reveal is a plain form POST) |
+| **Primary token** (masked) | Shown as `own_••••••••••••••••••••••••XXXX` (last 4 characters visible). **Reveal** (POST, CSRF-protected) decrypts and renders the full token in that one response (`Cache-Control: no-store`); **Copy** copies it; masked again on the next page load. Works with JS disabled (reveal is a plain form POST) |
 | **Rotate** | Generates a new token and replaces the old one **in place**: the same `api_tokens` row gets the new `token_hash`, `token_prefix`, `token_enc` and `rotated_at`. The old token is invalid immediately, the owner cookie is replaced, resources stay owned (they hang off `owner_id`), and linked tokens survive. Confirmation required; the new token is displayed |
 | **Use an existing token** | Restore an identity on a new browser/device by pasting the primary token (see "Owners and Owner Tokens") |
 | **Linked tokens** (list) | Name, masked token, created, last used, expires, status (active / expired / revoked) |
@@ -12342,13 +12355,13 @@ PHONE (<768)              TABLET (768-1023)             DESKTOP (>=1024)
 | Owner tokens       |    | Owner tokens           |    | Owner tokens                      |
 | +----------------+ |    | +--------------------+ |    | +---------------+ +-----------+ |
 | | Primary token  | |    | | Primary token      | |    | | Primary token | | Linked    | |
-| | tok_****47F5   | |    | | tok_****47F5       | |    | | tok_****47F5  | | tokens    | |
+| | own_****47F5   | |    | | own_****47F5       | |    | | own_****47F5  | | tokens    | |
 | | [Reveal][Rot.] | |    | | [Reveal]  [Rotate] | |    | | [Reveal][Rot.]| | +-------+ | |
 | +----------------+ |    | +--------------------+ |    | +---------------+ | | Mcp   | | |
 | | Linked tokens  | |    | | Linked tokens      | |    | | Create token  | | | ****  | | |
 | | +------------+ | |    | | +--------+ +-----+ | |    | | Name  [____]  | | | [..]  | | |
 | | | Mcp Active | | |    | | | Mcp    | | CI  | | |    | | Expiry [v]    | | +-------+ | |
-| | | tok_****mc | | |    | | | tok_** | | ... | | |    | | [Create token]| |           | |
+| | | own_****mc | | |    | | | own_** | | ... | | |    | | [Create token]| |           | |
 | | | [Reveal]   | | |    | | +--------+ +-----+ | |    | +---------------+ +-----------+ |
 | | | [Rotate]   | | |    | +--------------------+ |    | | This browser  |               |
 | | | [Edit    v]| | |    | | Create token       | |    | +---------------+               |
@@ -22300,7 +22313,7 @@ fi
 | IPv6 address | 39 chars | `2001:0db8:85a3:0000:0000:8a2e:0370:7334` |
 | Tor v3 .onion | 62 chars | `duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion` |
 | I2P .b32.i2p | 60 chars | `ukeu3k5oycgaauneqgtnvselmt4yemvoilkln7jpvamvfx7dnkdq.b32.i2p` |
-| API token | 32-64 chars | `tok_EXAMPLE1234567890abcdefghij...` |
+| API token | 32-64 chars | `own_EXAMPLE1234567890abcdefghij...` |
 | SHA-256 hash | 64 chars | `e3b0c44298fc1c149afbf4c8996fb924...` |
 | UUID | 36 chars | `550e8400-e29b-41d4-a716-446655440000` |
 | Base64 data | Variable | Long encoded strings |
@@ -36350,7 +36363,8 @@ jobs:
 | **Flag** | `--results=verified,unknown` or `--results=verified`, always with `--exclude-paths=.github/trufflehog-exclude.txt`. The old `--only-verified` flag is not used. `unknown` means verification was attempted and could not complete; `unverified` (checked and found inactive) is reported and does not fail the job |
 | **Never `default_branch`** | `base` is never `repository.default_branch`: after a push it equals the pushed commit and truffleHog skips the scan ("BASE and HEAD commits are the same") |
 | **Documentation examples** | `AI.md`, `IDEA.md`, `README.md` and `docs/` never contain a credential-shaped string. Connection strings use `{user}:{password}` placeholders; a flagged example is rewritten, not allowlisted, because a copied spec file is read-only in the projects that receive it |
-| **Excluded paths** | `.github/trufflehog-exclude.txt` (the same path on every provider), passed as `--exclude-paths=.github/trufflehog-exclude.txt`. One regex per line, no comments (it is a data file). It lists ONLY files the project does not author: `^go\.sum$` (dependency hashes) and `^AI\.md$` (the read-only copy of this specification, which carries example values; the template repository scans the original itself). Source, tests, docs, configuration and the exclude file itself are never listed. Adding a path needs a reason in the commit message. Everything else is handled by the placeholder rule or the allowlist below |
+| **Excluded paths** | `.github/trufflehog-exclude.txt` (the same path on every provider), passed as `--exclude-paths=.github/trufflehog-exclude.txt`. One regex per line, no comments (it is a data file). It lists ONLY files that are not production code: `^go\.sum$` (dependency hashes), `(^|/)testdata/` (test fixtures) and `^AI\.md$` (the read-only copy of this specification, which carries example values; the template repository scans the original itself). Source, test code, docs, configuration and the exclude file itself are never listed. Adding a path needs a reason in the commit message. Everything else is handled by the placeholder rule or the allowlist below |
+| **Test fixtures** | Fixtures live ONLY in `testdata/` (the one directory the exclude file lists). Their values are obviously fake (`EXAMPLE`, `xxxx`, `{placeholder}`) and never a real credential, because that directory is not scanned. A test that needs a credential-shaped string builds it at run time in the test code, which IS scanned |
 | **Allowlist** | Only a reviewed true false positive in project code or a test fixture, with truffleHog's inline `trufflehog:ignore` comment on that line. There is no root config file for it |
 | **Other providers** | GitLab and Jenkins run the same contract in Docker: `trufflehog git file://. --since-commit HEAD~1 --results=verified,unknown --exclude-paths=.github/trufflehog-exclude.txt --fail` for a range, `trufflehog git file://. --results=verified --exclude-paths=.github/trufflehog-exclude.txt --fail` for the full history |
 
@@ -48217,7 +48231,7 @@ defaults:
 # Pattern: {PROJECT_NAME}_{SECTION}_{KEY} or {PROJECT_NAME}_{KEY}
 {PROJECT_NAME}_SERVER_PRIMARY="https://example.com"
 {PROJECT_NAME}_SERVER_TIMEOUT=60
-{PROJECT_NAME}_TOKEN="tok_abc123..."
+{PROJECT_NAME}_TOKEN="own_abc123..."
 {PROJECT_NAME}_OUTPUT_FORMAT="json"
 {PROJECT_NAME}_DEBUG=true
 ```
