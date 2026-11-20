@@ -360,6 +360,23 @@ server:
     description: ""
     favicon: ""
     logo: ""
+    content:
+      about:
+        format: md
+        body:
+          default: "Run by the Example team."
+      header:
+        format: html
+        body: ""
+      privacy:
+        format: md
+        body: ""
+      footer:
+        format: html
+        body: ""
+      terms:
+        format: md
+        body: ""
   seo:
     keywords: []
     author: ""
@@ -376,13 +393,21 @@ server:
 web:
   ui:
     theme: dark
+    accent: ""
 ```
 
-Image values may be HTTPS URLs or file names in `{config_dir}/html/`.
-Local files must use `.svg`, `.png`, `.ico`, `.webp`, or `.jpg` and be no
-larger than 2 MiB. An empty value uses the embedded default. `server.seo.feed`
+Image values may be HTTPS URLs, `data:` URIs (up to 256 KiB), or file names
+in `{config_dir}/assets/`. Local files must use `.svg`, `.png`, `.ico`,
+`.webp`, or `.jpg` and be no larger than 2 MiB. An empty value uses the
+embedded default. `server.seo.feed`
 and `server.seo.sitemap` remain in `server.yml` because they configure
 endpoints rather than branding.
+
+Page content supports `md`, `html`, or `txt`; header and footer content use
+HTML only. Language maps select the request language, then `default`.
+Configured content is sanitized before rendering. `web.ui.accent` accepts a
+hex color only when it meets the configured contrast rule in both themes;
+invalid values use the built-in palette.
 
 The sitemap is generated dynamically at `/sitemap.xml`. It contains public
 pages and unexpired short-link redirect and stats URLs; API and management
@@ -413,12 +438,10 @@ resolves to `security@` at the detected FQDN. The `dpo` block drives the
 name require it.
 
 The help page content is configured under `pages:`. About, privacy, terms,
-header, and footer content is read from private files in `{config_dir}/html/`:
-`about.{html,md,txt}`, `privacy.{html,md,txt}`, `terms.{html,md,txt}`,
-`header.html`, and `footer.html`. Content is sanitized before rendering;
-scripts and unsafe attributes are removed. The `terms` file replaces the
-built-in page, while the other content files extend their built-in pages or
-branding.
+header, and footer extensions are configured as
+`server.branding.content.*` in `yaml.d/branding.yml` and sanitized before
+rendering. The terms entry replaces the built-in page; about and privacy
+extend their built-in content.
 
 ```yaml
 pages:
@@ -752,9 +775,9 @@ feature policy; it has no `server.yml` setting. `web.robots` controls the genera
 `web.announcements.enabled` and `web.announcements.messages` control
 server-rendered site banners. Messages with an active RFC 3339 `start` and
 `end` window appear in configuration order; visitors can dismiss entries
-marked `dismissible: true` without JavaScript. A single-space value for
-the optional footer file `html/footer.html` removes the custom branding
-block; the built-in application footer remains visible.
+marked `dismissible: true` without JavaScript. A whitespace-only
+`server.branding.content.footer.body` removes the custom branding block;
+the built-in application footer remains visible.
 
 ```yaml
 web:

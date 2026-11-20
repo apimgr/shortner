@@ -7969,6 +7969,10 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 | `server.security.headers.clear_site_data.*` | `web.headers.clear_site_data.*` (the other `server.security.headers.*` keys are removed) |
 | `server.security.csrf.*`, `web.csrf.*` | `server.csrf.*` |
 | `server.title`, `server.description` | `server.branding.title`, `server.branding.description` |
+| `server.seo.default_title`, `.default_description` | `server.branding.title`, `server.branding.description` (only when that key is unset or empty) |
+| `server.seo.opengraph.image`, `.opengraph.description` | `server.seo.og_image` (when unset), the description is removed |
+| `server.seo.twitter.site` | `server.seo.twitter_handle` (when unset) |
+| `server.seo.enabled`, `.sitemap.enabled`, `.feed.enabled` | removed (the tags, the sitemap and the feeds are always on) |
 | `server.branding.logo_url`, `.favicon_url`, `.primary_color` | `server.branding.logo`, `server.branding.favicon`, `web.ui.accent` |
 | `server.branding.footer_text` | `server.branding.content.footer` (format `html`, body: the text HTML-escaped inside a `<p>`) |
 | `server.branding.theme_color`, `.source_code_url` | removed |
@@ -7977,7 +7981,7 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 | `server.pages.about.content`, `.privacy.content`, `.terms.content` | `server.branding.content.about`, `.privacy`, `.terms` (format `md`, body: the old value) |
 | `server.admin.email`, `server.admin.path` | `server.contact.admin.email`, `server.admin_path` |
 | `server.admin.password`, `.token`, `.username`, `.two_factor.*` | removed (the operator token is `server.token`; there are no admin passwords) |
-| `server.https_port` | folded into `server.port` as `"{port},{https_port}"` when greater than 0, otherwise removed |
+| `server.https_port` | when `server.port` is a single number and `https_port` is greater than 0, folded into `server.port` as the quoted string `"{port},{https_port}"` ("Dual Port Support"); otherwise removed. An already-dual `server.port` is kept as written, and `server.ssl.enabled` is never changed by the migration |
 | `server.ssl.dns01.*`, `server.ssl.letsencrypt.provider`, `.credentials_encrypted` | `server.ssl.letsencrypt.dns_provider`, `server.ssl.letsencrypt.dns_credentials` (`validated_at`, `domain` and `domains` are removed) |
 | `server.security.installation_secret`, `.installation_secret_previous`, `.installation_secret_previous_expires`, `.encryption_key_previous`, `.encryption_key_previous_expires` | imported into the database `app_secrets` row of the same name when that row is missing, then removed from the file (PART 11 → "Rotation contract") |
 | Settings that no longer exist | removed: `server.privacy.content.*`, `server.mcp`, `server.rate_limit.enabled`, `server.rate_limit.requests`, `server.rate_limit.window`, `server.maintenance_mode`, `server.i18n.auto_detect`, `.rtl_languages`, `.show_selector`, `.translations_dir`, `server.geoip.dir`, `.databases`, `.country_mode`, `server.database.sqlite`, `server.metrics.endpoint`, `server.notifications.email_enabled`, `.webhook_enabled`, `server.secret_key`, `web.permissions_policy`, `web.honor_dnt`, `web.robots.ai_bots` |
@@ -26796,6 +26800,28 @@ server:
     og_image: ""
     # Twitter @handle for cards
     twitter_handle: ""
+    # Separator between the title and the tagline in <title>
+    title_separator: " - "
+    # Extra <meta name="..." content="..."> tags: a map of name to content (at most 20 entries)
+    meta_tags: {}
+    # Absolute https URL that replaces the request origin in canonical and og:url links; empty = the request origin
+    canonical: ""
+    # true = every page is marked noindex,nofollow (a private instance); the sitemap and the feeds are still served
+    noindex: false
+    opengraph:
+      # false = no og:* tags
+      enabled: true
+      # og:type
+      type: website
+      # og:site_name; empty = server.branding.title
+      site_name: ""
+    twitter:
+      # false = no twitter:* tags
+      enabled: true
+      # summary or summary_large_image
+      card: summary_large_image
+      # @handle of the content creator
+      creator: ""
 
 web:
   ui:
@@ -26811,6 +26837,7 @@ web:
 | **Never generated** | The server creates it only when the automatic migration moves branding keys into it or an admin or setup save writes it. No file means the built-in defaults (the title is `{project_name}`). The operator creates it by hand |
 | **Writes** | Only the operator writes it (API projects have no admin panel); the file watcher applies a change |
 | **Images** | `logo`, `favicon` and `seo.og_image` take an `https://` URL, a `data:` URI or a file name in `{config_dir}/assets/` ("Image Files"); empty means the embedded default |
+| **SEO tags** | `{canonical_url}` is `seo.canonical` (when set) plus the request path, otherwise the request origin plus the path; sitemap, feeds and `robots.txt` always use `BuildURL(r, path)`. `seo.noindex: true` forces `{robots}` to `noindex,nofollow` on every route and adds `X-Robots-Tag: noindex, nofollow`. `opengraph.enabled: false` or `twitter.enabled: false` omits that whole tag group. `meta_tags` names are limited to `[a-z0-9:_.-]`, contents are HTML-escaped, and a name this specification already generates (`description`, `keywords`, `author`, `robots`, `viewport`) is ignored. `title_separator` is at most 8 characters. An invalid value is replaced by its default (PART 5 → "Invalid → default") |
 | **Accent** | `web.ui.accent` is a 6-digit hex color (`#RRGGBB`) that sets `--color-primary` (links, buttons, focus ring) and its `--color-primary-bg` tint in both themes. It must reach a 4.5:1 contrast ratio against the background of BOTH themes; a value that is not valid hex or fails the ratio is ignored, the built-in color is used, and one warning names the key. The server emits it in `/static/css/accent.css`, linked after the app stylesheet (never an inline style, CSP); no valid key, no file |
 
 ### Page Content (`server.branding.content`)
@@ -26884,27 +26911,28 @@ SVG is rendered only through `<img>`, never inline. `assets/` is optional, `0700
 
 ```html
 <head>
-  <title>{title} - {tagline}</title>
+  <title>{title}{title_separator}{tagline}</title>
   <meta name="description" content="{description}">
   <meta name="keywords" content="{keywords}">
   <meta name="author" content="{author}">
   <meta name="robots" content="{robots}">
-  <link rel="canonical" href="{current_url}">
+  <link rel="canonical" href="{canonical_url}">
 
   <!-- OpenGraph -->
   <meta property="og:title" content="{title}">
   <meta property="og:description" content="{description}">
   <meta property="og:image" content="{og_image}">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="{current_url}">
-  <meta property="og:site_name" content="{title}">
+  <meta property="og:type" content="{opengraph.type}">
+  <meta property="og:url" content="{canonical_url}">
+  <meta property="og:site_name" content="{opengraph.site_name}">
 
   <!-- Twitter Card -->
-  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:card" content="{twitter.card}">
   <meta name="twitter:title" content="{title}">
   <meta name="twitter:description" content="{description}">
   <meta name="twitter:image" content="{og_image}">
   <meta name="twitter:site" content="{twitter_handle}">
+  <meta name="twitter:creator" content="{twitter.creator}">
 
   <!-- Structured Data -->
   <script type="application/ld+json">
@@ -27171,6 +27199,12 @@ server:
 | Author | `server.seo.author` | Author/organization |
 | OG Image | `server.seo.og_image` | Social sharing image |
 | Twitter Handle | `server.seo.twitter_handle` | @handle |
+| Title Separator | `server.seo.title_separator` | Text between title and tagline in `<title>` |
+| Extra Meta Tags | `server.seo.meta_tags` | Map of name to content |
+| Canonical Base | `server.seo.canonical` | Origin for canonical and `og:url` links |
+| No Index | `server.seo.noindex` | Marks every page `noindex,nofollow` |
+| OpenGraph | `server.seo.opengraph.{enabled,type,site_name}` | `og:*` tags |
+| Twitter Card | `server.seo.twitter.{enabled,card,creator}` | `twitter:*` tags |
 | Favicon | `server.branding.favicon` | Custom favicon |
 | Logo | `server.branding.logo` | Custom logo (header) |
 
