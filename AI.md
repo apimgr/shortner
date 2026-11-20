@@ -7609,7 +7609,8 @@ server:
 |---------|----------|
 | Database connection | server.yml |
 | Server settings | server.yml |
-| Branding/SEO | server.yml |
+| Branding, SEO and theme | yaml.d/branding.yml |
+| Page content (about, privacy, terms, header, footer) | html/ |
 | SSL settings | server.yml |
 | Owners and API tokens (owner, linked) | Database (`owners`, `api_tokens`: SHA-256 hash for lookup + AES-256-GCM encrypted copy for viewing) |
 | Resource state, audit log | Database |
@@ -8676,13 +8677,7 @@ server:
       # When true, mount /healthz to the SAME handler as /server/healthz (never redirect).
       enabled: false
 
-  # Branding & SEO - see PART 16 for full details
-  branding:
-    title: "{project_name}"
-    tagline: ""
-    description: ""
-  seo:
-    keywords: []
+  # Branding, SEO and the default theme are not in server.yml: they live in yaml.d/branding.yml (PART 16 → "Branding File")
 
   # System user/group
   user: {auto}
@@ -8823,8 +8818,7 @@ server:
 # =============================================================================
 
 web:
-  ui:
-    theme: dark
+  # ui.theme (the default theme) lives in yaml.d/branding.yml (PART 16 → "Branding File")
 ```
 
 ---
@@ -26697,7 +26691,9 @@ the hex values from `ThemePaletteDark`/`ThemePaletteLight`.
 | OpenGraph data | Service names |
 | Swagger UI title | Container names |
 
-### Configuration
+### Branding File (`yaml.d/branding.yml`)
+
+**All branding, white-labeling and theming live in ONE file: `{config_dir}/yaml.d/branding.yml`.** It holds `server.branding.*`, `server.seo.*` (including `seo.verification`) and `web.ui.theme`, with the dotted paths below, and nothing else.
 
 ```yaml
 server:
@@ -26708,9 +26704,9 @@ server:
     tagline: ""
     # Longer description for SEO/about
     description: ""
-    # empty = use embedded default
+    # URL or file name in {config_dir}/html/; empty = use embedded default
     favicon: ""
-    # empty = use embedded default
+    # URL or file name in {config_dir}/html/; empty = use embedded default
     logo: ""
 
   seo:
@@ -26723,7 +26719,19 @@ server:
     og_image: ""
     # Twitter @handle for cards
     twitter_handle: ""
+
+web:
+  ui:
+    # Default theme for visitors without a theme cookie: dark, light or auto
+    theme: dark
 ```
+
+| Rule | Behavior |
+|------|----------|
+| **Home** | `{config_dir}/yaml.d/branding.yml`, a normal drop-in (PART 5 → "Drop-in Config Directory"): same merge order, `0600`, hot reload and backup. These keys are not in the generated `server.yml` |
+| **Never generated** | The server does not create it. No file means the built-in defaults (the title is `{project_name}`). The operator creates it by hand |
+| **Writes** | Only the operator writes it (API projects have no admin panel); the file watcher applies a change |
+| **Images** | `logo`, `favicon` and `seo.og_image` take a URL or a file name. A file name resolves in `{config_dir}/html/` (`.svg`, `.png`, `.ico`, `.webp`, `.jpg`, at most 2 MiB each); empty means the embedded default |
 
 ### Where Branding Is Used
 
@@ -26794,7 +26802,7 @@ Default to `index,follow` only for routes explicitly marked public; every other 
 
 **Custom verification meta tags for search engines and services MUST be validated before rendering.**
 
-**Configuration:**
+**Configuration** (in `yaml.d/branding.yml`, "Branding File"):
 
 ```yaml
 server:
@@ -27039,9 +27047,11 @@ server:
 
 | Source | Format | Example |
 |--------|--------|---------|
-| Local file | File path | Set `server.branding.logo` in config to an absolute file path |
+| Local file | File in `{config_dir}/html/` | Set `logo` in `yaml.d/branding.yml` to the file name (no path) |
 | Remote URL | URL input | `https://example.com/logo.png` |
 | Embedded default | - | Built-in fallback |
+
+**A local file** is stored in `{config_dir}/html/` and referenced by file name in `yaml.d/branding.yml`. A remote URL is fetched and cached locally; that cache is derived data and is not synced.
 
 ### Image Scaling
 
