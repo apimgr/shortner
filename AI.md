@@ -8031,6 +8031,7 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 | **Query options** | Driver options in the query (`sslmode`, `authToken`, `database`, `encrypt`, `tls`, ...) are read and passed to the driver; the TLS ones are mapped as in "TLS" below. An option in the URL wins over the matching separate field |
 | **Credentials** | A URL that carries a password or a token (in the userinfo, or as a `password`, `pwd`, `token` or `authToken` query value) is a secret: it lives in `secrets.yml` under the same key (`server.database.url`, `server.cache.url`) and the automatic migration moves it there from `server.yml` or a drop-in ("Secrets File"). A URL with no credential (`valkey://cache:6379`) stays in `server.yml` |
 | **Never shown** | Logs, `--config` output, the admin panel and error messages show only the redacted form `scheme://user:********@host:port/name?authToken=********`. The full URL is never logged, never returned by an API and never part of a health response (PART 11) |
+| **Backup** | A backup holds the URL (and so its credential) through `secrets.yml` and `server.yml`, and the TLS files named by the six file keys, even without `--include-ssl` (PART 21 → "Backup Contents"). A connection URL that exists only as the `DATABASE_URL` or `CACHE_URL` environment variable is never in a backup: a restore on a host without the variable uses the restored `server.database.url` or `server.cache.url`, or the separate fields |
 | **References** | `${NAME}` and `${NAME:-default}` inside any string value are replaced from the environment after the files are merged and are never written back. `url: ${DATABASE_URL}` therefore works, but is not needed: the variable is read directly. An unset name without a default becomes an empty string |
 
 **Accepted forms** (placeholders in braces; replace them with the real values, typed as they are):
@@ -32034,6 +32035,7 @@ groups:
 | `server.db` | ✓ Always | Main database (settings, rate limits, audit log) |
 | `{config_dir}/template/` | ✓ If exists | Custom email templates |
 | `{config_dir}/ssl/` | Optional | SSL certificates (flag: `--include-ssl`) |
+| Connection TLS files | ✓ Always, when referenced | The files named by `ssl_ca`, `ssl_cert`, `ssl_key` (database) and `tls_ca`, `tls_cert`, `tls_key` (cache), even without `--include-ssl`; only those files, not the whole `ssl/` directory ("Connection Strings") |
 | `{data_dir}/` | Optional | Data files (flag: `--include-data`) |
 
 ### What Is in server.db
