@@ -23120,10 +23120,11 @@ Use CSS custom properties for repeated or long strings. Never hardcode them inli
   --z-raised:   10;
   --z-dropdown: 100;
   --z-sticky:   200;
+  /* Site banners (cookie consent, announcements, PWA update): above page content and the sticky header, below every blocking layer */
+  --z-banner:   250;
   --z-overlay:  300;
   --z-drawer:   350;
   --z-modal:    400;
-  --z-banner:   450;
   --z-toast:    500;
   --z-tooltip:  600;
 
@@ -26444,7 +26445,7 @@ Without the script: Esc and overflow detection are unavailable, but the scrim, t
 | **The drawer and its scrim are children of `<body>`**, siblings after `<main>`, not descendants of `<header>` | A `position: fixed` element inside an ancestor that has `transform`, `filter`, `backdrop-filter`, `perspective`, `contain` or `will-change` is positioned against that ancestor, not the viewport: the drawer collapses to header size, clips ("Cairnb…") and renders under page content. The header MUST NOT use those properties on any ancestor of the panel; apply a frosted-glass effect to a `::before` pseudo-element of the header instead |
 | **Opaque panel** | The drawer background is a solid theme color. Hero text or pills showing through the menu is a bug |
 | **Every link, in order** | The panel lists the same links as the desktop nav (the screenshot showed one link). Active page marked with `aria-current="page"` |
-| **Stacking** | Use the z-index tokens from "CSS Variable Reference" (`--z-raised` 10 header, `--z-dropdown` 100, `--z-overlay` 300 scrim, `--z-drawer` 350, `--z-modal` 400, `--z-banner` 450, `--z-toast` 500); no magic numbers such as `9999`. Scrim and drawer must sit above `<main>` and the hero in the same stacking context |
+| **Stacking** | Use the z-index tokens from "CSS Variable Reference" (`--z-raised` 10 header, `--z-dropdown` 100, `--z-sticky` 200, `--z-banner` 250, `--z-overlay` 300 scrim, `--z-drawer` 350, `--z-modal` 400, `--z-toast` 500); no magic numbers such as `9999`. Scrim and drawer must sit above `<main>` and the hero in the same stacking context |
 | **Dimensions** | `height: 100dvh`, `width: min(280px, 85vw)`, `overflow-y: auto`, `padding-bottom: env(safe-area-inset-bottom)`. RTL: slides from the left (`[dir="rtl"]`) |
 | **While open** | Page behind does not scroll (`body:has(.nav-checkbox:checked) { overflow: hidden }`); the scrim dims the whole viewport; a scrim tap closes it (no JavaScript needed) and Esc closes it when the `app.js` enhancement is present |
 | **Fixed elements** | The drawer, scrim, modal, toast, banner and popover are the ONLY `position: fixed` elements; header, nav and footer scroll with the page |
@@ -28095,7 +28096,7 @@ When `branding.content.footer` is set, the server logs at startup and on every r
 | **Decline button** | Text/outline style, no background |
 | **"I Agree" button** | Filled white background, purple text |
 | **Persistence** | Remember choice in the `cookie_consent` cookie (set server-side); server skips rendering the banner on later requests |
-| **Z-index** | Above all content, below modals |
+| **Z-index** | `var(--z-banner)` (250): above all page content and the sticky header, below the overlay scrim, drawers and modals (a modal is never covered by a banner); toasts (`--z-toast`) stay above everything |
 
 ### Banner Behavior
 
