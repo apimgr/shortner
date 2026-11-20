@@ -69,10 +69,11 @@ available on a server.
 ## Authentication
 
 Most endpoints need no credentials. Editing or deleting a link requires a
-valid primary or linked token for its owner, or the operator token from
-`server.yml`. A newly created anonymous owner receives a primary
-`owner_token`; later resources created with that token belong to the same
-owner and do not return another token.
+valid primary or linked `own_` token for its owner, or the `adm_` operator
+token from `secrets.yml`. A newly created anonymous owner receives a
+primary `owner_token`; later resources created with that token belong to
+the same owner and do not return another token. Metrics credentials use
+the `mtr_` prefix.
 
 A token may be supplied through any of the following, checked in order,
 first found wins:
@@ -87,8 +88,9 @@ first found wins:
 8. `Token: {token}`
 9. `?token={token}` in the query string
 
-Tokens are looked up by SHA-256 hash. An encrypted copy is retained for the
-owner's explicit reveal action. Raw tokens are never included in list
+Tokens use a prefix plus 32 base62 characters and are looked up by SHA-256
+hash. An encrypted owner-token copy is retained for the owner's explicit
+reveal action. Raw tokens are never included in list
 responses or logs. API routes accept credentials from headers only; owner
 cookies are used only by web forms.
 
@@ -171,7 +173,7 @@ Response:
     "created_at": "2026-01-15T10:30:00Z",
     "expires_at": null,
     "click_count": 0,
-    "owner_token": "tok_..."
+    "owner_token": "own_..."
   }
 }
 ```

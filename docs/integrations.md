@@ -98,9 +98,9 @@ lines, sized by `server.metrics.loki.max_entries` and
 
 Business gauges cover total links, links created and clicked in 24 hours,
 and active API tokens. Tor circuit and request gauges are collected when
-Tor is configured. Cache metrics are exposed by the instrumentation
-wrapper, but the cache is not yet used in the request path; I2P metrics are
-not defined by the current AI.md contract.
+Tor is configured. Redis and Valkey back shared rate-limit counters, but
+cache instrumentation is not yet populated; I2P metrics are not defined by
+the current AI.md contract.
 
 ## GeoIP
 
@@ -348,9 +348,9 @@ Stated explicitly so they are not assumed:
   and the versioned and current-version API endpoints. GraphQL is read-only.
 - **MCP endpoint and help page** are required by AI.md but are not
   implemented yet.
-- **No cache backend in the request path.** The Valkey and Redis settings
-  are accepted, and the production compose file even starts a Valkey
-  sidecar, but nothing reads from or writes to it yet.
+- **Cache scope.** Redis and Valkey provide shared atomic rate-limit
+  counters. General page, API-response, GeoIP, and blocklist caching is
+  not yet wired into application request paths.
 - **No third-party analytics and no telemetry**, by design and
   permanently.
 

@@ -175,7 +175,7 @@ Still open under PART 9-11:
   are now populated at click time by the PART 19 `src/geoip` lookup — see
   the PART 19 entry below.
 
-## PART 15: SSL/TLS & Let's Encrypt — DONE (HTTP-01/TLS-ALPN-01 only)
+## PART 15: SSL/TLS & Let's Encrypt — DONE (HTTP-01/TLS-ALPN-01/DNS-01)
 
 - `src/fqdn` implements FQDN resolution (`GetFQDN`, `DOMAIN` env var →
   hostname → `$HOSTNAME` → global IPv6 → global IPv4 → `localhost`) and
@@ -189,22 +189,14 @@ Still open under PART 9-11:
   issuance fallback when no existing certificate is found. Wired into
   `src/httpserver.Options.TLSConfig` / `Server.Start` and
   `src/main.go:buildTLSConfig` (skips TLS entirely for a dev-only TLD).
-- Deferred (not implemented — literal spec gaps, tracked here rather than
-  silently dropped):
-  - DNS-01 provider matrix (`server.tls.dns_provider` /
-    `dns_credentials.*` — cloudflare, route53, digitalocean, godaddy,
-    namecheap, rfc2136, the full lego provider list). Only HTTP-01/
-    TLS-ALPN-01 via autocert exist today; no DNS-01 challenge, so wildcard
-    certs are not obtainable yet.
-    Read: AI.md PART 15 "DNS-01 Provider Configuration"
-  - DNS-01 provider support and the `credentials_encrypted` representation
-    remain unimplemented. The source spec names example fields and links
-    the full lego provider list, but does not define the stored encrypted
-    credential shape, startup/request validation contract, or credential
-    rotation behavior. These AI.md gaps are recorded in the parent
-    `TODO.API.md`; existing `src/security` sealing primitives can be reused.
-    Read: AI.md PART 15 "DNS-01 Provider Configuration" and "Provider
-    Credential Storage"
+- DNS-01 uses lego's provider catalogue, seals flat provider environment
+  credentials in `secrets.yml`, validates before issuance, and supports the
+  RFC 2136 `rfc2136`/`dnsupdate` aliases. In-process DNS UPDATE tests cover
+  signed insertion/removal, wrong TSIG keys, unsigned updates, and both
+  provider spellings. A port-less nameserver is accepted by lego's parser
+  and defaults to port 53; a live production DNS zone is an environment
+  verification item, not an unimplemented feature.
+  Read: AI.md PART 15 "DNS-01 Provider Configuration"
   - Autocert-issued certificates are now mirrored into the app-managed
     `{fullchain,privkey}.pem` layout from `GetCertificate`. The autocert
     cache remains the source of account state.
@@ -643,9 +635,9 @@ yet exist.
   `src/backup_cli.go` + `src/scheduler_cli.go`) rather than from the
   spec's placeholder skeletons, and every TODO.AI.md-deferred item is
   described as deferred rather than shipped — Swagger/GraphQL are present
-  with route/schema sync still in progress, no DNS-01, PWA core complete
-  with Background Sync/geolocation awaiting a product contract, no hot reload,
-  no cache in the request path, unpopulated business metrics, and a
+  with route/schema sync still in progress, PWA core complete with
+  Background Sync/geolocation awaiting a product contract, limited config
+  hot reload, cache-backed shared rate-limit counters, unpopulated business metrics, and a
   warning-only scheduled `ssl_renewal` check. Backup `list`/`delete`
   commands are implemented and documented as CLI conveniences. `mkdocs build
   --strict` verified clean inside `python:alpine` (built in 2.25s, zero
@@ -703,9 +695,12 @@ is honestly deferred with a reason.
 
 ### PART 31.1: Tor hidden service — implemented
 
-Built: `src/tor/` (bine-driven dedicated Tor process, v3 hidden service,
-SafeLogging, dedicated loopback backend port, HAProxy PROXY-protocol
-circuit-ID ingest, vanity search/apply, key import, health monitor),
+Built: `src/tor/` (dedicated `exec.Cmd` Tor process with Bine control-protocol
+helpers, authenticated control connection, event subscription before network
+enable, bounded control-port/bootstrap/hostname waits, best-effort descriptor
+upload, orderly shutdown, v3 hidden service, SafeLogging, dedicated loopback
+backend port, HAProxy PROXY-protocol circuit-ID ingest, vanity search/apply,
+key import, health monitor),
 `src/tor_cli.go` (`tor status|validate|restart|regenerate|vanity
 start|vanity apply|import-keys <path>`), `src/config/overlay.go`
 (`server.tor.*` + validation warnings), `src/httpserver/overlay.go` +
@@ -734,9 +729,10 @@ wiring, `Tor: {onion_address}` printed once).
 
 ### PART 31.2: I2P eepsite — implemented (opt-in, default off)
 
-Built: `src/i2p/` (Model A i2pd subprocess with a regenerated
-`{config_dir}/i2p/tunnels.conf`, Model B external SAMv3 bridge over a raw
-`net.Conn`, destination persisted under `{data_dir}/i2p/site/`,
+Built: `src/i2p/` (Model A isolated i2pd subprocess with private SAM and empty
+`tunnels.conf`/`tunnels.d`, Model B external SAMv3 bridge, both using the same
+SAM session flow with separate session/forward sockets and `SILENT=true`,
+one-line `PRIV` destination persisted under `{data_dir}/i2p/site/`,
 `.b32.i2p` derivation, provider resolution i2pd → SAM → warn-and-continue,
 health monitor), `src/i2p_cli.go`, `server.i2p.*` config + validation,
 the trusted-proxy-gate exception for a `Host` matching the b32 address,
@@ -777,13 +773,6 @@ banner row.
   eight pages (index, installation, configuration, api, cli, security,
   integrations, development). `mkdocs build --strict` passes clean.
   Read: AI.md PART 29
-- `CACHE_URL` (and the commented `DATABASE_DRIVER`/`DATABASE_URL`) are set
-  in the compose files as PART 26 requires, but no Go code reads any of
-  them — the cache/database URL config surface is unimplemented, so the
-  documented override silently does nothing. Implement the env-to-config
-  wiring in `src/config` when PART 10's storage layer lands.
-  Read: AI.md PART 5, PART 10, PART 26
-
 - RESOLVED: the autocert manager's HTTP-01 handler is mounted on the
   cleartext listener, and issued certificates are mirrored into the
   app-managed PEM layout. Successful on-demand renewals emit

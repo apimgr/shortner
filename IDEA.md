@@ -82,8 +82,9 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
 - Abuse cases & defenses:
   - Spam/phishing redirect abuse → write-rate-limited anonymous creation (PART 9/11);
     no proactive destination-URL blocklist/scanning is implemented (see below).
-  - Resource owner token brute-force/hijack → `tok_` + 32 random base62 chars keyspace,
-    SHA-256 hashed at rest, constant-time compare (PART 11).
+  - Resource owner token brute-force/hijack → `own_` + 32 random base62 chars keyspace,
+    SHA-256 hashed at rest, AES-256-GCM encrypted for owner recovery, and constant-time
+    compare (PART 11).
   - Short-code enumeration/scraping → 62^6 random keyspace for auto-generated codes makes
     guessing infeasible; a public, paginated list-all-links endpoint/page does exist
     (`/list`, `GET /api/{api_version}/links` — see "Security decisions & exceptions"),
@@ -100,9 +101,10 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
   plus operator-initiated takedown via `server.token` — there is no automated
   destination-URL content/malware scanning. This is a deliberate scope exception, not an
   oversight.
-- Resource owner tokens are bearer credentials with no recovery path if lost —
-  intentional, since there are no accounts to recover through; the operator can still
-  delete a link via `server.token` if it needs removing without its owner token.
+- Resource owner tokens are recoverable bearer credentials. Owners can reveal their
+  primary and linked tokens from `/server/preferences/tokens`; each token's encrypted
+  copy is stored with its hash. The `adm_` operator token remains separate in
+  `secrets.yml` and can revoke owner tokens.
 - Single fixed domain, no per-tenant custom domains — there is no user/owner entity to
   scope a custom domain to, so custom domains are out of scope entirely, not merely
   deferred.
@@ -134,7 +136,7 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
 
 **Endpoints (WHAT, not paths — see PART 14):**
 - Create short link with auto-generated or custom code (anonymous, rate-limited) →
-  returns the link plus a one-time owner token
+  returns the link and, only for a newly created owner, its recoverable `own_` token
 - Resolve/redirect short link (public, anonymous)
 - Get link click statistics — totals, time series, referrers, approximate locations
   (public GET; per the `/{slug}/{sub}` vanity convention in PART 16, exposed as the

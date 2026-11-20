@@ -170,9 +170,10 @@ and publishes the container's port 80.
 
 !!! note
     The production compose file also defines a Valkey sidecar and sets
-    `CACHE_URL`. The Go code does not read `CACHE_URL` today — the cache
-    package is present but not wired into the request path — so the sidecar
-    is currently inert. Remove it if you do not want the extra container.
+    `CACHE_URL`. On first run, the server saves that connection in
+    `server.yml` and uses Valkey for shared rate-limit counters. If Valkey
+    is unavailable, the server logs a warning and falls back to in-memory
+    rate limiting.
 
 ## Installing as a System Service
 

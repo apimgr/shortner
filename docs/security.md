@@ -62,15 +62,16 @@ There are three roles and no user accounts.
 |------|-------|--------|
 | Anonymous | nothing | Create links, resolve links, view any link's stats |
 | Resource owner | the owner's primary or linked token | Manage links belonging to that owner; primary tokens manage linked tokens too |
-| Operator | `server.token` from `secrets.yml` | Anything, on any link; access metrics |
+| Operator | `adm_` `server.token` from `secrets.yml` | Anything, on any link; access metrics |
 
 The primary `owner_token` is returned when an anonymous owner is created.
 The owner can restore it on another browser and reveal it on the token
 management page. Each owner's links reference the owner identity, so token
 rotation does not change resource ownership.
 
-Tokens are looked up by **SHA-256 hash** and an encrypted copy supports the
-explicit reveal action. Raw values never appear in logs or token-list
+Bearer credentials use `adm_`, `own_`, or `mtr_` plus 32 base62 characters.
+Tokens are looked up by **SHA-256 hash** and owner-token encrypted copies
+support the explicit reveal action. Raw values never appear in logs or token-list
 responses. The operator token comparison is constant-time.
 
 Configuration and backup passwords use **Argon2id**, not bcrypt. The two

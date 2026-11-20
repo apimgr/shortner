@@ -105,8 +105,8 @@ docker compose up -d
 This starts `shortner` (port `172.17.0.1:64580`) plus a `shortner-cache`
 (Valkey) sidecar. Config and data persist in `./volumes/config` and
 `./volumes/data`. `PORT` and `TZ` are configurable through the compose
-environment. The Valkey service is currently not connected to the server;
-`CACHE_URL` is present in compose but is not consumed by the Go config.
+environment. The server consumes `CACHE_URL` on first run, saves it as the
+Valkey connection, and uses the cache for shared rate-limit counters.
 
 ## Client
 

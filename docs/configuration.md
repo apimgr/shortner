@@ -115,7 +115,7 @@ exactly the fields it needs and leave the rest to `server.yml`.
 ```yaml
 server:
   # Operator API token; generated on first run
-  token: "tok_..."
+  token: "adm_..."
   address: "[::]"
   port: "8090"
   baseurl: "/"
@@ -276,9 +276,9 @@ settings (`url`, `host`, `port`, `username`, `password`, `db`, `tls`,
 `pool_size`, `min_idle`, `timeout`) are also available.
 
 !!! note
-    The cache package exists and is configurable, but it is not yet wired
-    into the request path. Changing these values has no observable effect
-    today, and the cache metrics report zero.
+    Redis and Valkey share atomic rate-limit counters across server
+    instances. Other cache-backed application data paths and cache metrics
+    are not yet wired into request handling.
 
 ### CORS and CSRF
 
@@ -623,8 +623,9 @@ server:
     include_runtime: true
 ```
 
-Each metrics service is gated by its own bearer token. An empty token
-means that service is unavailable. `allow_unauthenticated` is an escape
+Each metrics service is gated by its own `mtr_` bearer token. Missing
+tokens are generated and written to `secrets.yml` on first run.
+`allow_unauthenticated` is an escape
 hatch for a firewalled deployment and should stay off otherwise. See
 [Integrations](integrations.md#metrics).
 
