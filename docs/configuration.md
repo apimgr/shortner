@@ -2,9 +2,17 @@
 
 Configuration is merged from `server.yml`, optional ordered files in
 `yaml.d/`, and `secrets.yml` (which has the final precedence). `server.yml`
-is created with defaults on first run. See
+contains this node's listener and identity settings. At startup, legacy area
+settings are migrated into `yaml.d/`, with the original preserved as
+`server.yml.bak`. See
 [Installation](installation.md#filesystem-paths) for where it lands on each
 platform.
+
+Area files are named by purpose: `branding.yml`, `web.yml`, `pages.yml`,
+`contact.yml`, `privacy.yml`, `security.yml`, `logs.yml`, `metrics.yml`,
+`notifications.yml`, `tor.yml`, `i2p.yml`, `maintenance.yml`, `accounts.yml`,
+and `app.yml`. `secrets.yml` contains credentials only. Files are private
+(`0600`; directories `0700`).
 
 ## Precedence
 
@@ -16,8 +24,10 @@ command-line flag  >  environment variable  >  merged config files  >  built-in 
 
 File precedence is built-in defaults, `server.yml`, `yaml.d/` files in
 filename order, and `secrets.yml`. Drop-in maps merge recursively; later
-scalar or list values replace earlier values. The server stores its generated
-operator token and encryption key in `secrets.yml`.
+scalar or list values replace earlier values. Generated operator, encryption,
+and metrics credentials are stored in `secrets.yml`. Credentials found in
+`server.yml` or drop-ins are moved there before the merged configuration is
+loaded.
 
 ## Validation Never Blocks Startup
 
@@ -33,9 +43,10 @@ list.
 
 ## Hot Reload
 
-Contact anti-spam settings reload when `server.yml` changes. Branding and
-the visitor theme reload when `server.yml` or a YAML file in `yaml.d/`
-changes. Other settings take effect on the next restart. `SIGHUP` is ignored.
+Changes to `server.yml`, `yaml.d/`, `secrets.yml`, and `assets/` trigger a
+configuration reload. Invalid values use their defaults; an unparseable file
+keeps the last valid configuration. Listener address and port changes require
+a restart. `SIGHUP` is ignored.
 
 ## Modes and Debug
 
@@ -399,9 +410,8 @@ web:
 Image values may be HTTPS URLs, `data:` URIs (up to 256 KiB), or file names
 in `{config_dir}/assets/`. Local files must use `.svg`, `.png`, `.ico`,
 `.webp`, or `.jpg` and be no larger than 2 MiB. An empty value uses the
-embedded default. `server.seo.feed`
-and `server.seo.sitemap` remain in `server.yml` because they configure
-endpoints rather than branding.
+embedded default. SEO settings, including feed and sitemap settings, are
+assigned to `yaml.d/branding.yml` by the area-file schema.
 
 Page content supports `md`, `html`, or `txt`; header and footer content use
 HTML only. Language maps select the request language, then `default`.
@@ -437,25 +447,26 @@ resolves to `security@` at the detected FQDN. The `dpo` block drives the
 `/server/dpo` page, which is only routed when compliance settings or a DPO
 name require it.
 
-The help page content is configured under `pages:`. About, privacy, terms,
+The help page content is configured under `server.pages:`. About, privacy, terms,
 header, and footer extensions are configured as
 `server.branding.content.*` in `yaml.d/branding.yml` and sanitized before
 rendering. The terms entry replaces the built-in page; about and privacy
 extend their built-in content.
 
 ```yaml
-pages:
-  help:
-    content: ""
-  contact:
-    enabled: true
-    captcha: "simple"
-    captcha_site_key: ""
-    success_message: "Thank you for your message. We'll respond soon."
+server:
+  pages:
+    help:
+      content: ""
+    contact:
+      enabled: true
+      captcha: "simple"
+      captcha_site_key: ""
+      success_message: "Thank you for your message. We'll respond soon."
 ```
 
 The CAPTCHA secret key belongs in `secrets.yml` at
-`pages.contact.captcha_secret_key`, not in a shared configuration file.
+`server.pages.contact.captcha_secret_key`, not in a shared configuration file.
 
 The `simple` CAPTCHA creates a localized arithmetic challenge that works
 without JavaScript and over Tor or I2P. `recaptcha` and `hcaptcha` require both

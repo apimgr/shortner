@@ -147,7 +147,7 @@ config files win over built-in defaults.
 
 | Variable | Description |
 |----------|-------------|
-| `CONFIG_DIR` | config directory (holds `server.yml`, `yaml.d/`, `secrets.yml`, and `html/`) |
+| `CONFIG_DIR` | config directory (holds `server.yml`, `yaml.d/`, `secrets.yml`, and `assets/`) |
 | `DATA_DIR` | data directory |
 | `LOG_DIR` | log directory |
 | `DATABASE_DIR` | database directory (defaults inside the data directory) |
