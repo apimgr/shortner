@@ -5266,7 +5266,7 @@ sudo mv {project_name}-cli-linux-amd64 /usr/local/bin/{project_name}-cli
 
 ## Configuration
 
-Configuration is auto-generated on first run. Edit the config file directly.
+Configuration is auto-generated on first run: `server.yml` holds this node's settings, and everything else is built in until an area file in `yaml.d/` exists. Edit the files directly.
 
 Key settings:
 - `server.port` - Listen port (default: random 64xxx)
@@ -5467,7 +5467,7 @@ curl -L https://api.example.com/server/healthz
 
 | Rule | Description |
 |------|-------------|
-| **Files are the source of truth** | `server.yml`, the `yaml.d/` drop-ins and `secrets.yml` are the only places settings are changed; page content lives in `html/` |
+| **Files are the source of truth** | `server.yml`, the `yaml.d/` drop-ins and `secrets.yml` are the only places settings are changed; page content lives in `branding.yml` and branding images in `assets/` |
 | **Hot-reload** | Server watches `server.yml` for changes and reloads immediately |
 | **No runtime API config** | No endpoints that write to or mutate server configuration |
 | **Sane defaults** | Every setting has a working default; `server.yml` is optional for basic operation |
@@ -6441,7 +6441,7 @@ cd /path/to/project && docker build -f docker/Dockerfile .
 
 | Directory | Purpose | Examples |
 |-----------|---------|----------|
-| `{config_dir}` | User-editable configuration | `server.yml`, email templates, custom themes, SSL certs |
+| `{config_dir}` | User-editable configuration | `server.yml`, `yaml.d/`, `secrets.yml`, email templates, SSL certs |
 | `{data_dir}` | Application-managed data | databases, Tor keys, caches, GeoIP databases |
 | `{log_dir}` | Log files | `access.log`, `error.log`, `audit.log` |
 | `{backup_dir}` | Backup files | `.tar.gz` backup archives |
@@ -7610,7 +7610,7 @@ server:
 | Database connection | server.yml |
 | Server settings | server.yml |
 | Branding, SEO and theme | yaml.d/branding.yml |
-| Page content (about, privacy, terms, header, footer) | html/ |
+| Branding images | assets/ |
 | SSL settings | server.yml |
 | Owners and API tokens (owner, linked) | Database (`owners`, `api_tokens`: SHA-256 hash for lookup + AES-256-GCM encrypted copy for viewing) |
 | Resource state, audit log | Database |
@@ -7896,21 +7896,62 @@ func (req *CreateResourceRequest) Parse() (*Resource, error) {
 
 ### Drop-in Config Directory (`yaml.d`)
 
-**Large configs may be split into drop-in files in `{config_dir}/yaml.d/`, next to `server.yml`. The directory is optional; `server.yml` alone is always valid.**
+**`server.yml` holds only this node's own settings; every other setting lives in an area file in `{config_dir}/yaml.d/` ("Area Files and Automatic Migration"). Both layouts stay valid: a `server.yml` that still holds area sections is honored and is split automatically.**
 
 | Rule | Behavior |
 |------|----------|
 | **Files** | `*.yml` and `*.yaml`, regular files only (a symlink is followed only when its target stays inside `yaml.d/`). Hidden files, backups (`*.bak`, `*~`, `*.orig`), other extensions and subdirectories are ignored |
 | **Order** | Built-in defaults, then `server.yml`, then every drop-in in byte-wise filename order (`10-tls.yml`, `20-mail.yml`), and finally `secrets.yml`; a later file overrides an earlier one. CLI flags and environment variables keep their higher priority |
-| **Merge** | Maps merge key by key and recursively. A scalar or a list in a later file REPLACES the earlier value whole; lists are never appended; an explicit `null` is an error, not a reset |
-| **Keys** | Same dotted paths as `server.yml`; any section may live in any file, and one section may span several files |
-| **Validation** | The MERGED result goes through the normal config validation. An error names the file, line and key; a duplicate scalar key inside one file is an error |
-| **Reload** | The file watcher watches `server.yml`, `yaml.d/`, `secrets.yml` and `html/`. A change, add or remove re-merges everything. If the merged result is invalid, the last good config stays active and the error is logged |
-| **Generated values** | The server writes generated values only to `server.yml` (the saved random port) and to `secrets.yml` (`server.token`, `server.security.encryption_key`), never to a drop-in. If a drop-in sets the same non-secret key, the drop-in wins and the startup log says which file did |
-| **Permissions** | `server.yml`, `secrets.yml` and every drop-in are ALWAYS `0600`, and `yaml.d/` is `0700` (PART 8 → "Directory Validation Rules": private paths); a wrong mode is fixed at start, and a drop-in that is group or world writable and cannot be fixed is refused |
+| **Merge** | Maps merge key by key and recursively. A scalar or a list in a later file REPLACES the earlier value whole; lists are never appended; an explicit `null` is invalid (the key resets to its default), not a reset to nothing |
+| **Keys** | Same dotted paths as `server.yml`. The area table in "Area Files and Automatic Migration" says where each section belongs; the merge still accepts any section in any file |
+| **Validation** | Every value goes through the normal config validation, and an invalid value is replaced by its default with ONE warning that names the file, line and key (PART 12 → "Invalid → default"). A duplicate scalar key inside one file and an explicit `null` make that key invalid. A file that cannot be parsed at all is ignored (the last good copy of that file stays active, else the built-in defaults) and the error is logged. The server never fails to start because of configuration |
+| **Reload** | The file watcher watches `server.yml`, `yaml.d/`, `secrets.yml` and `assets/`. A change, add or remove re-merges everything; an invalid value resets that key to its default and an unparseable file keeps its last good copy ("Validation") |
+| **Generated values** | The server writes generated values (the saved random port) to `server.yml` and the secrets to `secrets.yml`. It writes area files only for the automatic migration, the admin panel, the setup flow, the CLI and the database sync. If two files set the same key, the later one wins and the startup log says which file did |
+| **Permissions** | `server.yml`, `secrets.yml` and every drop-in are ALWAYS `0600`, and `yaml.d/` is `0700` (PART 8 → "Directory Validation Rules": private paths); a wrong mode is fixed at start, and a drop-in that is group or world writable and cannot be fixed is refused: it is ignored and the error is logged |
 | **Early read** | Before the privileged bind (PART 8 startup, step 8e), ONLY `server.port` and `server.address` are read, from the same merged view (`server.yml`, then drop-ins in order). So a drop-in MAY set either key and it takes effect on the first start; neither key is rebound later (`server.address` and `server.port` need a restart, PART 12) |
 | **Backup** | `{config_dir}/yaml.d/` and `{config_dir}/secrets.yml` are included in backups whenever they exist (PART 21 → "Backup Contents") |
 - **Visibility:** the startup log lists each loaded drop-in in order (info level) and names the file that won for every overridden key (debug level); secret values are never logged.
+
+### Area Files and Automatic Migration
+
+**`server.yml` holds only this node's own settings. Every other setting lives in an area file in `{config_dir}/yaml.d/`, so the name of a file tells you what it configures.** The merge still accepts any section in any file; this table says where each section belongs:
+
+| File | Holds |
+|------|-------|
+| `server.yml` | This node only: `server.port`, `server.address`, `server.fqdn`, `server.mode`, `server.api_version`, `server.baseurl`, `server.user`, `server.group`, `server.pidfile`, `server.daemonize`, `server.debug`, `server.database` and the top-level `database`, `server.cache`, `server.ssl`, `server.trusted_proxies`, `server.cluster` |
+| `yaml.d/branding.yml` | `server.branding`, `server.seo`, `web.ui` ("Branding File") |
+| `yaml.d/web.yml` | `web.*` except `web.ui`; `server.cors`, `server.csrf`, `server.url_detection`, `server.compression`, `server.healthz`, `server.i18n` |
+| `yaml.d/pages.yml` | `server.pages` (the report form and its antispam, the help pages) |
+| `yaml.d/contact.yml` | `server.contact` |
+| `yaml.d/privacy.yml` | `server.privacy`, `server.compliance`, `server.tracking` |
+| `yaml.d/security.yml` | `server.security`, `server.rate_limit`, `server.geoip`, `server.limits`, `server.tokens`, `data.*` |
+| `yaml.d/logs.yml` | `server.logs` |
+| `yaml.d/metrics.yml` | `server.metrics` |
+| `yaml.d/notifications.yml` | `server.notifications` |
+| `yaml.d/tor.yml` | `server.tor` and the top-level `tor` |
+| `yaml.d/i2p.yml` | `server.i2p` |
+| `yaml.d/maintenance.yml` | `server.maintenance`, `server.scheduler`, `server.update`, `server.auto_update`, `server.backup`, `server.restore` |
+| `yaml.d/accounts.yml` | `server.auth`, `server.users`, `server.orgs`, `server.session`, `server.admin`, `server.admin_path` |
+| `yaml.d/app.yml` | Every other section, which is project-defined (the product's own settings) |
+| `secrets.yml` | Credentials only ("Secrets File") |
+
+Only the sections a project has apply. Each key has exactly one home, and the area files are the shared settings: API projects have no database sync, so they are plain files.
+
+Wherever this specification says a setting is set "in `server.yml`", it means that dotted path in the merged configuration, in whichever file the table assigns it to.
+
+**Header comment.** Every `server.yml` the server writes starts with this fixed comment, which the writer emits itself because comments are not kept when a file is rewritten: `# Settings of this node only (listen, identity, database, cache, ssl). Everything else lives in yaml.d/: branding.yml, web.yml, pages.yml, contact.yml, privacy.yml, security.yml, logs.yml, metrics.yml, notifications.yml, tor.yml, i2p.yml, maintenance.yml, accounts.yml, app.yml. Credentials live in secrets.yml.`
+
+**Automatic migration (every start).** An operator may keep using one big `server.yml`; the binary splits it:
+
+| Step | Behavior |
+|------|----------|
+| **When** | After the full configuration load (PART 8 startup, step 13), as the service user, on every start |
+| **Nothing to move** | Nothing is written |
+| **Moving** | A section the table assigns to another file moves there (the file is created `0600` when missing); the credentials listed in "Secrets File" move to `secrets.yml` wherever they are found. If that file already sets the same key it wins, and the `server.yml` value is dropped (debug log). A section the table does not know goes to `app.yml` |
+| **Order** | (1) copy the original to `server.yml.bak` (`0600`, replaced by each migration that changes something), (2) write every area file atomically (temporary file, fsync, rename), (3) rewrite `server.yml` without the moved keys and with the header comment. A crash in between leaves both copies, and the next start finishes the job because the merged result is the same either way |
+| **Values** | Never changed or re-validated by the migration. Comments inside moved sections are lost |
+| **Not possible** | A read-only configuration directory (for example a mounted ConfigMap): the migration is skipped with ONE warning per start and the server runs on the merged result as it is. A `server.yml` that cannot be parsed is not migrated ("Validation" above) |
+
 
 ### Secrets File (`secrets.yml`)
 
@@ -7920,7 +7961,7 @@ func (req *CreateResourceRequest) Parse() (*Resource, error) {
 |------|----------|
 | **Keys** | Only these, for every one the project has: `server.token`; `server.security.encryption_key` and `server.security.encryption_key_version`; `server.notifications.email.smtp.password`; `server.cache.password`; `server.database.password` and `server.database.token`; `server.pages.contact.captcha_secret_key`; `server.ssl.letsencrypt.dns_credentials`; `data.cve.api_key`; `server.backup.encryption_password`; `server.metrics.auth.tokens.*`; every webhook URL and its `_secret` under `server.contact.{role}.webhooks`; `server.auth.ldap.providers[].bind_password`; `server.auth.oidc.providers[].client_secret`. Every other key stays in `server.yml` |
 | **Written by** | The server writes generated, rotated and moved secrets to `secrets.yml` and ONLY there, never to `server.yml` and never to a drop-in: the first-run `server.token`, `server.security.encryption_key` with its version, and every rotation (`--maintenance secret rotate encryption_key`) |
-| **Operator-set values** | An operator MAY also put a secret key in `server.yml` or a drop-in (for example from configuration management). The merge order applies, so `secrets.yml` wins when both set the same key, and the server never moves a value the operator wrote elsewhere. A plaintext DNS credential is rewritten as `enc:v1:` in the file that holds it |
+| **Operator-set values** | An operator MAY write a secret key in `server.yml` or a drop-in (for example from configuration management). The automatic migration moves it to `secrets.yml` at the next start ("Area Files and Automatic Migration"), where it wins over any other file. A value may also be an environment reference such as `${DB_PASSWORD}`, which is moved like any other value. A plaintext DNS credential is rewritten as `enc:v1:` in the file that holds it |
 | **Migration** | At start, if `server.token` or `server.security.encryption_key` is found in `server.yml` and `secrets.yml` does not hold it, the server writes `secrets.yml` first (atomic, `0600`, fsynced) and only then rewrites `server.yml` without those keys, so a secret is never in both files and never lost |
 | **Early read** | The early config read (PART 8 startup, step 8e) never opens `secrets.yml`: it needs only `server.port` and `server.address` |
 | **Permissions** | Always `0600` (PART 8 → "Directory Validation Rules": private paths); a wrong mode is fixed at start |
@@ -8830,7 +8871,7 @@ Before proceeding, confirm you understand:
 - [ ] Boolean handling uses `config.ParseBool()` - NEVER `strconv.ParseBool()`
 - [ ] All boolean inputs accept truthy/falsy values (yes, enable, oui, etc.)
 - [ ] Environment variables: some runtime, some init-only
-- [ ] Config auto-created on first run with sane defaults
+- [ ] `server.yml` auto-created on first run (this node's settings only); area files in `yaml.d/` are created only when needed
 
 ---
 
@@ -9513,7 +9554,7 @@ func FromEnv() {
 | Behavior | Description |
 |----------|-------------|
 | No arguments | Initialize (if needed) and start server |
-| First run | Auto-create `server.yml` with defaults if absent, show banner with URLs and version |
+| First run | Auto-create `server.yml` (this node's settings only) if absent, show banner with URLs and version |
 | First run | Auto-create required directories |
 | Double-click (Windows) | Console window opens, server runs in foreground with banner |
 | Signals | Proper handling (SIGTERM, SIGINT, SIGHUP) |
@@ -10517,7 +10558,7 @@ Run '{project_name} <flag> --help' (for example `--service --help`) for detailed
 | **Create if missing** | All directories are created with proper permissions if they don't exist |
 | **Permissions (root)** | Directories: `0755`, Files: `0644`, PID: `0644`, except the private paths below |
 | **Permissions (user)** | Directories: `0700`, Files: `0600`, PID: `0600` |
-| **Private paths (root AND user mode)** | Directories `0700` and files `0600`, whoever runs the server, on: `{config_dir}/server.yml`, `{config_dir}/secrets.yml`, `{config_dir}/yaml.d/` and its drop-ins, `{config_dir}/html/`, `{config_dir}/ssl/`, `{config_dir}/tor/`, `{config_dir}/i2p/`, `{data_dir}/security/` and `{data_dir}/tor/` INCLUDING `tor/site/`, each with EVERYTHING below it. `server.yml` holds `server.token` and the encryption key, so it is private even when it contains no other secret. Files and directories are CREATED with these modes (never created `0644`/`0755` and fixed later) |
+| **Private paths (root AND user mode)** | Directories `0700` and files `0600`, whoever runs the server, on: `{config_dir}/server.yml`, `{config_dir}/secrets.yml`, `{config_dir}/yaml.d/` and its drop-ins, `{config_dir}/assets/`, `{config_dir}/ssl/`, `{config_dir}/tor/`, `{config_dir}/i2p/`, `{data_dir}/security/` and `{data_dir}/tor/` INCLUDING `tor/site/`, each with EVERYTHING below it. `server.yml` holds `server.token` and the encryption key, so it is private even when it contains no other secret. Files and directories are CREATED with these modes (never created `0644`/`0755` and fixed later) |
 | **Private path enforcement** | `enforcePrivate` runs on every private path at every start, BEFORE the first read of `server.yml` and BEFORE any child process (tor, i2pd) is spawned. A wrong mode is FIXED, never reported as a config load failure; only a path that is neither private nor fixable stops the start, with an error naming the path and its mode (never any content). The unit test builds the tree at `0755`/`0644` and asserts every private path ends `0700`/`0600`, `tor/site` and `server.yml` included |
 | **PID directory (root)** | `/var/run/{internal_org}/{internal_name}/`, one directory per service, `0755`, owned by `{internal_name}:{internal_name}`, created in the root phase (PART 8 startup step 8b) or by the init script before the start. Never a directory shared between services of one org: a service account can then remove only its own PID file on shutdown and can never touch another service's |
 | **Parent dirs** | Create parent directories as needed (`mkdir -p` equivalent) |
@@ -14785,7 +14826,7 @@ Server-Timing: db;dur=12.4, render;dur=3.1, total;dur=18.7
 
 ## IDEA.md → Header Tightening Auto-Map
 
-**At first-run setup, the binary reads `IDEA.md` and pre-fills `server.yml → web.headers.*` based on declared audience / compliance / data-class. Operator can override any of these post-setup; the auto-map only sets the initial defaults.**
+**At first-run setup, the binary reads `IDEA.md` and pre-fills `yaml.d/web.yml → web.headers.*` based on declared audience / compliance / data-class. Operator can override any of these post-setup; the auto-map only sets the initial defaults.**
 
 | `IDEA.md` declares | Headers auto-tightened |
 |--------------------|------------------------|
@@ -16511,7 +16552,7 @@ func validateConfig(cfg *Config) {
 | Principle | Rule |
 |-----------|------|
 | **Validate everything** | Check all config values on load |
-| **Invalid → default** | Replace invalid values with defaults |
+| **Invalid → default** | Replace each invalid value with its default and log ONE warning naming the file, line and key; a file that cannot be parsed is ignored (its last good copy, else the defaults) |
 | **Warn, don't error** | Log warning, don't fail startup |
 | **Never crash on config** | Server must start with sane defaults |
 
@@ -17532,7 +17573,7 @@ server:
 
 ### Built-in privacy text (not configurable)
 
-**The privacy page text below is project data, not configuration: it is never read from `server.yml`.** `data_usage` is shown when `server.privacy.data.sold` is false and `data_usage_if_sold` when it is true. An operator adds to the page with `{config_dir}/html/privacy.{html,md,txt}` ("Operator Content Files"); a project replaces these defaults in its own source.
+**The privacy page text below is project data, not configuration: it is never read from `server.yml`.** `data_usage` is shown when `server.privacy.data.sold` is false and `data_usage_if_sold` when it is true. An operator adds to the page with `server.branding.content.privacy` ("Page Content"); a project replaces these defaults in its own source.
 
 #### `data_collection`
 
@@ -17748,7 +17789,7 @@ func privacyData(r *http.Request) PrivacyTemplateData {
         CCPAOptedOut: ccpaOptedOut,
         // Built-in text (.Content.*), never from server.yml
         Content:      builtinPrivacy,
-        // Sanitized html/privacy.{html,md,txt} for this request's language, or ""
+        // Sanitized branding.content.privacy for this request's language, or ""
         Extension:    operatorHTML(r, "privacy"),
     }
 }
@@ -17764,7 +17805,7 @@ type PrivacyTemplateData struct {
     CCPAOptedOut bool
     // Built-in privacy text: .Content.DataCollection, .Content.DataSecurity
     Content      PrivacyContent
-    // Sanitized operator extension (html/privacy.*), "" when there is none
+    // Sanitized operator extension (branding.content.privacy), "" when there is none
     Extension    template.HTML
 }
 ```
@@ -25700,7 +25741,7 @@ document.querySelectorAll('.theme-toggle-form').forEach((form) => {
 
 | Partial | Purpose |
 |---------|---------|
-| `partial/public/header.tmpl` | Logo + top nav, then the operator `header.html` ("Operator Content Files") |
+| `partial/public/header.tmpl` | Logo + top nav, then `branding.content.header` ("Page Content") |
 | `partial/public/nav.tmpl` | Horizontal navigation links |
 | `partial/public/footer.tmpl` | About, Privacy links (never the report form) |
 | `partial/head.tmpl` | Shared `<head>` contents |
@@ -26704,9 +26745,9 @@ server:
     tagline: ""
     # Longer description for SEO/about
     description: ""
-    # URL or file name in {config_dir}/html/; empty = use embedded default
+    # https URL, data: URI or a file name in {config_dir}/assets/; empty = use embedded default
     favicon: ""
-    # URL or file name in {config_dir}/html/; empty = use embedded default
+    # https URL, data: URI or a file name in {config_dir}/assets/; empty = use embedded default
     logo: ""
 
   seo:
@@ -26724,14 +26765,70 @@ web:
   ui:
     # Default theme for visitors without a theme cookie: dark, light or auto
     theme: dark
+    # Brand color as #RRGGBB for links, buttons and the focus ring; empty = built-in. An invalid or low-contrast value is ignored
+    accent: ""
 ```
 
 | Rule | Behavior |
 |------|----------|
 | **Home** | `{config_dir}/yaml.d/branding.yml`, a normal drop-in (PART 5 → "Drop-in Config Directory"): same merge order, `0600`, hot reload and backup. These keys are not in the generated `server.yml` |
-| **Never generated** | The server does not create it. No file means the built-in defaults (the title is `{project_name}`). The operator creates it by hand |
+| **Never generated** | The server creates it only when the automatic migration moves branding keys into it or an admin or setup save writes it. No file means the built-in defaults (the title is `{project_name}`). The operator creates it by hand |
 | **Writes** | Only the operator writes it (API projects have no admin panel); the file watcher applies a change |
-| **Images** | `logo`, `favicon` and `seo.og_image` take a URL or a file name. A file name resolves in `{config_dir}/html/` (`.svg`, `.png`, `.ico`, `.webp`, `.jpg`, at most 2 MiB each); empty means the embedded default |
+| **Images** | `logo`, `favicon` and `seo.og_image` take an `https://` URL, a `data:` URI or a file name in `{config_dir}/assets/` ("Image Files"); empty means the embedded default |
+| **Accent** | `web.ui.accent` is a 6-digit hex color (`#RRGGBB`) that sets `--color-primary` (links, buttons, focus ring) and its `--color-primary-bg` tint in both themes. It must reach a 4.5:1 contrast ratio against the background of BOTH themes; a value that is not valid hex or fails the ratio is ignored, the built-in color is used, and one warning names the key. The server emits it in `/static/css/accent.css`, linked after the app stylesheet (never an inline style, CSP); no valid key, no file |
+
+### Page Content (`server.branding.content`)
+
+**The operator's own page content lives in `branding.yml`, next to the other branding keys, never in `server.yml`.** Every entry is optional, and each one either EXTENDS the built-in content or OVERRIDES it:
+
+| Entry | Mode | Effect |
+|-------|------|--------|
+| `header` | **Extends** | Inserted inside `<header>` of every public page, after the built-in logo and navigation. It replaces nothing |
+| `about` | **Extends** | Appended after the built-in About content |
+| `privacy` | **Extends** | Appended after the built-in privacy sections (after "Your Rights" and the consent controls) and before the Contact section. The built-in sections are never replaced, because they must stay in step with `server.privacy.*` |
+| `footer` | **Overrides** | Replaces the custom branding block above the Application Footer ("Footer Customization"). No entry: the built-in branding. An entry whose body is empty or whitespace-only: no branding. The Default Application Footer is always shown |
+| `terms` | **Overrides** | Replaces the built-in terms of service entirely. No entry: the built-in terms |
+
+```yaml
+server:
+  branding:
+    content:
+      about:
+        # md (default), html or txt; header and footer are html only
+        format: md
+        # One string for every language, or a map from language code to string with an optional `default` key
+        body:
+          default: |
+            Run by the Example team.
+          fr: |
+            Géré par l'équipe Example.
+      footer:
+        format: html
+        body: '<p>Powered by <strong>Example</strong></p>'
+```
+
+| Rule | Behavior |
+|------|----------|
+| **Format** | `md` is Markdown, rendered by the project's Markdown renderer. `html` is a fragment (no `<html>`, `<head>` or `<body>`). `txt` is plain text: HTML-escaped, a blank line starts a paragraph. `header` and `footer` are `html` only |
+| **Sanitizing** | Every body is sanitized before it renders; nothing the operator writes can run script. `header` and `footer` use the strict policy of "Footer Customization → Custom HTML Validation". `about`, `privacy` and `terms` (after Markdown rendering) use the same policy plus `table`, `thead`, `tbody`, `tr`, `th`, `td`, `pre`, `code`, `blockquote`, `hr`, `dl`, `dt`, `dd`, `sup`, `sub`, so ordinary documents keep their tables and code blocks |
+| **Language** | A `body` map picks the request's resolved language (PART 30 → "I18N & A11Y"), then its `default` key, then the built-in content. A plain string is used for every language |
+| **Variables** | The placeholders of "Footer Customization → Available Footer Variables" work in every body |
+| **Links** | A body MUST NOT link `/server/contact` (PART 16 → "Who can reach the form"). Scripts, styles, forms and frames are stripped by the sanitizer |
+| **Limits** | At most 256 KiB per body. A larger body, an unknown `format` or any other unusable value is ignored, one warning names the key, and the built-in content is used (the "Invalid → default" rule, PART 5) |
+| **Rendering** | One helper returns the final, sanitized, language-resolved HTML for a request: `operatorHTML(r, name)`, where `name` is `header`, `about`, `privacy`, `terms` or `footer`. It returns an empty string when there is no usable entry, and then the built-in content applies. Every template calls it; no handler reads the configuration itself |
+| **Overlay hosts** | Bodies are served as written. The Tor and I2P privacy rules apply to built-in content only, so an operator must not put clearnet identity into a body that is also shown on `.onion` or `.i2p` |
+
+### Image Files (`{config_dir}/assets/`)
+
+**`logo`, `favicon` and `seo.og_image` take one of three things; a URL or a data URI is preferred, because neither needs a file on any node:**
+
+| Value | Rule |
+|-------|------|
+| `https://` URL | Fetched and cached locally (see "Remote URL Fetching"); the cache is derived data and is not synced |
+| `data:` URI | At most 256 KiB, type `image/png`, `image/jpeg`, `image/webp`, `image/x-icon` or `image/svg+xml` |
+| File name | A file in `{config_dir}/assets/` (`.svg`, `.png`, `.ico`, `.webp`, `.jpg`, at most 2 MiB each). A name with a path, or a file that is missing, is ignored and the embedded default is used |
+
+SVG is rendered only through `<img>`, never inline. `assets/` is optional, `0700` with `0600` files (PART 8 → "Directory Validation Rules": private paths), watched like `yaml.d/`, and included in backups whenever it exists (PART 21 → "Backup Contents").
 
 ### Where Branding Is Used
 
@@ -27047,11 +27144,11 @@ server:
 
 | Source | Format | Example |
 |--------|--------|---------|
-| Local file | File in `{config_dir}/html/` | Set `logo` in `yaml.d/branding.yml` to the file name (no path) |
+| Local file | File in `{config_dir}/assets/` | Set `logo` in `yaml.d/branding.yml` to the file name (no path) |
 | Remote URL | URL input | `https://example.com/logo.png` |
 | Embedded default | - | Built-in fallback |
 
-**A local file** is stored in `{config_dir}/html/` and referenced by file name in `yaml.d/branding.yml`. A remote URL is fetched and cached locally; that cache is derived data and is not synced.
+**A local file** is stored in `{config_dir}/assets/` and referenced by file name in `yaml.d/branding.yml` ("Image Files"). A `data:` URI needs no file. A remote URL is fetched and cached locally; that cache is derived data and is not synced.
 
 ### Image Scaling
 
@@ -27485,49 +27582,21 @@ server:
 | Public endpoint POST'd to from anywhere | n/a (no auth, nothing to abuse) |
 | Browser-issued report to `/api/{api_version}/server/reports/*` | n/a (PART 14 reports are deliberately public; rate-limited per-IP) |
 
-## Operator Content Files (`{config_dir}/html/`)
-
-**Page content the operator writes lives in files, not in `server.yml`.** The directory `{config_dir}/html/` is optional and so is every file in it. A file either EXTENDS the built-in content or OVERRIDES it:
-
-| File | Mode | Effect |
-|------|------|--------|
-| `header.html` | **Extends** | Inserted inside `<header>` of every public page, after the built-in logo and navigation. It replaces nothing |
-| `about.{html,md,txt}` | **Extends** | Appended after the built-in About content |
-| `privacy.{html,md,txt}` | **Extends** | Appended after the built-in privacy sections (after "Your Rights" and the consent controls) and before the Contact section. The built-in sections are never replaced, because they must stay in step with `server.privacy.*` |
-| `footer.html` | **Overrides** | Replaces the custom branding block above the Application Footer ("Footer Customization"). No file: the built-in branding. An empty or whitespace-only file: no branding. The Default Application Footer is always shown |
-| `terms.{html,md,txt}` | **Overrides** | Replaces the built-in terms of service entirely. No file: the built-in terms |
-
-| Rule | Behavior |
-|------|----------|
-| **Format** | By extension. `.html` is a fragment (no `<html>`, `<head>` or `<body>`). `.md` is Markdown, rendered by the project's Markdown renderer. `.txt` is plain text: HTML-escaped, a blank line starts a paragraph. `header.html` and `footer.html` are HTML only |
-| **Sanitizing** | Every file is sanitized before it renders; nothing the operator writes can run script. `header.html` and `footer.html` use the strict policy of "Footer Customization → Custom HTML Validation". `about`, `privacy` and `terms` (any extension, after Markdown rendering) use the same policy plus `table`, `thead`, `tbody`, `tr`, `th`, `td`, `pre`, `code`, `blockquote`, `hr`, `dl`, `dt`, `dd`, `sup`, `sub`, so ordinary documents keep their tables and code blocks |
-| **Several formats** | If `about.html` and `about.md` both exist, the first of `.html`, `.md`, `.txt` wins; the others are ignored and the startup log names them |
-| **Language** | `{name}.{lang}.{ext}` (for example `terms.fr.md`) is used for a request whose resolved language is `{lang}` (PART 30 → "I18N & A11Y"); otherwise the file without a language; otherwise the built-in content |
-| **Variables** | The placeholders of "Footer Customization → Available Footer Variables" work in every file |
-| **Links** | A file MUST NOT link `/server/contact` (PART 16 → "Who can reach the form"). Scripts, styles, forms and frames are stripped by the sanitizer |
-| **Limits** | At most 256 KiB per file. A larger, unreadable or invalid file is ignored, the error is logged, and the built-in content (or the last good version) is used |
-| **Files** | Regular files only; a symlink is followed only when its target stays inside `html/`. Hidden files, backups (`*.bak`, `*~`, `*.orig`), other extensions and subdirectories are ignored |
-| **Permissions** | `html/` is `0700` and its files `0600` (PART 8 → "Directory Validation Rules": private paths) |
-| **Reload** | The file watcher watches `html/` like `yaml.d/`: an added, changed or removed file applies without a restart, and an invalid file keeps the last good content |
-| **Backup** | `{config_dir}/html/` is included in backups whenever it exists (PART 21 → "Backup Contents") |
-| **Overlay hosts** | Files are served as written. The Tor and I2P privacy rules apply to built-in content only, so an operator must not put clearnet identity into a file that is also shown on `.onion` or `.i2p` |
-
-
 ## Footer Customization
 
 ### Configuration
 
 **Note:** Analytics tracking → `server.tracking` (PART 12). Privacy/consent → `server.privacy` (PART 12).
 
-**There is no `server.yml` key for the footer.** The custom branding block above the Application Footer is the file `{config_dir}/html/footer.html` ("Operator Content Files"):
+**The custom branding block above the Application Footer is `server.branding.content.footer`** in `yaml.d/branding.yml` ("Page Content"):
 
-- No file: use the default branding (built-in)
-- An empty or whitespace-only file: disable branding, show only the Application Footer
+- No entry: use the default branding (built-in)
+- An entry whose body is empty or whitespace-only: disable branding, show only the Application Footer
 - Custom HTML: use your own branding (SANITIZED, no scripts)
 
 ### Custom HTML Validation
 
-**`footer.html` is SANITIZED before rendering. Scripts and dangerous elements are NEVER executed.**
+**`branding.content.footer` is SANITIZED before rendering. Scripts and dangerous elements are NEVER executed.**
 
 ```go
 import (
@@ -27586,7 +27655,7 @@ func ValidateFooterHTML(html string) (string, error) {
 
     // Warn if content was modified (sanitization applied)
     if html != sanitized && strings.TrimSpace(html) != "" {
-        log.Warnf("footer.html was sanitized: removed potentially dangerous content")
+        log.Warnf("branding.content.footer was sanitized: removed potentially dangerous content")
     }
 
     return sanitized, nil
@@ -27649,7 +27718,7 @@ func ValidateFooterHTML(html string) (string, error) {
 
 ### Sanitization Preview (Startup Log)
 
-When `html/footer.html` exists, the server logs at startup and on every reload:
+When `branding.content.footer` is set, the server logs at startup and on every reload:
 1. **Raw input** - What was configured
 2. **Sanitized output** - What will actually render
 3. **Warning** - If content was modified by sanitizer
@@ -27719,7 +27788,7 @@ When `html/footer.html` exists, the server logs at startup and on every reload:
 
 | Element | Config Key | Description |
 |---------|------------|-------------|
-| Custom branding HTML | `{config_dir}/html/footer.html` | HTML above application footer (sanitized) |
+| Custom branding HTML | `server.branding.content.footer` | HTML above application footer (sanitized) |
 
 **Related configuration:**
 - Analytics tracking: `analytics` section (PART 12: Analytics Tracking)
@@ -28478,7 +28547,7 @@ func trackingScript(r *http.Request) template.HTML {
   </section>
   {{ end }}
 
-  <!-- Operator extension (html/privacy.*): sanitized, appended before Contact -->
+  <!-- Operator extension (branding.content.privacy): sanitized, appended before Contact -->
   {{ if .Extension }}<section id="operator-extension">{{ .Extension }}</section>{{ end }}
 
   <!-- Contact -->
@@ -28578,11 +28647,11 @@ func trackingScript(r *http.Request) template.HTML {
 | **Data Policies** | `server.privacy.data.sold` (default: false), `server.privacy.data.stored_on_server`, `server.privacy.data.sharing[]` |
 | **Consent Banner** | `server.privacy.consent.message`, `server.privacy.consent.message_if_sold`, `server.privacy.consent.policy.url`, `server.privacy.consent.policy.text`, `server.privacy.consent.buttons.decline`, `server.privacy.consent.buttons.accept` |
 | **Cookie Descriptions** | `server.privacy.cookies.essential`, `server.privacy.cookies.preferences`, `server.privacy.cookies.analytics` |
-| **Privacy text** | Built-in, not configurable (`data_collection`, `data_usage`, `data_usage_if_sold`, `data_security`); the operator extends the page with `{config_dir}/html/privacy.{html,md,txt}` |
+| **Privacy text** | Built-in, not configurable (`data_collection`, `data_usage`, `data_usage_if_sold`, `data_security`); the operator extends the page with `server.branding.content.privacy` |
 | **Data Retention** | `server.privacy.retention.period`, `server.privacy.retention.export_available`, `server.privacy.retention.deletion_available` |
 | **Third Parties** | `server.privacy.third_party.services[]` (name, purpose, data_sent, policy_url) |
 
-**Built-in content provided; the operator extends it with the privacy file ("Operator Content Files").**
+**Built-in content provided; the operator extends it with `server.branding.content.privacy` ("Page Content").**
 
 ### /server/contact
 
@@ -28930,7 +28999,7 @@ curl -H "Accept: application/xml" https://jokes.example.com/api/v1/joke</code></
 | Changes | How terms may be updated |
 | Governing law | Jurisdiction |
 
-**Default template provided; the operator overrides it with the `terms` file (`{config_dir}/html/terms.{html,md,txt}`, "Operator Content Files").**
+**Default template provided; the operator overrides it with `server.branding.content.terms` ("Page Content").**
 
 ### Configuration
 
@@ -28994,25 +29063,25 @@ server:
 
 | Page | Config Keys |
 |------|-------------|
-| **About Page** | `{config_dir}/html/about.{html,md,txt}` (extends the built-in page) |
-| **Privacy Policy** | `{config_dir}/html/privacy.{html,md,txt}` (extends the built-in page) |
+| **About Page** | `server.branding.content.about` (extends the built-in page) |
+| **Privacy Policy** | `server.branding.content.privacy` (extends the built-in page) |
 | **Contact Page** | `pages.contact.enabled`, `pages.contact.captcha`, `pages.contact.success_message` (recipient: `server.contact.general.email`, falls back to `server.contact.admin.email`) |
 | **Help Page** | `pages.help.content` (Markdown) |
 | **Help MCP Page** | `pages.help.mcp` (Markdown, appended after the base MCP help sections) |
-| **Terms of Service** | `{config_dir}/html/terms.{html,md,txt}` (overrides the built-in terms) |
+| **Terms of Service** | `server.branding.content.terms` (overrides the built-in terms) |
 
 ### /server/ API Endpoints
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/api/{api_version}/server/about` | GET | About page (JSON, no auth): `title`, `content` (the source of the operator's `about` file after placeholder substitution, never rendered HTML; an empty string when there is no file) and `format` (`markdown`, `html` or `text`, from the file extension; `markdown` when there is no file) |
+| `/api/{api_version}/server/about` | GET | About page (JSON, no auth): `title`, `content` (the source of `server.branding.content.about` for the request's language after placeholder substitution, never rendered HTML; an empty string when there is no entry) and `format` (`markdown`, `html` or `text`, from its `format`; `markdown` when there is no entry) |
 | `/api/{api_version}/server/privacy` | GET | Privacy policy (JSON) |
 | `/api/{api_version}/server/contact` | GET | Contact form description (JSON, no auth): `fields` (list of `{name, type, required, max_length, required_when, max_length_when}`, see "Length limits"), `captcha` (`{provider: "simple", challenge_id, question}` for `simple`; `{provider, site_key, fallback}` for `recaptcha` and `hcaptcha`, where `fallback` is the same `{provider: "simple", challenge_id, question}` object; a new challenge on every call), `security_url`, `abuse_email`. Nothing else about recipients |
 | `/api/{api_version}/server/contact` | POST | Submit the report form in two calls (the first returns the `review` and a `review_token` and delivers nothing; the second repeats every field with `review_token` and `confirmed: true` and delivers): the fields above (including `type` and the fields that type requires), the `form_token` from the `GET`, no `website`, plus ONE captcha proof (`captcha_response`, or `captcha_id` + `captcha_answer`; see "No-JavaScript fallback and the simple challenge") |
 | `/api/{api_version}/server/auth/check` | GET | Token check (machine-only, no page; `Authorization: Bearer` required): `200` with `{kind}` when the token is valid (`kind` is `operator`, `owner` or, where the project has accounts, `user`), `401` otherwise. Side-effect free, rate-limited like other auth endpoints, never echoes the token |
 | `/api/{api_version}/server/help` | GET | Help page (JSON, no auth): `title`, `content` (Markdown source of `pages.help.content`) and `format` (always `markdown`) |
 | `/api/{api_version}/server/help/mcp` | GET | MCP help (JSON, no auth): `title`, `endpoint` (the resolved MCP URL) and `sections` (the `/server/help/mcp` sections in page order, each `{id, title, content}` with Markdown `content`) |
-| `/api/{api_version}/server/terms` | GET | Terms of service (JSON, no auth): `title`, `content` (the source of the `terms` override file, or the built-in terms in Markdown when there is no file) and `format` (`markdown`, `html` or `text`) |
+| `/api/{api_version}/server/terms` | GET | Terms of service (JSON, no auth): `title`, `content` (the source of `server.branding.content.terms` for the request's language, or the built-in terms in Markdown when there is no entry) and `format` (`markdown`, `html` or `text`) |
 | `/api/{api_version}/server/dpo` | GET | DPO contact (JSON): `name`, `email`, `privacy_url` |
 | `/api/{api_version}/server/security` | GET | Security overview (JSON, no auth): `contacts` (ordered list of `{type, value}` in RFC 9116 preference order: `github` with the private-vulnerability-reporting URL, `contact_form` with the absolute `/server/contact?security_id={id}` URL for the current id, `email` with the CC address; a channel that is not configured is omitted), `expires`, `pgp` (`{available, url, fingerprint}`: `url` is the absolute `/.well-known/pgp-key.asc` URL and `fingerprint` the 40-character uppercase hex v4 fingerprint without spaces; `available: false` with both `null` when no keypair exists), `policy_url`, `thanks_url`, `report_url` (the absolute `/server/contact` URL without `security_id`, for terms violations, DMCA notices and privacy requests; omitted when `server.pages.contact.enabled` is false) |
 | `/api/{api_version}/server/security/policy` | GET | Disclosure policy (JSON, no auth): `policy` (Markdown) |
@@ -31832,10 +31901,9 @@ groups:
 | `server.yml` | ✓ Always | Configuration file |
 | `{config_dir}/yaml.d/` | ✓ If exists | Drop-in config files |
 | `{config_dir}/secrets.yml` | ✓ If exists | Secrets (token, encryption key, credentials) |
-| `{config_dir}/html/` | ✓ If exists | Operator page content |
+| `{config_dir}/assets/` | ✓ If exists | Branding image files |
 | `server.db` | ✓ Always | Main database (settings, rate limits, audit log) |
 | `{config_dir}/template/` | ✓ If exists | Custom email templates |
-| `{config_dir}/theme/` | ✓ If exists | Custom themes |
 | `{config_dir}/ssl/` | Optional | SSL certificates (flag: `--include-ssl`) |
 | `{data_dir}/` | Optional | Data files (flag: `--include-data`) |
 

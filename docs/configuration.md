@@ -315,35 +315,6 @@ reports the variable name and does not fall back to HTTP-01 or TLS-ALPN-01.
 
 ```yaml
 server:
-  branding:
-    title: ""
-    site_name: ""
-    tagline: ""
-    description: ""
-    favicon: ""
-    logo: ""
-    logo_url: ""
-  seo:
-    description: ""
-    keywords: []
-    author: ""
-    og_image: ""
-    twitter_handle: ""
-    verification:
-      google: ""
-      bing: ""
-      yandex: ""
-      baidu: ""
-      pinterest: ""
-      facebook: ""
-      custom: []
-    feed:
-      max_items: 50
-      title: ""
-    sitemap:
-      enabled: true
-      max_urls: 50000
-      include_images: false
   contact:
     general:
       email: ""
@@ -375,6 +346,42 @@ server:
       email: ""
       address: ""
 ```
+
+Branding, SEO, and the default visitor theme belong in
+`{config_dir}/yaml.d/branding.yml`. The server does not generate this file;
+create it with mode `0600` to override embedded defaults:
+
+```yaml
+server:
+  branding:
+    title: "Shortner"
+    tagline: ""
+    description: ""
+    favicon: ""
+    logo: ""
+  seo:
+    keywords: []
+    author: ""
+    og_image: ""
+    twitter_handle: ""
+    verification:
+      google: ""
+      bing: ""
+      yandex: ""
+      baidu: ""
+      pinterest: ""
+      facebook: ""
+      custom: []
+web:
+  ui:
+    theme: dark
+```
+
+Image values may be HTTPS URLs or file names in `{config_dir}/html/`.
+Local files must use `.svg`, `.png`, `.ico`, `.webp`, or `.jpg` and be no
+larger than 2 MiB. An empty value uses the embedded default. `server.seo.feed`
+and `server.seo.sitemap` remain in `server.yml` because they configure
+endpoints rather than branding.
 
 The sitemap is generated dynamically at `/sitemap.xml`. It contains public
 pages and unexpired short-link redirect and stats URLs; API and management
@@ -697,7 +704,6 @@ logged as "would have sent". See
 
 ```yaml
 web:
-  theme: "dark"
   hsts:
     enabled: true
     max_age_seconds: 63072000
