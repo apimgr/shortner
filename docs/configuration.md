@@ -416,8 +416,8 @@ assigned to `yaml.d/branding.yml` by the area-file schema.
 Page content supports `md`, `html`, or `txt`; header and footer content use
 HTML only. Language maps select the request language, then `default`.
 Configured content is sanitized before rendering. `web.ui.accent` accepts a
-hex color only when it meets the configured contrast rule in both themes;
-invalid values use the built-in palette.
+six-digit hex color; the server adjusts lightness separately for dark and
+light themes to meet the contrast rule.
 
 The sitemap is generated dynamically at `/sitemap.xml`. It contains public
 pages and unexpired short-link redirect and stats URLs; API and management
