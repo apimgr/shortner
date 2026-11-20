@@ -689,9 +689,11 @@ yet exist.
 
 ## PART 31: Overlay networks (Tor & I2P)
 
-PART 31 is implemented for both networks. What remains here cannot be
-exercised in this build container (no `tor`, no `i2pd`, no SAM bridge) or
-is honestly deferred with a reason.
+PART 31 is implemented for both networks. The runtime Docker image includes
+`tor` and `i2pd`; its integration test confirms that Tor is detected while
+clearnet health remains available during bootstrap. This environment did not
+complete Tor bootstrap, and it has no external SAM bridge, so live overlay
+success paths still need a network-capable host.
 
 ### PART 31.1: Tor hidden service — implemented
 
@@ -719,12 +721,12 @@ wiring, `Tor: {onion_address}` printed once).
   asynchronous so Tor does not delay the clearnet listener.
   Read: AI.md PART 8, PART 31.1
 
-- DEFERRED (environment): no `tor` binary exists in this container, so
-  bootstrap, descriptor publication, a live circuit-ID PROXY header, and
-  `tor restart`/`regenerate` against a running daemon have never been
-  exercised end to end. Every failure path is unit-tested; the success
-  paths that need a live daemon are not (`src/tor` is at 63.9%).
-  Verify on a host that has Tor installed.
+- DEFERRED (environment): Tor was detected and started by the runtime image,
+  but remained in `starting` for more than 180 seconds here. Bootstrap,
+  descriptor publication, a live circuit-ID PROXY header, and `tor
+  restart`/`regenerate` against a bootstrapped daemon therefore remain
+  unverified. Unit tests cover failure paths (`src/tor` is at 49.9%); verify
+  live success paths on a network-capable host.
   Read: AI.md PART 31.1
 
 ### PART 31.2: I2P eepsite — implemented (opt-in, default off)
@@ -741,9 +743,10 @@ the trusted-proxy-gate exception for a `Host` matching the b32 address,
 10m (registered only when opt-in enabled), and the `I2P: http://{addr}`
 banner row.
 
-- DEFERRED (environment): no `i2pd` binary and no SAM bridge exist here,
-  so `startI2PD`/`waitForI2PDAddress` and a real tunnel are unexercised.
-  The SAM path is tested against a fake in-process SAMv3 server
+- DEFERRED (environment): the runtime image includes `i2pd`, but the
+  integration suite keeps I2P opt-in and this environment has no external
+  SAM bridge. `startI2PD` and a real tunnel remain unexercised. The SAM path
+  is tested against a fake in-process SAMv3 server
   (`src/i2p` is at 73.5%).
   Read: AI.md PART 31.2
 
