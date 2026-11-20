@@ -32,9 +32,9 @@ loaded.
 ## Validation Never Blocks Startup
 
 Invalid individual values are logged as warnings and replaced with their
-defaults. Malformed YAML, duplicate keys, explicit `null` values, and files
-that cannot be read are configuration errors and stop startup; these errors
-must be corrected before the server can load the merged configuration.
+defaults. A drop-in or secrets file that cannot be parsed is ignored and its
+last valid configuration remains active; when no prior valid version exists,
+the built-in defaults apply. Configuration errors never prevent startup.
 
 A second class of warning is informational: the value is kept, but you are
 told it may not do what you expect. For example, an HSTS `max_age_seconds`
@@ -393,6 +393,18 @@ server:
     author: ""
     og_image: ""
     twitter_handle: ""
+    title_separator: " - "
+    meta_tags: {}
+    canonical: ""
+    noindex: false
+    opengraph:
+      enabled: true
+      type: website
+      site_name: ""
+    twitter:
+      enabled: true
+      card: summary_large_image
+      creator: ""
     verification:
       google: ""
       bing: ""
@@ -430,7 +442,9 @@ with links.
 Public HTML pages emit route-specific robots directives, canonical URLs,
 Open Graph and Twitter metadata, and JSON-LD. SEO verification values are
 validated before rendering; invalid entries are omitted with a startup
-warning. Same-origin image paths are expanded to request-specific absolute
+warning. `canonical` overrides the request origin, `noindex` adds the
+`X-Robots-Tag` header across responses, and disabled Open Graph or Twitter
+settings omit their tag groups. Same-origin image paths are expanded to request-specific absolute
 URLs. Remote branding images are fetched over HTTPS with DNS, redirect,
 content-type, and size checks, then served from a daily cache on the same
 origin. Logo, favicon, and OpenGraph variants are resized locally, so Tor and
