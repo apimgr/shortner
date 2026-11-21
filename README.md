@@ -195,7 +195,7 @@ the host).
 | `make dev` | run in development mode with hot config |
 | `make local` | build a binary for the local OS/arch |
 | `make build` | build binaries for all 8 target platforms |
-| `make test` | run the test suite with coverage gate |
+| `make test` | check version precedence and run the test suite with coverage gate |
 | `make release` | build and package a release |
 | `make docker` | build the Docker image |
 

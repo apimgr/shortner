@@ -66,7 +66,7 @@ All six `make` targets run inside `casjaysdev/go:latest` with
 | `make dev` | Quick build to a temporary directory for iteration |
 | `make local` | Build a binary for the local OS/arch into `binaries/` |
 | `make build` | Build all 8 target platforms into `binaries/` |
-| `make test` | Run the Go test suite with the 60% coverage gate |
+| `make test` | Check version precedence, then run the Go test suite with the 60% coverage gate |
 | `make release` | Build and package release artifacts into `releases/` |
 | `make docker` | Build the container image from `docker/Dockerfile` |
 | `make clean` | Remove `binaries/` and `releases/` |
@@ -77,8 +77,9 @@ Target platforms are `linux`, `darwin`, `windows`, and `freebsd`, each on
 Build metadata is embedded via `-ldflags` into
 `src/common/version`: local builds use `$VERSION`, then `release.txt`, then
 `devel`; CI devel builds use the seven-character commit ID, beta builds use
-a UTC timestamp plus `-beta`, and stable releases use `release.txt` with the
-tag as the fallback. CI ignores `$VERSION`. `CommitID`, `BuildEpoch`, and
+a UTC timestamp plus `-beta`, and stable releases use the pushed tag with
+the leading `v` removed. A stable release fails if `release.txt` exists and
+does not match its tag. CI ignores `$VERSION`. `CommitID`, `BuildEpoch`, and
 `OfficialSite` (from `site.txt`) are also embedded.
 
 ### Building without Make
@@ -137,7 +138,7 @@ The shell entry points in `tests/` layer integration testing on top:
 
 | Script | Purpose |
 |--------|---------|
-| `tests/run_tests.sh` | Checks local version precedence, runs `make test`, then auto-detects Incus (falls back to Docker) and dispatches |
+| `tests/run_tests.sh` | Two-phase entry point: runs `make test`, then auto-detects Incus (falls back to Docker) and dispatches |
 | `tests/docker.sh` | Builds in `casjaysdev/go:latest`, checks the project runtime image's required tools and Tor health, then runs the suite inside a disposable `alpine:latest` container |
 | `tests/incus.sh` | Same suite inside `images:debian/trixie`, plus a real systemd service install/uninstall lifecycle |
 | `tests/suite.sh` | The shared in-container suite (binary info, first run, health, content negotiation, well-known, frontend pages, link CRUD, redirect/410/404, stats, token authorization, the `shortner-cli` client, rate limiting) |
