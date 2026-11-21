@@ -16,6 +16,12 @@ Interactive API pages are available at `/server/docs/swagger` and
 GraphQL endpoint accepts POST requests at `/api/{api_version}/server/graphql`
 (also `/api/graphql`).
 
+The Streamable HTTP MCP endpoint is available at
+`/api/{api_version}/server/mcp`, `/api/mcp`, and `/mcp`. It reuses API Bearer
+tokens and exposes permitted OpenAPI operations as tools. See
+[`/server/help/mcp`](https://shortner.example.com/server/help/mcp) for client
+setup and the live public tool list.
+
 GraphQL exposes `link(slug: String!)`, paginated `links(limit, offset)`, and
 `linkStats(slug: String!)`, plus query fields for the documented read-only
 REST operations. REST-backed fields use the operation ID from the OpenAPI
@@ -375,9 +381,9 @@ Every field is safe for anyone to see. Response:
 }
 ```
 
-`checks.tor` and `checks.i2p` are omitted unless those features are
-enabled. Since neither overlay network is implemented in this build, they
-always report disabled with `provider: none`.
+`checks.tor` and `checks.i2p` are omitted unless those features are enabled.
+Tor starts when a Tor binary is available; I2P remains opt-in and reports
+disabled until enabled and running.
 
 The plain-text form flattens the same fields, one `key: value` per line,
 in a fixed order: `project.*`, `status`, version and build, uptime, mode,
@@ -442,6 +448,7 @@ Server-rendered HTML. Every one of these works with JavaScript disabled.
 | `GET /server` | Redirects to `/server/about` |
 | `GET /server/about` | About page |
 | `GET /server/help` | Help page |
+| `GET /server/help/mcp` | MCP connection guide |
 | `GET /server/privacy` | Privacy policy |
 | `GET /server/terms` | Terms of service |
 | `GET /server/contact` | Private report form (noindex; reachable from `/server/security` and `security.txt`) |
@@ -465,6 +472,13 @@ Server-rendered HTML. Every one of these works with JavaScript disabled.
 | `GET /api/{api_version}/server/contact` | Report field descriptors, offered types, CAPTCHA descriptor, form token, security URL, and abuse email |
 | `POST /api/{api_version}/server/contact` | Submit a report for review; repeat all fields with the review token and confirmation to deliver |
 | `GET /api/{api_version}/server/auth/check` | Validate a Bearer token and return its kind |
+| `GET /api/{api_version}/server/help/mcp` | MCP help sections and resolved endpoint |
+| `GET /api/{api_version}/server/about` | About content |
+| `GET /api/{api_version}/server/privacy` | Privacy content |
+| `GET /api/{api_version}/server/terms` | Terms content |
+| `GET /api/{api_version}/server/security` | Security overview |
+| `GET /api/{api_version}/server/security/thanks` | Security acknowledgments |
+| `GET /api/{api_version}/server/security/policy` | Disclosure policy |
 | `GET /server/security/report/{tracking_id}` | Researcher report status (requires the one-time status token) |
 | `POST /server/consent` | Cookie consent choice |
 | `POST /server/theme` | Theme preference |

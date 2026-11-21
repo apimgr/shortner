@@ -472,6 +472,7 @@ server:
   pages:
     help:
       content: ""
+      mcp: ""
     contact:
       enabled: true
       captcha: "simple"

@@ -2,6 +2,7 @@
 
 [![License](https://img.shields.io/github/license/apimgr/shortner)](LICENSE.md)
 [![Release](https://img.shields.io/github/v/release/apimgr/shortner)](https://github.com/apimgr/shortner/releases)
+[![CI](https://github.com/apimgr/shortner/actions/workflows/ci.yml/badge.svg)](https://github.com/apimgr/shortner/actions/workflows/ci.yml)
 
 ## About
 
@@ -29,21 +30,11 @@ https://shortner.example.com
   rate limits, content filtering, strike bans, and silent honeypot drops
 - HTTPS service worker with cached static assets and an offline fallback
 - REST API for link creation, listing, management, analytics, and health,
-  with OpenAPI and read-only GraphQL, including a JSON contact-form mirror
+  with OpenAPI, read-only GraphQL, and MCP tools using the same API tokens
 - Local GeoIP enrichment for click analytics and country-based controls
 - Tor v3 hidden service when a Tor binary is available; optional I2P eepsite
 - Single static server binary; overlay networking uses optional system runtimes
 - Companion `shortner-cli` with command-line, terminal, and optional native GUI interfaces
-
-## Documentation
-
-The operator and developer guides are in [`docs/`](docs/index.md), including
-the [API reference](docs/api.md), [configuration guide](docs/configuration.md),
-[security model](docs/security.md), and [translation guide](docs/translating.md).
-The live API pages at `/server/docs/swagger` and `/server/docs/graphql` list
-the implemented operations and provide interactive request/query controls.
-Builds regenerate OpenAPI JSON and GraphQL introspection from the API code
-and embed both documents in the server binary.
 
 ## Production
 
@@ -94,6 +85,17 @@ Download and add to `%PATH%`.
 |------|--------|
 | amd64 | `shortner-freebsd-amd64` |
 | arm64 | `shortner-freebsd-arm64` |
+
+### systemd
+
+Install the server as a system service and start it with:
+
+```bash
+sudo shortner --service --install
+```
+
+The command installs and enables the service using the stable internal
+service name. Manage it with `shortner --service start|stop|restart|reload`.
 
 ### Docker
 
@@ -182,6 +184,13 @@ their health object directly.
 | `GET https://shortner.example.com/server/healthz` | health check |
 
 ## Other
+
+Operator and developer guides are in [`docs/`](docs/index.md), including the
+[API reference](docs/api.md), [configuration guide](docs/configuration.md),
+[security model](docs/security.md), and [translation guide](docs/translating.md).
+The server also provides interactive [OpenAPI](/server/docs/swagger),
+[GraphQL](/server/docs/graphql), and [MCP connection](/server/help/mcp)
+documentation. API specifications are generated from the route contracts.
 
 Issues and feature requests: [GitHub Issues](https://github.com/apimgr/shortner/issues).
 

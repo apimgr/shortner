@@ -18,8 +18,7 @@ app_name:        Shortner
 official_site:   https://shortner.example.com
 maintainer_name: casjay
 maintainer_email: casjay@yahoo.com
-owner_token:     shortner_owner_token_Lu2YwQRQ
-
+owner_token: <placeholder>
 ## Business logic
 
 ### Product scope & non-goals
@@ -61,6 +60,8 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
   logs or list responses.
 - No Tier 1 data is ever collected: no passwords, no accounts, no raw visitor IPs after
   anonymization.
+- Operators can export an owner's resource and token metadata without token secrets,
+  delete owner data, and generate an aggregate compliance summary.
 
 ### Trust boundaries & external services
 - GeoIP database (PART 19): local/offline lookup only, used to derive approximate click

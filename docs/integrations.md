@@ -346,8 +346,9 @@ Stated explicitly so they are not assumed:
 - **No machine or agent identity framework** beyond bearer tokens.
 - **OpenAPI and GraphQL** are available through the API documentation pages
   and the versioned and current-version API endpoints. GraphQL is read-only.
-- **MCP endpoint and help page** are required by AI.md but are not
-  implemented yet.
+- **MCP endpoint and help page** expose eligible API operations as tools over
+  Streamable HTTP, reuse API Bearer tokens, and are documented at
+  `/server/help/mcp`.
 - **Cache scope.** Redis and Valkey provide shared atomic rate-limit
   counters. General page, API-response, GeoIP, and blocklist caching is
   not yet wired into application request paths.

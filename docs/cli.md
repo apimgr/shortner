@@ -248,11 +248,18 @@ for seven days to validate in-flight security links. Encryption-key rotation
 re-seals stored token copies and security-report bodies and retains the old
 key for the specified 30-day grace period. Neither secret value is printed.
 
-## Not Yet Implemented
+## Data and compliance maintenance
 
-These `--maintenance` actions are specified but not built:
+Exports contain owner metadata, token metadata without token values or
+hashes, and the owner's resources. Deletion removes the owner, tokens, and
+resources transactionally after confirmation. Compliance reports contain
+aggregate counts and do not include owner identifiers.
 
-`data` and `compliance`.
+```text
+shortner --maintenance data export --owner <prefix> [--output FILE]
+shortner --maintenance data delete --owner <prefix> [--yes]
+shortner --maintenance compliance report
+```
 
 Owner tokens can be listed without revealing their raw values, or revoked
 by prefix:
