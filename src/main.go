@@ -776,13 +776,14 @@ func run(args []string) int {
 		host = "localhost"
 	}
 	banner.PrintStartupBanner(banner.BannerConfig{
-		AppName: binaryName,
-		Version: version.Version,
-		AppMode: mode.GetCurrentAppMode().String(),
-		Debug:   mode.IsDebugEnabled(),
-		URLs:    startupURLsForConfiguredPorts(cfg, p, scheme, host),
-		Lang:    cliLang,
-		Setup:   firstRunSetup(generated, cfg.Server.Token, p.ConfigFile),
+		AppName:         binaryName,
+		Version:         version.Version,
+		AppMode:         mode.GetCurrentAppMode().String(),
+		Debug:           mode.IsDebugEnabled(),
+		URLs:            startupURLsForConfiguredPorts(cfg, p, scheme, host),
+		StartupDateTime: banner.FormatStartupDateTime(time.Now()),
+		Lang:            cliLang,
+		Setup:           firstRunSetup(generated, cfg.Server.Token, p.ConfigFile),
 	})
 	// Start overlays after the single banner write so their asynchronous
 	// startup messages cannot split the banner.

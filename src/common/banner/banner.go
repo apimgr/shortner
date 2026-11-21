@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
+	_ "time/tzdata"
 
 	"github.com/apimgr/shortner/src/common/display"
 	"github.com/apimgr/shortner/src/common/i18n"
@@ -14,6 +16,30 @@ import (
 )
 
 var outputMu sync.Mutex
+
+const (
+	defaultTimezone       = "America/New_York"
+	startupDateTimeLayout = "January 02, 2006 at 15:04:05 MST"
+)
+
+// FormatStartupDateTime formats a startup timestamp using TZ, defaulting to
+// America/New_York, as required for user-facing timestamps in AI.md.
+func FormatStartupDateTime(value time.Time) string {
+	timezone := strings.TrimSpace(os.Getenv("TZ"))
+	if timezone == "" {
+		timezone = defaultTimezone
+	}
+
+	location, err := time.LoadLocation(timezone)
+	if err != nil {
+		location, err = time.LoadLocation(defaultTimezone)
+	}
+	if err != nil {
+		location = time.UTC
+	}
+
+	return value.In(location).Format(startupDateTimeLayout)
+}
 
 // BannerConfig describes the values shown in the startup banner.
 type BannerConfig struct {
@@ -23,6 +49,8 @@ type BannerConfig struct {
 	AppMode string
 	Debug   bool
 	URLs    []string
+	// StartupDateTime is the human-readable server start time.
+	StartupDateTime string
 	// Setup contains the first-run setup block, when present.
 	Setup []string
 	// Lang is the resolved output language (AI.md PART 30). An empty or
@@ -92,6 +120,9 @@ func startupBannerFull(cfg BannerConfig, size terminal.TerminalSize) string {
 		for _, u := range cfg.URLs {
 			writeBoxLine(&out, width, label(cfg, "cli.url_label")+": "+u)
 		}
+		if cfg.StartupDateTime != "" {
+			writeBoxLine(&out, width, label(cfg, "cli.server_started_label")+" "+cfg.StartupDateTime)
+		}
 		for _, line := range cfg.Setup {
 			writeBoxLine(&out, width, line)
 		}
@@ -104,6 +135,9 @@ func startupBannerFull(cfg BannerConfig, size terminal.TerminalSize) string {
 	writeBoxLine(&out, width, label(cfg, "cli.mode_label")+": "+modeLabel(cfg))
 	for _, u := range cfg.URLs {
 		writeBoxLine(&out, width, label(cfg, "cli.url_label")+": "+u)
+	}
+	if cfg.StartupDateTime != "" {
+		writeBoxLine(&out, width, label(cfg, "cli.server_started_label")+" "+cfg.StartupDateTime)
 	}
 	for _, line := range cfg.Setup {
 		writeBoxLine(&out, width, line)
@@ -149,6 +183,9 @@ func startupBannerCompact(cfg BannerConfig) string {
 	fmt.Fprintf(&out, "%s · %s (%s)\n", cfg.AppName, cfg.Version, modeLabel(cfg))
 	for _, u := range cfg.URLs {
 		fmt.Fprintln(&out, label(cfg, "cli.url_label")+": "+u)
+	}
+	if cfg.StartupDateTime != "" {
+		fmt.Fprintln(&out, label(cfg, "cli.started_label")+": "+cfg.StartupDateTime)
 	}
 	for _, line := range cfg.Setup {
 		fmt.Fprintln(&out, line)

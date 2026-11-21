@@ -46,16 +46,20 @@ jobs:
 
       - name: Set build info
         run: |
-          echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          COMMIT_ID="$(git rev-parse --short=7 HEAD)"
+          echo "COMMIT_ID=${COMMIT_ID}" >> $GITHUB_ENV
           echo "YYMM=$(date +"%y%m")" >> $GITHUB_ENV
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            VERSION="${GITHUB_REF#refs/tags/}"
-            echo "VERSION=${VERSION#v}" >> $GITHUB_ENV
+            VERSION="${GITHUB_REF_NAME#v}"
             echo "IS_TAG=true" >> $GITHUB_ENV
+          elif [[ "${{ github.ref }}" == refs/heads/beta ]]; then
+            VERSION="$(date -u +%Y%m%d%H%M%S)-beta"
+            echo "IS_TAG=false" >> $GITHUB_ENV
           else
-            echo "VERSION=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+            VERSION="$COMMIT_ID"
             echo "IS_TAG=false" >> $GITHUB_ENV
           fi
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
           BUILD_EPOCH=$(date -u +%s)
           echo "BUILD_EPOCH=${BUILD_EPOCH}" >> $GITHUB_ENV
           echo "BUILD_DATE=$(date -u -d @${BUILD_EPOCH} +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_ENV

@@ -152,7 +152,7 @@
   top: 1rem;
   right: 1rem;
   left: 1rem;
-  z-index: 2000;
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -350,7 +350,7 @@
   width: 100%;
   background: #7c5295;
   color: #ffffff;
-  z-index: 9999;
+  z-index: var(--z-banner);
 }
 
 .cookie-banner-content {

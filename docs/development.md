@@ -75,11 +75,11 @@ Target platforms are `linux`, `darwin`, `windows`, and `freebsd`, each on
 `amd64` and `arm64` — eight binaries, all statically linked with no CGO.
 
 Build metadata is embedded via `-ldflags` into
-`src/common/version`: local builds use `$VERSION`, then `release.txt`, then
-`devel`; CI devel builds use the seven-character commit ID, beta builds use
-a UTC timestamp plus `-beta`, and stable releases use the pushed tag with
-the leading `v` removed. A stable release fails if `release.txt` exists and
-does not match its tag. CI ignores `$VERSION`. `CommitID`, `BuildEpoch`, and
+`src/common/version`: local Makefile builds use `$VERSION`, then a non-empty
+`release.txt`, then the seven-character commit ID (or `devel` outside git).
+CI never reads `release.txt` or `$VERSION`: devel builds use the seven-character
+commit ID, beta builds use a UTC timestamp plus `-beta`, and stable releases
+use the pushed tag with the leading `v` removed. `CommitID`, `BuildEpoch`, and
 `OfficialSite` (from `site.txt`) are also embedded.
 
 ### Building without Make

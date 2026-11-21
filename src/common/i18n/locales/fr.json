@@ -584,6 +584,8 @@
     "running_in_mode": "Exécution en mode : {app_mode}",
     "mode_label": "Mode",
     "url_label": "URL",
+    "started_label": "Démarré",
+    "server_started_label": "Serveur démarré le",
     "running_pid": "{project_name} est en cours d'exécution (PID {pid})",
     "not_running": "{project_name} n'est pas en cours d'exécution",
     "update_available": "Mise à jour disponible : {current} -> {latest} (canal {channel}, vérifié {checked})",

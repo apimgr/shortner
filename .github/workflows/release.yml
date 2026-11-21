@@ -49,12 +49,9 @@ jobs:
 
       - name: Set build info
         run: |
-          if [ -f release.txt ]; then
-            echo "VERSION=$(cat release.txt)" >> $GITHUB_ENV
-          else
-            echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
-          fi
-          echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "COMMIT_ID=$(git rev-parse --short=7 HEAD)" >> $GITHUB_ENV
           BUILD_EPOCH=$(date -u +%s)
           echo "BUILD_EPOCH=${BUILD_EPOCH}" >> $GITHUB_ENV
           echo "BUILD_DATE=$(date -u -d @${BUILD_EPOCH} +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_ENV
@@ -124,8 +121,8 @@ jobs:
       - name: Set version
         run: |
           TAG="${GITHUB_REF_NAME}"
-          # VERSION for version.txt (strip v if present)
-          echo "VERSION=${TAG#v}" >> $GITHUB_ENV
+          VERSION="${TAG#v}"
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
           # RELEASE_TAG: add v prefix only if semver without v
           if [[ "$TAG" == v* ]]; then
             echo "RELEASE_TAG=$TAG" >> $GITHUB_ENV

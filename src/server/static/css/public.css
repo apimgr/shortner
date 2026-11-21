@@ -127,7 +127,7 @@ article pre {
 
 .contact-review {
   position: fixed;
-  z-index: 1000;
+  z-index: var(--z-modal);
   inset: 50% auto auto 50%;
   width: min(90vw, 36rem);
   max-height: 85vh;

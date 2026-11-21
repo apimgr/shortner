@@ -50,6 +50,18 @@ input, button, textarea, select {
   --color-info: #8be9fd;
   --color-link: #8be9fd;
 
+  --z-below: -1;
+  --z-base: 0;
+  --z-raised: 10;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-banner: 250;
+  --z-overlay: 300;
+  --z-drawer: 350;
+  --z-modal: 400;
+  --z-toast: 500;
+  --z-tooltip: 600;
+
   color-scheme: dark;
 }
 
@@ -145,7 +157,7 @@ textarea:focus-visible,
   background: var(--color-surface);
   color: var(--color-fg);
   padding: 0.5rem 1rem;
-  z-index: 1000;
+  z-index: var(--z-raised);
 }
 
 .skip-link:focus {

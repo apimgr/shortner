@@ -67,13 +67,20 @@ __make_temp_dir() {
   printf '%s\n' "$dir"
 }
 
-# Version string, resolved the same way the Makefile resolves it.
+# Version string, resolved the same way the Makefile resolves local builds.
 __build_version() {
-  if [ -s "$project_dir/release.txt" ]; then
-    tr -d '[:space:]' <"$project_dir/release.txt"
-  else
-    printf '%s' "${VERSION:-devel}"
+  if [ -n "${VERSION:-}" ]; then
+    printf '%s' "$VERSION"
+    return
   fi
+  if [ -r "$project_dir/release.txt" ]; then
+    release_version="$(tr -d '[:space:]' <"$project_dir/release.txt")"
+    if [ -n "$release_version" ]; then
+      printf '%s' "$release_version"
+      return
+    fi
+  fi
+  git -C "$project_dir" rev-parse --short=7 HEAD 2>/dev/null || printf 'devel'
 }
 
 # Reports whether src/client is a real buildable `package main`. It is, as

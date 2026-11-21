@@ -4,8 +4,8 @@
 PROJECT_NAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|\.git/?$$||' | sed -E 's|.*/||' || basename "$$(pwd)")
 PROJECT_ORG  := $(shell git remote get-url origin 2>/dev/null | sed -E 's|\.git/?$$||' | sed -E 's|.*/([^/]+)/[^/]+$$|\1|' || basename "$$(dirname "$$(pwd)")")
 
-# Version precedence: release.txt (wins if it exists) > VERSION env var > "devel" fallback
-VERSION := $(shell cat release.txt 2>/dev/null || echo "$${VERSION:-devel}")
+# Local builds only: VERSION override > non-empty release.txt > short commit ID (or devel outside git)
+VERSION ?= $(shell v=; [ -r release.txt ] && v=$$(tr -d '[:space:]' < release.txt); if [ -n "$$v" ]; then echo "$$v"; else git rev-parse --short=7 HEAD 2>/dev/null || echo devel; fi)
 
 # Build info - BUILD_EPOCH is the single captured time source
 # Unix build timestamp (seconds, UTC) - used by the updater's daily-channel check
@@ -195,6 +195,8 @@ i18n-validate:
 # under the two-CPU Docker test limit.
 test: i18n-validate
 	@mkdir -p $(GO_CACHE) $(GO_BUILD)
+	@echo "Checking version precedence..."
+	@$(GO_DOCKER) bash tests/version_precedence.sh
 	@echo "Running tests with coverage..."
 	@$(GO_DOCKER) sh -c " \
 		mkdir -p \"\$${TMPDIR:-/tmp}/$(PROJECT_ORG)\" && \

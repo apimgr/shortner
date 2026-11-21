@@ -605,6 +605,8 @@
     "running_in_mode": "يعمل في الوضع: {app_mode}",
     "mode_label": "الوضع",
     "url_label": "URL",
+    "started_label": "بدأ",
+    "server_started_label": "بدأ الخادم في",
     "running_pid": "{project_name} قيد التشغيل (PID {pid})",
     "not_running": "{project_name} غير قيد التشغيل",
     "update_available": "يتوفر تحديث: {current} -> {latest} (القناة {channel}، تم الفحص {checked})",

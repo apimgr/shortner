@@ -584,6 +584,8 @@
     "running_in_mode": "実行モード：{app_mode}",
     "mode_label": "モード",
     "url_label": "URL",
+    "started_label": "起動",
+    "server_started_label": "サーバー起動日時",
     "running_pid": "{project_name} は実行中です（PID {pid}）",
     "not_running": "{project_name} は実行されていません",
     "update_available": "更新があります：{current} -> {latest}（チャンネル {channel}、確認日時 {checked}）",

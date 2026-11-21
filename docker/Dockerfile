@@ -7,7 +7,7 @@ FROM casjaysdev/go:latest AS builder
 RUN apk add --no-cache git bash
 
 ARG TARGETARCH
-ARG VERSION=dev
+ARG VERSION
 # BUILD_EPOCH is the single embedded time source; BuildDate is derived from it at process start
 ARG BUILD_EPOCH
 ARG COMMIT_ID
@@ -23,7 +23,8 @@ RUN go mod download
 # Copy source and build
 COPY . .
 RUN go generate ./src/swagger
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} GOFLAGS=-buildvcs=false go build \
+RUN if [ -z "$VERSION" ]; then VERSION="$(git rev-parse --short=7 HEAD 2>/dev/null || echo devel)"; fi && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} GOFLAGS=-buildvcs=false go build \
     -trimpath \
     -ldflags "-s -w -X 'github.com/apimgr/shortner/src/common/version.Version=${VERSION}' -X 'github.com/apimgr/shortner/src/common/version.CommitID=${COMMIT_ID}' -X 'github.com/apimgr/shortner/src/common/version.BuildEpoch=${BUILD_EPOCH}' -X 'github.com/apimgr/shortner/src/common/version.OfficialSite=${OFFICIAL_SITE}'" \
     -o /app/binary/shortner ./src
@@ -36,7 +37,6 @@ FROM alpine:latest
 # ARGs for build-time values (set by docker build --build-arg)
 # BUILD_DATE is passed here only because org.opencontainers.image.created
 # annotations are set from this value at build time
-ARG VERSION=dev
 ARG BUILD_DATE
 ARG BUILD_EPOCH
 ARG COMMIT_ID

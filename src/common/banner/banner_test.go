@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/apimgr/shortner/src/common/terminal"
 )
@@ -52,17 +53,39 @@ func TestModeLabel(t *testing.T) {
 	}
 }
 
+func TestFormatStartupDateTimeUsesConfiguredOrDefaultTimezone(t *testing.T) {
+	instant := time.Date(2026, time.January, 5, 19, 3, 7, 0, time.UTC)
+	tests := []struct {
+		name     string
+		timezone string
+		want     string
+	}{
+		{name: "default", want: "January 05, 2026 at 14:03:07 EST"},
+		{name: "configured", timezone: "UTC", want: "January 05, 2026 at 19:03:07 UTC"},
+		{name: "invalid falls back", timezone: "not/a-zone", want: "January 05, 2026 at 14:03:07 EST"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("TZ", tt.timezone)
+			if got := FormatStartupDateTime(instant); got != tt.want {
+				t.Errorf("FormatStartupDateTime() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPrintStartupBannerFull(t *testing.T) {
 	cfg := BannerConfig{
-		AppName: "shortner",
-		Version: "1.0.0",
-		AppMode: "production",
-		URLs:    []string{"http://localhost:8090/"},
+		AppName:         "shortner",
+		Version:         "1.0.0",
+		AppMode:         "production",
+		URLs:            []string{"http://localhost:8090/"},
+		StartupDateTime: "January 05, 2026 at 14:03:07 EST",
 	}
 	out := captureStdout(t, func() {
 		printStartupBannerFull(cfg, terminal.TerminalSize{Cols: 80, Rows: 24, Mode: terminal.SizeModeStandard})
 	})
-	for _, want := range []string{"shortner", "1.0.0", "production", "http://localhost:8090/"} {
+	for _, want := range []string{"shortner", "1.0.0", "production", "http://localhost:8090/", "Server started on January 05, 2026 at 14:03:07 EST"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("full banner output = %q, want to contain %q", out, want)
 		}
@@ -70,9 +93,9 @@ func TestPrintStartupBannerFull(t *testing.T) {
 }
 
 func TestPrintStartupBannerCompact(t *testing.T) {
-	cfg := BannerConfig{AppName: "shortner", Version: "1.0.0", AppMode: "production", URLs: []string{"http://x/"}}
+	cfg := BannerConfig{AppName: "shortner", Version: "1.0.0", AppMode: "production", URLs: []string{"http://x/"}, StartupDateTime: "January 05, 2026 at 14:03:07 EST"}
 	out := captureStdout(t, func() { printStartupBannerCompact(cfg) })
-	if !strings.Contains(out, "shortner") || !strings.Contains(out, "http://x/") {
+	if !strings.Contains(out, "shortner") || !strings.Contains(out, "http://x/") || !strings.Contains(out, "Started: January 05, 2026 at 14:03:07 EST") {
 		t.Errorf("compact banner output = %q, missing expected content", out)
 	}
 }

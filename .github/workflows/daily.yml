@@ -32,7 +32,7 @@ jobs:
       - name: Compute version
         id: set
         run: |
-          echo "version=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "version=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
 
   build:
     needs: [version]
