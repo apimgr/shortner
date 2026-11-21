@@ -75,8 +75,11 @@ Target platforms are `linux`, `darwin`, `windows`, and `freebsd`, each on
 `amd64` and `arm64` — eight binaries, all statically linked with no CGO.
 
 Build metadata is embedded via `-ldflags` into
-`src/common/version`: `Version` (from `release.txt`, else `$VERSION`, else
-`devel`), `CommitID`, `BuildEpoch`, and `OfficialSite` (from `site.txt`).
+`src/common/version`: local builds use `$VERSION`, then `release.txt`, then
+`devel`; CI devel builds use the seven-character commit ID, beta builds use
+a UTC timestamp plus `-beta`, and stable releases use `release.txt` with the
+tag as the fallback. CI ignores `$VERSION`. `CommitID`, `BuildEpoch`, and
+`OfficialSite` (from `site.txt`) are also embedded.
 
 ### Building without Make
 
@@ -134,7 +137,7 @@ The shell entry points in `tests/` layer integration testing on top:
 
 | Script | Purpose |
 |--------|---------|
-| `tests/run_tests.sh` | Two-phase entry point: runs `make test`, then auto-detects Incus (falls back to Docker) and dispatches |
+| `tests/run_tests.sh` | Checks local version precedence, runs `make test`, then auto-detects Incus (falls back to Docker) and dispatches |
 | `tests/docker.sh` | Builds in `casjaysdev/go:latest`, checks the project runtime image's required tools and Tor health, then runs the suite inside a disposable `alpine:latest` container |
 | `tests/incus.sh` | Same suite inside `images:debian/trixie`, plus a real systemd service install/uninstall lifecycle |
 | `tests/suite.sh` | The shared in-container suite (binary info, first run, health, content negotiation, well-known, frontend pages, link CRUD, redirect/410/404, stats, token authorization, the `shortner-cli` client, rate limiting) |
