@@ -1,50 +1,59 @@
 # Translation Guide
 
-The server and `shortner-cli` use the embedded JSON catalogs in
-`src/common/i18n/locales/`. The supported locales are English (`en`), Spanish
-(`es`), Chinese (`zh`), French (`fr`), Arabic (`ar`), German (`de`), and
-Japanese (`ja`). English is the reference catalog and fallback language.
+The server and `shortner-cli` embed the same locale catalogs from
+`src/common/i18n/locales/`. The eight supported languages are English (`en`),
+Spanish (`es`), Chinese (`zh`), French (`fr`), Arabic (`ar`), German (`de`),
+Italian (`it`), and Japanese (`ja`). English is the reference and fallback.
 
 ## Editing a catalog
 
-Each file is UTF-8 JSON. Keep the `meta` object, including the language code,
-native display name, text direction (`ltr` or `rtl`), and catalog version.
-Translation keys are nested by feature; the runtime flattens these into
-dot-separated names such as `common.save` and `home.submit`. Preserve every
-English key in each locale and translate its value rather than renaming the
-key.
+Locale files are UTF-8 JSON with two-space indentation. Preserve the key names
+and structure from `en.json`; translate every user-facing value. Keep the
+`meta` language code, English name, native name, direction, and version in
+sync with the registry in `src/common/i18n/i18n.go`.
 
-Placeholders use literal braces, for example `Page {current} of {total}`.
-Keep every placeholder exactly as written so runtime interpolation can supply
-the value. Pluralized messages live under `plurals` and must provide the
-categories required by that language's CLDR rules. Do not use printf-style
-verbs or HTML in translation values.
+Keep every interpolation token exactly as written, including braces and
+spelling, for example `{current}` and `{total}`. Do not add printf verbs,
+HTML, or omit text. Plural messages under `plurals` use the CLDR categories
+registered for that language: English, Spanish, French, and German use `one`
+and `other`; Italian uses `one`, `many`, and `other`; Arabic uses `zero`,
+`one`, `two`, `few`, `many`, and `other`; Chinese and Japanese use `other`.
+An explicit `zero` form is also allowed for another locale.
+
+## Glossary
+
+Reuse these terms consistently when translating the corresponding concepts:
+
+| Language | Token | Rotate | Revoke | Linked tokens |
+|----------|-------|--------|--------|---------------|
+| English | token | Rotate | Revoke | Linked tokens |
+| Spanish | token | Rotar | Revocar | Tokens vinculados |
+| French | jeton | Renouveler | Révoquer | Jetons liés |
+| German | Token | Erneuern | Widerrufen | Verknüpfte Tokens |
+| Italian | token | Ruotare | Revocare | Token collegati |
+| Arabic | رمز | تدوير | إلغاء | الرموز المرتبطة |
+| Chinese | 令牌 | 轮换 | 撤销 | 关联令牌 |
+| Japanese | トークン | 更新 | 取り消す | リンクトークン |
+
+Keep product and brand names, protocol and technology names (API, Tor,
+`.onion`, I2P, JSON), code, file names, configuration keys, URLs, and literal
+values entered by users (such as `dark` and `auto`) unchanged. Preserve the
+formal, neutral tone used by the existing catalog. Arabic uses right-to-left
+layout; the other listed languages use left-to-right layout.
 
 ## Review and validation
 
-Before submitting a catalog change, check that the text fits the page or
-control, keeps the original meaning, and remains understandable to screen
-reader users. Arabic is right-to-left; other current catalogs are left-to-
-right. Preserve product names, command names, URLs, code, and placeholders
-where translating them would make them unusable.
-
-Run the repository validator from the project root:
-
-```sh
-make i18n-validate
-```
-
-The validator checks JSON syntax, locale metadata, key parity with English,
-placeholder parity, and required plural categories. The project test target
-runs it as well. Keep the locale's existing formatting and end the file with
-one newline.
+Review translations for meaning, natural phrasing, screen-reader clarity, and
+fit at 320, 768, and 1280 pixels. Keep the key set, placeholders, metadata,
+and plural forms aligned. The package tests check embedded catalog parity and
+registry requirements as part of the normal test suite. Run the suite with
+`make test`; locale validation is part of the package test suite.
 
 ## Contributing a language
 
-Add a complete locale JSON file named with its language code, update the
-supported-language list in `AI.md` through the template-maintainer workflow,
-and ensure all locale catalogs contain the same key set. `AI.md` is the
-project's read-only implementation specification; report template defects
-through the project-maintainer issue process rather than editing it here.
-
-Translation credits should be added only with the translator's agreement.
+Add a complete locale file, a registry entry with native name, direction, and
+CLDR categories, and update the supported-language documentation in the same
+change. `AI.md` is read-only; template changes belong to the template
+maintainer. Update existing translations whenever English source text changes.
+Translations can be refined by human contributors. Add a translator credit
+only with that translator's agreement.

@@ -58,7 +58,7 @@ cd shortner
 make local
 ```
 
-All six `make` targets run inside `casjaysdev/go:latest` with
+All build and test `make` targets run inside `casjaysdev/go:latest` with
 `CGO_ENABLED=0` and `GOFLAGS=-buildvcs=false`:
 
 | Target | Description |
