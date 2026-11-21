@@ -74,7 +74,7 @@ scrape_configs:
     authorization:
       credentials: "your-prometheus-token"
     static_configs:
-      - targets: ["shortner.example.com:8090"]
+      - targets: ["csj.lol:8090"]
 ```
 
 ### What is exported
@@ -278,7 +278,7 @@ recognized as HTTPS.
 ### Caddy
 
 ```
-shortner.example.com {
+csj.lol {
   reverse_proxy 127.0.0.1:8090
 }
 ```

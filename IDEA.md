@@ -15,7 +15,7 @@ project_org:     apimgr
 # FROZEN — equals project_name on first install, never changes
 internal_name:   shortner
 app_name:        Shortner
-official_site:   https://shortner.example.com
+official_site:   https://csj.lol
 maintainer_name: casjay
 maintainer_email: casjay@yahoo.com
 owner_token: <placeholder>

@@ -13,7 +13,7 @@ the originating IP anonymized for privacy-respecting analytics.
 
 ## Official Site
 
-https://shortner.example.com
+https://csj.lol
 
 ## Features
 
@@ -178,10 +178,10 @@ their health object directly.
 
 | Endpoint | Description |
 |----------|-------------|
-| `POST https://shortner.example.com/api/v1/links` | create a short link |
-| `GET https://shortner.example.com/{slug}` | redirect to the target URL |
-| `GET https://shortner.example.com/{slug}/stats` | click analytics for a link |
-| `GET https://shortner.example.com/server/healthz` | health check |
+| `POST https://csj.lol/api/v1/links` | create a short link |
+| `GET https://csj.lol/{slug}` | redirect to the target URL |
+| `GET https://csj.lol/{slug}/stats` | click analytics for a link |
+| `GET https://csj.lol/server/healthz` | health check |
 
 ## Other
 

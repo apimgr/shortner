@@ -19,7 +19,7 @@ GraphQL endpoint accepts POST requests at `/api/{api_version}/server/graphql`
 The Streamable HTTP MCP endpoint is available at
 `/api/{api_version}/server/mcp`, `/api/mcp`, and `/mcp`. It reuses API Bearer
 tokens and exposes permitted OpenAPI operations as tools. See
-[`/server/help/mcp`](https://shortner.example.com/server/help/mcp) for client
+[`/server/help/mcp`](https://csj.lol/server/help/mcp) for client
 setup and the live public tool list.
 
 GraphQL exposes `link(slug: String!)`, paginated `links(limit, offset)`, and
