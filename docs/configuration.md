@@ -118,11 +118,14 @@ server:
   token: "adm_..."
   address: "[::]"
   port: "8090"
+  daemonize: false
   baseurl: "/"
   api_version: "v1"
 ```
 
 `server.port` accepts one port or an HTTP,HTTPS pair such as `"80,443"`.
+`server.daemonize` is a startup-only setting for manual starts; `--daemon`
+overrides it, and service-managed or container starts remain in the foreground.
 In dual-port mode the first listener serves HTTP (including ACME HTTP-01
 challenges) and the second serves HTTPS; the startup banner prints both
 URLs. A single port of `443` enables TLS automatically. With a single

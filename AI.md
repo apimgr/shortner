@@ -8071,7 +8071,7 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 | First run (no config) | Random 64xxx | Auto-select unused port in 64000-64999, **save to config** |
 | Config specifies port | Use specified | Use exact port from config |
 | Port in use | Error | Fail with clear error message |
-| Privileged port (<1024) | Check escalation | Prompt for sudo if can escalate, else fallback to >1024 |
+| Privileged port (<1024) | Check escalation | Prompt for sudo if can escalate, else fallback to >= 1024 |
 
 **IMPORTANT: Once a port is selected (randomly or specified), it is saved to `server.yml` and persists across restarts. The random selection only happens on first run when no port is configured.**
 
@@ -8080,7 +8080,7 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 | Reason | Description |
 |--------|-------------|
 | **Avoid conflicts** | Most services use well-known ports; 64xxx is rarely used |
-| **No root required** | Ports >1024 don't need root privileges |
+| **No root required** | Ports >= 1024 don't need root privileges |
 | **Self-hosted friendly** | Users can run multiple instances without conflict |
 | **Reverse proxy ready** | Designed to run behind nginx/caddy/traefik |
 
@@ -8102,7 +8102,7 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 | Mode | How Started | Port Restriction | Privilege Handling |
 |------|-------------|------------------|-------------------|
 | **Service (escalated)** | `sudo {project_name} --service --install` | Any port | Runs as root/admin, binary drops after binding |
-| **User ($USER)** | `{project_name}` | >1024 only | Runs as calling user, no escalation |
+| **User ($USER)** | `{project_name}` | >= 1024 only | Runs as calling user, no escalation |
 
 #### Service Installation (One-Time Escalation)
 
@@ -8188,13 +8188,13 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 # No sudo - runs as current user
 {project_name} --port 8080
 
-# Port must be >1024 (unprivileged)
+# Port must be >= 1024 (unprivileged)
 # Paths use user directories (~/.config/, ~/.local/, etc.)
 ```
 
 | Restriction | Reason |
 |-------------|--------|
-| Ports >1024 only | OS requires root for ports <1024 |
+| Ports >= 1024 only | OS requires root for ports <1024 |
 | User directories only | No write access to /etc, /var, etc. |
 | No system service install without escalation | A user service is installed instead ("Commands Requiring Escalation") |
 
@@ -8337,7 +8337,7 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
    if isElevated() {
        // Running as root/admin - can bind any port, will drop privileges (Unix)
    } else {
-       // Running as user - ports >1024 only, user paths
+       // Running as user - ports >= 1024 only, user paths
    }
    ```
 
@@ -8430,7 +8430,7 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 | `--service restart` | ⚠️ Check | Which service type is installed? | User service |
 | `--service reload` | ⚠️ Check | Which service type is installed? | User service |
 | `--service status` | ❌ No | N/A - read-only | N/A |
-| `--port <1024` | ⚠️ Check | `isElevated()`? | Random >1024 |
+| `--port <1024` | ⚠️ Check | `isElevated()`? | Random >= 1024 |
 | `--maintenance backup` | ❌ No | Can write to backup dir? (already owned) | N/A |
 | `--maintenance restore` | 🔐 Auth | Requires `server.token` OR root OR first-run | N/A |
 | `--maintenance update` | ⚠️ Check | Can write to binary path? | None (error) |
@@ -8668,7 +8668,7 @@ Binary checks:
 | Read/write logs | `/var/log/{internal_org}/{internal_name}/` |
 | Read/write backups | `/mnt/Backups/{internal_org}/{internal_name}/` (if writable, else `{data_dir}/backup/`) |
 | Use bound sockets | Inherited from root before privilege drop |
-| Bind ports >1024 | New sockets after privilege drop |
+| Bind ports >= 1024 | New sockets after privilege drop |
 | Run scheduled tasks | Backup, cleanup, SSL renewal, etc. |
 | Manage database | SQLite in data dir |
 | Manage SSL certs | In `{config_dir}/ssl/` |
@@ -8712,7 +8712,7 @@ chmod 755 /var/log/{internal_org}/{internal_name}/
 |--------|---------------|--------------|
 | **Installed by** | root/admin | Unprivileged OS user |
 | **Runs as** | root → drops to `{internal_name}` | Calling user |
-| **Ports** | Any | >1024 only |
+| **Ports** | Any | >= 1024 only |
 | **Paths** | `/etc/`, `/var/` | `~/.config/`, `~/.local/` |
 | **Survives logout** | Yes | Depends on `lingering` |
 | **Auto-start** | On boot | On user login |
@@ -10964,7 +10964,7 @@ PHASE 5: Server startup (actual server start)
       │   ├─ First port = HTTP
       │   └─ Second port = HTTPS
       ├─ No --port? → check PORT env var (same format)
-      ├─ No env var? → EARLY CONFIG PEEK: read ONLY `server.port`, `server.address` and `server.daemonize` from the merged view of {config_dir}/server.yml and the ordered {config_dir}/yaml.d/* drop-ins (same file selection, order and replace-whole-value rule as PART 5 → "Drop-in Config Directory"; read-only, as root, after the step 8d permission fix; no other key is read or validated here, and a file that does not parse is skipped for these two keys, its error is reported by the full load at step 13)
+      ├─ No env var? → EARLY CONFIG PEEK: read ONLY `server.port`, `server.address` and `server.daemonize` from the merged view of {config_dir}/server.yml and the ordered {config_dir}/yaml.d/* drop-ins (same file selection, order and replace-whole-value rule as PART 5 → "Drop-in Config Directory"; read-only, as root, after the step 8d permission fix; no other key is read or validated here, and a file that does not parse is skipped for these three keys, its error is reported by the full load at step 13)
       └─ No file, or no `server.port` in it? → random port in 64000-64999 range (single, HTTP); step 13 writes it to the new config
       Listen address (resolved in the same early step): `--address` flag > `LISTEN` env > the early peek of `server.address` > default `[::]` (IPv4 `0.0.0.0` fallback when the kernel has no IPv6, logged once as a warning). `[::]` and `::` are both accepted for `--address`, `LISTEN` and `server.address`; the brackets are stripped before the value is parsed as an IP. Privileged sockets are bound to THIS address and never to a broader one; step 13 never rebinds (`server.address` needs a restart, PART 12)
    e2. Daemonize (manual start only; never for `--service start` or in a container, see "Daemonization"): when `--daemon` was given, or the early peek found `server.daemonize: true`, re-execute now (marker `_DAEMON_CHILD=1`) and exit the parent with 0. This happens BEFORE any privileged socket is bound, so the child repeats steps 6-8e (all idempotent) and binds the ports itself; a bound socket never has to cross the re-execute.
@@ -34040,7 +34040,7 @@ func installWindowsService() error {
 | Run Mode | Who Runs Binary | Port Restriction | Privilege Drop |
 |----------|-----------------|------------------|----------------|
 | **Service (escalated)** | root/admin | Any port | Yes (after binding) |
-| **User mode ($USER)** | Calling user | >1024 only | No (already unprivileged) |
+| **User mode ($USER)** | Calling user | >= 1024 only | No (already unprivileged) |
 
 **See PART 23 for user creation, privilege escalation, and installation logic.**
 

@@ -13,7 +13,7 @@ the originating IP anonymized for privacy-respecting analytics.
 
 ## Official Site
 
-https://csj.lol
+[csj.lol](https://csj.lol)
 
 ## Features
 
@@ -182,6 +182,8 @@ their health object directly.
 | `GET https://csj.lol/{slug}` | redirect to the target URL |
 | `GET https://csj.lol/{slug}/stats` | click analytics for a link |
 | `GET https://csj.lol/server/healthz` | health check |
+| `POST https://csj.lol/api/v1/server/mcp` | MCP tools using the same API Bearer token |
+| `GET https://csj.lol/server/help/mcp` | MCP client setup and live public tools |
 
 ## Other
 
