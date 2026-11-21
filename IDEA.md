@@ -122,6 +122,8 @@ owner_token:     shortner_owner_token_Lu2YwQRQ
   approximate location (GeoIP), all with the visitor's IP anonymized before storage
 - **Management**: update destination, set/clear expiration, delete — via resource owner
   token (issued at creation) or the operator's `server.token`
+- **Privacy operations**: operators can export an owner's data without token
+  secrets, delete an owner's data, and generate an aggregate compliance report
 
 **Business rules:**
 - Short codes: 6-char alphanumeric, auto-generated (62^6 keyspace)
