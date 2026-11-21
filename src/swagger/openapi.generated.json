@@ -2607,6 +2607,14 @@
             }
           }
         ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "APIKeyAuth": []
+          }
+        ],
         "responses": {
           "200": {
             "content": {

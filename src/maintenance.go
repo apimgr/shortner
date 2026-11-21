@@ -38,18 +38,11 @@ Commands:
   secret rotate NAME    Rotate installation_secret or encryption_key
   token list|revoke <PREFIX>
                          List masked owner tokens or revoke a token
-  data [ACTION]          Manage stored application data
-  compliance [ACTION]    Data-compliance operations
+  data export|delete --owner PREFIX [--output FILE|--yes]
+                         Export or delete an owner's data
+  compliance report     Print the operator-wide compliance summary
   --help                 Show this help
 `
-
-// maintenanceReadDeps maps each --maintenance action to the AI.md PART(s)
-// implementing its real behavior, for the honest "not yet available"
-// message.
-var maintenanceReadDeps = map[string]string{
-	"data":       "PART 21",
-	"compliance": "PART 21",
-}
 
 // maintenanceOptions carries the resolved runtime state the implemented
 // maintenance actions need. Paths come from the startup resolution so
@@ -108,14 +101,17 @@ func runMaintenance(binaryName, command string, opts maintenanceOptions) int {
 		return runSecretMaintenance(binaryName, opts.paths, opts.args)
 	case "security":
 		return runSecurityReportMaintenance(binaryName, opts.paths, opts.args)
+	case "data":
+		return runDataMaintenance(binaryName, opts.paths, opts.args)
+	case "compliance":
+		if argAt(opts.args, 0) != "report" || len(opts.args) != 1 {
+			fmt.Fprintf(os.Stderr, "%s: usage: --maintenance compliance report\n", binaryName)
+			return 2
+		}
+		return runComplianceReport(binaryName, opts.paths)
 	}
 
-	part, ok := maintenanceReadDeps[command]
-	if !ok {
-		fmt.Fprintf(os.Stderr, "%s: unknown --maintenance command %q (run '%s --maintenance --help')\n", binaryName, command, binaryName)
-		return 1
-	}
-	fmt.Fprintf(os.Stderr, "%s: --maintenance %s is not yet available (see TODO.AI.md, AI.md %s)\n", binaryName, command, part)
+	fmt.Fprintf(os.Stderr, "%s: unknown --maintenance command %q (run '%s --maintenance --help')\n", binaryName, command, binaryName)
 	return 1
 }
 

@@ -40,7 +40,7 @@ func RouteAnnotations() []Route {
 		{Path: "/api/{api_version}/server/preferences", Method: "post", Summary: "Update preferences", OperationID: "updatePreferences", Example: map[string]any{"theme": "dark", "lang": "en"}},
 		{Path: "/api/{api_version}/server/preferences/export", Method: "get", Summary: "Export preferences", OperationID: "exportPreferences"},
 		{Path: "/api/{api_version}/server/preferences/import", Method: "get", Summary: "Import preferences", OperationID: "importPreferences"},
-		{Path: "/api/{api_version}/server/auth/check", Method: "get", Summary: "Check API token authorization", OperationID: "checkAuthorization"},
+		{Path: "/api/{api_version}/server/auth/check", Method: "get", Summary: "Check API token authorization", OperationID: "checkAuthorization", Auth: true},
 		{Path: "/api/{api_version}/server/preferences/tokens", Method: "get", Summary: "List API tokens", OperationID: "listTokens", Auth: true},
 		{Path: "/api/{api_version}/server/preferences/tokens", Method: "post", Summary: "Create API token", OperationID: "createToken", Auth: true, Example: map[string]any{"name": "automation"}},
 		{Path: "/api/{api_version}/server/preferences/tokens/primary/reveal", Method: "post", Summary: "Reveal primary token", OperationID: "revealPrimaryToken", Auth: true},

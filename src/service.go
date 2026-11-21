@@ -30,10 +30,6 @@ const serviceAppName = "Shortner"
 // question from src/service's Detect(), which answers "what would I
 // install into".
 func detectServiceManager() string {
-	if pidfile.IsContainer() {
-		return "container"
-	}
-
 	ppid := os.Getppid()
 
 	if ppid == 1 {
@@ -44,16 +40,23 @@ func detectServiceManager() string {
 	if os.Getenv("INVOCATION_ID") != "" {
 		return "systemd"
 	}
-
-	if runtime.GOOS == "darwin" && ppid == 1 {
-		return "launchd"
+	if os.Getenv("RC_SVCNAME") != "" {
+		return "openrc"
 	}
-
+	if ppid == 1 {
+		if _, err := os.Stat("/run/openrc"); err == nil {
+			return "openrc"
+		}
+	}
 	if os.Getenv("SVDIR") != "" {
 		return "runit"
 	}
 	if os.Getenv("S6_LOGGING") != "" {
 		return "s6"
+	}
+
+	if runtime.GOOS == "darwin" && ppid == 1 {
+		return "launchd"
 	}
 
 	if ppid == 1 {
@@ -64,8 +67,14 @@ func detectServiceManager() string {
 		}
 	}
 
-	if _, err := os.Stat("/etc/rc.subr"); err == nil {
-		return "rcd"
+	if ppid == 1 {
+		if _, err := os.Stat("/etc/rc.subr"); err == nil {
+			return "rcd"
+		}
+	}
+
+	if pidfile.IsContainer() {
+		return "container"
 	}
 
 	return "manual"

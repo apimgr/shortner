@@ -174,6 +174,9 @@ func TestIsReservedSlug(t *testing.T) {
 	if !IsReservedSlug("API") {
 		t.Errorf("IsReservedSlug(API) = false, want true (case-insensitive)")
 	}
+	if !IsReservedSlug("MCP") {
+		t.Errorf("IsReservedSlug(MCP) = false, want true (case-insensitive)")
+	}
 	if IsReservedSlug("my-custom-link") {
 		t.Errorf("IsReservedSlug(my-custom-link) = true, want false")
 	}

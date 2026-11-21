@@ -55,6 +55,7 @@ func (fd *frontendDeps) registerFrontendRoutes(r chi.Router, hd *healthDeps, ld 
 	r.Get("/server/about", fd.aboutHandler)
 	r.Get("/server/privacy", fd.privacyHandler)
 	r.Get("/server/help", fd.helpHandler)
+	r.Get("/server/help/mcp", fd.mcpHelpPage)
 	r.Get("/server/docs/swagger", fd.swaggerPage)
 	r.Get("/server/docs/graphql", fd.graphqlPage)
 	r.Get("/server/terms", fd.termsHandler)

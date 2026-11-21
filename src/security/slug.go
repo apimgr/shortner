@@ -48,6 +48,7 @@ var reservedSlugs = map[string]bool{
 	// System routes
 	"api": true, "server": true, "static": true, "assets": true,
 	"healthz": true, "metrics": true, "webhook": true, "webhooks": true,
+	"mcp": true,
 
 	// Common paths
 	"search": true, "explore": true, "discover": true, "trending": true,

@@ -17,7 +17,7 @@ const serverConfigHeader = "# Settings of this node only (listen, identity, data
 
 var nodeServerKeys = map[string]bool{
 	"port": true, "address": true, "fqdn": true, "mode": true, "api_version": true,
-	"baseurl": true, "user": true, "group": true, "pidfile": true, "daemonize": true,
+	"baseurl": true, "pidfile": true, "daemonize": true,
 	"debug": true, "database": true, "cache": true, "ssl": true, "trusted_proxies": true, "cluster": true,
 }
 

@@ -67,3 +67,25 @@ func TestShouldDaemonizeServiceStartBranch(t *testing.T) {
 		t.Errorf("shouldDaemonize(isServiceStart=true) = %v, want %v (detected manager %q)", got, want, mgr)
 	}
 }
+
+func TestShouldDaemonizeForManager(t *testing.T) {
+	for _, tc := range []struct {
+		manager string
+		flag    bool
+		config  bool
+		want    bool
+	}{
+		{"manual", true, false, true},
+		{"manual", false, true, true},
+		{"systemd", true, true, false},
+		{"openrc", false, true, false},
+		{"sysv", false, true, false},
+		{"container", true, true, false},
+	} {
+		t.Run(tc.manager, func(t *testing.T) {
+			if got := shouldDaemonizeForManager(tc.manager, false, tc.flag, tc.config); got != tc.want {
+				t.Fatalf("shouldDaemonizeForManager(%q) = %t, want %t", tc.manager, got, tc.want)
+			}
+		})
+	}
+}

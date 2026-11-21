@@ -35,10 +35,11 @@ type Server struct {
 	Mode string `yaml:"mode"`
 	// Token is the global operator token (adm_ prefix). Auto-generated on
 	// first run if empty. See AI.md PART 11 "API Token Model".
-	Token   string `yaml:"token"`
-	Listen  string `yaml:"address"`
-	Port    string `yaml:"port"`
-	BaseURL string `yaml:"baseurl"`
+	Token     string `yaml:"token"`
+	Listen    string `yaml:"address"`
+	Port      string `yaml:"port"`
+	Daemonize bool   `yaml:"daemonize"`
+	BaseURL   string `yaml:"baseurl"`
 	// APIVersion is the version segment of /api/{api_version}/ routes. The
 	// router itself accepts any segment (AI.md PART 14 route naming); this
 	// value is what the server writes into generated URLs — the Reporting
@@ -680,6 +681,7 @@ type Pages struct {
 // PageContent is the Markdown source for server-rendered help content.
 type PageContent struct {
 	Content string `yaml:"content"`
+	MCP     string `yaml:"mcp"`
 }
 
 // ContactPage holds `server.pages.contact`.
@@ -862,6 +864,7 @@ func Default(dbPath string) *Config {
 			Mode:       "production",
 			Listen:     "[::]",
 			Port:       "8090",
+			Daemonize:  false,
 			BaseURL:    "/",
 			APIVersion: "v1",
 			Database: Database{
@@ -1044,6 +1047,15 @@ func Default(dbPath string) *Config {
 				},
 			},
 			Pages: Pages{
+				Help: PageContent{MCP: `## Shortner tools
+
+Use the MCP tools to create short links, find links owned by your token, and inspect click statistics. Authenticated owner tokens can create, update, and delete only links they own.
+
+Example requests: "List my links", "Show the click statistics for this link", and "Update my link's destination".
+
+The registry includes getLink, listLinks, createLink, updateLink, deleteLink, and getLinkStats where the caller's authorization permits them.
+
+The available operations come from the live OpenAPI registry. Link creation is hidden from anonymous MCP clients because it can issue an owner credential; use an existing linked token created in Shortner's token preferences.`},
 				Contact: ContactPage{
 					Enabled:          true,
 					Captcha:          "simple",
@@ -1470,14 +1482,22 @@ func EnforcePrivatePaths(configDir string) error {
 	return nil
 }
 
-// PeekServerPort reads only server.port for the root startup phase, before
-// the full configuration is loaded after privileged ports have been bound.
+// PeekServerSettings reads the startup listener settings before the full
+// configuration is loaded.
 func PeekServerSettings(path string) (address, port string, err error) {
+	address, port, _, err = PeekServerStartupSettings(path)
+	return address, port, err
+}
+
+// PeekServerStartupSettings reads only the startup-only listener and
+// daemonize values from server.yml and ordered yaml.d drop-ins.
+func PeekServerStartupSettings(path string) (address, port string, daemonize bool, err error) {
 	type startupProbe struct {
 		Server struct {
-			Address *string `yaml:"address"`
-			Listen  *string `yaml:"listen"`
-			Port    *string `yaml:"port"`
+			Address   *string `yaml:"address"`
+			Listen    *string `yaml:"listen"`
+			Port      *string `yaml:"port"`
+			Daemonize *bool   `yaml:"daemonize"`
 		} `yaml:"server"`
 	}
 	files := []string{path}
@@ -1510,6 +1530,9 @@ func PeekServerSettings(path string) (address, port string, err error) {
 		if overlay.Server.Port != nil {
 			probe.Server.Port = overlay.Server.Port
 		}
+		if overlay.Server.Daemonize != nil {
+			probe.Server.Daemonize = overlay.Server.Daemonize
+		}
 	}
 	if probe.Server.Address != nil {
 		address = *probe.Server.Address
@@ -1519,11 +1542,14 @@ func PeekServerSettings(path string) (address, port string, err error) {
 	if probe.Server.Port != nil {
 		port = *probe.Server.Port
 	}
-	return strings.TrimSpace(address), strings.TrimSpace(port), nil
+	if probe.Server.Daemonize != nil {
+		daemonize = *probe.Server.Daemonize
+	}
+	return strings.TrimSpace(address), strings.TrimSpace(port), daemonize, nil
 }
 
 // PeekServerPort remains a narrow convenience for callers that need only
-// the port; startup uses PeekServerSettings to bind the configured address.
+// the port; startup uses PeekServerStartupSettings for all early settings.
 func PeekServerPort(path string) (string, error) {
 	_, port, err := PeekServerSettings(path)
 	return port, err

@@ -88,14 +88,15 @@ suite: configuration, path resolution, the link API and web interface, the
 HTTP security layer, the scheduler, GeoIP, metrics, email notifications,
 backup and restore, the self-updater, service installation, and CI/CD.
 
-The implementation is being aligned with `AI.md`. The server includes
-server-rendered Swagger and GraphQL documentation pages, an OpenAPI JSON
-endpoint, a read-only GraphQL endpoint, and API mirrors for several server
-pages. Their route and schema coverage is still being completed against the
-full API contract. Other remaining work includes additional server-page API
-mirrors, MCP, notification surfaces, and cache metrics. The server also
-publishes CLI update metadata and serves colocated client binaries. The PWA includes install and update prompts, offline
-status and fallback, a versioned cache, and its required icon assets.
+The server includes server-rendered Swagger and GraphQL documentation pages,
+an OpenAPI JSON endpoint, a read-only GraphQL endpoint, API mirrors for
+server pages, and an MCP endpoint with tools derived from the OpenAPI
+contract. The MCP guide is available at `/server/help/mcp`. Remaining work
+includes completing all route and schema coverage against the full API
+contract, notification surfaces, and cache metrics. The server also
+publishes CLI update metadata and serves colocated client binaries. The PWA
+includes install and update prompts, offline status and fallback, a
+versioned cache, and its required icon assets.
 Background Sync and geolocation need product-specific behavior defined in
 the parent API template before they can be implemented safely. The optional
 native GUI uses the pure-Go `gogpu/ui` toolkit on Linux, macOS, and Windows;

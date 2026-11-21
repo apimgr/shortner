@@ -123,11 +123,14 @@ func (fd *frontendDeps) securityThanksAPIHandler(w http.ResponseWriter, r *http.
 }
 
 func (fd *frontendDeps) mcpHelpAPIHandler(w http.ResponseWriter, r *http.Request) {
-	http.NotFound(w, r)
-}
-
-func unavailableMCPHandler(w http.ResponseWriter, r *http.Request) {
-	http.NotFound(w, r)
+	current := fd.branding.load(fd.cfg).Config
+	tools := mcpAnonymousTools(fd, r)
+	items := make([]map[string]string, 0, len(tools))
+	for _, tool := range tools {
+		items = append(items, map[string]string{"name": tool.Name, "description": tool.Description})
+	}
+	aliases := []string{fd.resolver.BuildURL(r, "/api/mcp"), fd.resolver.BuildURL(r, "/mcp")}
+	apperr.SendOK(w, map[string]any{"enabled": true, "url": fd.resolver.BuildURL(r, "/api/"+current.Server.APIVersion+"/server/mcp"), "aliases": aliases, "auth": map[string]string{"scheme": "Bearer"}, "tools": items, "project": current.Server.Pages.Help.MCP})
 }
 
 // securityPolicyAPIHandler returns the configured disclosure policy in the

@@ -211,15 +211,6 @@ func run(args []string) int {
 		return runUpdate(binaryName, p, *updateFlag, firstArg(fs.Args()))
 	}
 
-	// --daemon applies to manual starts only; `--service start` delegates
-	// process management to the detected service manager (see service.go).
-	if *daemonFlag && !inContainer {
-		if err := Daemonize(); err != nil {
-			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
-			return 1
-		}
-	}
-
 	serviceUID := os.Getuid()
 	if paths.IsPrivileged() {
 		serviceUID, err = createServiceAccount(serviceParams(p))
@@ -253,7 +244,7 @@ func run(args []string) int {
 	portSetting := *port
 	portWasGenerated := false
 	var earlyPortWarning string
-	earlyAddress, configPort, peekErr := config.PeekServerSettings(p.ConfigFile)
+	earlyAddress, configPort, configDaemonize, peekErr := config.PeekServerStartupSettings(p.ConfigFile)
 	if peekErr != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+peekErr.Error())
 		return 1
@@ -293,6 +284,22 @@ func run(args []string) int {
 		}
 		portSetting = strconv.Itoa(randomPort)
 		portWasGenerated = true
+	}
+	if !validPortSetting(portSetting) {
+		fmt.Fprintf(os.Stderr, "%s: invalid listen port %q\n", binaryName, portSetting)
+		return 1
+	}
+	if !paths.IsPrivileged() {
+		if err := validateUnprivilegedPortSetting(portSetting); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", binaryName, err)
+			return 1
+		}
+	}
+	if shouldDaemonizeForManager(detectServiceManager(), false, *daemonFlag, configDaemonize) && !inContainer {
+		if err := Daemonize(); err != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+			return 1
+		}
 	}
 	var privilegedListeners map[string]net.Listener
 	if paths.IsPrivileged() && !flagWasSet(fs, "scheduler") {
@@ -885,6 +892,19 @@ func validPortSetting(setting string) bool {
 		}
 	}
 	return true
+}
+
+func validateUnprivilegedPortSetting(setting string) error {
+	if !validPortSetting(setting) {
+		return fmt.Errorf("invalid listen port %q", setting)
+	}
+	for _, part := range strings.Split(setting, ",") {
+		port, _ := strconv.Atoi(strings.TrimSpace(part))
+		if port < 1024 {
+			return fmt.Errorf("unprivileged starts require ports >= 1024 (got %d)", port)
+		}
+	}
+	return nil
 }
 
 // buildTLSConfig resolves the server FQDN and prepares ACME-backed TLS when

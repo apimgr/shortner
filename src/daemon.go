@@ -26,8 +26,7 @@ func filterDaemonFlag(args []string) []string {
 
 // shouldDaemonize decides whether to daemonize, given whether this is a
 // --service start invocation, the --daemon flag, and server.yml's
-// daemonize setting (not yet part of the config schema — PART 12 — so
-// callers currently always pass configDaemonize=false).
+// startup-only daemonize setting.
 func shouldDaemonize(isServiceStart, daemonFlag, configDaemonize bool) bool {
 	if isServiceStart {
 		switch detectServiceManager() {
@@ -43,4 +42,11 @@ func shouldDaemonize(isServiceStart, daemonFlag, configDaemonize bool) bool {
 		return true
 	}
 	return configDaemonize
+}
+
+func shouldDaemonizeForManager(manager string, isServiceStart, daemonFlag, configDaemonize bool) bool {
+	if manager != "manual" || isServiceStart {
+		return false
+	}
+	return shouldDaemonize(isServiceStart, daemonFlag, configDaemonize)
 }

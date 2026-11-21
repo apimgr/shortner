@@ -332,6 +332,25 @@ func TestPeekServerPortReadsOnlyPort(t *testing.T) {
 	}
 }
 
+func TestPeekServerStartupSettingsMergesDaemonizeDropIns(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "server.yml")
+	if err := os.WriteFile(path, []byte("server:\n  port: \"8090\"\n  daemonize: false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dropDir := filepath.Join(root, "yaml.d")
+	if err := os.Mkdir(dropDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dropDir, "10-runtime.yml"), []byte("server:\n  daemonize: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	address, port, daemonize, err := PeekServerStartupSettings(path)
+	if err != nil || address != "" || port != "8090" || !daemonize {
+		t.Fatalf("PeekServerStartupSettings() = (%q, %q, %t, %v)", address, port, daemonize, err)
+	}
+}
+
 func TestLoadSupportsLegacyListenKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "server.yml")
 	if err := os.WriteFile(path, []byte("server:\n  listen: 127.0.0.1\n"), 0o600); err != nil {

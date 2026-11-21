@@ -309,3 +309,23 @@ func TestRunAppliesAddressPortBaseURLOverrides(t *testing.T) {
 		t.Errorf("stdout = %q, want to contain overridden address/port/baseurl", out)
 	}
 }
+
+func TestValidateUnprivilegedPortSetting(t *testing.T) {
+	for _, tc := range []struct {
+		setting string
+		wantErr bool
+	}{
+		{"1024", false},
+		{"1023", true},
+		{"1024,8443", false},
+		{"80,443", true},
+		{"invalid", true},
+	} {
+		t.Run(tc.setting, func(t *testing.T) {
+			err := validateUnprivilegedPortSetting(tc.setting)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("validateUnprivilegedPortSetting(%q) error = %v", tc.setting, err)
+			}
+		})
+	}
+}

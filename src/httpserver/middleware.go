@@ -515,6 +515,13 @@ func (d *deps) authMiddleware(next http.Handler) http.Handler {
 // the priority order from AI.md PART 8 "Auth Token Headers" (first found
 // wins), falling back to the `?token=` query parameter.
 func ExtractToken(req *http.Request) string {
+	if isMCPPath(req.URL.Path) {
+		token, ok := strings.CutPrefix(req.Header.Get("Authorization"), "Bearer ")
+		if !ok {
+			return ""
+		}
+		return strings.TrimSpace(token)
+	}
 	if v := req.Header.Get("Authorization"); v != "" {
 		if tok, ok := strings.CutPrefix(v, "Bearer "); ok {
 			return strings.TrimSpace(tok)
