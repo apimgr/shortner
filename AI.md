@@ -5474,7 +5474,7 @@ curl -L https://api.example.com/server/healthz
 | **No AI/ML** | Smart logic only, no machine learning |
 | **Concise Responses** | Short, descriptive, and helpful |
 | **Everything Configurable** | ALL settings MUST be configurable via `server.yml` |
-| **Live Reload** | Configuration changes apply immediately without restart (file-watch hot-reload) |
+| **Live Reload** | Configuration changes apply without restart (file-watch hot-reload), except the restart-required settings of "Smart Config Reload" (listen port and address, `ssl.*`, `database.*`, `server.daemonize`, `tor.*`), which are logged as a warning and apply at the next start |
 | **Built-in Scheduler** | NEVER use cron, Task Scheduler, or external schedulers (PART 18) |
 
 ### File-Only Configuration
@@ -5490,7 +5490,7 @@ curl -L https://api.example.com/server/healthz
 
 ### Live Reload
 
-**Configuration changes MUST apply immediately without server restart.**
+**Configuration changes apply without a server restart, except the restart-required settings ("Smart Config Reload").**
 
 | Rule | Description |
 |------|-------------|
@@ -5498,7 +5498,7 @@ curl -L https://api.example.com/server/healthz
 | **Hot reload** | Application watches for config changes and reloads |
 | **Graceful** | In-flight requests complete before new config applies |
 | **Feedback** | User sees confirmation that changes are active |
-| **Exceptions** | Only port/address changes require restart (with clear warning) |
+| **Exceptions** | The restart-required settings of "Smart Config Reload" (`server.port`, `server.address`, `ssl.*`, `server.daemonize`, `database.*`, `tor.*`) apply at the next start, with a clear warning; the graceful-reload settings apply without downtime |
 
 **What MUST live reload:**
 - Branding (title, tagline, description)
@@ -5508,13 +5508,15 @@ curl -L https://api.example.com/server/healthz
 - Rate limiting rules
 - robots.txt / security.txt
 - Scheduler settings
-- SSL settings (except port)
+- SSL certificate renewal (the `ssl.*` settings themselves need a restart)
 - All feature toggles
 
-**What MAY require restart (with warning):**
-- Listen address
-- Port number
-- Database driver change
+**What requires restart (with warning), exactly the "Requires Restart" list of "Smart Config Reload":**
+- Listen address and port number
+- `ssl.*` (the TLS listener)
+- `server.daemonize`
+- `database.*` (connection pool and driver)
+- `tor.*`
 
 ### Sensitive Information Handling
 
@@ -7649,6 +7651,8 @@ server:
 
 ### Full Database Schema Summary
 
+**Table names:** the SQLite names are the unprefixed names (`rate_limits`, `audit_log`), all in `server.db`. In a remote libsql/Turso database the same tables carry the prefix `srv_` (`rate_limits` becomes `srv_rate_limits`), and there is no other prefix. The specification's SQL is written with the unprefixed names; the database layer owns the mapping: every table and index name goes through ONE function that returns the name unchanged for SQLite and `srv_` plus the name for libsql, and no query, `CREATE` or schema-update statement spells a table or index name any other way, so the same statements and the same code serve both drivers. An index name follows its table (`idx_rate_limits_window` becomes `srv_idx_rate_limits_window`), because index names are database-wide.
+
 **Server Tables (srv_* prefix in remote DB, or server.db in SQLite):**
 
 | Table | Purpose |
@@ -7886,7 +7890,7 @@ func (req *CreateResourceRequest) Parse() (*Resource, error) {
 | `DATABASE_URL` | First run: the full database connection string, saved to `secrets.yml` (when it carries a credential) or `server.yml`; ignored afterwards ("Connection Strings") |
 | `CACHE_URL` | First run: the full cache connection string (`valkey://`, `redis://`), saved the same way |
 
-**Init-only variables are used ONCE during first run to seed `server.yml` (and `secrets.yml` for a credential), then ignored.** The database and cache connection variables are init-only because the saved connections belong to the node's setup: a node added to a cluster receives the cluster's database and cache connections, not its environment's, and a database migrated from the admin panel must not be reverted by an environment variable at the next start.
+**Init-only variables are used ONCE during first run to seed `server.yml` (and `secrets.yml` for a credential), then ignored.** The database and cache connection variables are init-only because the saved connections belong to the installation's setup: a database changed in the files or by a CLI command must not be reverted by an environment variable at the next start.
 
 ---
 
@@ -7937,7 +7941,7 @@ func (req *CreateResourceRequest) Parse() (*Resource, error) {
 
 | File | Holds |
 |------|-------|
-| `server.yml` | This node only: `server.port`, `server.address`, `server.fqdn`, `server.mode`, `server.api_version`, `server.baseurl`, `server.pidfile`, `server.daemonize`, `server.debug`, `server.database`, `server.cache`, `server.ssl`, `server.trusted_proxies`, `server.cluster` |
+| `server.yml` | This node only: `server.port`, `server.address`, `server.fqdn`, `server.mode`, `server.api_version`, `server.baseurl`, `server.pidfile`, `server.daemonize`, `server.debug`, `server.database`, `server.cache`, `server.ssl`, `server.trusted_proxies` |
 | `yaml.d/branding.yml` | `server.branding`, `server.seo`, `web.ui` ("Branding File") |
 | `yaml.d/web.yml` | `web.*` except `web.ui`; `server.cors`, `server.csrf`, `server.url_detection`, `server.compression`, `server.healthz`, `server.i18n` |
 | `yaml.d/pages.yml` | `server.pages` (the report form and its antispam, the help pages) |
@@ -8039,7 +8043,7 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 
 | Rule | Behavior |
 |------|----------|
-| **Precedence** | First run, with no saved connection: the environment variable seeds the saved connection (a URL that carries a credential goes to `secrets.yml`, any other to `server.yml`); after that the variable is IGNORED, and one warning (variable name only) is logged when it differs from the saved value. Every later change comes from the admin panel, the CLI, the files or the cluster join. At any time a saved `url` wins over the separate fields (`host`, `port`, `name`, `username`, `password`, `sslmode`, and the cache equivalents), which are then ignored |
+| **Precedence** | First run, with no saved connection: the environment variable seeds the saved connection (a URL that carries a credential goes to `secrets.yml`, any other to `server.yml`); after that the variable is IGNORED, and one warning (variable name only) is logged when it differs from the saved value. Every later change comes from the CLI or the files. At any time a saved `url` wins over the separate fields (`host`, `port`, `name`, `username`, `password`, `sslmode`, and the cache equivalents), which are then ignored |
 | **Driver** | The scheme selects the driver ("Accepted forms"). When `DATABASE_DRIVER` disagrees with the scheme, the scheme wins, with one warning |
 | **Not accepted** | ADO.NET or key-value strings (`Server=...;Password=...`, `host=... user=...`) and `jdbc:` URLs. The server reports one error that names the key and says "use the URL form", never the value. The "Invalid → default" rule does NOT apply to a connection URL: a rejected database URL is never replaced by another database (not even SQLite) and is reported exactly like an unreachable database |
 | **Encoding** | The user does NOT have to encode a password. The userinfo ends at the LAST `@` before the host (a host name cannot contain `@`), and the user name is split from the password at the FIRST `:`, so a password may hold `@`, `:`, `/`, `?`, `#`, `[`, `]` and spaces as typed. A valid `%XX` is read as already encoded and decoded; a `%` that is not followed by two hex digits is a literal. A password that literally contains something like `%41` is ambiguous: put it in the separate `password` field (raw value) or write the percent sign as `%25`. Query values are left as written. The server never rewrites a URL it was given; a URL it builds itself (for example from the setup wizard fields) is percent-encoded per RFC 3986. In a Docker Compose file a `$` in the value must be written `$$` (Compose's own rule) |
@@ -8048,7 +8052,7 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 | **Credentials** | A URL that carries a password or a token (in the userinfo, or as a `password`, `pwd`, `token` or `authToken` query value) is a secret: it lives in `secrets.yml` under the same key (`server.database.url`, `server.cache.url`) and the automatic migration moves it there from `server.yml` or a drop-in ("Secrets File"). A URL with no credential (`valkey://cache:6379`) stays in `server.yml` |
 | **Never shown** | Logs, `--config` output, the admin panel and error messages show only the redacted form `scheme://user:********@host:port/name?authToken=********`. The full URL is never logged, never returned by an API and never part of a health response (PART 11) |
 | **Backup** | A backup holds the URL (and so its credential) through `secrets.yml` and `server.yml`, and the TLS files named by the six file keys, even without `--include-ssl` (PART 21 → "Backup Contents"). The seeded connection is saved at first run, so it is part of every later backup |
-| **References** | `${NAME}` and `${NAME:-default}` inside any string value are replaced from the environment after the files are merged and are never written back. `url: ${DATABASE_URL}` therefore works, but is not needed: the variable is read directly. An unset name without a default becomes an empty string. A reference is read at every load, so it keeps a value tied to the environment; a cluster join replaces the saved value with the payload's literal one |
+| **References** | `${NAME}` and `${NAME:-default}` inside any string value are replaced from the environment after the files are merged and are never written back. `url: ${DATABASE_URL}` therefore works, but is not needed: the variable is read directly. An unset name without a default becomes an empty string. A reference is read at every load, so it keeps a value tied to the environment |
 
 **Accepted forms** (placeholders in braces; replace them with the real values, typed as they are):
 
@@ -8173,13 +8177,13 @@ Service start (automatic after install):
 ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 
 # ALSO CORRECT when the project never needs privileged startup:
-# USER {project_name}
+# USER {internal_name}
 
 # WRONG: Hardcode permanent root when the project could run unprivileged
 # and has no documented IDEA.md exception
 #
 # WRONG in projects that need privileged startup: prevents privileged port binding
-# USER {project_name}
+# USER {internal_name}
 ```
 
 #### Windows
@@ -8498,7 +8502,7 @@ Binary checks:
 │   └─ YES → Allow restore (nothing to protect)
 ├─ Is user root?
 │   └─ YES → Allow restore (with confirmation prompt)
-├─ Is user the service user ({project_name})?
+├─ Is user the service user ({internal_name})?
 │   └─ YES → Require operator token (`server.token`):
 │            "This will OVERWRITE all data. Enter operator token to confirm."
 │            └─ Valid token → Allow restore
@@ -8516,7 +8520,7 @@ User runs: {project_name} --maintenance mode development
 Binary checks:
 ├─ Is user root?
 │   └─ YES → Allow (with warning about security implications)
-├─ Is user the service user ({project_name})?
+├─ Is user the service user ({internal_name})?
 │   └─ YES → Require operator token (`server.token`)
 └─ Random user → Reject
 ```
@@ -10967,6 +10971,7 @@ PHASE 5: Server startup (actual server start)
       ├─ User {internal_name} exists → use it
       └─ User missing → create {internal_name}:{internal_name} (see PART 23)
       The service identity is fixed to `{internal_name}:{internal_name}`: no config key selects another user or group, so the early peek never reads one.
+      The account's home directory is `{data_dir}`, and the account is created WITHOUT creating that directory (`useradd --no-create-home`, `pw useradd` without `-m`): step 8b creates every directory and step 8c chowns it, so the order account, directories, ownership never depends on a home directory that exists already.
    b. Create ALL directories (while still root):
       ├─ {config_dir}/ and subdirs (ssl/, tor/)
       ├─ {data_dir}/ and subdirs (db/, security/, tor/, tor/site/)
@@ -10995,7 +11000,7 @@ PHASE 5: Server startup (actual server start)
       ├─ If ANY privileged port fails: exit with error
       └─ Unprivileged ports (>= 1024) bound later in step 18
    g. (reserved) No child process is started while root. Tor and I2P start in step 17 as the service user, after the drop; their directories were created and chowned in steps 8b-8c
-   h. DROP PRIVILEGES to {project_name} user
+   h. DROP PRIVILEGES to the {internal_name} user
    i. Verify privilege drop succeeded (getuid() != 0)
 
 9. IF RUNNING AS USER (non-root) - setup user directories:
@@ -11842,7 +11847,7 @@ The app automatically watches config files and hot-reloads what it can. Settings
 |---------|-----|
 | `logging.*` file paths/format | Log files must be closed and reopened |
 | `server.baseurl` | Router must be rebuilt; in-flight requests finish on the old routes |
-| `server.timeouts.*` | http.Server is swapped behind the existing listener |
+| `server.limits.read_timeout`, `server.limits.write_timeout`, `server.limits.idle_timeout` | http.Server is swapped behind the existing listener |
 
 **Requires Restart:**
 
@@ -11924,7 +11929,7 @@ func (m *ConfigManager) applyConfigChanges(newConfig *Config) {
 
 **Database Schema :**
 
-All projects use SQLite with a single database file:
+Every project supports two database modes, one at a time: local SQLite (the default, described here) and a remote libsql/Turso database (`server.database.driver: libsql`; the driver is always compiled in, so remote support is required of every project and is switched on only by configuration). The local mode uses a single database file:
 - `server.db` - Server state (rate limits, audit log, scheduler, backups) — never configuration, which lives only in the config files (`server.yml`, `yaml.d/*`, `secrets.yml`)
 
 | Database | Table | Purpose |
@@ -11948,7 +11953,7 @@ CREATE TABLE IF NOT EXISTS app_secrets (
 
 `name` is the secret name used in PART 11 (`installation_secret`, `cookie_signing_key`, `csrf_token_secret`, and the `{name}_previous` and `{name}_previous_until` rotation rows); `value` is base64 text (or a UTC ISO 8601 timestamp for `*_until` and `*_at` rows); `updated_at` is UTC ISO 8601. **Startup initialization:** after the schema step, in ONE transaction, every generated secret whose row is missing is created from `crypto/rand` and inserted with `INSERT ... ON CONFLICT DO NOTHING`, so an existing row is never replaced and two processes starting together end with the same values. The values are never logged, never returned by an API, and are restored with the database from a backup.
 
-**`server.db` can be recreated from the config file if needed.**
+**A missing `server.db` is recreated EMPTY at startup (schema, defaults and newly generated secrets only).** Nothing beyond the schema is reconstructible from the configuration files: owner tokens, audit, security and resource state, and the generated secrets live only in the database and come back only by restoring a backup. Configuration never lives in the database, so the files stay the sole source of truth.
 
 **Database Modes:**
 
@@ -14054,8 +14059,10 @@ func (p *Paste) SetSlug(slug string) {
 
 | Database | `CREATE TABLE IF NOT EXISTS` | `ALTER TABLE ADD COLUMN` |
 |----------|------------------------------|--------------------------|
-| SQLite | ✓ Native support | Ignore "duplicate column" error |
-| libsql | ✓ Remote (via Turso API) | `CREATE TABLE IF NOT EXISTS` |
+| SQLite | ✓ Native support | Ignore the `duplicate column name` error |
+| libsql | ✓ Same statement over the remote connection | Same statement; the `duplicate column name` error is ignored |
+
+libSQL is SQLite-compatible, and neither it nor SQLite has an `IF NOT EXISTS` form for a column, so the column-add procedure is the same on both: run the plain `ALTER TABLE ... ADD COLUMN`, treat the `duplicate column name` error as success, and fail startup on any other error. Table and index statements use `IF NOT EXISTS` on both. On libsql the table and index names carry the `srv_` prefix ("Table names").
 
 **Cross-database compatible:**
 ```go
@@ -14975,7 +14982,7 @@ report-uri /api/{api_version}/server/reports/csp
 | Directive | Default | Reason |
 |-----------|---------|--------|
 | `default-src` | `'self'` | Strict baseline; all unset directives fall back here. |
-| `script-src` | `'self'` | All JS lives in `static/js/app.js` — no inline scripts, no inline handlers — so `'self'` costs nothing and blocks every injected `<script>`, inline or cross-origin. |
+| `script-src` | `'self'` | All JS lives in `static/js/app.js` — no inline scripts (the `application/ld+json` block is data that is never executed) and no inline handlers — so `'self'` costs nothing and blocks every injected `<script>`, inline or cross-origin. |
 | `style-src` | `'self' 'unsafe-inline'` | Application code NEVER emits inline `style=""` attributes or `<style>` blocks (all CSS lives in static files, PART 16). `'unsafe-inline'` stays in `style-src` only as a tolerance for styles injected by third parties (browser extensions, embedded widgets); it is not permission for application code, and the frontend tests assert that rendered pages contain no inline styles. |
 | `img-src` | `'self' data: blob: https:` | `data:` for inline icons/SVG, `blob:` for client-side generated previews, `https:` so user avatars / CDN images / OG embeds work without per-host config. (HTTP images explicitly excluded — TLS only.) |
 | `font-src` | `'self' https:` | Web fonts (Google Fonts, FontAwesome CDN, custom CDNs) work without per-host config. HTTPS only. |
@@ -16403,7 +16410,7 @@ In this project `--maintenance data delete` (see "Data Subject Commands") applie
 | Command | Behavior |
 |---------|----------|
 | `--maintenance data export --owner <prefix> [--output FILE]` | Writes ONE JSON file (default `{project_name}-export-{owner_id}-{YYYYMMDD}.json` in the current directory, mode `0600`; `--output -` writes to stdout). Contents: `format: 1`, the owner id with its created and last-seen times, the metadata of its tokens (prefix, kind, name, created, last used, expires, status; NEVER a token value or hash), and every resource the owner owns in the same shape the API returns. Nothing about other owners, no audit or security log lines |
-| `--maintenance data delete --owner <prefix> [--yes]` | Deletes the owner record, all its tokens and its resources in ONE transaction, after the operator types the owner id to confirm (`--yes` skips the prompt for scripts). A retention standard (HIPAA/SOC2) never blocks the command: what it requires to keep is the audit log, and the log keeps only an anonymized owner id (a new random id; the original-id mapping is deleted in the same transaction, the rule above). A resource kind that IDEA.md declares a retained record is not deleted: its owner reference is replaced by the same anonymized id, so it stays for retention with no link back to the person. The command prints how many items were deleted and how many were anonymized, and `compliance.data_deletion_completed` records both counts. Backups are not rewritten: the data leaves them with their normal retention |
+| `--maintenance data delete --owner <prefix> [--yes]` | Deletes the owner record, all its tokens and its resources in ONE transaction, after the operator types the owner id to confirm (`--yes` skips the prompt for scripts). A retention standard (HIPAA/SOC2) never blocks the command: what it requires to keep is the audit log, and the log keeps only an anonymized owner id (a new random id; the original-id mapping is deleted in the same transaction, the rule above). The template default is that NO resource kind is retained, so every resource of the owner is deleted and the command is fully defined without IDEA.md. A project that must keep a kind for a legal or contractual reason declares it in IDEA.md (kind name and reason); such a kind is not deleted: its owner reference is replaced by the same anonymized id, so it stays for retention with no link back to the person. The command prints how many items were deleted and how many were anonymized, and `compliance.data_deletion_completed` records both counts. Backups are not rewritten: the data leaves them with their normal retention |
 | `--maintenance compliance report` | Prints a plain-text summary: the enabled standards with their effective settings, the retention periods, counts (owners, resources, active tokens, open security reports), the compliance events of the last 30 days, and the time of the last backup. It contains counts and settings only, never personal data |
 
 In the audit events below, `User ID` means the owner id in this project (a random identifier, never an email address or a token).
@@ -16775,6 +16782,8 @@ server:
 | `read_timeout` | Read timeout | 30s |
 | `write_timeout` | Write timeout | 30s |
 | `idle_timeout` | Idle connection timeout | 120s |
+
+The keys live in `yaml.d/security.yml` (`server.limits`, "Area Files and Automatic Migration"). Each timeout is a Go-style duration (`30s`, `2m`) greater than zero and `max_body_size` is a size with a unit; a missing, malformed or non-positive value is invalid and the default applies (invalid-to-default, with one warning). The three timeouts apply by a graceful reload of the HTTP server (no restart, no downtime).
 
 ## Response Compression
 
@@ -18933,7 +18942,7 @@ Same underlying health response as `/server/healthz`, but formatted using the st
 
 | Key | Meaning | Rule |
 |-----|---------|------|
-| `requests_total` | HTTP requests served since the database was created | Counted by the outermost middleware for EVERY response (HTML, API, static files, errors). Health probes (`/server/healthz`, `/healthz`, `/api/**/healthz`) and the `/server/metrics` scrape are NOT counted. The value is kept in the database (written in batches, at most every 60 seconds and at shutdown) so a restart does not reset it; in Cluster Mode every node adds to the shared row, so it is cluster-wide |
+| `requests_total` | HTTP requests served since the database was created | Counted by the outermost middleware for EVERY response (HTML, API, static files, errors). Health probes (`/server/healthz`, `/healthz`, `/api/**/healthz`) and the `/server/metrics` scrape are NOT counted. The value is kept in the database (written in batches, at most every 60 seconds and at shutdown) so a restart does not reset it |
 | `requests_24h` | Requests in the last 24 hours | A rolling window of 24 hourly buckets (the current partial hour counts), same counting rule |
 | `active_connections` | In-flight requests right now | The health request itself counts, so the minimum is `1` |
 
@@ -24526,7 +24535,7 @@ function isInstalledPWA() {
 
 ### Background Sync
 
-**OPTIONAL: implemented only when IDEA.md defines a feature that must work offline.** IDEA.md names each action that may be queued. Only idempotent actions (a replay is safe) are queued; a queued request never contains a credential (the replay goes through an open page that attaches the token), so the generic `/api/data` below is an illustration, never a real route; a queued request is discarded after success, after any `4xx` response, or after 24 hours; and the UI shows how many changes are waiting, with a control to discard them. A project without such a feature ships no Background Sync code.
+**OPTIONAL: implemented only when IDEA.md defines a feature that must work offline.** IDEA.md names each action that may be queued. Only idempotent actions (a replay is safe) are queued; a queued request never contains a credential (the replay goes through an open page that attaches the token), so the generic `/api/data` below is an illustration, never a real route; a queued request is discarded after success, after any `4xx` response, or after 24 hours; and the UI shows how many changes are waiting, with a control to discard them. A project without such a feature ships no Background Sync code. The queue is written by page code (IndexedDB, as in the example) and the worker only replays it in its `sync` event, so it is not request interception and does not contradict the same-origin GET pass-through. A visitor-submitted form (the contact form, security and abuse reports) is never queued or persisted offline: it carries a CSRF token and an antispam answer, it is not idempotent and it can hold personal data. Offline, the form shows its error and the visitor sends it again when the connection is back.
 
 **Queue actions when offline, automatically sync when back online:**
 
@@ -24869,7 +24878,7 @@ Sync page (`/server/preferences/sync`), one form, one Import button:
 |---------------|----------------|------------------|
 | **Static assets** (CSS, JS, images) | Cache-first | Served from cache |
 | **HTML pages** | Network-first, cache fallback | Show cached version if offline |
-| **API calls** | Network-only + queue | Show offline indicator, queue for retry |
+| **API calls** | Network-only (the service worker never intercepts them) | Show the offline indicator; nothing is queued unless IDEA.md names the action ("Background Sync"), and that queue belongs to page code, not to the fetch handler |
 | **Fonts** | Cache-first | Served from cache |
 | **User data** | IndexedDB | Full offline access |
 
@@ -26006,7 +26015,7 @@ document.querySelectorAll('.theme-toggle-form').forEach((form) => {
 
 | Partial | Purpose |
 |---------|---------|
-| `partial/public/header.tmpl` | Logo + top nav, then `branding.content.header` ("Page Content") |
+| `partial/public/header.tmpl` | Brand, top nav and `.header-actions`, then `branding.content.header` ("Page Content") |
 | `partial/public/nav.tmpl` | Horizontal navigation links |
 | `partial/public/footer.tmpl` | About, Privacy links (never the report form) |
 | `partial/head.tmpl` | Shared `<head>` contents |
@@ -26283,7 +26292,7 @@ partial/
 **Default Navigation (nav.tmpl):**
 
 ```
-Desktop (single row, 4 zones):
+Desktop (single row, 3 zones; the actions zone holds two items):
 ┌─────────────────────────────────────────────────────────────────┐
 │ {project_name}   Home | Section 1 | Section 2      [⚙] [Theme]  │  ← Header
 └─────────────────────────────────────────────────────────────────┘
@@ -26301,7 +26310,7 @@ Mobile:
                                               └───────────────────┘
 ```
 
-**Header Layout — single row, 4 zones, in this exact order:**
+**Header Layout — single row, three top-level zones in this exact order (brand, nav links, `.header-actions`):**
 
 ```
 {logo/text}          {links}          {profile/preferences}  {theme_toggle}
@@ -26311,7 +26320,7 @@ Brand sits left, nav links are horizontally centered (not pushed right against
 the actions), and the actions cluster (profile/preferences, then theme toggle)
 sits right. Do NOT split header/nav into two separate rows on desktop — that
 pushes links flush right against the header edge with no centering, which is
-the layout bug this section fixes.
+the layout bug this section fixes. The two items on the right (profile/preferences, then theme toggle) are not zones of their own: both sit inside the one `.header-actions` element, in that order, so the DOM has exactly three top-level header zones.
 
 ```html
 <!-- Menu state checkbox, drawer panel and scrim are children of <body>, NOT of <header>
@@ -27072,7 +27081,7 @@ web:
 
 | Entry | Mode | Effect |
 |-------|------|--------|
-| `header` | **Extends** | Inserted inside `<header>` of every public page, after the built-in logo and navigation. It replaces nothing |
+| `header` | **Extends** | Inserted as the last child of `<header>` of every public page, after `.header-actions` (the built-in brand, navigation and actions). It replaces nothing, and it is the one operator-supplied exception to the "Header and Navigation Conformance" allowlist |
 | `about` | **Extends** | Appended after the built-in About content |
 | `privacy` | **Extends** | Appended after the built-in privacy sections (after "Your Rights" and the consent controls) and before the Contact section. The built-in sections are never replaced, because they must stay in step with `server.privacy.*` |
 | `footer` | **Overrides** | Replaces the custom branding block above the Application Footer ("Footer Customization"). No entry: the built-in branding. An entry whose body is empty or whitespace-only: no branding. The Default Application Footer is always shown |
@@ -28584,7 +28593,7 @@ func trackingScript(r *http.Request) template.HTML {
 | **Back link** | Every sub-page has the `.breadcrumb` with one link to its hub (`← Preferences`, `← Help`), above the `<h1>`; the text is one translation key. Hubs have none |
 | **Cards** | Content lives in `.section-card`, one concern per card, each labelled by its `<h2>` (`aria-labelledby`). No bare `<h2>` sections on the page background, no card inside a card, no card without a heading |
 | **Classes** | Only the shared theme classes (see "Shared Theme Classes"). A page never borrows a wrapper class from another page type (a help page is not a `search-section`, a preferences page is not a `paste-view`) and never invents a page-specific wrapper |
-| **Frontend rules** | The "HTML5 & CSS Over JavaScript", "CSS Rules", "JavaScript Rules", "Template Rules" and "CSRF" sections apply unchanged: semantic HTML5 first, no inline `style`, `<script>` body or `on*` handler, every state-changing form is a `POST` with the CSRF token, and the page is fully usable without JavaScript |
+| **Frontend rules** | The "HTML5 & CSS Over JavaScript", "CSS Rules", "JavaScript Rules", "Template Rules" and "CSRF" sections apply unchanged: semantic HTML5 first, no inline `style`, executable `<script>` body (the `application/ld+json` data block is the one exception) or `on*` handler, every state-changing form is a `POST` with the CSRF token, and the page is fully usable without JavaScript |
 | **Same chrome everywhere** | The same header, footer, consent banner and skip links on every page, error pages included. A page never adds, removes or reorders header or footer elements |
 
 **Shared shell CSS (in `components.css`, tokens only, no pixel literals except the width caps):**
@@ -28675,7 +28684,7 @@ These rules tighten "Header Layout" above. A header that breaks one of them is a
 
 | No. | Rule |
 |-----|------|
-| 1 | **Allowed elements, in this order, and nothing else:** the brand link, `<nav class="nav-links">`, the hamburger label (below the desktop breakpoint), then `.header-actions` containing exactly the preferences link (or the owner dropdown) and the theme-toggle form. No language selector, no search box (a project's search lives in `<main>`), no install button, no sign-in or sign-up buttons, no sponsor or social icons, no second preferences link for mobile. This list is the content of `<header>`: the `nav-toggle` checkbox, the drawer panel and the scrim are not header elements but siblings of `<header>` in `<body>` (as in the example), and the `~` selectors need only those three to share that parent |
+| 1 | **Allowed elements, in this order, and nothing else:** the brand link, `<nav class="nav-links">`, the hamburger label (below the desktop breakpoint), then `.header-actions` containing exactly the preferences link (or the owner dropdown) and the theme-toggle form. No language selector, no search box (a project's search lives in `<main>`), no install button, no sign-in or sign-up buttons, no sponsor or social icons, no second preferences link for mobile. The one addition is the operator's `branding.content.header` fragment ("Page Content"): when the operator sets it, it is rendered as the last child of `<header>`, after `.header-actions`; with the entry unset nothing is rendered. The conformance test renders every page with it unset, and one more render with it set asserts the fragment is the last child and that nothing else in the header changed. This list is the content of `<header>`: the `nav-toggle` checkbox, the drawer panel and the scrim are not header elements but siblings of `<header>` in `<body>` (as in the example), and the `~` selectors need only those three to share that parent |
 | 2 | **Nav is application sections only:** Home plus the project's own sections, labels of one or two words, plain `<a>` elements, no dropdowns. About, Help, Privacy, Terms, Preferences and API or documentation links belong to the footer; the Contact form is linked nowhere (see "/server/contact" → "Who can reach the form"). The current page carries `aria-current="page"` and `.active`. A project with many sections groups them behind a landing page instead of growing the bar |
 | 3 | **Mobile:** one hamburger (checkbox plus label, no JavaScript) opens the drawer; the preferences link and the theme toggle stay in the bar and never move into the drawer; the drawer holds exactly the nav links |
 | 4 | **No JavaScript required:** the theme toggle is a form `POST` whose target is the server-computed next mode; no `<noscript>` copy of a control; option and button labels come from the value enum (`dark`, `light`, `auto` → their translated names), never by position |
@@ -33114,7 +33123,7 @@ server:
 3. The restart runs as root. Startup step 7b verifies the SHA256 again, checks that the staged version is newer than the running one, runs `replaceBinary()` (step 4), deletes `{data_dir}/update/` and re-executes the new binary (step 5), which continues at step 6 as the new version.
 4. Any failure (bad checksum, rename error): the staged files are deleted, the old binary keeps running, `update.failed` is recorded and the Server Admins get the "Update failed" notification. The same version is not staged again until the next release.
 
-**Restart support:** systemd (`Restart=on-failure`), launchd (`KeepAlive`), runit and s6 restart the service after exit `75`. OpenRC, SysV and rc.d do not supervise it: the staged update waits for the next start (boot or `--service restart`) and the Server Admins get "Update staged: restart to apply". In a cluster the rollout stays node-by-node.
+**Restart support:** systemd (`Restart=on-failure`), launchd (`KeepAlive`), runit and s6 restart the service after exit `75`. OpenRC, SysV and rc.d do not supervise it: the staged update waits for the next start (boot or `--service restart`) and the Server Admins get "Update staged: restart to apply".
 
 ### Platform-Specific Binary Replacement
 
@@ -33976,7 +33985,7 @@ groupadd --system --gid {id} {internal_name}
 
 # Create user with matching UID, same primary group
 useradd --system --uid {id} --gid {id} \
-  --home-dir /etc/{internal_org}/{internal_name} \
+  --home-dir /var/lib/{internal_org}/{internal_name} --no-create-home \
   --shell /sbin/nologin \
   --comment "{internal_name} service account" \
   {internal_name}
@@ -33994,8 +34003,8 @@ useradd --system --uid {id} --gid {id} \
 |-------|-----------|---------|
 | Start | root | launchd starts binary as root |
 | Bind | root | Bind privileged ports (<1024) |
-| Drop | root→`{project_name}` | Binary drops privileges |
-| Run | `{project_name}` | Serve requests as unprivileged user |
+| Drop | root→`{internal_name}` | Binary drops privileges |
+| Run | `{internal_name}` | Serve requests as unprivileged user |
 
 **The `{internal_name}` user is created automatically by the binary: by its startup routine, which `--service --install` also runs before the first start.**
 
@@ -51688,7 +51697,7 @@ After each significant change:
 **If project has existing database:**
 
 1. **NEVER break existing data**
-2. **NO migration files, NO migration directory, NO version tracking** - schema is created/updated idempotently on every startup via `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE IF NOT EXISTS ADD COLUMN IF NOT EXISTS`
+2. **NO migration files, NO migration directory, NO version tracking** - schema is created/updated idempotently on every startup via `CREATE TABLE IF NOT EXISTS` and a plain `ALTER TABLE ... ADD COLUMN` whose `duplicate column name` error is treated as success (neither SQLite nor libsql has an `IF NOT EXISTS` form for a column)
 3. New columns must be nullable or have a default so existing rows remain valid
 4. Test idempotent schema changes on backup data first
 5. Document breaking schema changes in release notes
