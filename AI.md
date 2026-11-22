@@ -2201,7 +2201,7 @@ This distinction exists for clarity. When referring to OS-level resources that b
 |------|------------|
 | **Server** | The running application instance — serves all public API and web routes |
 | **Operator** | Person who deploys and manages the server via CLI and `server.yml` config file |
-| **Owner** | Anonymous, credential-only identity issued when a caller first creates a resource — no profile, login, or email. Identified by its primary token; can add linked tokens. Not an account (see "API Token Model") |
+| **Owner** | Anonymous, credential-only identity issued when a caller first creates a resource or asks for a token — no profile, login, or email. Identified by its primary token; can add linked tokens. Not an account (see "API Token Model") |
 
 ## Setup & First-Run Terms
 
@@ -4091,7 +4091,7 @@ User preferences like theme, language, and UI settings can be stored client-side
 
 | Storage | Use Case | Persistence |
 |---------|----------|-------------|
-| Cookies | Theme, language, consent flags — anything the server reads to render pages; plus the `owner_token` cookie (HttpOnly + Secure + SameSite=Strict) set when an owner is issued (web-form resource creation) or restored on `/server/preferences/tokens`, so token-gated web management works with JS disabled | Configurable expiry |
+| Cookies | Theme, language, consent flags — anything the server reads to render pages; plus the `owner_token` cookie (HttpOnly + Secure + SameSite=Strict) set when an owner is issued (web-form resource creation or the New token button) or restored on `/server/preferences/tokens`, so token-gated web management works with JS disabled | Configurable expiry |
 | `localStorage` | Optional JS-enhancement copy of the owner API token, and pure client-only state — never load-bearing; every flow must also work via the `owner_token` cookie with JS disabled | Until cleared |
 
 ## AI Implementation Process
@@ -12237,7 +12237,7 @@ INSERT INTO config (key, value, type) VALUES
 | Tier | Source | Scope | Purpose |
 |------|--------|-------|---------|
 | **Operator (admin) token** `adm_` (`server.token`) | `secrets.yml` (auto-generated on first run) | Global — all resources, separate tier | Operator actions: delete any resource, enforce TOS, revoke tokens |
-| **Owner token (primary)** `own_` | Server-generated when an owner is first issued a resource | Every resource the owner has created, now and later | Owner reads, edits, deletes their resources; manages their linked tokens on `/server/preferences/tokens` |
+| **Owner token (primary)** `own_` | Server-generated when an owner is issued: on a first resource creation or on request (New token) | Every resource the owner has created, now and later | Owner reads, edits, deletes their resources; manages their linked tokens on `/server/preferences/tokens` |
 | **Linked token** `own_` | Created by the owner on `/server/preferences/tokens` | The same owner's resources — identical to the primary, minus token management | Automation: CLI, CI, scripts, MCP clients — revocable one by one without touching the primary |
 
 Clients send any of them as (the prefix tells which kind):
@@ -12283,7 +12283,7 @@ server:
 
 #### Owners and Owner Tokens
 
-**An owner is an anonymous identity, not an account.** There is no profile, login, email, or password — the owner IS whoever holds its primary token. Owners are created implicitly the first time a caller creates a resource without presenting a valid token. **A product with no owner-owned resources** (IDEA.md `### Roles & permissions` defines none, for example a read-only catalog) never issues an owner: no `own_` token is created, the header shows the plain preferences link, `/server/preferences/tokens` shows only the Restore form, the owner token gauge stays `0`, and the operator token remains the only credential. The token tables, the tokens page and the restore flow are still implemented, so the first resource a later version adds simply starts issuing owners.
+**An owner is an anonymous identity, not an account.** There is no profile, login, email, or password — the owner IS whoever holds its primary token. Owners are created implicitly the first time a caller creates a resource without presenting a valid token. Owners are also created on request: a caller with no token asks for one without creating a resource, from the **New token** button on `/server/preferences/tokens` or from `POST /api/{api_version}/server/preferences/tokens/primary` (see "Token Management"). Every API project supports this, so every caller, including one of a product with no owner-owned resources, can always obtain a token, both for MCP and for linking what it creates to itself.
 
 | Rule | Detail |
 |------|--------|
@@ -12325,16 +12325,17 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 
 **Cookie auth scope:** web management forms (plain `POST`: edit, delete, and the `/server/preferences/tokens` token actions) MAY fall back to the owner cookie when no `Authorization` header is present — same hash + constant-time match + revoked/expiry/ownership checks as the Bearer path. API routes (`/api/...`) accept the `Authorization` header ONLY and MUST ignore cookies — no ambient authority for programmatic endpoints. `SameSite=Strict`, POST-only mutations, and CSRF tokens keep the web fallback CSRF-safe.
 
-**Anonymous access** (no `Authorization` header): allowed for all public GET endpoints and for resource creation where the project allows it, subject to default rate limits.
+**Anonymous access** (no `Authorization` header): allowed for all public GET endpoints and for resource creation where the project allows it, subject to default rate limits. The whole REST API works without a token; a token only links what the caller creates to its owner and unlocks MCP, which requires one.
 
 #### Token Management (`/server/preferences/tokens`)
 
-**Owner tokens are always viewable — masked by default.** Because tokens are randomly generated and the owner cannot choose one, the owner must be able to see, copy, rotate and add tokens after creation. This lives on its own page, `/server/preferences/tokens`, linked from `/server/preferences` and never inside the single preferences form (rule 15). Each action on it is its own small `POST` form with its own CSRF token. The page lists tokens only when a valid owner cookie is present; without one it shows just the "Use an existing token" restore form.
+**Owner tokens are always viewable — masked by default.** Because tokens are randomly generated and the owner cannot choose one, the owner must be able to see, copy, rotate and add tokens after creation. This lives on its own page, `/server/preferences/tokens`, linked from `/server/preferences` and never inside the single preferences form (rule 15). Each action on it is its own small `POST` form with its own CSRF token. The page lists tokens only when a valid owner cookie is present; without one it shows just the "New token" and "Use an existing token" forms.
 
 | Control | Behavior |
 |---------|----------|
 | **Primary token** (masked) | Shown as `own_••••••••••••••••••••••••XXXX` (last 4 characters visible). **Reveal** (POST, CSRF-protected) decrypts and renders the full token in that one response (`Cache-Control: no-store`); **Copy** copies it; masked again on the next page load. Works with JS disabled (reveal is a plain form POST) |
 | **Rotate** | Generates a new token and replaces the old one **in place**: the same `api_tokens` row gets the new `token_hash`, `token_prefix`, `token_enc` and `rotated_at`. The old token is invalid immediately, the owner cookie is replaced, resources stay owned (they hang off `owner_id`), and linked tokens survive. Confirmation required; the new token is displayed |
+| **New token** | Shown only without an owner cookie: issues a new owner and its primary token on request (see "Owners and Owner Tokens") |
 | **Use an existing token** | Restore an identity on a new browser/device by pasting the primary token (see "Owners and Owner Tokens") |
 | **Linked tokens** (list) | Name, masked token, created, last used, expires, status (active / expired / revoked) |
 | **Create linked token** | Name (required, 1–64 chars, unique per owner) and expiry: `never` (default), `7d`, `30d`, `90d`, `1y`, or a chosen date. Maximum `server.tokens.max_linked` (default `25`) active per owner. The new token is displayed and stays viewable |
@@ -12346,14 +12347,16 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 | Rule | Detail |
 |------|--------|
 | Management requires the primary | Token management (reveal, rotate, restore, create/rename/expiry/revoke linked) is allowed only with the primary token (owner cookie, or primary Bearer on the API mirror). A linked token on any of these returns `403` — a leaked automation token can never mint, read, or extend other tokens |
+| Issue on request | `POST /server/preferences/token/create` (web) and `POST /api/{api_version}/server/preferences/tokens/primary` (API) need no token: they create a new owner and its primary token, return it as `owner_token` (`201`), set the owner cookie on the web route, use the `strict` limiter, write `token.created` with source `issue`, and answer `409 CONFLICT` when the caller already presents a valid token (one caller never gets a second primary) |
+| Independent rotation | Rotating the primary replaces only the primary token: linked tokens keep working with their own values. Rotating a linked token replaces only that token: the primary and the other linked tokens are untouched |
 | Linked = full owner access otherwise | A linked token can do everything the primary can to the owner's resources through the API and MCP, except token management |
 | Expiry | A linked token past `expires_at` is rejected like a revoked one; it stays listed (marked expired) until the owner revokes it or changes its expiry |
 | Never a preferences row | Tokens are credentials in `api_tokens`, not preferences. UI preferences stay cookie-only (see "Client-Side Preferences") |
 | Never in lists or logs | List/detail responses return prefix, name, dates, status — never the token. Only the reveal action decrypts, and it writes an audit event |
 | Audit | `token.created`, `token.rotated`, `token.revealed`, `token.revoked`, `token.restored`, each with owner id and token prefix — never the token |
-| Rate limiting | Reveal, rotate and restore use the `strict` limiter (`server.rate_limit.strict`, PART 12); every attempt, valid or not, consumes it, and a restore with an invalid token also counts as a failed authentication |
+| Rate limiting | Reveal, rotate, restore and issue use the `strict` limiter (`server.rate_limit.strict`, PART 12); every attempt, valid or not, consumes it, and a restore with an invalid token also counts as a failed authentication |
 
-**Routes** (web forms are cookie-authenticated `POST`s with CSRF; the API mirror accepts the primary token's `Authorization` header only):
+**Routes** (web forms are cookie-authenticated `POST`s with CSRF; the API mirror accepts the primary token's `Authorization` header only, except issuing a token, which needs none):
 
 | Web route | API mirror | Description |
 |-----------|-----------|-------------|
@@ -12361,6 +12364,7 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 | `POST /server/preferences/token/reveal` | `POST /api/{api_version}/server/preferences/tokens/primary/reveal` | Reveal the primary token |
 | `POST /server/preferences/token/rotate` | `POST /api/{api_version}/server/preferences/tokens/primary/rotate` | Rotate the primary token in place |
 | `POST /server/preferences/token/restore` | — | Restore an identity from a pasted primary token (sets the cookie; web only) |
+| `POST /server/preferences/token/create` | `POST /api/{api_version}/server/preferences/tokens/primary` | Issue a new owner and its primary token on request (no token required) |
 | `POST /server/preferences/token/forget` | — | Forget the token saved in THIS browser (web only): clears the owner cookie (`Max-Age=0`, same attributes) and sends `Clear-Site-Data: "storage"` for the localStorage copy, then `303` to the tokens page. The token stays valid and no resource is touched; restore it by pasting the primary token |
 | `POST /server/preferences/tokens` | `POST /api/{api_version}/server/preferences/tokens` | Create a linked token |
 | `POST /server/preferences/tokens/{id}/reveal` | `POST /api/{api_version}/server/preferences/tokens/{id}/reveal` | Reveal a linked token |
@@ -12377,7 +12381,7 @@ Token-management routes get no unversioned alias (they are data-shaped, see "Unv
 | # | Card | Contents |
 |---|------|----------|
 | 0 | **Page header** | `<h1>Owner tokens</h1>` once; above it the back link `← Preferences` (one translation key). No second "Owner tokens" heading |
-| 1 | **Restore** (only when there is no owner cookie) | Label "Primary token", one text field with a paste hint, one primary button "Restore identity". Nothing else on the page is shown without a cookie |
+| 1 | **New token and Restore** (only when there is no owner cookie) | Two small forms. **New token**: one primary button "Create token" that issues an owner and its primary token, sets the owner cookie and shows the token with Copy. **Restore**: label "Primary token", one text field with a paste hint, one primary button "Restore identity". Nothing else on the page is shown without a cookie |
 | 2 | **Primary token** | Title, status badge (Active), the masked value in `.copy-value` (single-line scroll, never wraps), help text ("Full access to your {resources}. Keep it private.", where {resources} is `resource_label_plural` from IDEA.md `## Project variables` (default `items`), never a hardcoded product noun), actions: **Reveal**, **Copy** (once revealed), **Rotate** (confirmation popover) |
 | 3 | **Linked tokens** | Heading with the count. One card per token: name (`<h3>`), status badge (Active / Expired / Revoked), masked value, a `<dl>` with Created, Last used and Expires, and a footer toolbar: **Reveal**, **Rotate**, **Edit** (a `<details>` holding the rename + expiry form with one Save button), **Revoke** (danger, confirmation popover). Empty state: "No linked tokens yet" with the hint "Create one per app, for example your MCP client" |
 | 4 | **Create linked token** | **Name** (label, help "For example: MCP client") and **Expiry** (ONE `<select>`: Never, 7 days, 30 days, 90 days, 1 year, Custom date). When "Custom date" is chosen a labeled **Expires on** date input is used (rendered inside a `<details>` so it works without JavaScript). ONE primary button "Create token" |
@@ -15292,7 +15296,7 @@ web:
 
 **AI Crawler Rules:**
 - AI bots are ordinary crawlers: there is no AI-specific blocking, no `ai_bots` setting and no per-bot stanzas in `robots.txt`, and the server never refuses a request because the caller is an AI.
-- **Unauthenticated:** an AI client gets exactly what any other crawler gets — the `User-agent: *` rules above (`Allow` and `Disallow` paths, advisory like every `robots.txt`) and the public endpoints. Anonymous MCP calls see only the public API operations, the same as an unauthenticated REST call.
+- **Unauthenticated:** an AI client gets exactly what any other crawler gets — the `User-agent: *` rules above (`Allow` and `Disallow` paths, advisory like every `robots.txt`) and the public endpoints. MCP requires a token, so an unauthenticated AI client cannot use MCP at all.
 - **Authenticated (Bearer token, including MCP):** `robots.txt` does not apply. The caller can use everything its token allows, auth-only routes and tools included, and nothing more; access is decided by the token's permissions and scope alone, never by the caller being an AI.
 
 ### security.txt (RFC 9116)
@@ -15365,9 +15369,9 @@ llms.txt tells AI agents (Claude, GPT, etc.) what the application does, what API
 
 ## API
 Base URL: {app_url}/api/{api_version}
-Authentication: Bearer token (owner token issued on first resource creation, or a linked token created on /server/preferences/tokens — one linked token per MCP client)
+Authentication: none for the REST API; a Bearer token links what you create to you and is REQUIRED for MCP (get one from POST {app_url}/api/{api_version}/server/preferences/tokens/primary or the New token button on /server/preferences/tokens, then create one linked token per MCP client there)
 Rate limit: {rate_limit} requests/minute
-MCP: {app_url}/mcp (Streamable HTTP; same Bearer token as the API)
+MCP: {app_url}/mcp (Streamable HTTP; Bearer token required)
 
 ## Endpoints
 - GET /server/healthz - Health check (no auth)
@@ -15449,14 +15453,14 @@ web:
 | Credential | The existing `Authorization: Bearer ...` header, exactly as for every other API route. **There is no MCP token, no MCP scope, and no MCP-specific setting that grants access** |
 | Validation | Run through the SAME token validation function and middleware as the API — one code path, not a copy |
 | Cookies | Ignored. Like every `/api/...` route, the MCP endpoint accepts the `Authorization` header only — no ambient authority |
-| No token | Anonymous: only what an unauthenticated API call may do (public endpoints, default rate limits). An operation that needs auth returns the API's normal `401` (with `WWW-Authenticate: Bearer`, PART 8 → "Auth Token Presentation") JSON-RPC error |
+| No token | **Rejected.** Every MCP request carries `Authorization: Bearer ...`; without a valid token the endpoint answers `401` (with `WWW-Authenticate: Bearer`, PART 8 → "Auth Token Presentation") and a JSON-RPC error, and `tools/list` is never served. The REST API is different: it works without a token, and a token only links what the caller creates to its owner and unlocks MCP |
 | Authorization | Per tool call, with the caller's token, by the same checks as the matching API endpoint. A token that cannot call an endpoint over REST cannot call its tool |
 | Rate limiting, audit | The same limiters and audit events as the API; the audit `source` is `mcp` so MCP traffic is distinguishable |
-| Owner and linked tokens | The owner-token machinery exists in EVERY project (PART 8 → "API Token Model"), so every MCP client can hold a credential for the create, update and delete tools once an owner exists. An owner is issued on the first resource creation; a product with no owner-owned resources never issues one (PART 8 → "Owners and Owner Tokens"), and its MCP clients are anonymous or use the operator token. Both kinds work as the Bearer token. A tool call sees exactly the owner's resources and runs the API's ownership check. **A linked token is the intended credential for MCP clients** — create one named for the client on `/server/preferences/tokens` so it can be revoked without touching the primary |
+| Owner and linked tokens | Owner tokens exist in EVERY project (PART 8 → "API Token Model") and every caller can obtain one: on a first resource creation, or on request from `/server/preferences/tokens` or `POST /api/{api_version}/server/preferences/tokens/primary`, so every MCP client can always hold the credential MCP requires. Owner and linked tokens both work as the Bearer token. A tool call sees exactly what the token's owner owns and runs the API's ownership check. **A linked token is the intended credential for MCP clients**: create one named for the client on `/server/preferences/tokens`; it is revoked, rotated and expired on its own, rotating it never changes the primary or the other linked tokens, and rotating the primary never changes the linked tokens |
 | Operator token | `server.token` works as Bearer and sees operator-only tools; for any other caller those tools are absent from `tools/list` AND rejected on `tools/call` |
 | MCP clients | Give each MCP client its own linked token (never the primary, never `server.token` — that is full operator access). |
 | Token management | **Never exposed as tools.** Reveal, rotate, create, revoke and restore of tokens exist only on `/server/preferences/tokens` and its API mirror, never over MCP |
-| Creation by an anonymous client | **Not allowed over MCP.** A tool that would issue a new owner (and its token) requires an existing token; without one it fails with the API's `401`, and such tools are absent from `tools/list` for anonymous callers. Owner tokens are issued only by the REST API or the web form, never inside a tool result — tool results enter the model's context and the provider's logs. A caller that already has a token passes it and no new owner is created |
+| Token issuance | **Never a tool.** A new owner and its token are issued only by the REST API or the web form, never inside a tool result: tool results enter the model's context and the provider's logs. An MCP client always starts from a token it was given |
 
 #### Tools
 
@@ -20705,13 +20709,13 @@ Need additional compatible endpoints?"
 | `/api/autodiscover` | GET | None | Server settings, config schema, and options for CLI (non-versioned) |
 | `/api/swagger` | GET | None | OpenAPI JSON spec — direct alias for current `{api_version}` |
 | `/api/graphql` | POST | None | GraphQL queries — direct alias for current `{api_version}` |
-| `/api/mcp` | POST | Bearer (optional) | MCP endpoint — direct alias for current `{api_version}`; same auth as the API |
-| `/mcp` | POST | Bearer (optional) | MCP endpoint — root alias for current `{api_version}`; same handler, never a redirect |
+| `/api/mcp` | POST | Bearer (required) | MCP endpoint — direct alias for current `{api_version}`; same auth as the API |
+| `/mcp` | POST | Bearer (required) | MCP endpoint — root alias for current `{api_version}`; same handler, never a redirect |
 | `/api/healthz` | GET | None | Health check JSON — direct alias for current `{api_version}` |
 | `/api/metrics[/{service}]` | GET | Bearer token (per service) | Metrics — direct alias for current `{api_version}` (PART 20) |
 | `/api/{api_version}/server/swagger` | GET | None | OpenAPI JSON spec (versioned) |
 | `/api/{api_version}/server/graphql` | POST | None | GraphQL queries (versioned; schema may differ across versions) |
-| `/api/{api_version}/server/mcp` | POST | Bearer (optional) | MCP endpoint (versioned; Streamable HTTP, same tokens as the API) |
+| `/api/{api_version}/server/mcp` | POST | Bearer (required) | MCP endpoint (versioned; Streamable HTTP, same tokens as the API) |
 | `/api/{api_version}/server/healthz` | GET | None | Health check (JSON default; text via API rules) |
 | `/server/preferences` | GET, POST | None (POST: CSRF) | Guest preferences hub and save form; links every registered preferences page; `POST` sets cookies, `303` |
 | `/server/preferences/sync` | GET, POST | None (POST: CSRF) | Sync page: export block (full URL + short code, content-negotiated) and the import form; `POST` applies `code`, `303` (see "Cross-device preference sync") |
@@ -29468,11 +29472,11 @@ curl -H "Accept: application/xml" https://jokes.example.com/api/v1/joke</code></
 
 | Anchor | Section | Content |
 |--------|---------|---------|
-| `#overview` | What this is | One short paragraph: this application is an MCP server over Streamable HTTP (remote only); every API operation the project defines, authenticated create, read, update and delete included, is available to an assistant as a tool; the token decides which ones it sees (anonymous callers see only the public ones) |
+| `#overview` | What this is | One short paragraph: this application is an MCP server over Streamable HTTP (remote only); every API operation the project defines, authenticated create, read, update and delete included, is available to an assistant as a tool; every request carries a token, and the token decides which ones it sees |
 | `#endpoint` | Endpoint | The full MCP URL resolved for this request (PART 8 → "Resolution Order", never hardcoded) with the two aliases (`/api/mcp`, `/mcp`) and a copy control; the URL text uses CSS `user-select: all` so it works without JS |
-| `#authentication` | Authentication | Requests authenticate with `Authorization: Bearer {token}` — the same tokens as the REST API, no MCP-specific token. Anonymous access works for public tools. Use a **linked token** created for this client on `/server/preferences/tokens` (named for the client, revocable alone). Never the primary token and never the operator token (`server.token`). |
+| `#authentication` | Authentication | Requests authenticate with `Authorization: Bearer {token}` — the same tokens as the REST API, no MCP-specific token. A token is required for every MCP request and there is no anonymous MCP access (the REST API itself works without one). Use a **linked token** created for this client on `/server/preferences/tokens` (named for the client, revocable alone). Never the primary token and never the operator token (`server.token`). |
 | `#connect` | Connect a client | Copy-paste snippets using the resolved URL and the project name: a Claude Code command (`claude mcp add --transport http {project_name} {url} --header "Authorization: Bearer $MCP_TOKEN"`), a generic JSON client config (`mcpServers` with `type`, `url`, `headers`), and a `curl` `initialize` request that verifies the connection. The token is the only value the page cannot know, so it appears as the shell variable `$MCP_TOKEN` — no other placeholders |
-| `#tools` | Tools | The live tool list for an anonymous caller (name and description from the same registry that backs `tools/list`) — never hand-written. When authenticated callers see more tools, say so |
+| `#tools` | Tools | The live tool list a standard, non-operator token sees (name and description from the same registry that backs `tools/list`) — never hand-written. When the operator token sees more tools, say so |
 | `#limits` | Behavior and limits | `POST` only; no sessions; the same rate limits and audit as the API; `Origin` validated; the supported MCP protocol versions |
 | `#troubleshooting` | Troubleshooting | A table of `400` (protocol-version or header mismatch), `401` (missing, invalid or expired token — `WWW-Authenticate: Bearer`), `403` (bad `Origin` or insufficient scope), `405` (GET or DELETE; the endpoint is POST-only) with the fix for each |
 
@@ -41549,7 +41553,7 @@ The table is illustrative — the rule is universal: enumerate IDEA.md's feature
 ### Universal Coverage (Every Project)
 
 - **Full crawl**: start at `/`, follow every internal link — no dead links, no 500s, every navigable route visited
-- **Owner-token management (PART 8 → "API Token Model")**: create a resource via form → `owner_token` cookie set → edit/delete forms work; missing or invalid owner token → rendered error page with no token or resource-existence hints; also: reveal shows the token then masks again, rotate (old token rejected, new works, resources still owned, linked tokens survive), create/rename/expire/revoke a linked token, a linked token gets `403` on every token-management route, restore by pasting the primary token, and MCP `tools/call` with an owner token, a linked token, and no token
+- **Owner-token management (PART 8 → "API Token Model")**: create a resource via form → `owner_token` cookie set → edit/delete forms work; missing or invalid owner token → rendered error page with no token or resource-existence hints; also: reveal shows the token then masks again, rotate (old token rejected, new works, resources still owned, linked tokens survive), create/rename/expire/revoke a linked token, a linked token gets `403` on every token-management route, restore by pasting the primary token, and MCP `tools/call` with an owner token, a linked token, and no token Also: issuing a token with no token creates an owner (`201`, cookie set on the web route) and with a valid token answers `409`; an MCP request without a token answers `401`; rotating the primary leaves every linked token valid, and rotating a linked token leaves the primary and the other linked tokens valid.
 - **API docs pages (PART 14)**: Swagger UI at `/server/docs/swagger` and GraphiQL at `/server/docs/graphql` render, and the listed endpoints match the routes the server actually serves
 - **Theme**: dark, light, and auto all render; assert computed styles actually change (PART 16 theme rules)
 - **Responsive**: 375×812 viewport — no horizontal scroll, navigation usable (PART 16 mobile rules)
