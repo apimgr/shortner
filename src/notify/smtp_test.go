@@ -29,7 +29,9 @@ func TestBuildMessage(t *testing.T) {
 				"To: ops@example.com\r\n",
 				"Subject: Backup complete\r\n",
 				"MIME-Version: 1.0\r\n",
-				"Content-Type: text/plain; charset=utf-8\r\n",
+				"Content-Type: multipart/alternative; boundary=",
+				"Content-Type: text/plain; charset=UTF-8\r\n",
+				"Content-Type: text/html; charset=UTF-8\r\n",
 				"Auto-Submitted: auto-generated\r\n",
 				"@example.com>",
 				"\r\n\r\nall good\r\n",
@@ -59,14 +61,14 @@ func TestBuildMessage(t *testing.T) {
 			wantHas:     []string{"Subject: hi  Bcc: attacker@evil.test\r\n"},
 		},
 		{
-			name: "multiple recipients are comma joined and empties dropped",
+			name: "one recipient is written to the To header",
 			msg: Message{
 				FromEmail: "noreply@example.com",
-				To:        []string{"a@example.com", "", "b@example.com"},
+				To:        []string{"a@example.com"},
 				Subject:   "s",
 				Body:      "b",
 			},
-			wantHas: []string{"To: a@example.com, b@example.com\r\n"},
+			wantHas: []string{"To: a@example.com\r\n"},
 		},
 		{
 			name: "a lone dot line is stuffed",
@@ -103,7 +105,11 @@ func TestBuildMessage(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := string(BuildMessage(tc.msg, now))
+			message, err := BuildMessage(tc.msg, now)
+			if err != nil {
+				t.Fatalf("BuildMessage() error = %v", err)
+			}
+			got := string(message)
 			for _, want := range tc.wantHas {
 				if !strings.Contains(got, want) {
 					t.Errorf("message missing %q:\n%s", want, got)
@@ -115,6 +121,49 @@ func TestBuildMessage(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBuildMessageRejectsMultipleRecipients(t *testing.T) {
+	_, err := BuildMessage(Message{
+		FromEmail: "noreply@example.com",
+		To:        []string{"a@example.com", "b@example.com"},
+		Subject:   "s",
+		Body:      "b",
+	}, time.Now())
+	if err == nil {
+		t.Fatal("BuildMessage() error = nil, want one recipient per message")
+	}
+}
+
+func TestBuildMessageWithAttachment(t *testing.T) {
+	message, err := BuildMessage(Message{
+		FromEmail: "noreply@example.com",
+		To:        []string{"security@example.com"},
+		Subject:   "Security report",
+		Body:      "The encrypted report is attached.",
+		Attachments: []Attachment{{
+			Filename: "security-report-sec_0123456789abcdef.enc", ContentType: "application/octet-stream", Data: []byte("sealed-ciphertext"),
+		}},
+	}, time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("BuildMessage() error = %v", err)
+	}
+	got := string(message)
+	for _, want := range []string{
+		"Content-Type: multipart/mixed; boundary=",
+		"Content-Type: multipart/alternative; boundary=",
+		"Content-Type: text/plain; charset=UTF-8",
+		"Content-Type: text/html; charset=UTF-8",
+		"Content-Disposition: attachment; filename=security-report-sec_0123456789abcdef.enc",
+		"Content-Transfer-Encoding: base64",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("message missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "sealed-ciphertext") {
+		t.Errorf("attachment contains unencoded ciphertext: %s", got)
 	}
 }
 

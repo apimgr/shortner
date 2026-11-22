@@ -3,13 +3,13 @@
 package httpserver
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/notify"
 	"github.com/apimgr/shortner/src/pgp"
 	"github.com/apimgr/shortner/src/security"
 )
@@ -17,6 +17,7 @@ import (
 type securityReportSender interface {
 	Enabled() bool
 	SendRaw(to []string, subject, body string) error
+	SendRawWithAttachments(to []string, subject, body string, attachments []notify.Attachment) error
 }
 
 // notifySecurityReport sends AI.md PART 11 "Submission Flow" step 4 (the
@@ -65,6 +66,10 @@ func (fd *frontendDeps) notifyMaintainerSecurityReport(sender securityReportSend
 		return
 	}
 
+	sealed, err := fd.sealedReportBytes(f)
+	if err != nil {
+		return
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "A new security report was received.\n\n")
 	fmt.Fprintf(&b, "Tracking ID: %s\n", trackingID)
@@ -73,48 +78,31 @@ func (fd *frontendDeps) notifyMaintainerSecurityReport(sender securityReportSend
 	fmt.Fprintf(&b, "Received: %s\n", f.SubmittedAt)
 	fmt.Fprintf(&b, "Disclosure window: %d days\n\n", f.DisclosureDays)
 	b.WriteString("WARNING: no PGP keypair is configured for this server, so the\n")
-	b.WriteString("report body below is AES-256-GCM encrypted under\n")
+	b.WriteString("report attachment is AES-256-GCM encrypted under\n")
 	b.WriteString("server.security.encryption_key instead of being PGP-encrypted to\n")
 	b.WriteString("your key. Anyone holding that config key can read it.\n\n")
-	b.WriteString("Decrypt it with the same key to read the full report; the\n")
+	b.WriteString("Decrypt the attachment with the same key to read the full report; the\n")
 	b.WriteString("plaintext is never written to disk or to any log.\n\n")
-	b.WriteString("----- BEGIN AES-256-GCM SEALED REPORT -----\n")
-	b.WriteString(fd.sealedReportArmor(f))
-	b.WriteString("\n----- END AES-256-GCM SEALED REPORT -----\n")
-
-	_ = sender.SendRaw([]string{to},
-		fmt.Sprintf("[SECURITY] %s report %s", f.Severity, trackingID), b.String())
+	_ = sender.SendRawWithAttachments([]string{to},
+		fmt.Sprintf("[SECURITY] %s report %s", f.Severity, trackingID), b.String(), []notify.Attachment{{
+			Filename: "security-report-" + trackingID + ".enc", ContentType: "application/octet-stream", Data: sealed,
+		}})
 }
 
-// sealedReportArmor re-seals the report for transport and wraps the
-// base64 at 64 columns so mail clients do not mangle it. A sealing
-// failure yields an explicit marker rather than leaking plaintext.
-func (fd *frontendDeps) sealedReportArmor(f securityReportForm) string {
+func (fd *frontendDeps) sealedReportBytes(f securityReportForm) ([]byte, error) {
 	key, err := config.DecodeEncryptionKey(fd.cfg)
 	if err != nil {
-		return "(unavailable: encryption key could not be loaded)"
+		return nil, err
 	}
 	body, err := json.Marshal(f)
 	if err != nil {
-		return "(unavailable: report could not be serialized)"
+		return nil, err
 	}
 	sealed, err := security.Seal(key, body)
 	if err != nil {
-		return "(unavailable: report could not be sealed)"
+		return nil, err
 	}
-	return wrapColumns(base64.StdEncoding.EncodeToString([]byte(sealed)), 64)
-}
-
-// wrapColumns breaks s into lines of at most width characters.
-func wrapColumns(s string, width int) string {
-	var b strings.Builder
-	for len(s) > width {
-		b.WriteString(s[:width])
-		b.WriteByte('\n')
-		s = s[width:]
-	}
-	b.WriteString(s)
-	return b.String()
+	return []byte(sealed), nil
 }
 
 // notifyResearcherSecurityReport implements step 5: the acknowledgment

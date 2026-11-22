@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/certmgr"
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/cve"
 	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/geoip"
 	"github.com/apimgr/shortner/src/notify"
@@ -32,7 +34,6 @@ type builtinDef struct {
 // an honest, logged skip instead of a fabricated success or a crash.
 var pendingBuiltins = []builtinDef{
 	{"blocklist_update", "Blocklist Update", "IP/domain blocklists (AI.md PART 9/11) are not implemented yet"},
-	{"cve_update", "CVE Database Update", "CVE/security database integration (AI.md PART 9) is not implemented yet"},
 }
 
 // Deps are the runtime dependencies real (non-pending) built-in tasks need.
@@ -53,6 +54,8 @@ type Deps struct {
 	ConfigDir  string
 	FQDN       string
 	DevTLD     bool
+	TLSConfig  *tls.Config
+	CVEOptions cve.Options
 	// GeoIP feeds geoip_update (AI.md PART 19). Nil when GeoIP is disabled
 	// — the task then honestly skips instead of downloading unused files.
 	GeoIP    *geoip.Manager
@@ -101,6 +104,7 @@ func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
 		{ID: "healthcheck_self", Name: "Self Health Check", Run: healthcheckSelfTask(deps.DB)},
 		{ID: "ssl_renewal", Name: "SSL Certificate Renewal", Run: sslRenewalTask(deps)},
 		{ID: "geoip_update", Name: "GeoIP Database Update", Run: geoipUpdateTask(deps)},
+		{ID: "cve_update", Name: "CVE Database Update", Run: cveUpdateTask(deps)},
 		{ID: "backup_daily", Name: "Daily Backup", Run: backupDailyTask(deps)},
 		{ID: "backup_hourly", Name: "Hourly Backup", Run: backupHourlyTask(deps)},
 		{ID: "update_check", Name: "Update Check", Run: updateCheckTask(deps)},
@@ -136,15 +140,13 @@ func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
 	return tasks
 }
 
-// pendingTask returns a TaskFunc that performs no work and succeeds,
-// returning its honest skip reason as an error would misreport it as a
-// failure — so the reason is logged by the caller (RunNow/runTask log the
-// success line with duration only); operators can see the reason via
-// AI.md's own tracked TODO rather than a per-run failure notification.
+// pendingTask fails explicitly when an enabled built-in task cannot run
+// because a required upstream contract is missing from AI.md. This keeps
+// the scheduler's status and warning logs honest instead of recording a
+// successful no-op.
 func pendingTask(reason string) TaskFunc {
 	return func(ctx context.Context) error {
-		_ = reason
-		return nil
+		return fmt.Errorf("scheduled task unavailable: %s", reason)
 	}
 }
 
@@ -192,13 +194,9 @@ func healthcheckSelfTask(sqlDB db.Handle) TaskFunc {
 	}
 }
 
-// sslRenewalTask logs when the current certificate is within the 7-day
-// renewal window (certmgr.NeedsRenewal). Actual re-issuance still happens
-// on-demand inside autocert during the TLS handshake (AI.md PART 15) — this
-// task is the proactive early-warning half of PART 18's "ssl_renewal",
-// wired here so it stops being blocked on "no scheduler exists yet" (see
-// TODO.AI.md); triggering an out-of-band renewal request is tracked
-// separately.
+// sslRenewalTask renews app-managed certificates inside the seven-day
+// window by invoking the configured TLS provider. System and local
+// certificates remain outside the app's renewal ownership.
 func sslRenewalTask(deps Deps) TaskFunc {
 	return func(ctx context.Context) error {
 		if !deps.TLSEnabled || deps.DevTLD || deps.FQDN == "" {
@@ -211,11 +209,21 @@ func sslRenewalTask(deps Deps) TaskFunc {
 			// in that case.
 			return nil
 		}
-		if !certmgr.NeedsRenewal(cert.NotAfter) {
+		if !cert.Tier.ManagesRenewal() || !certmgr.NeedsRenewal(cert.NotAfter) {
 			return nil
 		}
-		notifySSL(deps, cert.NotAfter)
-		return fmt.Errorf("ssl_renewal: certificate for %s expires %s (within renewal window)", deps.FQDN, cert.NotAfter.Format(time.RFC3339))
+		if deps.TLSConfig == nil || deps.TLSConfig.GetCertificate == nil {
+			return fmt.Errorf("ssl_renewal: no managed renewal provider is configured for %s", deps.FQDN)
+		}
+		updated, err := deps.TLSConfig.GetCertificate(&tls.ClientHelloInfo{ServerName: deps.FQDN})
+		if err != nil {
+			notifySSL(deps, cert.NotAfter)
+			return fmt.Errorf("ssl_renewal: renew %s: %w", deps.FQDN, err)
+		}
+		if updated == nil {
+			return fmt.Errorf("ssl_renewal: renewal provider returned no certificate for %s", deps.FQDN)
+		}
+		return nil
 	}
 }
 
@@ -257,6 +265,18 @@ func geoipUpdateTask(deps Deps) TaskFunc {
 			return fmt.Errorf("geoip_update: %w", err)
 		}
 		deps.GeoIP.Reload()
+		return nil
+	}
+}
+
+func cveUpdateTask(deps Deps) TaskFunc {
+	return func(ctx context.Context) error {
+		if deps.CVEOptions.SecurityDir == "" {
+			return fmt.Errorf("cve_update: security data directory is not configured")
+		}
+		if err := cve.Update(ctx, deps.CVEOptions); err != nil {
+			return fmt.Errorf("cve_update: %w", err)
+		}
 		return nil
 	}
 }

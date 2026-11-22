@@ -214,8 +214,17 @@ func (n *Notifier) SendRaw(to []string, subject, body string) error {
 	return n.SendRawReplyTo(to, "", subject, body)
 }
 
+// SendRawWithAttachments sends a raw message with MIME attachments.
+func (n *Notifier) SendRawWithAttachments(to []string, subject, body string, attachments []Attachment) error {
+	return n.sendRaw(to, "", subject, body, attachments)
+}
+
 // SendRawReplyTo delivers a raw message with an explicit reply address.
 func (n *Notifier) SendRawReplyTo(to []string, replyTo, subject, body string) error {
+	return n.sendRaw(to, replyTo, subject, body, nil)
+}
+
+func (n *Notifier) sendRaw(to []string, replyTo, subject, body string, attachments []Attachment) error {
 	if !n.Enabled() {
 		return ErrDisabled
 	}
@@ -229,12 +238,13 @@ func (n *Notifier) SendRawReplyTo(to []string, replyTo, subject, body string) er
 		replyTo = email.ReplyTo
 	}
 	msg := Message{
-		FromName:  fromName(email.From.Name, appName),
-		FromEmail: fromAddress(email.From.Email, host),
-		ReplyTo:   replyTo,
-		To:        to,
-		Subject:   subject,
-		Body:      body,
+		FromName:    fromName(email.From.Name, appName),
+		FromEmail:   fromAddress(email.From.Email, host),
+		ReplyTo:     replyTo,
+		To:          to,
+		Subject:     subject,
+		Body:        body,
+		Attachments: attachments,
 	}
 	if err := sendMail(email.SMTP, msg); err != nil {
 		n.logf(applog.LevelError, "notify: send %q: %v", subject, err)

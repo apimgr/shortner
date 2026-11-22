@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -58,9 +59,9 @@ func TestBuiltinTasksRegistersEnabledOverlayTasks(t *testing.T) {
 	}
 }
 
-func TestPendingTaskAlwaysSucceeds(t *testing.T) {
-	if err := pendingTask("subsystem not built yet")(context.Background()); err != nil {
-		t.Errorf("pendingTask() error = %v, want nil (honest skip, not failure)", err)
+func TestPendingTaskReportsUnavailableWork(t *testing.T) {
+	if err := pendingTask("upstream source is unspecified")(context.Background()); err == nil || !strings.Contains(err.Error(), "upstream source is unspecified") {
+		t.Errorf("pendingTask() error = %v, want explicit unavailable error", err)
 	}
 }
 

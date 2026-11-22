@@ -32,8 +32,10 @@ the originating IP anonymized for privacy-respecting analytics.
 - REST API for link creation, listing, management, analytics, and health,
   with OpenAPI, read-only GraphQL, and MCP tools using the same API tokens
 - Local GeoIP enrichment for click analytics and country-based controls
-- Tor v3 hidden service when a Tor binary is available; optional I2P eepsite
-- Single static server binary; overlay networking uses optional system runtimes
+- Tor v3 hidden service when a Tor binary is available; I2P is on by default
+  in containers and opt-in on hosts
+- Single static server binary; overlay networking uses the bundled Tor and
+  i2pd runtime packages in the container image
 - Companion `shortner-cli` with command-line, terminal, and optional native GUI interfaces
 
 The server and client include eight complete translations: English, Spanish,

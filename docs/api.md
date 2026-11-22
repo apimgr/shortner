@@ -382,8 +382,9 @@ Every field is safe for anyone to see. Response:
 ```
 
 `checks.tor` and `checks.i2p` are omitted unless those features are enabled.
-Tor starts when a Tor binary is available; I2P remains opt-in and reports
-disabled until enabled and running.
+Tor starts when a Tor binary is available. I2P is opt-in on hosts and enabled
+by default in containers; its status reports startup, health, or provider
+unavailability.
 
 The plain-text form flattens the same fields, one `key: value` per line,
 in a fixed order: `project.*`, `status`, version and build, uptime, mode,

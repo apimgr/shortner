@@ -223,7 +223,15 @@ func faviconHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "image/x-icon")
-	w.Header().Set("Cache-Control", "public, max-age=604800")
+	w.Header().Set("Cache-Control", "no-cache")
+	if stamp := w.Header().Get("X-Build"); stamp != "" {
+		etag := buildETag(stamp)
+		w.Header().Set("ETag", etag)
+		if etagMatches(r.Header.Get("If-None-Match"), etag) {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
 	http.ServeContent(w, r, "favicon.ico", time.Time{}, strings.NewReader(string(b)))
 }
 

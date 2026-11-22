@@ -127,7 +127,11 @@ jobs:
       - name: Build image for scanning
         # Only when the project ships a Docker image
         if: hashFiles('docker/Dockerfile') != ''
-        run: docker build -t local/scan-target:ci -f docker/Dockerfile .
+        env:
+          OFFICIAL_SITE: ${{ secrets.OFFICIAL_SITE }}
+        run: |
+          if [ -f site.txt ]; then OFFICIAL_SITE="$(cat site.txt)"; fi
+          docker build --build-arg "OFFICIAL_SITE=$OFFICIAL_SITE" -t local/scan-target:ci -f docker/Dockerfile .
       - name: Scan image (Trivy)
         if: hashFiles('docker/Dockerfile') != ''
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0

@@ -6,6 +6,62 @@
 (function () {
   "use strict";
 
+  var recoveryKey = "shortner_recovered";
+
+  function showBootFailure() {
+    var main = document.createElement("main");
+    var title = document.createElement("h1");
+    var message = document.createElement("p");
+    var link = document.createElement("a");
+    main.className = "container";
+    title.textContent = "This page could not finish loading";
+    message.textContent = "Reload the page or check your connection and try again.";
+    link.href = "/offline.html";
+    link.textContent = "Open the offline page";
+    main.append(title, message, link);
+    document.body.replaceChildren(main);
+  }
+
+  function recoverStuckPage() {
+    var alreadyRecovered = false;
+    try {
+      alreadyRecovered = window.sessionStorage.getItem(recoveryKey) === "1";
+      if (!alreadyRecovered) window.sessionStorage.setItem(recoveryKey, "1");
+    } catch (_) {
+      alreadyRecovered = true;
+    }
+    if (alreadyRecovered) {
+      showBootFailure();
+      return;
+    }
+
+    var cleanup = [];
+    if (navigator.serviceWorker) {
+      cleanup.push(navigator.serviceWorker.getRegistrations().then(function (items) {
+        return Promise.all(items.map(function (registration) { return registration.unregister(); }));
+      }));
+    }
+    if (window.caches) {
+      cleanup.push(window.caches.keys().then(function (keys) {
+        return Promise.all(keys.map(function (key) { return window.caches.delete(key); }));
+      }));
+    }
+    var timeout = new Promise(function (resolve) { window.setTimeout(resolve, 3000); });
+    Promise.race([Promise.all(cleanup), timeout]).then(function () {
+      window.location.reload();
+    }, function () {
+      window.location.reload();
+    });
+  }
+
+  var bootTimer = window.setTimeout(recoverStuckPage, 10000);
+  function finishInitialRender() { window.clearTimeout(bootTimer); }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", finishInitialRender, { once: true });
+  } else {
+    finishInitialRender();
+  }
+
   // Translations for the handful of strings this file creates at runtime.
   // The page is already fully rendered in the active language by the
   // server; this catalog only covers text that does not exist in the

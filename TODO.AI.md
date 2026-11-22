@@ -597,7 +597,9 @@ yet exist.
   `go test ./src/httpserver/... -cover` (73.3%) all pass in
   `casjaysdev/go:latest`.
   Read: AI.md PART 28
-- Verified during this alignment: `tests/docker.sh` passes all 109 checks;
+- Verified during this alignment: `tests/docker.sh` passes all 109 application
+  checks plus host-side runtime assertions for the configured container
+  overlays; the Docker script propagates host assertion failures.
   `tests/incus.sh` passes all 109 application checks and 15 service lifecycle
   checks. Browser E2E for both documented server pages had previously passed
   across SSR, no-JavaScript, and browser-interaction tiers (see the
@@ -699,10 +701,10 @@ yet exist.
 ## PART 31: Overlay networks (Tor & I2P)
 
 PART 31 is implemented for both networks. The runtime Docker image includes
-`tor` and `i2pd`; its integration test confirms that Tor is detected while
-clearnet health remains available during bootstrap. This environment did not
-complete Tor bootstrap, and it has no external SAM bridge, so live overlay
-success paths still need a network-capable host.
+`tor` and `i2pd`; its integration test confirms I2P becomes healthy and
+clearnet health remains available while Tor bootstraps. This environment did
+not complete Tor bootstrap, so live Tor success paths still need a
+network-capable host.
 
 ### PART 31.1: Tor hidden service — implemented
 
@@ -752,11 +754,11 @@ the trusted-proxy-gate exception for a `Host` matching the b32 address,
 10m (registered only when opt-in enabled), and the `I2P: http://{addr}`
 banner row.
 
-- DEFERRED (environment): the runtime image includes `i2pd`, but the
-  integration suite keeps I2P opt-in and this environment has no external
-  SAM bridge. `startI2PD` and a real tunnel remain unexercised. The SAM path
-  is tested against a fake in-process SAMv3 server
-  (`src/i2p` is at 73.5%).
+- VERIFIED: the container-default integration run starts bundled `i2pd`,
+  reports `features.i2p.status=healthy`, publishes a `.b32.i2p` hostname,
+  persists the destination key, and reports `checks.i2p=ok`. Host runs remain
+  opt-in. The external SAM bridge path is tested against a fake in-process
+  SAMv3 server (`src/i2p` is at 73.5%).
   Read: AI.md PART 31.2
 
 ## Spec-revision follow-ups (2026-08-14 / 2026-08-16 AI.md updates)

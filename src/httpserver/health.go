@@ -79,9 +79,9 @@ type TorInfo struct {
 	Hostname string `json:"hostname"`
 }
 
-// I2PInfo describes the opt-in I2P eepsite, per AI.md PART 13 and
-// PART 31.2. I2P is off by default, in which case every field stays
-// zero-valued and provider reads "none".
+// I2PInfo describes the I2P eepsite, per AI.md PART 13 and PART 31.2.
+// I2P defaults off on bare hosts and on in containers; when disabled,
+// fields stay zero-valued and provider reads "none".
 type I2PInfo struct {
 	Enabled  bool   `json:"enabled"`
 	Running  bool   `json:"running"`
@@ -134,6 +134,7 @@ type TorReporter interface {
 // ProviderName is the resolved provider ("i2pd", "sam", or "none").
 type I2PReporter interface {
 	Enabled() bool
+	Starting() bool
 	Running() bool
 	Healthy() bool
 	EepsiteAddress() string
@@ -204,21 +205,25 @@ func (h *healthDeps) torInfo() (TorInfo, string) {
 	return info, "degraded"
 }
 
-// i2pInfo renders features.i2p from the live manager. I2P is opt-in, so a
-// nil or disabled manager reports provider "none" and checks.i2p is
-// omitted. AI.md PART 13's fixed vocabulary never exposes error text.
+// i2pInfo renders features.i2p from the live manager. A nil or disabled
+// manager reports provider "none" and checks.i2p is omitted. AI.md PART
+// 13's fixed vocabulary never exposes error text.
 func (h *healthDeps) i2pInfo() (I2PInfo, string) {
 	if h.i2p == nil || !h.i2p.Enabled() {
 		return I2PInfo{Status: "disabled", Provider: "none"}, ""
 	}
-	if h.i2p.ProviderName() == "none" {
+	if h.i2p.Starting() {
+		return I2PInfo{Enabled: true, Status: "starting", Provider: h.i2p.ProviderName()}, "ok"
+	}
+	provider := h.i2p.ProviderName()
+	if provider == "none" && h.i2p.Err() != "" {
 		return I2PInfo{Status: "disabled", Provider: "none"}, ""
 	}
 	info := I2PInfo{
 		Enabled:  true,
 		Running:  h.i2p.Running(),
 		Hostname: h.i2p.EepsiteAddress(),
-		Provider: h.i2p.ProviderName(),
+		Provider: provider,
 	}
 	if info.Running && h.i2p.Healthy() {
 		info.Status = "healthy"

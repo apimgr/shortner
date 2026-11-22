@@ -92,6 +92,15 @@ __has_client_main() {
   return 0
 }
 
+# Resolves the embedded server URL using the AI.md source precedence.
+__build_official_site() {
+  if [ -r "$project_dir/site.txt" ]; then
+    tr -d '\r\n' <"$project_dir/site.txt"
+  else
+    printf '%s' "${OFFICIAL_SITE:-}"
+  fi
+}
+
 # Builds the Linux binaries used by the container suites in a temporary
 # directory under the project-scoped OS temp root.
 # Runs inside casjaysdev/go:latest with CGO disabled, mirroring the
@@ -101,7 +110,7 @@ __build_binaries() {
   version="$(__build_version)"
   commit="$(git -C "$project_dir" rev-parse --short HEAD 2>/dev/null || echo unknown)"
   epoch="$(date -u +%s)"
-  site="https://github.com/$project_org/$project_name"
+  site="$(__build_official_site)"
   ldflags="-s -w"
   ldflags="$ldflags -X 'github.com/$project_org/$project_name/src/common/version.Version=$version'"
   ldflags="$ldflags -X 'github.com/$project_org/$project_name/src/common/version.CommitID=$commit'"

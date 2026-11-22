@@ -21,12 +21,34 @@ import (
 type Config struct {
 	Server                Server `yaml:"server"`
 	Web                   Web    `yaml:"web"`
+	Data                  Data   `yaml:"data"`
 	databaseURLEnv        bool
 	cacheURLEnv           bool
 	databaseURLConfigured bool
 	cacheURLConfigured    bool
 	databaseURLSeeded     bool
 	cacheURLSeeded        bool
+}
+
+// Data holds external security database source settings under the top-level
+// `data:` area, per AI.md PART 9 and PART 11.
+type Data struct {
+	SecurityDir string    `yaml:"security_dir"`
+	CVE         CVEData   `yaml:"cve"`
+	Trivy       TrivyData `yaml:"trivy"`
+}
+
+// CVEData configures the NVD 2.0 feed.
+type CVEData struct {
+	Source      string `yaml:"source"`
+	FilterByCPE bool   `yaml:"filter_by_cpe"`
+	APIKey      string `yaml:"api_key"`
+}
+
+// TrivyData configures the optional Trivy OCI database.
+type TrivyData struct {
+	Enabled bool   `yaml:"enabled"`
+	Source  string `yaml:"source"`
 }
 
 // Server holds the top-level `server:` block of server.yml.
@@ -1078,6 +1100,10 @@ The available operations come from the live OpenAPI registry. Link creation is h
 			LLMs:      DefaultLLMs(),
 			WellKnown: DefaultWellKnown(),
 		},
+		Data: Data{
+			CVE:   CVEData{Source: "https://services.nvd.nist.gov/rest/json/cves/2.0", FilterByCPE: false},
+			Trivy: TrivyData{Enabled: false, Source: "ghcr.io/aquasecurity/trivy-db:2"},
+		},
 	}
 }
 
@@ -1124,7 +1150,7 @@ func Load(path, dbPath string) (*Config, error) {
 	if secretErr != nil && !os.IsNotExist(secretErr) {
 		log.Printf("config: ignoring unreadable secrets file %s: %v", secretsPath, secretErr)
 	}
-	secretToken, secretKey := "", ""
+	secretToken, secretKey, secretCVEAPIKey := "", "", ""
 	if secretErr == nil {
 		var secretValues Config
 		if err := yaml.Unmarshal(secretData, &secretValues); err != nil {
@@ -1132,6 +1158,7 @@ func Load(path, dbPath string) (*Config, error) {
 		} else {
 			secretToken = secretValues.Server.Token
 			secretKey = secretValues.Server.Security.EncryptionKey
+			secretCVEAPIKey = secretValues.Data.CVE.APIKey
 			merged, mergeErr := mergeYAML(data, secretData)
 			if mergeErr != nil {
 				log.Printf("config: ignoring unmergeable secrets file %s: %v", secretsPath, mergeErr)
@@ -1154,6 +1181,12 @@ func Load(path, dbPath string) (*Config, error) {
 		cfg.Server.Security.EncryptionKey = legacyKey
 		needsMigration = true
 	}
+	if legacy.Data.CVE.APIKey != "" {
+		if secretCVEAPIKey == "" {
+			cfg.Data.CVE.APIKey = legacy.Data.CVE.APIKey
+		}
+		needsMigration = true
+	}
 	if needsMigration {
 		migration := &Config{}
 		if secretToken == "" {
@@ -1161,6 +1194,11 @@ func Load(path, dbPath string) (*Config, error) {
 		}
 		if secretKey == "" {
 			migration.Server.Security.EncryptionKey = legacyKey
+		}
+		if secretCVEAPIKey != "" {
+			migration.Data.CVE.APIKey = secretCVEAPIKey
+		} else if legacy.Data.CVE.APIKey != "" {
+			migration.Data.CVE.APIKey = legacy.Data.CVE.APIKey
 		}
 		if err := SaveSecrets(path, migration); err != nil {
 			return nil, fmt.Errorf("config: migrate secrets: %w", err)
@@ -1174,6 +1212,7 @@ func Load(path, dbPath string) (*Config, error) {
 	}
 	if document, parseErr := parseConfigDocument(data); parseErr == nil {
 		cfg.Server.Cache.tlsSkipVerifySet = yamlPathValue(document.Content[0], "server.cache.tls_skip_verify") != nil
+		cfg.Server.I2P.EnabledExplicit = yamlPathValue(document.Content[0], "server.i2p.enabled") != nil
 		cfg.databaseURLConfigured = yamlPathValue(document.Content[0], "server.database.url") != nil
 		cfg.cacheURLConfigured = yamlPathValue(document.Content[0], "server.cache.url") != nil
 	}
@@ -1282,13 +1321,10 @@ func removeMigratedSecrets(path string, migrated *Config) error {
 	}
 	root := document.Content[0]
 	server := yamlMapValue(root, "server")
-	if server == nil {
-		return nil
-	}
-	if migrated.Server.Token != "" {
+	if server != nil && migrated.Server.Token != "" {
 		yamlRemoveMapKey(server, "token")
 	}
-	if migrated.Server.Security.EncryptionKey != "" {
+	if server != nil && migrated.Server.Security.EncryptionKey != "" {
 		security := yamlMapValue(server, "security")
 		if security != nil {
 			yamlRemoveMapKey(security, "encryption_key")
@@ -1297,19 +1333,32 @@ func removeMigratedSecrets(path string, migrated *Config) error {
 			}
 		}
 	}
-	if connectionHasCredentials(migrated.Server.Database.URL) {
+	if server != nil && connectionHasCredentials(migrated.Server.Database.URL) {
 		if database := yamlMapValue(server, "database"); database != nil {
 			yamlRemoveMapKey(database, "url")
 		}
 	}
-	if migrated.Server.Database.Token != "" {
+	if server != nil && migrated.Server.Database.Token != "" {
 		if database := yamlMapValue(server, "database"); database != nil {
 			yamlRemoveMapKey(database, "token")
 		}
 	}
-	if connectionHasCredentials(migrated.Server.Cache.URL) {
+	if server != nil && connectionHasCredentials(migrated.Server.Cache.URL) {
 		if cache := yamlMapValue(server, "cache"); cache != nil {
 			yamlRemoveMapKey(cache, "url")
+		}
+	}
+	if migrated.Data.CVE.APIKey != "" {
+		if data := yamlMapValue(root, "data"); data != nil {
+			if cve := yamlMapValue(data, "cve"); cve != nil {
+				yamlRemoveMapKey(cve, "api_key")
+				if len(cve.Content) == 0 {
+					yamlRemoveMapKey(data, "cve")
+				}
+			}
+			if len(data.Content) == 0 {
+				yamlRemoveMapKey(root, "data")
+			}
 		}
 	}
 	var output strings.Builder
@@ -1590,7 +1639,7 @@ func Save(path string, cfg *Config) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("config: create dir for %s: %w", path, err)
 	}
-	if cfg.Server.Token != "" || cfg.Server.Security.EncryptionKey != "" || cfg.Server.Database.Token != "" || cfg.Server.Metrics.Auth.Tokens.Prometheus != "" || cfg.Server.Metrics.Auth.Tokens.Grafana != "" || cfg.Server.Metrics.Auth.Tokens.Loki != "" || ((!cfg.databaseURLEnv || cfg.databaseURLSeeded) && connectionHasCredentials(cfg.Server.Database.URL)) || ((!cfg.cacheURLEnv || cfg.cacheURLSeeded) && connectionHasCredentials(cfg.Server.Cache.URL)) {
+	if cfg.Server.Token != "" || cfg.Server.Security.EncryptionKey != "" || cfg.Server.Database.Token != "" || cfg.Server.Metrics.Auth.Tokens.Prometheus != "" || cfg.Server.Metrics.Auth.Tokens.Grafana != "" || cfg.Server.Metrics.Auth.Tokens.Loki != "" || cfg.Data.CVE.APIKey != "" || ((!cfg.databaseURLEnv || cfg.databaseURLSeeded) && connectionHasCredentials(cfg.Server.Database.URL)) || ((!cfg.cacheURLEnv || cfg.cacheURLSeeded) && connectionHasCredentials(cfg.Server.Cache.URL)) {
 		if err := SaveSecrets(path, cfg); err != nil {
 			return err
 		}
@@ -1602,6 +1651,7 @@ func Save(path string, cfg *Config) error {
 	fileConfig.Server.Token = ""
 	fileConfig.Server.Security.EncryptionKey = ""
 	fileConfig.Server.Database.Token = ""
+	fileConfig.Data.CVE.APIKey = ""
 	if cfg.databaseURLEnv && !cfg.databaseURLSeeded || connectionHasCredentials(cfg.Server.Database.URL) {
 		fileConfig.Server.Database.URL = ""
 	}
@@ -1775,6 +1825,19 @@ func SaveSecrets(configPath string, cfg *Config) error {
 		server["metrics"] = metrics
 	}
 	secrets["server"] = server
+	if cfg.Data.CVE.APIKey != "" {
+		data, _ := secrets["data"].(map[string]any)
+		if data == nil {
+			data = map[string]any{}
+		}
+		cve, _ := data["cve"].(map[string]any)
+		if cve == nil {
+			cve = map[string]any{}
+		}
+		cve["api_key"] = cfg.Data.CVE.APIKey
+		data["cve"] = cve
+		secrets["data"] = data
+	}
 	var output strings.Builder
 	enc := yaml.NewEncoder(&output)
 	enc.SetIndent(2)

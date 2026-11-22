@@ -139,7 +139,7 @@ The shell entry points in `tests/` layer integration testing on top:
 | Script | Purpose |
 |--------|---------|
 | `tests/run_tests.sh` | Two-phase entry point: runs `make test`, then auto-detects Incus (falls back to Docker) and dispatches |
-| `tests/docker.sh` | Builds in `casjaysdev/go:latest`, checks the project runtime image's required tools and Tor health, then runs the suite inside a disposable `alpine:latest` container |
+| `tests/docker.sh` | Builds in `casjaysdev/go:latest`, checks the project runtime image's required tools, Tor and I2P status, then runs the suite inside a disposable `alpine:latest` container |
 | `tests/incus.sh` | Same suite inside `images:debian/trixie`, plus a real systemd service install/uninstall lifecycle |
 | `tests/suite.sh` | The shared in-container suite (binary info, first run, health, content negotiation, well-known, frontend pages, link CRUD, redirect/410/404, stats, token authorization, the `shortner-cli` client, rate limiting) |
 | `tests/test_content_negotiation.sh` | Standalone negotiation matrix against any running instance |

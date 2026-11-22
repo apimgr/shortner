@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"encoding/base64"
 	"errors"
 	"net/http/httptest"
 	"reflect"
@@ -8,12 +9,14 @@ import (
 	"testing"
 
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/notify"
 )
 
 type recordedSecurityEmail struct {
-	to      []string
-	subject string
-	body    string
+	to          []string
+	subject     string
+	body        string
+	attachments []notify.Attachment
 }
 
 type recordingSecuritySender struct {
@@ -31,10 +34,18 @@ func (s *recordingSecuritySender) SendRaw(to []string, subject, body string) err
 	return s.err
 }
 
+func (s *recordingSecuritySender) SendRawWithAttachments(to []string, subject, body string, attachments []notify.Attachment) error {
+	s.emails = append(s.emails, recordedSecurityEmail{
+		to: append([]string(nil), to...), subject: subject, body: body, attachments: attachments,
+	})
+	return s.err
+}
+
 func TestNotifySecurityReportSendsOneMaintainerNoticeAndMinimalAcknowledgment(t *testing.T) {
 	cfg := config.Default("")
 	cfg.Server.Contact.Security.Email = "security@example.test"
 	cfg.Server.Contact.General.Email = "contact@example.test"
+	cfg.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString(make([]byte, 32))
 	fd := &frontendDeps{
 		cfg:       cfg,
 		configDir: t.TempDir(),
@@ -54,6 +65,18 @@ func TestNotifySecurityReportSendsOneMaintainerNoticeAndMinimalAcknowledgment(t 
 	}
 	if !reflect.DeepEqual(sender.emails[0].to, []string{"security@example.test"}) {
 		t.Errorf("maintainer recipients = %v", sender.emails[0].to)
+	}
+	maintainer := sender.emails[0]
+	if len(maintainer.attachments) != 1 {
+		t.Fatalf("maintainer email has %d attachments, want one", len(maintainer.attachments))
+	}
+	if len(maintainer.attachments[0].Data) == 0 || !strings.Contains(maintainer.body, "WARNING: no PGP keypair") {
+		t.Errorf("maintainer email lacks warning or encrypted attachment: %+v", maintainer)
+	}
+	for _, private := range []string{form.Name, form.Email, form.Summary, form.Steps, form.Impact} {
+		if strings.Contains(maintainer.body, private) || strings.Contains(string(maintainer.attachments[0].Data), private) {
+			t.Errorf("maintainer email contains plaintext report content %q", private)
+		}
 	}
 	ack := sender.emails[1]
 	if !reflect.DeepEqual(ack.to, []string{"researcher@example.test"}) {
@@ -76,6 +99,7 @@ func TestNotifySecurityReportSendsOneMaintainerNoticeAndMinimalAcknowledgment(t 
 func TestNotifySecurityReportSkipsAcknowledgmentWithoutResearcherEmail(t *testing.T) {
 	cfg := config.Default("")
 	cfg.Server.Contact.Security.Email = "security@example.test"
+	cfg.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString(make([]byte, 32))
 	fd := &frontendDeps{cfg: cfg, configDir: t.TempDir()}
 	sender := &recordingSecuritySender{enabled: true}
 	fd.notifySecurityReportWith(sender, httptest.NewRequest("POST", "https://example.test/", nil), "sec_0123456789abcdef", securityReportForm{})

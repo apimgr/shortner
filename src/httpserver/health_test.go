@@ -133,23 +133,36 @@ func TestBuildHealthResponseUnhealthyOnDBFailure(t *testing.T) {
 type testI2PReporter struct {
 	enabled  bool
 	provider string
+	err      string
 }
 
 func (r testI2PReporter) Enabled() bool        { return r.enabled }
+func (testI2PReporter) Starting() bool         { return false }
 func (testI2PReporter) Running() bool          { return false }
 func (testI2PReporter) Healthy() bool          { return false }
 func (testI2PReporter) EepsiteAddress() string { return "" }
 func (r testI2PReporter) ProviderName() string { return r.provider }
-func (testI2PReporter) Err() string            { return "" }
+func (r testI2PReporter) Err() string          { return r.err }
 
 func TestI2PNoProviderReportsDisabled(t *testing.T) {
-	h := &healthDeps{i2p: testI2PReporter{enabled: true, provider: "none"}}
+	h := &healthDeps{i2p: testI2PReporter{enabled: true, provider: "none", err: "no provider available"}}
 	info, check := h.i2pInfo()
 	if info.Enabled || info.Running || info.Status != "disabled" || info.Provider != "none" {
 		t.Errorf("i2pInfo() = %#v, want disabled no-provider state", info)
 	}
 	if check != "" {
 		t.Errorf("i2pInfo() check = %q, want omitted", check)
+	}
+}
+
+func TestI2PStartupReportsStartingBeforeProviderPublication(t *testing.T) {
+	h := &healthDeps{i2p: testI2PReporter{enabled: true, provider: "none"}}
+	info, check := h.i2pInfo()
+	if !info.Enabled || info.Running || info.Status != "starting" || info.Provider != "none" {
+		t.Errorf("i2pInfo() = %#v, want enabled starting state before provider publication", info)
+	}
+	if check != "ok" {
+		t.Errorf("i2pInfo() check = %q, want ok", check)
 	}
 }
 

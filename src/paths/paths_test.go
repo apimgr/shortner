@@ -231,6 +231,37 @@ func TestEnsureDirCreatesAndVerifiesWritable(t *testing.T) {
 	}
 }
 
+func TestEnsureDockerParentsSetsOnlyMatchingManagedRoots(t *testing.T) {
+	base := t.TempDir()
+	configRoot := filepath.Join(base, "config")
+	dataRoot := filepath.Join(base, "data")
+	logRoot := filepath.Join(dataRoot, "log")
+	for _, root := range []string{configRoot, dataRoot, logRoot} {
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ensureDockerParents(filepath.Join(logRoot, "shortner"), configRoot, dataRoot, logRoot); err != nil {
+		t.Fatal(err)
+	}
+	for _, root := range []string{dataRoot, logRoot} {
+		info, err := os.Stat(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o755 {
+			t.Errorf("%s mode = %04o, want 0755", root, got)
+		}
+	}
+	info, err := os.Stat(configRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Errorf("unrelated root %s mode = %04o, want unchanged 0700", configRoot, got)
+	}
+}
+
 func TestEnsureDirFailsOnUnwritableParent(t *testing.T) {
 	if IsPrivileged() {
 		t.Skip("root can write anywhere; this test only makes sense unprivileged")

@@ -432,12 +432,13 @@ func B32Address(destination []byte) string {
 // or mint the persisted destination, open a STREAM session, and forward
 // incoming eepsite streams to the plain backend port.
 func startSAMEepsite(ctx context.Context, cfg config.I2P, dirs Dirs, backendPort int, svc *Service) (string, error) {
-	_ = ctx
 	svc.samAddress = cfg.SAMAddress
-	conn, err := net.DialTimeout("tcp", cfg.SAMAddress, 5*time.Second)
+	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp", cfg.SAMAddress)
 	if err != nil {
 		return "", fmt.Errorf("failed to dial SAM %s: %w", cfg.SAMAddress, err)
 	}
+	stopCancel := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopCancel()
 	reader := bufio.NewReader(conn)
 
 	if _, err := fmt.Fprint(conn, "HELLO VERSION MIN=3.1 MAX=3.3\n"); err != nil {
@@ -479,11 +480,13 @@ func startSAMEepsite(ctx context.Context, cfg config.I2P, dirs Dirs, backendPort
 	}
 	_ = conn.SetDeadline(time.Time{})
 
-	forward, err := net.DialTimeout("tcp", cfg.SAMAddress, 5*time.Second)
+	forward, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp", cfg.SAMAddress)
 	if err != nil {
 		_ = conn.Close()
 		return "", err
 	}
+	stopForwardCancel := context.AfterFunc(ctx, func() { _ = forward.Close() })
+	defer stopForwardCancel()
 	forwardReader := bufio.NewReader(forward)
 	if _, err := fmt.Fprint(forward, "HELLO VERSION MIN=3.1 MAX=3.3\n"); err != nil {
 		_ = forward.Close()

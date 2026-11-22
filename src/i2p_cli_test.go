@@ -126,6 +126,7 @@ func TestRunI2PValidateEnabledNoProvider(t *testing.T) {
 	p := i2pTestPaths(t)
 	cfg := config.DefaultI2P()
 	cfg.Enabled = true
+	cfg.EnabledExplicit = true
 	cfg.Binary = filepath.Join(p.Config, "no-such-i2pd-binary")
 	// A privileged, almost certainly unbound port refuses instantly rather
 	// than waiting out SAMReachable's 3s dial timeout.
@@ -145,6 +146,7 @@ func TestRunI2PValidateEnabledWithProvider(t *testing.T) {
 	p := i2pTestPaths(t)
 	cfg := config.DefaultI2P()
 	cfg.Enabled = true
+	cfg.EnabledExplicit = true
 	cfg.Binary = i2pDummyFile(t)
 	writeI2PConfig(t, p, cfg)
 

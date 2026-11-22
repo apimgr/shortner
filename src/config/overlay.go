@@ -1,6 +1,9 @@
 package config
 
-import "strings"
+import (
+	"os"
+	"strings"
+)
 
 // Tor holds `server.tor`, per AI.md PART 31.1 "Tor Hidden Service".
 //
@@ -116,8 +119,10 @@ func (c Tor) Normalized() Tor {
 // happens — no provider probe, no port allocation, no generated
 // tunnels.conf, and no SAM dial.
 type I2P struct {
-	// Enabled is the single opt-in switch. Default false.
-	Enabled bool `yaml:"enabled"`
+	// Enabled is the opt-in switch. Its config default is false; startup
+	// computes true in containers unless an explicit setting overrides it.
+	Enabled         bool `yaml:"enabled"`
+	EnabledExplicit bool `yaml:"-"`
 	// Binary is an explicit path to `i2pd`. Empty means auto-detect; when
 	// no i2pd is found the SAM bridge is tried instead.
 	Binary string `yaml:"binary"`
@@ -142,6 +147,39 @@ type I2P struct {
 	BootstrapTimeout int `yaml:"bootstrap_timeout"`
 }
 
+// MarshalYAML keeps the container-detected default out of saved config.
+// Only an operator-specified enabled value is persisted, so a config file
+// generated on one runtime does not override the computed default elsewhere.
+func (c I2P) MarshalYAML() (any, error) {
+	var enabled *bool
+	if c.EnabledExplicit {
+		enabled = &c.Enabled
+	}
+	return struct {
+		Enabled          *bool  `yaml:"enabled,omitempty"`
+		Binary           string `yaml:"binary"`
+		SAMAddress       string `yaml:"sam_address"`
+		VirtualPort      int    `yaml:"virtual_port"`
+		InboundLength    int    `yaml:"inbound_length"`
+		OutboundLength   int    `yaml:"outbound_length"`
+		InboundQuantity  int    `yaml:"inbound_quantity"`
+		OutboundQuantity int    `yaml:"outbound_quantity"`
+		SignatureType    int    `yaml:"signature_type"`
+		BootstrapTimeout int    `yaml:"bootstrap_timeout"`
+	}{
+		Enabled:          enabled,
+		Binary:           c.Binary,
+		SAMAddress:       c.SAMAddress,
+		VirtualPort:      c.VirtualPort,
+		InboundLength:    c.InboundLength,
+		OutboundLength:   c.OutboundLength,
+		InboundQuantity:  c.InboundQuantity,
+		OutboundQuantity: c.OutboundQuantity,
+		SignatureType:    c.SignatureType,
+		BootstrapTimeout: c.BootstrapTimeout,
+	}, nil
+}
+
 // DefaultI2P returns AI.md PART 31.2's `server.i2p` block verbatim,
 // including its `enabled: false` opt-in default.
 func DefaultI2P() I2P {
@@ -157,6 +195,21 @@ func DefaultI2P() I2P {
 		SignatureType:    7,
 		BootstrapTimeout: 300,
 	}
+}
+
+// ApplyI2PEnv applies I2P_ENABLED, which has higher precedence than the
+// explicit server.i2p.enabled setting per AI.md PART 8 and PART 31.2.
+func ApplyI2PEnv(cfg *Config) []string {
+	value, set := os.LookupEnv("I2P_ENABLED")
+	if !set || strings.TrimSpace(value) == "" {
+		return nil
+	}
+	enabled, err := ParseBool(value, cfg.Server.I2P.Enabled)
+	if err != nil {
+		return []string{"invalid I2P_ENABLED value; using server.i2p.enabled"}
+	}
+	cfg.Server.I2P.Enabled = enabled
+	return nil
 }
 
 // Normalized returns a copy of c with every out-of-range or empty value

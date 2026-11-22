@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
 
 func TestIsSupported(t *testing.T) {
-	for _, lang := range []string{"en", "es", "zh", "fr", "ar", "de", "ja", "EN", " fr ", "es-MX"} {
+	for _, lang := range []string{"en", "es", "zh", "fr", "ar", "de", "it", "ja", "EN", " fr ", "es-MX"} {
 		if !IsSupported(lang) {
 			t.Errorf("IsSupported(%q) = false, want true", lang)
 		}
@@ -19,6 +21,158 @@ func TestIsSupported(t *testing.T) {
 			t.Errorf("IsSupported(%q) = true, want false", lang)
 		}
 	}
+}
+
+var interpolationToken = regexp.MustCompile(`\{[a-z_][a-z0-9_]*\}`)
+
+// TestLocaleFilesMatchRegistry ensures the runtime language list and the
+// embedded locale files are exactly the set declared by the registry.
+func TestLocaleFilesMatchRegistry(t *testing.T) {
+	if len(localeRegistry) != len(catalog) || len(localeRegistry) < 6 {
+		t.Fatalf("registry has %d entries and catalog has %d locales; want the same set and at least six", len(localeRegistry), len(catalog))
+	}
+	for _, spec := range localeRegistry {
+		if _, ok := catalog[spec.code]; !ok {
+			t.Errorf("registry locale %q has no embedded catalog", spec.code)
+		}
+		meta := metas[spec.code]
+		if meta.Name != spec.name || meta.NativeName != spec.nativeName || meta.Direction != spec.direction {
+			t.Errorf("locale %q metadata does not match registry: %+v", spec.code, meta)
+		}
+		for key, want := range map[string]string{
+			"meta.language":    spec.code,
+			"meta.name":        spec.name,
+			"meta.native_name": spec.nativeName,
+			"meta.direction":   spec.direction,
+		} {
+			if got := catalog[spec.code][key]; got != want {
+				t.Errorf("locale %q metadata %s = %q, want %q", spec.code, key, got, want)
+			}
+		}
+	}
+}
+
+// TestLocaleCatalogParity compares message keys and interpolation tokens with
+// English while allowing the language-specific categories of plural messages.
+func TestLocaleCatalogParity(t *testing.T) {
+	base := messageKeys(catalog[DefaultLanguage])
+	for _, code := range Codes() {
+		got := messageKeys(catalog[code])
+		if strings.Join(base, "\n") != strings.Join(got, "\n") {
+			t.Errorf("locale %q message keys differ from English", code)
+		}
+		for key, source := range catalog[DefaultLanguage] {
+			if strings.HasPrefix(key, "plurals.") {
+				if source == "" {
+					t.Errorf("English key %q is empty", key)
+				}
+				continue
+			}
+			translated, ok := catalog[code][key]
+			if !ok {
+				continue
+			}
+			if translated == "" {
+				t.Errorf("locale %q key %q is empty", code, key)
+			}
+			if !sameTokens(interpolationToken.FindAllString(source, -1), interpolationToken.FindAllString(translated, -1)) {
+				t.Errorf("locale %q key %q has different interpolation tokens", code, key)
+			}
+		}
+		for key, source := range catalog[DefaultLanguage] {
+			if !strings.HasPrefix(key, "plurals.") || strings.Count(key, ".") != 2 {
+				continue
+			}
+			category := key[strings.LastIndexByte(key, '.')+1:]
+			base := key[:strings.LastIndexByte(key, '.')]
+			translated, ok := catalog[code][base+"."+category]
+			if !ok {
+				continue
+			}
+			if translated == "" {
+				t.Errorf("locale %q plural key %q is empty", code, base+"."+category)
+			}
+			sourceTokens := interpolationToken.FindAllString(source, -1)
+			translatedTokens := interpolationToken.FindAllString(translated, -1)
+			withoutCount := func(tokens []string) []string {
+				out := tokens[:0]
+				for _, token := range tokens {
+					if token != "{count}" {
+						out = append(out, token)
+					}
+				}
+				return out
+			}
+			if !sameTokens(withoutCount(sourceTokens), withoutCount(translatedTokens)) {
+				t.Errorf("locale %q plural key %q has different non-count interpolation tokens", code, base+"."+category)
+			}
+		}
+	}
+}
+
+// TestLocalepluralCategories checks each plural message against its
+// registry-defined CLDR categories. An explicit zero category is optional.
+func TestLocalepluralCategories(t *testing.T) {
+	for _, spec := range localeRegistry {
+		for key := range catalog[spec.code] {
+			if !strings.HasPrefix(key, "plurals.") || strings.Count(key, ".") != 2 {
+				continue
+			}
+			category := key[strings.LastIndexByte(key, '.')+1:]
+			if !contains(spec.pluralCategories, category) && category != "zero" {
+				t.Errorf("locale %q plural key %q has unregistered category", spec.code, key)
+			}
+		}
+		for key := range catalog[DefaultLanguage] {
+			if !strings.HasPrefix(key, "plurals.") || strings.Count(key, ".") != 2 {
+				continue
+			}
+			base := key[:strings.LastIndexByte(key, '.')]
+			for _, category := range spec.pluralCategories {
+				if _, ok := catalog[spec.code][base+"."+category]; !ok {
+					t.Errorf("locale %q is missing plural category %q for %q", spec.code, category, base)
+				}
+			}
+		}
+	}
+}
+
+func messageKeys(flat map[string]string) []string {
+	keys := make([]string, 0, len(flat))
+	for key := range flat {
+		if strings.HasPrefix(key, "plurals.") {
+			if i := strings.LastIndexByte(key, '.'); i > len("plurals.") {
+				key = key[:i]
+			}
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	unique := keys[:0]
+	for _, key := range keys {
+		if len(unique) == 0 || unique[len(unique)-1] != key {
+			unique = append(unique, key)
+		}
+	}
+	return unique
+}
+
+func sameTokens(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	sort.Strings(a)
+	sort.Strings(b)
+	return strings.Join(a, "\n") == strings.Join(b, "\n")
+}
+
+func contains(values []string, value string) bool {
+	for _, candidate := range values {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
 }
 
 func TestTranslate(t *testing.T) {
@@ -136,7 +290,7 @@ func TestDirection(t *testing.T) {
 	if got := Direction("ar"); got != "rtl" {
 		t.Errorf("Direction(ar) = %q, want rtl", got)
 	}
-	for _, lang := range []string{"en", "es", "zh", "fr", "de", "ja", "kl"} {
+	for _, lang := range []string{"en", "es", "zh", "fr", "de", "it", "ja", "kl"} {
 		if got := Direction(lang); got != "ltr" {
 			t.Errorf("Direction(%q) = %q, want ltr", lang, got)
 		}

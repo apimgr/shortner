@@ -20,7 +20,7 @@ and protocol surfaces it exposes, and the ones it deliberately does not.
 | Webhooks, federation, OAuth/OIDC provider, machine identity | **None. Not implemented.** |
 | Swagger / OpenAPI / GraphQL | Available at `/server/docs/swagger`, `/server/docs/graphql`, `/api/swagger`, and `/api/graphql` |
 | Tor v3 hidden service | Available when a Tor binary is detected |
-| I2P eepsite | Available when explicitly enabled and an i2pd or SAM provider is available |
+| I2P eepsite | On by default in containers; opt-in on hosts; needs i2pd or a SAM provider |
 | PGP key management | Available through the maintenance CLI |
 
 ## Metrics

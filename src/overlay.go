@@ -94,15 +94,24 @@ func newOverlayManagers(ctx context.Context, cfg *config.Config, p paths.Paths, 
 
 // startOverlays brings both networks up. Every failure here is an INFO or
 // warning, never fatal: AI.md PART 31.1 makes a missing `tor` binary a
-// normal, supported state, and PART 31.2 leaves I2P switched off unless
-// the operator opted in.
+// normal, supported state, and PART 31.2 computes I2P's default from the
+// runtime: off on hosts and on in containers, with operator settings first.
 func startOverlays(binaryName string, torManager *tor.Manager, i2pManager *i2p.Manager) {
-	if err := torManager.Start(); err != nil {
-		fmt.Fprintln(os.Stderr, binaryName+": tor: "+err.Error())
-	}
-	if err := i2pManager.Start(); err != nil && err != i2p.ErrDisabled {
-		fmt.Fprintln(os.Stderr, binaryName+": i2p: "+err.Error())
-	}
+	var starts sync.WaitGroup
+	starts.Add(2)
+	go func() {
+		defer starts.Done()
+		if err := torManager.Start(); err != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": tor: "+err.Error())
+		}
+	}()
+	go func() {
+		defer starts.Done()
+		if err := i2pManager.Start(); err != nil && err != i2p.ErrDisabled {
+			fmt.Fprintln(os.Stderr, binaryName+": i2p: "+err.Error())
+		}
+	}()
+	starts.Wait()
 }
 
 // stopOverlays closes both managers and stops advertising their addresses.

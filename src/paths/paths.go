@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -252,6 +253,11 @@ func EnsureDir(path string) error {
 	if IsPrivileged() {
 		perm = 0o755
 	}
+	if IsDocker() && IsPrivileged() {
+		if err := ensureDockerParents(path, "/config", "/data", "/data/log", "/data/db", "/data/backups"); err != nil {
+			return err
+		}
+	}
 
 	if err := os.MkdirAll(path, perm); err != nil {
 		return fmt.Errorf("paths: create directory %s: %w", path, err)
@@ -263,6 +269,27 @@ func EnsureDir(path string) error {
 	}
 	os.Remove(testFile)
 
+	return nil
+}
+
+// ensureDockerParents makes only the image's fixed shared mount roots
+// traversable before the daemon drops to its service account. The app's own
+// directories remain private to that account; host paths are never touched.
+func ensureDockerParents(path string, roots ...string) error {
+	cleanPath := filepath.Clean(path)
+	for _, root := range roots {
+		cleanRoot := filepath.Clean(root)
+		rel, err := filepath.Rel(cleanRoot, cleanPath)
+		if err != nil || rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if err := os.MkdirAll(cleanRoot, 0o755); err != nil {
+			return fmt.Errorf("paths: create Docker parent %s: %w", cleanRoot, err)
+		}
+		if err := os.Chmod(cleanRoot, 0o755); err != nil {
+			return fmt.Errorf("paths: set Docker parent permissions %s: %w", cleanRoot, err)
+		}
+	}
 	return nil
 }
 

@@ -12,6 +12,7 @@ ARG VERSION
 # BUILD_EPOCH is the single embedded time source; BuildDate is derived from it at process start
 ARG BUILD_EPOCH
 ARG COMMIT_ID
+ARG OFFICIAL_SITE
 
 WORKDIR /app
 
@@ -23,7 +24,7 @@ RUN go generate ./src/swagger
 RUN if [ -z "$VERSION" ]; then VERSION="$(git rev-parse --short=7 HEAD 2>/dev/null || echo devel)"; fi && \
     CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} GOFLAGS=-buildvcs=false go build \
     -trimpath \
-    -ldflags "-X 'github.com/apimgr/shortner/src/common/version.Version=${VERSION}' -X 'github.com/apimgr/shortner/src/common/version.CommitID=${COMMIT_ID}' -X 'github.com/apimgr/shortner/src/common/version.BuildEpoch=${BUILD_EPOCH}'" \
+    -ldflags "-X 'github.com/apimgr/shortner/src/common/version.Version=${VERSION}' -X 'github.com/apimgr/shortner/src/common/version.CommitID=${COMMIT_ID}' -X 'github.com/apimgr/shortner/src/common/version.BuildEpoch=${BUILD_EPOCH}' -X 'github.com/apimgr/shortner/src/common/version.OfficialSite=${OFFICIAL_SITE}'" \
     -o /app/binary/shortner ./src
 
 # =============================================================================

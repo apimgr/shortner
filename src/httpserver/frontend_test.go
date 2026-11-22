@@ -3,6 +3,7 @@ package httpserver
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/db"
+	"github.com/apimgr/shortner/src/pgp"
+	"github.com/apimgr/shortner/src/security"
 )
 
 func testFrontendDeps(t *testing.T) (*frontendDeps, *linkDeps) {
@@ -35,6 +38,71 @@ func testFrontendDeps(t *testing.T) (*frontendDeps, *linkDeps) {
 	}
 	fd.setContactAntispam(cfg.Server.Contact.Antispam)
 	return fd, ld
+}
+
+func TestStoreSecurityReportUsesProjectPGPKeyWhenConfigured(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	fd.configDir = t.TempDir()
+	key, err := pgp.Generate("Shortner", "security@example.test", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pgp.NewStore(fd.configDir).Write(key, fd.installSecret); err != nil {
+		t.Fatal(err)
+	}
+	form := securityReportForm{Summary: "private report body", Severity: "high", Component: "API"}
+	id, err := fd.storeSecurityReport(context.Background(), form)
+	if err != nil {
+		t.Fatalf("storeSecurityReport() error = %v", err)
+	}
+	report, err := db.GetSecurityReport(context.Background(), fd.ld.sqlDB, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pgp.IsArmoredMessage(report.Sealed) {
+		t.Fatal("stored report is not PGP-encrypted")
+	}
+	plain, err := pgp.DecryptArmored(key, report.Sealed)
+	if err != nil {
+		t.Fatalf("DecryptArmored() error = %v", err)
+	}
+	var got securityReportForm
+	if err := json.Unmarshal(plain, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Summary != form.Summary {
+		t.Errorf("decrypted summary = %q, want %q", got.Summary, form.Summary)
+	}
+}
+
+func TestStoreSecurityReportUsesAESWhenNoProjectPGPKey(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	fd.configDir = t.TempDir()
+	keyBytes := make([]byte, 32)
+	fd.cfg.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString(keyBytes)
+	form := securityReportForm{Summary: "private report body", Severity: "high", Component: "API"}
+	id, err := fd.storeSecurityReport(context.Background(), form)
+	if err != nil {
+		t.Fatalf("storeSecurityReport() error = %v", err)
+	}
+	report, err := db.GetSecurityReport(context.Background(), fd.ld.sqlDB, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pgp.IsArmoredMessage(report.Sealed) {
+		t.Fatal("stored fallback report unexpectedly uses PGP")
+	}
+	plain, err := security.Open(keyBytes, report.Sealed)
+	if err != nil {
+		t.Fatalf("security.Open() error = %v", err)
+	}
+	var got securityReportForm
+	if err := json.Unmarshal(plain, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Summary != form.Summary {
+		t.Errorf("decrypted summary = %q, want %q", got.Summary, form.Summary)
+	}
 }
 
 func htmlRequest(method, target string, form url.Values) *http.Request {

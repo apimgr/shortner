@@ -589,6 +589,42 @@ func TestSaveAndReload(t *testing.T) {
 	}
 }
 
+func TestSaveI2PEnabledPrecedence(t *testing.T) {
+	tests := []struct {
+		name         string
+		enabled      bool
+		explicit     bool
+		wantReloaded bool
+		wantExplicit bool
+	}{
+		{name: "computed container default is not persisted", enabled: true, wantReloaded: false},
+		{name: "explicitly disabled remains disabled", explicit: true, wantExplicit: true},
+		{name: "explicitly enabled remains enabled", enabled: true, explicit: true, wantReloaded: true, wantExplicit: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "server.yml")
+			cfg := Default("/db")
+			cfg.Server.I2P.Enabled = tt.enabled
+			cfg.Server.I2P.EnabledExplicit = tt.explicit
+			if err := Save(path, cfg); err != nil {
+				t.Fatalf("Save() error = %v", err)
+			}
+			reloaded, err := Load(path, "/db")
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if reloaded.Server.I2P.Enabled != tt.wantReloaded {
+				t.Errorf("reloaded enabled = %v, want %v", reloaded.Server.I2P.Enabled, tt.wantReloaded)
+			}
+			if reloaded.Server.I2P.EnabledExplicit != tt.wantExplicit {
+				t.Errorf("reloaded explicit = %v, want %v", reloaded.Server.I2P.EnabledExplicit, tt.wantExplicit)
+			}
+		})
+	}
+}
+
 func TestBrandingDropInAndGeneratedServerConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "server.yml")
@@ -798,6 +834,62 @@ func TestEnsureMetricsTokensAndSaveSecrets(t *testing.T) {
 		if strings.Contains(string(serverData), value) {
 			t.Errorf("server.yml contains generated token %q", value)
 		}
+	}
+}
+
+func TestCVEAPIKeyIsSavedOnlyInSecrets(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	cfg := Default("")
+	cfg.Data.CVE.APIKey = "nvd-secret-key"
+	if err := Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	serverData, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secretData, err := os.ReadFile(filepath.Join(dir, "secrets.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(serverData), "nvd-secret-key") {
+		t.Fatal("server.yml contains the NVD API key")
+	}
+	if !strings.Contains(string(secretData), "nvd-secret-key") {
+		t.Fatal("secrets.yml does not contain the NVD API key")
+	}
+	loaded, err := Load(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Data.CVE.APIKey != "nvd-secret-key" {
+		t.Fatalf("loaded API key = %q, want secret value", loaded.Data.CVE.APIKey)
+	}
+}
+
+func TestLoadRemovesLegacyCVEKeyWhenSecretAlreadyExists(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	if err := os.WriteFile(path, []byte("data:\n  cve:\n    api_key: plaintext-old-key\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "secrets.yml"), []byte("data:\n  cve:\n    api_key: secret-file-key\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Data.CVE.APIKey != "secret-file-key" {
+		t.Fatalf("loaded API key = %q, want secrets.yml value", loaded.Data.CVE.APIKey)
+	}
+	serverData, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(serverData), "plaintext-old-key") || strings.Contains(string(serverData), "api_key") {
+		t.Fatalf("server.yml retained plaintext CVE key: %s", serverData)
 	}
 }
 

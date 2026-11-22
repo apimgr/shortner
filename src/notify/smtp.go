@@ -1,14 +1,21 @@
 package notify
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"html"
 	"mime"
+	"mime/multipart"
+	"mime/quotedprintable"
 	"net"
 	"net/smtp"
+	"net/textproto"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -21,16 +28,23 @@ import (
 // host that silently drops packets must not stall startup.
 const dialTimeout = 5 * time.Second
 
-// Message is one outbound email. Everything is plain text: AI.md PART 17
-// "Template Format" defines a text body, and a text/plain notification is
-// what an operator's alerting pipeline can actually grep.
+// Attachment is one file attached to an outbound email.
+type Attachment struct {
+	Filename    string
+	ContentType string
+	Data        []byte
+}
+
+// Message is one outbound email. Body is the plain-text source used to build
+// both required alternative representations; attachments are optional.
 type Message struct {
-	FromName  string
-	FromEmail string
-	ReplyTo   string
-	To        []string
-	Subject   string
-	Body      string
+	FromName    string
+	FromEmail   string
+	ReplyTo     string
+	To          []string
+	Subject     string
+	Body        string
+	Attachments []Attachment
 }
 
 // dialSMTP opens an SMTP session honoring the configured TLS mode, per
@@ -143,24 +157,35 @@ func smtpSend(cfg config.SMTP, msg Message) error {
 	if err := authenticate(client, cfg, strings.TrimSpace(cfg.Host)); err != nil {
 		return fmt.Errorf("notify: smtp auth %s: %w", cfg.Host, err)
 	}
-	if err := client.Mail(msg.FromEmail); err != nil {
-		return fmt.Errorf("notify: smtp MAIL FROM: %w", err)
+	recipients := sanitizeAll(msg.To)
+	if len(recipients) == 0 {
+		return errors.New("notify: no valid SMTP recipients")
 	}
-	for _, rcpt := range msg.To {
-		if err := client.Rcpt(rcpt); err != nil {
-			return fmt.Errorf("notify: smtp RCPT TO %s: %w", rcpt, err)
+	for _, recipient := range recipients {
+		if err := client.Mail(msg.FromEmail); err != nil {
+			return fmt.Errorf("notify: smtp MAIL FROM: %w", err)
 		}
-	}
-	w, err := client.Data()
-	if err != nil {
-		return fmt.Errorf("notify: smtp DATA: %w", err)
-	}
-	if _, err := w.Write(BuildMessage(msg, time.Now())); err != nil {
-		w.Close()
-		return fmt.Errorf("notify: smtp write: %w", err)
-	}
-	if err := w.Close(); err != nil {
-		return fmt.Errorf("notify: smtp close: %w", err)
+		if err := client.Rcpt(recipient); err != nil {
+			return fmt.Errorf("notify: smtp RCPT TO: %w", err)
+		}
+		w, err := client.Data()
+		if err != nil {
+			return fmt.Errorf("notify: smtp DATA: %w", err)
+		}
+		individual := msg
+		individual.To = []string{recipient}
+		message, err := BuildMessage(individual, time.Now())
+		if err != nil {
+			w.Close()
+			return fmt.Errorf("notify: build message: %w", err)
+		}
+		if _, err := w.Write(message); err != nil {
+			w.Close()
+			return fmt.Errorf("notify: smtp write: %w", err)
+		}
+		if err := w.Close(); err != nil {
+			return fmt.Errorf("notify: smtp close: %w", err)
+		}
 	}
 	return client.Quit()
 }
@@ -170,10 +195,18 @@ func smtpSend(cfg config.SMTP, msg Message) error {
 // operator templates and in event data (a task name, an error string, a
 // researcher's own input), so header injection is blocked at the one place
 // headers are assembled.
-func BuildMessage(msg Message, now time.Time) []byte {
+func BuildMessage(msg Message, now time.Time) ([]byte, error) {
+	recipients := sanitizeAll(msg.To)
+	if len(recipients) != 1 {
+		return nil, fmt.Errorf("notify: each message must have exactly one recipient")
+	}
+	body, contentType, err := buildBody(msg.Body, msg.Attachments)
+	if err != nil {
+		return nil, err
+	}
 	var b strings.Builder
 	b.WriteString("From: " + formatAddress(msg.FromName, msg.FromEmail) + "\r\n")
-	b.WriteString("To: " + strings.Join(sanitizeAll(msg.To), ", ") + "\r\n")
+	b.WriteString("To: " + recipients[0] + "\r\n")
 	if rt := headerSafe(msg.ReplyTo); rt != "" {
 		b.WriteString("Reply-To: " + rt + "\r\n")
 	}
@@ -181,11 +214,109 @@ func BuildMessage(msg Message, now time.Time) []byte {
 	b.WriteString("Date: " + now.Format(time.RFC1123Z) + "\r\n")
 	b.WriteString("Message-ID: " + messageID(msg.FromEmail) + "\r\n")
 	b.WriteString("MIME-Version: 1.0\r\n")
-	b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+	b.WriteString("Content-Type: " + contentType + "\r\n")
 	b.WriteString("Auto-Submitted: auto-generated\r\n")
 	b.WriteString("\r\n")
-	b.WriteString(dotStuff(normalizeNewlines(msg.Body)))
-	return []byte(b.String())
+	b.WriteString(dotStuff(string(body)))
+	return []byte(b.String()), nil
+}
+
+func buildBody(body string, attachments []Attachment) ([]byte, string, error) {
+	var outerBody bytes.Buffer
+	outer := multipart.NewWriter(&outerBody)
+	if len(attachments) == 0 {
+		contentType := "multipart/alternative; boundary=" + outer.Boundary()
+		if err := writeAlternatives(outer, body); err != nil {
+			return nil, "", err
+		}
+		if err := outer.Close(); err != nil {
+			return nil, "", err
+		}
+		return outerBody.Bytes(), contentType, nil
+	}
+
+	var alternatives bytes.Buffer
+	altWriter := multipart.NewWriter(&alternatives)
+	if err := writeAlternatives(altWriter, body); err != nil {
+		return nil, "", err
+	}
+	if err := altWriter.Close(); err != nil {
+		return nil, "", err
+	}
+	altType := mime.FormatMediaType("multipart/alternative", map[string]string{"boundary": altWriter.Boundary()})
+	part, err := outer.CreatePart(textproto.MIMEHeader{"Content-Type": []string{altType}})
+	if err != nil {
+		return nil, "", err
+	}
+	if _, err := part.Write(alternatives.Bytes()); err != nil {
+		return nil, "", err
+	}
+	for _, attachment := range attachments {
+		if err := writeAttachment(outer, attachment); err != nil {
+			return nil, "", err
+		}
+	}
+	if err := outer.Close(); err != nil {
+		return nil, "", err
+	}
+	contentType := mime.FormatMediaType("multipart/mixed", map[string]string{"boundary": outer.Boundary()})
+	return outerBody.Bytes(), contentType, nil
+}
+
+func writeAlternatives(writer *multipart.Writer, body string) error {
+	plain := normalizeNewlines(body)
+	if err := writeQuotedPrintable(writer, "text/plain; charset=UTF-8", plain); err != nil {
+		return err
+	}
+	htmlBody := "<!doctype html><html><body><pre style=\"white-space: pre-wrap; font-family: inherit\">" + html.EscapeString(plain) + "</pre></body></html>"
+	return writeQuotedPrintable(writer, "text/html; charset=UTF-8", htmlBody)
+}
+
+func writeQuotedPrintable(writer *multipart.Writer, contentType, body string) error {
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Type", contentType)
+	header.Set("Content-Transfer-Encoding", "quoted-printable")
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		return err
+	}
+	encoder := quotedprintable.NewWriter(part)
+	if _, err := encoder.Write([]byte(body)); err != nil {
+		encoder.Close()
+		return err
+	}
+	return encoder.Close()
+}
+
+func writeAttachment(writer *multipart.Writer, attachment Attachment) error {
+	filename := filepath.Base(strings.TrimSpace(attachment.Filename))
+	if filename == "" || filename == "." || filename == string(filepath.Separator) {
+		filename = "attachment.bin"
+	}
+	contentType := strings.TrimSpace(attachment.ContentType)
+	if _, _, err := mime.ParseMediaType(contentType); err != nil {
+		contentType = "application/octet-stream"
+	}
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Type", contentType)
+	header.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	header.Set("Content-Transfer-Encoding", "base64")
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		return err
+	}
+	encoded := base64.StdEncoding.EncodeToString(attachment.Data)
+	for len(encoded) > 76 {
+		if _, err := part.Write([]byte(encoded[:76] + "\r\n")); err != nil {
+			return err
+		}
+		encoded = encoded[76:]
+	}
+	if encoded != "" {
+		_, err := part.Write([]byte(encoded + "\r\n"))
+		return err
+	}
+	return nil
 }
 
 // formatAddress renders a From header, quoting the display name only when

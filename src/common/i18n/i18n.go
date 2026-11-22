@@ -45,6 +45,29 @@ type Language struct {
 	Direction  string
 }
 
+// localeSpec is the authoritative build-time registry entry for an embedded
+// locale. It keeps display metadata and CLDR plural requirements together.
+type localeSpec struct {
+	code             string
+	name             string
+	nativeName       string
+	direction        string
+	pluralCategories []string
+}
+
+// localeRegistry is the single supported-language registry required by AI.md
+// PART 30. Every entry must have exactly one matching embedded locale file.
+var localeRegistry = []localeSpec{
+	{code: "en", name: "English", nativeName: "English", direction: "ltr", pluralCategories: []string{"one", "other"}},
+	{code: "es", name: "Spanish", nativeName: "Español", direction: "ltr", pluralCategories: []string{"one", "other"}},
+	{code: "zh", name: "Chinese (Mandarin)", nativeName: "中文", direction: "ltr", pluralCategories: []string{"other"}},
+	{code: "fr", name: "French", nativeName: "Français", direction: "ltr", pluralCategories: []string{"one", "other"}},
+	{code: "ar", name: "Arabic", nativeName: "العربية", direction: "rtl", pluralCategories: []string{"zero", "one", "two", "few", "many", "other"}},
+	{code: "de", name: "German", nativeName: "Deutsch", direction: "ltr", pluralCategories: []string{"one", "other"}},
+	{code: "it", name: "Italian", nativeName: "Italiano", direction: "ltr", pluralCategories: []string{"one", "many", "other"}},
+	{code: "ja", name: "Japanese", nativeName: "日本語", direction: "ltr", pluralCategories: []string{"other"}},
+}
+
 // catalog holds every locale file flattened to dot-separated keys, e.g.
 // "common.save" and "plurals.clicks.one".
 var (
@@ -52,11 +75,6 @@ var (
 	metas   = map[string]Meta{}
 	codes   []string
 )
-
-// languageOrder is the display order of the AI.md PART 30 "Supported
-// Languages" table. Any locale file not named here still loads; it is
-// simply appended alphabetically after the known set.
-var languageOrder = []string{"en", "es", "zh", "fr", "ar", "de", "ja"}
 
 func init() {
 	entries, err := localeFS.ReadDir("locales")
@@ -81,6 +99,22 @@ func init() {
 		catalog[code] = flat
 		metas[code] = metaFrom(code, flat)
 		codes = append(codes, code)
+	}
+	registered := make(map[string]bool, len(localeRegistry))
+	for _, spec := range localeRegistry {
+		registered[spec.code] = true
+		if _, ok := catalog[spec.code]; !ok {
+			panic("i18n: registered locale " + spec.code + ".json is missing")
+		}
+		meta := metas[spec.code]
+		if meta.Language != spec.code || meta.Name != spec.name || meta.NativeName != spec.nativeName || meta.Direction != spec.direction {
+			panic("i18n: locale metadata does not match registry for " + spec.code)
+		}
+	}
+	for _, code := range codes {
+		if !registered[code] {
+			panic("i18n: embedded locale " + code + ".json is not registered")
+		}
 	}
 	if _, ok := catalog[DefaultLanguage]; !ok {
 		panic("i18n: the default locale " + DefaultLanguage + ".json is missing")
@@ -136,8 +170,8 @@ func metaFrom(code string, flat map[string]string) Meta {
 // then alphabetically for anything added later.
 func sortCodes() {
 	rank := map[string]int{}
-	for i, c := range languageOrder {
-		rank[c] = i
+	for i, spec := range localeRegistry {
+		rank[spec.code] = i
 	}
 	sort.Slice(codes, func(i, j int) bool {
 		ri, oki := rank[codes[i]]

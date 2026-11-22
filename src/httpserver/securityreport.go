@@ -5,6 +5,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/db"
+	"github.com/apimgr/shortner/src/pgp"
 	"github.com/apimgr/shortner/src/security"
 )
 
@@ -460,21 +462,30 @@ func containsString(allowed []string, want string) bool {
 	return false
 }
 
-// storeSecurityReport seals the report under server.security.encryption_key
-// and inserts it, returning the allocated tracking id. Plaintext is never
-// persisted, per AI.md PART 11 "Submission Flow" step 3. The project has
-// no PGP keypair path yet (see TODO.AI.md), so the AES-256-GCM branch the
-// same step defines is the one taken.
+// storeSecurityReport encrypts the report with the project PGP key when
+// configured, or seals it under server.security.encryption_key otherwise,
+// per AI.md PART 11 "Submission Flow" step 3.
 func (fd *frontendDeps) storeSecurityReport(ctx context.Context, f securityReportForm) (string, error) {
-	key, err := config.DecodeEncryptionKey(fd.cfg)
-	if err != nil {
-		return "", err
-	}
 	body, err := json.Marshal(f)
 	if err != nil {
 		return "", err
 	}
-	sealed, err := security.Seal(key, body)
+	var sealed string
+	if armored, readErr := pgp.NewStore(fd.configDir).ReadPublicKey(); readErr == nil {
+		recipients, parseErr := pgp.ParsePublic(armored)
+		if parseErr != nil {
+			return "", parseErr
+		}
+		sealed, err = pgp.EncryptArmored(recipients, body)
+	} else if errors.Is(readErr, pgp.ErrNoKeypair) {
+		key, keyErr := config.DecodeEncryptionKey(fd.cfg)
+		if keyErr != nil {
+			return "", keyErr
+		}
+		sealed, err = security.Seal(key, body)
+	} else {
+		return "", readErr
+	}
 	if err != nil {
 		return "", err
 	}

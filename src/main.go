@@ -27,6 +27,7 @@ import (
 	"github.com/apimgr/shortner/src/common/pidfile"
 	"github.com/apimgr/shortner/src/common/version"
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/cve"
 	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/fqdn"
 	"github.com/apimgr/shortner/src/geoip"
@@ -80,6 +81,7 @@ func run(args []string) int {
 	showVersion := fs.Bool("version", false, "Show version")
 	modeFlag := fs.String("mode", "", "Application mode: production|development|dev|debug")
 	debugFlag := fs.Bool("debug", false, "Enable debug diagnostics")
+	i2pFlag := fs.Bool("i2p", false, "Enable the I2P eepsite")
 	configDir := fs.String("config", "", "Config directory override")
 	dataDir := fs.String("data", "", "Data directory override")
 	cacheDir := fs.String("cache", "", "Cache directory override")
@@ -330,8 +332,20 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
+	if !cfg.Server.I2P.EnabledExplicit && !flagWasSet(fs, "i2p") {
+		cfg.Server.I2P.Enabled = inContainer
+	}
 	for _, warning := range config.ApplyConnectionEnvironment(cfg) {
 		fmt.Fprintln(os.Stderr, binaryName+": warning: "+warning)
+	}
+	for _, warning := range config.ApplyI2PEnv(cfg) {
+		fmt.Fprintln(os.Stderr, binaryName+": warning: "+warning)
+	}
+	if flagWasSet(fs, "i2p") {
+		cfg.Server.I2P.Enabled = *i2pFlag
+	}
+	if cfg.Data.SecurityDir == "" {
+		cfg.Data.SecurityDir = filepath.Join(p.Data, "security")
 	}
 	if earlyPortWarning != "" {
 		cfg.Server.Port = portSetting
@@ -636,6 +650,20 @@ func run(args []string) int {
 	notifier := newNotifier(cfg, p, fqdnHost)
 	startupNotifications(binaryName, notifier, cfg, p, fqdnHost, accessLog)
 
+	// TLS (AI.md PART 15 "Built-in Let's Encrypt Support"): initialize
+	// managed certificate providers before the scheduler so ssl_renewal can
+	// invoke the same provider used by the HTTPS listener.
+	scheme := "http"
+	tlsConfig, httpChallengeHandler, tlsErr := buildTLSConfig(cfg, p.Config, notifier, sqlDB)
+	if tlsErr != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": ERROR: "+tlsErr.Error())
+		if tlsConfig != nil {
+			scheme = "https"
+		}
+	} else if tlsConfig != nil {
+		scheme = "https"
+	}
+
 	// Overlay networks (AI.md PART 31): built before the scheduler and the
 	// HTTP server because the tor_health/i2p_health tasks and
 	// /server/healthz both report on them. Nothing is started here — see
@@ -653,7 +681,7 @@ func run(args []string) int {
 		appMetrics.StartTorCollector(context.Background(), torManager)
 	}
 
-	sched, err := newBuiltinScheduler(cfg, sqlDB, schedulerLog, accessLog, p, fqdnHost, geoManager, auditLog, notifier, torManager, i2pManager)
+	sched, err := newBuiltinScheduler(cfg, sqlDB, schedulerLog, accessLog, p, fqdnHost, geoManager, auditLog, notifier, torManager, i2pManager, tlsConfig)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
@@ -668,21 +696,6 @@ func run(args []string) int {
 	// is dispatched here rather than earlier alongside those flags.
 	if flagWasSet(fs, "scheduler") {
 		return runSchedulerCLI(binaryName, sched, *schedulerFlag, firstArg(fs.Args()))
-	}
-
-	// TLS (AI.md PART 15 "Built-in Let's Encrypt Support"): only attempted
-	// for a real, publicly-resolvable FQDN — never for dev-only TLDs
-	// (.local, .test, the project's own name, etc.), which can never get a
-	// valid public certificate.
-	scheme := "http"
-	tlsConfig, httpChallengeHandler, tlsErr := buildTLSConfig(cfg, p.Config, notifier, sqlDB)
-	if tlsErr != nil {
-		fmt.Fprintln(os.Stderr, binaryName+": ERROR: "+tlsErr.Error())
-		if tlsConfig != nil {
-			scheme = "https"
-		}
-	} else if tlsConfig != nil {
-		scheme = "https"
 	}
 
 	srv := httpserver.New(httpserver.Options{
@@ -744,6 +757,21 @@ func run(args []string) int {
 	if err := sched.Start(context.Background()); err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
+	}
+	cveOptions := cve.Options{SecurityDir: cfg.Data.SecurityDir, NVDSource: cfg.Data.CVE.Source, APIKey: cfg.Data.CVE.APIKey, TrivyEnabled: cfg.Data.Trivy.Enabled, TrivySource: cfg.Data.Trivy.Source}
+	if cve.NeedsInitialUpdate(cveOptions) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		updateDone := make(chan struct{})
+		defer func() {
+			cancel()
+			<-updateDone
+		}()
+		go func() {
+			defer close(updateDone)
+			if err := sched.RunNow(ctx, "cve_update"); err != nil {
+				_ = accessLog.WriteLine(applog.LevelWarn, "cve: initial security database update failed: "+err.Error()+"\n")
+			}
+		}()
 	}
 
 	pidPath := p.PIDFile
@@ -932,7 +960,9 @@ func buildTLSConfig(cfg *config.Config, configDir string, notifier *notify.Notif
 				}
 			}
 			if renewed {
-				sendSSLRenewed(notifier, host, notAfter)
+				if err := sendSSLRenewed(notifier, host, notAfter); err != nil {
+					fmt.Fprintln(os.Stderr, "shortner: WARN: send SSL renewal notification:", err)
+				}
 			}
 		})
 		if err != nil {
@@ -941,7 +971,9 @@ func buildTLSConfig(cfg *config.Config, configDir string, notifier *notify.Notif
 		return tlsConfig, nil, nil
 	}
 	tlsConfig, manager := certmgr.NewTLSConfig(configDir, host, "", func(notAfter time.Time) {
-		sendSSLRenewed(notifier, host, notAfter)
+		if err := sendSSLRenewed(notifier, host, notAfter); err != nil {
+			fmt.Fprintln(os.Stderr, "shortner: WARN: send SSL renewal notification:", err)
+		}
 	})
 	challengeHandler := func(fallback http.Handler) http.Handler {
 		return certmgr.HTTPHandler(manager, fallback)
@@ -980,16 +1012,16 @@ func syncDNSCredentialState(sqlDB db.Handle, cfg *config.Config, installSecret s
 	return nil
 }
 
-func sendSSLRenewed(notifier *notify.Notifier, host string, notAfter time.Time) {
+func sendSSLRenewed(notifier *notify.Notifier, host string, notAfter time.Time) error {
 	if notifier == nil {
-		return
+		return nil
 	}
 	validUntil := notAfter.UTC()
 	days := int(validUntil.Sub(time.Now().UTC()).Hours() / 24)
 	if days < 0 {
 		days = 0
 	}
-	_ = notifier.Send(notify.EventSSLRenewed, map[string]string{
+	return notifier.Send(notify.EventSSLRenewed, map[string]string{
 		"fqdn":        host,
 		"expires_in":  fmt.Sprintf("%d days", days),
 		"expiry_date": validUntil.Format(time.RFC3339),
@@ -1010,7 +1042,7 @@ func portIncludes(setting string, wanted int) bool {
 // newBuiltinScheduler builds a scheduler.Scheduler with every AI.md
 // PART 18 "Built-in Tasks (Required)" registered, using cfg's per-task
 // schedule/enabled overrides. It does not start the scheduler.
-func newBuiltinScheduler(cfg *config.Config, sqlDB db.Handle, schedulerLog, accessLog *applog.Logger, p paths.Paths, host string, geoManager *geoip.Manager, auditLog backup.Auditor, notifier *notify.Notifier, torManager *tor.Manager, i2pManager *i2p.Manager) (*scheduler.Scheduler, error) {
+func newBuiltinScheduler(cfg *config.Config, sqlDB db.Handle, schedulerLog, accessLog *applog.Logger, p paths.Paths, host string, geoManager *geoip.Manager, auditLog backup.Auditor, notifier *notify.Notifier, torManager *tor.Manager, i2pManager *i2p.Manager, tlsConfig *tls.Config) (*scheduler.Scheduler, error) {
 	sched, err := scheduler.New(sqlDB, schedulerLog, cfg.Server.Scheduler.Timezone, cfg.Server.Scheduler.CatchUpWindow)
 	if err != nil {
 		return nil, err
@@ -1033,6 +1065,8 @@ func newBuiltinScheduler(cfg *config.Config, sqlDB db.Handle, schedulerLog, acce
 		ConfigDir:  p.Config,
 		FQDN:       host,
 		DevTLD:     fqdn.IsDevTLD(host, internalName),
+		TLSConfig:  tlsConfig,
+		CVEOptions: cve.Options{SecurityDir: cfg.Data.SecurityDir, NVDSource: cfg.Data.CVE.Source, APIKey: cfg.Data.CVE.APIKey, TrivyEnabled: cfg.Data.Trivy.Enabled, TrivySource: cfg.Data.Trivy.Source},
 		GeoIP:      geoManager,
 		GeoIPCfg:   cfg.Server.GeoIP,
 		// AI.md PART 21: the backup directory is the one resolved at

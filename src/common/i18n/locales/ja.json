@@ -547,29 +547,23 @@
   "plurals": {
     "clicks": {
       "zero": "クリックはありません",
-      "one": "{count} 回のクリック",
       "other": "{count} 回のクリック"
     },
     "links": {
       "zero": "リンクはありません",
-      "one": "{count} 件のリンク",
       "other": "{count} 件のリンク"
     },
     "results": {
       "zero": "結果はありません",
-      "one": "{count} 件の結果",
       "other": "{count} 件の結果"
     },
     "days": {
-      "one": "{count} 日",
       "other": "{count} 日"
     },
     "hours": {
-      "one": "{count} 時間",
       "other": "{count} 時間"
     },
     "minutes": {
-      "one": "{count} 分",
       "other": "{count} 分"
     }
   },

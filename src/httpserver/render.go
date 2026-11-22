@@ -70,6 +70,10 @@ func renderPage(w http.ResponseWriter, status int, name string, data any) error 
 		return err
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if stamp := w.Header().Get("X-Build"); stamp != "" {
+		w.Header().Set("ETag", buildETag(stamp))
+	}
 	w.WriteHeader(status)
 	_, err = buf.WriteTo(w)
 	return err

@@ -18,3 +18,36 @@ func TestTorStartupTimeoutDefaultsAndValidation(t *testing.T) {
 		t.Errorf("ValidateTor() warnings = %v, want startup_timeout warning", warnings)
 	}
 }
+
+func TestApplyI2PEnvHasPriorityOverConfig(t *testing.T) {
+	t.Run("environment true overrides explicit config false", func(t *testing.T) {
+		t.Setenv("I2P_ENABLED", "true")
+		cfg := Default("")
+		cfg.Server.I2P.Enabled = false
+		cfg.Server.I2P.EnabledExplicit = true
+		if warnings := ApplyI2PEnv(cfg); len(warnings) != 0 {
+			t.Fatalf("ApplyI2PEnv() warnings = %v", warnings)
+		}
+		if !cfg.Server.I2P.Enabled {
+			t.Fatal("I2P_ENABLED=true did not override explicit config false")
+		}
+	})
+	t.Run("runtime false disables config true", func(t *testing.T) {
+		t.Setenv("I2P_ENABLED", "false")
+		cfg := Default("")
+		cfg.Server.I2P.Enabled = true
+		cfg.Server.I2P.EnabledExplicit = true
+		ApplyI2PEnv(cfg)
+		if cfg.Server.I2P.Enabled {
+			t.Fatal("I2P_ENABLED=false did not disable I2P")
+		}
+	})
+	t.Run("environment enables when config is not explicit", func(t *testing.T) {
+		t.Setenv("I2P_ENABLED", "true")
+		cfg := Default("")
+		ApplyI2PEnv(cfg)
+		if !cfg.Server.I2P.Enabled {
+			t.Fatal("I2P_ENABLED=true did not enable I2P")
+		}
+	})
+}

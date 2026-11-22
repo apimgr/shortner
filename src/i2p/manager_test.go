@@ -1,13 +1,16 @@
 package i2p
 
 import (
+	"bufio"
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/apimgr/shortner/src/config"
 )
@@ -131,6 +134,104 @@ func TestManagerUpdateConfigDisable(t *testing.T) {
 	}
 	if m.Enabled() {
 		t.Error("expected Enabled=false after UpdateConfig")
+	}
+}
+
+func TestManagerDisableCancelsInflightSAMStart(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	started := make(chan struct{})
+	priv := i2pBase64.EncodeToString(make([]byte, 512))
+	go func() {
+		for {
+			conn, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				reader := bufio.NewReader(conn)
+				for {
+					line, readErr := reader.ReadString('\n')
+					if readErr != nil {
+						return
+					}
+					switch {
+					case strings.HasPrefix(line, "HELLO VERSION"):
+						_, _ = fmt.Fprintln(conn, "HELLO REPLY RESULT=OK VERSION=3.3")
+					case strings.HasPrefix(line, "DEST GENERATE"):
+						_, _ = fmt.Fprintf(conn, "DEST REPLY PUB=%s PRIV=%s\n", priv, priv)
+					case strings.HasPrefix(line, "SESSION CREATE"):
+						select {
+						case <-started:
+						default:
+							close(started)
+						}
+					case strings.HasPrefix(line, "QUIT"):
+						return
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m := NewManager(ctx, config.I2P{Enabled: true, Binary: filepath.Join(dir, "missing-i2pd"), SAMAddress: listener.Addr().String()}, Dirs{
+		Config: filepath.Join(dir, "config"), Data: filepath.Join(dir, "data"), Log: filepath.Join(dir, "log"),
+	}, nil, nil)
+	startResult := make(chan error, 1)
+	go func() { startResult <- m.Start() }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("SAM startup did not reach the blocked session step")
+	}
+	if err := m.UpdateConfig(config.I2P{Enabled: false}); err != nil {
+		t.Fatalf("UpdateConfig(disabled): %v", err)
+	}
+	select {
+	case err := <-startResult:
+		if err != ErrDisabled {
+			t.Fatalf("Start() = %v, want ErrDisabled after disable", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("in-flight SAM start was not canceled")
+	}
+	if m.Running() || m.Enabled() {
+		t.Fatal("disabled manager published a running I2P service")
+	}
+}
+
+func TestManagerUpdateConfigStartsMonitor(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("PATH manipulation differs on windows")
+	}
+	empty := t.TempDir()
+	t.Setenv("PATH", empty)
+	listener := fakeSAMServerMulti(t)
+	defer listener.Close()
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m := NewManager(ctx, config.I2P{Enabled: false}, Dirs{
+		Config: filepath.Join(dir, "config"), Data: filepath.Join(dir, "data"), Log: filepath.Join(dir, "log"),
+	}, nil, nil)
+	if err := m.UpdateConfig(config.I2P{
+		Enabled: true, Binary: filepath.Join(dir, "missing-i2pd"), SAMAddress: listener.Addr().String(),
+	}); err != nil {
+		t.Fatalf("UpdateConfig(enabled): %v", err)
+	}
+	defer m.Close()
+	m.mu.Lock()
+	monitoring := m.monitoring
+	m.mu.Unlock()
+	if !monitoring {
+		t.Fatal("successful UpdateConfig did not start the provider monitor")
 	}
 }
 

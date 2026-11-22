@@ -45,7 +45,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="{{asset "/static/icons/favicon-32.png" .Base.AssetStamp}}">
 <link rel="icon" type="image/png" sizes="48x48" href="{{asset "/static/icons/favicon-48.png" .Base.AssetStamp}}">
 {{end}}
-<link rel="icon" href="/favicon.ico">
+<link rel="icon" href="{{asset "/static/favicon.ico" .Base.AssetStamp}}">
 {{if .Base.FaviconURL}}<link rel="icon" href="{{.Base.FaviconURL}}">{{end}}
 {{if .Base.FaviconURL}}<link rel="apple-touch-icon" sizes="180x180" href="{{.Base.FaviconURL}}?size=180">{{else}}<link rel="apple-touch-icon" sizes="180x180" href="{{asset "/static/icons/icon-180.png" .Base.AssetStamp}}">{{end}}
 <link rel="apple-touch-startup-image" href="{{asset "/static/splash/iphone-1179x2556.png" .Base.AssetStamp}}" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)">
@@ -58,6 +58,6 @@
 <link rel="stylesheet" href="{{asset "/static/css/common.css" .Base.AssetStamp}}">
 <link rel="stylesheet" href="{{asset "/static/css/components.css" .Base.AssetStamp}}">
 <link rel="stylesheet" href="{{asset "/static/css/public.css" .Base.AssetStamp}}">
-{{if .Base.AccentEnabled}}<link rel="stylesheet" href="/static/css/accent.css">{{end}}
+{{if .Base.AccentEnabled}}<link rel="stylesheet" href="{{asset "/static/css/accent.css" .Base.AssetStamp}}">{{end}}
 </head>
 {{end}}

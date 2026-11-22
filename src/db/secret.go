@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/apimgr/shortner/src/pgp"
 	"github.com/apimgr/shortner/src/security"
 )
 
@@ -195,6 +196,11 @@ func ReencryptStoredData(ctx context.Context, sqlDB Handle, oldKey, newKey []byt
 			return err
 		}
 		for _, row := range reports {
+			// PGP-encrypted report bodies are independent of the AES key and
+			// remain untouched during encryption_key rotation (AI.md PART 11).
+			if pgp.IsArmoredMessage(row.value) {
+				continue
+			}
 			plain, err := security.Open(oldKey, row.value)
 			if err != nil {
 				return fmt.Errorf("db: decrypt security report: %w", err)

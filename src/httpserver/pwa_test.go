@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/apimgr/shortner/src/config"
 	serverassets "github.com/apimgr/shortner/src/server"
 )
 
@@ -22,7 +23,7 @@ func TestPWARoutesServeEmbeddedManifestAndOfflinePage(t *testing.T) {
 		contentType string
 		contains    string
 	}{
-		{path: "/manifest.json", contentType: "application/manifest+json", contains: `"display": "standalone"`},
+		{path: "/manifest.json", contentType: "application/manifest+json", contains: `"display":"standalone"`},
 		{path: "/offline.html", contentType: "text/html; charset=utf-8", contains: "You are offline"},
 	}
 	for _, tt := range tests {
@@ -39,10 +40,36 @@ func TestPWARoutesServeEmbeddedManifestAndOfflinePage(t *testing.T) {
 			if !strings.Contains(rec.Body.String(), tt.contains) {
 				t.Errorf("body does not contain %q", tt.contains)
 			}
-			if tt.path == "/manifest.json" && !strings.Contains(rec.Body.String(), `"src": "/static/icons/icon-180.png"`) {
-				t.Error("manifest does not include the required 180x180 icon")
+			if tt.path == "/manifest.json" && !strings.Contains(rec.Body.String(), `"src":"/static/icons/icon-180.png?v=1.2.3-abc1234"`) {
+				t.Error("manifest does not include a version-stamped 180x180 icon")
 			}
 		})
+	}
+}
+
+func TestManifestETagChangesWithBranding(t *testing.T) {
+	baseRouter := chi.NewRouter()
+	registerPWARoutes(baseRouter, "1.2.3", "abc1234")
+	baseRec := httptest.NewRecorder()
+	baseRouter.ServeHTTP(baseRec, httptest.NewRequest(http.MethodGet, "/manifest.json", nil))
+	baseETag := baseRec.Header().Get("ETag")
+
+	cfg := config.Default("")
+	cfg.Server.Branding.Favicon = "/custom-favicon.png"
+	brandedRouter := chi.NewRouter()
+	registerPWARoutes(brandedRouter, "1.2.3", "abc1234", newBrandingStateStore(cfg))
+	request := httptest.NewRequest(http.MethodGet, "/manifest.json", nil)
+	request.Header.Set("If-None-Match", baseETag)
+	brandedRec := httptest.NewRecorder()
+	brandedRouter.ServeHTTP(brandedRec, request)
+	if brandedRec.Code != http.StatusOK {
+		t.Fatalf("changed manifest with stale ETag returned %d, want 200", brandedRec.Code)
+	}
+	if got := brandedRec.Header().Get("ETag"); got == baseETag || got == "" {
+		t.Fatalf("branded manifest ETag = %q, want a new value distinct from %q", got, baseETag)
+	}
+	if !strings.Contains(brandedRec.Body.String(), "/branding/favicon?size=180") {
+		t.Fatal("branded manifest does not reference the configured favicon")
 	}
 }
 
@@ -78,6 +105,16 @@ func TestPWAServiceWorkerUsesBuildStampAndNoCache(t *testing.T) {
 	}
 	if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
 		t.Errorf("Cache-Control = %q, want no-cache", got)
+	}
+	if got := rec.Header().Get("ETag"); got != `"1.2.3-abc1234"` {
+		t.Errorf("ETag = %q, want build-stamp ETag", got)
+	}
+	conditional := httptest.NewRequest(http.MethodGet, "/sw.js", nil)
+	conditional.Header.Set("If-None-Match", rec.Header().Get("ETag"))
+	conditionalRec := httptest.NewRecorder()
+	router.ServeHTTP(conditionalRec, conditional)
+	if conditionalRec.Code != http.StatusNotModified {
+		t.Errorf("conditional service worker status = %d, want 304", conditionalRec.Code)
 	}
 }
 
@@ -144,6 +181,16 @@ func TestStaticAssetCacheRequiresCurrentBuildStamp(t *testing.T) {
 			if got := rec.Header().Get("Cache-Control"); got != tt.want {
 				t.Errorf("Cache-Control = %q, want %q", got, tt.want)
 			}
+			if got := rec.Header().Get("ETag"); got != `"1.2.3-abc1234"` {
+				t.Errorf("ETag = %q, want build-stamp ETag", got)
+			}
 		})
+	}
+	conditional := httptest.NewRequest(http.MethodGet, "/static/js/app.js", nil)
+	conditional.Header.Set("If-None-Match", `"1.2.3-abc1234"`)
+	conditionalRec := httptest.NewRecorder()
+	h.ServeHTTP(conditionalRec, conditional)
+	if conditionalRec.Code != http.StatusNotModified {
+		t.Errorf("conditional static status = %d, want 304", conditionalRec.Code)
 	}
 }

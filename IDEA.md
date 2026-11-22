@@ -66,6 +66,9 @@ owner_token: <placeholder>
 ### Trust boundaries & external services
 - GeoIP database (PART 19): local/offline lookup only, used to derive approximate click
   location from the already-anonymized IP — not a live third-party API call per click.
+- Tor and I2P provide optional overlay ingress for the same server-rendered service.
+  Tor starts when its runtime is present; I2P defaults off on hosts and on in
+  containers. Overlay addresses use HTTP within their networks.
 - No identity provider, no OAuth, no payment processor, no webhook integrations.
 - User-supplied `destination_url` is untrusted input: validated for well-formed URL
   syntax only. No SSRF exposure server-side, since redirects are 302 responses sent to

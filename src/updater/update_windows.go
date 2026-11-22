@@ -3,6 +3,7 @@
 package updater
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -20,7 +21,9 @@ func replaceBinary(currentPath, newBinaryPath string) error {
 	oldPath := currentPath + ".old"
 
 	// A leftover .old from a previous update would block the rename.
-	os.Remove(oldPath)
+	if err := os.Remove(oldPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("updater: remove previous old binary: %w", err)
+	}
 
 	if err := os.Rename(currentPath, oldPath); err != nil {
 		return fmt.Errorf("updater: rename current binary: %w", err)
@@ -28,7 +31,9 @@ func replaceBinary(currentPath, newBinaryPath string) error {
 
 	if err := os.Rename(newBinaryPath, currentPath); err != nil {
 		// Put the original back so the service still has a binary.
-		os.Rename(oldPath, currentPath)
+		if restoreErr := os.Rename(oldPath, currentPath); restoreErr != nil {
+			return fmt.Errorf("updater: move new binary: %w (restore original: %v)", err, restoreErr)
+		}
 		return fmt.Errorf("updater: move new binary: %w", err)
 	}
 
@@ -36,9 +41,11 @@ func replaceBinary(currentPath, newBinaryPath string) error {
 	// on the next boot, once nothing has it mapped any more.
 	oldPathPtr, err := windows.UTF16PtrFromString(oldPath)
 	if err != nil {
-		return nil
+		return fmt.Errorf("updater: prepare old binary cleanup path: %w", err)
 	}
-	windows.MoveFileEx(oldPathPtr, nil, windows.MOVEFILE_DELAY_UNTIL_REBOOT)
+	if err := windows.MoveFileEx(oldPathPtr, nil, windows.MOVEFILE_DELAY_UNTIL_REBOOT); err != nil {
+		fmt.Fprintf(os.Stderr, "shortner: WARNING: update installed, but remove %s after restart; automatic cleanup could not be scheduled: %v\n", oldPath, err)
+	}
 
 	return nil
 }

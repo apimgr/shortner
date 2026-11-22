@@ -547,29 +547,23 @@
   "plurals": {
     "clicks": {
       "zero": "暂无点击",
-      "one": "{count} 次点击",
       "other": "{count} 次点击"
     },
     "links": {
       "zero": "暂无链接",
-      "one": "{count} 个链接",
       "other": "{count} 个链接"
     },
     "results": {
       "zero": "暂无结果",
-      "one": "{count} 条结果",
       "other": "{count} 条结果"
     },
     "days": {
-      "one": "{count} 天",
       "other": "{count} 天"
     },
     "hours": {
-      "one": "{count} 小时",
       "other": "{count} 小时"
     },
     "minutes": {
-      "one": "{count} 分钟",
       "other": "{count} 分钟"
     }
   },

@@ -437,11 +437,13 @@ func (f *fakeTorReporter) Err() string          { return f.err }
 // healthDeps.i2pInfo() without a live I2P router.
 type fakeI2PReporter struct {
 	enabled, running, healthy bool
+	starting                  bool
 	address, provider         string
 	err                       string
 }
 
 func (f *fakeI2PReporter) Enabled() bool          { return f.enabled }
+func (f *fakeI2PReporter) Starting() bool         { return f.starting }
 func (f *fakeI2PReporter) Running() bool          { return f.running }
 func (f *fakeI2PReporter) Healthy() bool          { return f.healthy }
 func (f *fakeI2PReporter) EepsiteAddress() string { return f.address }
