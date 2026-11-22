@@ -15427,7 +15427,7 @@ web:
 
 ### MCP Endpoint (Model Context Protocol)
 
-**Every project exposes an MCP endpoint so AI clients (Claude, IDE agents, other MCP clients) can use the API as tools. It is a second front door onto the existing API — it adds no new authentication, no new token type, and no new permissions.**
+**Every project exposes an MCP endpoint so AI clients (Claude, IDE agents, other MCP clients) can use the API as tools. It is a second front door onto the existing API — it reuses the API's Bearer authentication (a valid token is required on every MCP request) and adds no new authentication method, no new token type, and no new permissions.**
 
 | Aspect | Rule |
 |--------|------|
@@ -29839,6 +29839,10 @@ server:
 | `ssl_renewed` | Certificate renewed successfully | ✗ |
 | `ssl_renewal_failed` | Certificate renewal failure | ✗ |
 | `scheduler_error` | Scheduled task failed | ✗ |
+| `startup` | Application started (`events.startup`) | ✗ |
+| `shutdown` | Application stopped (`events.shutdown`) | ✗ |
+| `disk_low` | Disk space low (PART 17 → "Disk Space Low") | ✗ |
+| `database_error` | Database connection problem | ✗ |
 | `update_available` | New eligible release detected (`update_check` task) | ✗ |
 | `update_installed` | Self-update completed (`auto_install: true`) | ✗ |
 | `test` | Test email | ✗ |
@@ -29856,6 +29860,10 @@ server:
 | `ssl_renewed` | `SSL Certificate Renewed - {app_name}` | Confirmation of renewal |
 | `ssl_renewal_failed` | `SSL Renewal Failed - {app_name}` | Includes domain, error, days until expiry, next retry |
 | `scheduler_error` | `Scheduled Task Failed - {app_name}` | Includes task name and error |
+| `startup` | `Server Started - {app_name}` | Includes version and mode |
+| `shutdown` | `Server Stopped - {app_name}` | Includes version and reason |
+| `disk_low` | `Disk Space Low - {app_name}` | Includes path, used percentage, free space and threshold |
+| `database_error` | `Database Connection Problem - {app_name}` | Includes the error message, never credentials |
 | `update_available` | `Update Available - {app_name}` | Includes current version, new version, and channel |
 | `update_installed` | `Update Installed - {app_name}` | Includes previous version and new version |
 | `test` | `Test Email - {app_name}` | Simple test message |
@@ -30031,6 +30039,29 @@ Next run: {next_run}
 
 **Suppression:** When `ssl_renewal_failed` fires from a scheduled run, it suppresses the `scheduler_error` notification for the same execution. One notification, not two.
 
+### startup / shutdown
+| Variable | Description |
+|----------|-------------|
+| `{hostname}` | Host name |
+| `{version}` | Running version |
+| `{mode}` | Application mode |
+| `{timestamp}` | When the event happened |
+| `{reason}` | Why the server stopped: `signal`, `service stop` or `update restart` (shutdown only) |
+
+### disk_low
+| Variable | Description |
+|----------|-------------|
+| `{path}` | First of the data, log and backup directories on the volume |
+| `{used_percent}` | Used percentage of the volume |
+| `{free}` | Free space, human readable |
+| `{threshold_percent}` | Configured `threshold_percent` |
+
+### database_error
+| Variable | Description |
+|----------|-------------|
+| `{error}` | Error message (never contains credentials) |
+| `{since}` | When the connection problem began |
+
 ### scheduler_error
 | Variable | Description |
 |----------|-------------|
@@ -30188,7 +30219,7 @@ Templates are stored as files on disk. Override any built-in template by placing
 | `shutdown` | Once when a graceful shutdown (`SIGTERM`, `SIGINT`, `--service stop`, or the restart after an update) has finished draining connections | Crashes and `SIGKILL`, because nothing can send mail then |
 
 - **Defaults:** both switches default to off (`server.notifications.email.events.startup` and `shutdown`). Every occurrence is always logged at INFO whatever the switches say.
-- **Templates:** the built-in `server_started` and `server_stopped` templates use `{app_name}`, `{fqdn}`, `{hostname}`, `{version}`, `{mode}` and `{timestamp}`; `server_stopped` adds `{reason}` (`signal`, `service stop` or `update restart`).
+- **Templates:** the built-in `startup` and `shutdown` templates use `{app_name}`, `{fqdn}`, `{hostname}`, `{version}`, `{mode}` and `{timestamp}`; `shutdown` adds `{reason}` (`signal`, `service stop` or `update restart`).
 - **Delivery:** the recipient is the admin role (PART 12 → "Contact Configuration"). The shutdown email is best effort with a 5-second send timeout and never delays process exit beyond that.
 - **Language:** operator email, so `server.i18n.default_language` applies (see "Email Language Selection", priority 3).
 
@@ -45825,7 +45856,7 @@ Tor Hidden Service: Connected
 3. **Neither available → log a warning and skip** (mirrors Tor's "binary not found → disabled, not an error").
 
 **Key Architecture Points:**
-- **Opt-in, default off** — no eepsite, no port, no `i2pd.conf`, no SAM session unless enabled.
+- **Opt-in outside containers, on by default in a container** — when disabled there is no eepsite, no port, no `i2pd.conf` and no SAM session.
 - **Server binary owns the provider** — Model A: full i2pd process lifecycle; Model B: the SAM session lifecycle.
 - **Dedicated backend port** — the eepsite maps `.b32.i2p:{virtual_port}` → `127.0.0.1:{i2p_backend_port}`, a random-unused loopback port. **Unlike Tor, there is no PROXY-protocol header** (SAM/i2pd do not prepend one), so the backend is a **plain loopback listener**, separate from the clearnet port.
 - **Destination identity persists** — the key lives under `{data_dir}/i2p/site/` (one SAM `PRIV` line, written by the app for both models); the `.b32.i2p` address survives restarts. `i2pd.conf` is derived state, regenerated each run.

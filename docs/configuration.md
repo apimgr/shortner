@@ -110,6 +110,23 @@ Beyond the directory overrides above, the following are read:
 An unset or empty variable changes nothing, so a container can override
 exactly the fields it needs and leave the rest to `server.yml`.
 
+## Language
+
+Internationalization is always enabled. Only `default_language` and
+`available_languages` are configurable; fallback to English and the `lang`
+cookie name and one-year lifetime are fixed.
+
+```yaml
+server:
+  i18n:
+    default_language: en
+    available_languages: [en, es, fr, de, it, ar]
+```
+
+Language selection follows `?lang=`, the explicit `lang` cookie,
+`Accept-Language`, then the configured default. A supported `?lang=` choice
+also writes the one-year cookie.
+
 ## Core Server Settings
 
 ```yaml
