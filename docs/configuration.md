@@ -566,26 +566,29 @@ and the timezone is any IANA name. A task whose scheduled run was missed
 while the process was down is executed on startup if the miss falls inside
 `catch_up_window`.
 
-Twelve built-in tasks are registered:
+All thirteen built-in tasks required by AI.md are registered:
 
 | Task | Default schedule | Status |
 |------|------------------|--------|
-| `token_cleanup` | every 12 hours | Active |
-| `log_rotation` | daily | Active |
-| `healthcheck_self` | every 10 minutes | Active |
-| `ssl_renewal` | daily | Active — checks the renewal window and sends alerts |
-| `geoip_update` | weekly, Sunday | Active |
-| `backup_daily` | daily | Active |
+| `token_cleanup` | every 15 minutes | Active |
+| `log_rotation` | daily at 00:00 | Active |
+| `healthcheck_self` | every 5 minutes | Active |
+| `disk_check` | every 5 minutes | Active |
+| `ssl_renewal` | daily at 03:00 | Active — checks the renewal window and sends alerts |
+| `geoip_update` | weekly, Sunday at 03:00 | Active |
+| `backup_daily` | daily at 02:00 | Active |
 | `backup_hourly` | hourly | Disabled by default |
-| `update_check` | daily | Active |
-| `blocklist_update` | daily | Registered; skips — the subsystem is not built |
-| `cve_update` | daily | Registered; skips — the subsystem is not built |
-| `tor_health` | every 10 minutes | Active when Tor is available; otherwise reports unavailable |
-| `i2p_health` | every 10 minutes | Registered only when I2P is enabled |
+| `update_check` | daily at 06:00 | Active |
+| `blocklist_update` | daily at 04:00 | Registered; skips until blocklist feed loading and enforcement are implemented |
+| `cve_update` | daily at 05:00 | Active — downloads the NVD feed and optionally the Trivy OCI database |
+| `tor_health` | every 10 minutes | Active when Tor is installed |
+| `i2p_health` | every 10 minutes | Active when I2P is enabled |
 
 Tasks that cannot do real work skip with a logged reason rather than
-pretending to succeed. See [CLI Reference](cli.md#scheduler) for the
-management commands.
+pretending to succeed. NVD data is stored under `data.security_dir/cve/`;
+`data.cve.api_key` is kept in `secrets.yml`, and Trivy updates are opt-in via
+`data.trivy.enabled`. See [CLI Reference](cli.md#scheduler) for management
+commands.
 
 ## GeoIP
 
@@ -752,9 +755,10 @@ is simply off.** Nothing is queued, nothing is retried, and nothing is
 logged as "would have sent". See
 [Integrations](integrations.md#email-and-smtp).
 
-!!! note
-    The Web UI toast settings are read and validated, but toasts are not
-    yet rendered in the interface.
+The Web UI renders toast feedback for clipboard actions. Non-AJAX form
+submissions currently render their response inline; the remaining
+server-rendered flash-message flow and feedback for other visitor actions
+are tracked in `TODO.AI.md` under PART 16.
 
 ## Web Headers and Content Security Policy
 

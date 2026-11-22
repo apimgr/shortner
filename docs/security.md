@@ -34,10 +34,12 @@ tracking ID is still issued.
     Researchers can view report state at
     `/server/security/report/{tracking_id}` using the one-shot status token
     in their acknowledgment email. The page exposes no report body.
-    The maintainer notification currently carries an inline AES-armored
-    body rather than a PGP MIME attachment. PGP key management is available
-    through `shortner --maintenance pgp`; the public key endpoint returns
-    `404` until a key has been generated or imported.
+    When a project PGP public key is configured, the maintainer notification
+    carries the encrypted report. Without one, it attaches an
+    AES-256-GCM-encrypted report and warns that the server encryption key is
+    required to decrypt it. PGP key management is available through
+    `shortner --maintenance pgp`; the public key endpoint returns `404`
+    until a key has been generated or imported.
 
 ## The Public Endpoint Safety Principle
 
@@ -277,9 +279,12 @@ otherwise.
 
 State these plainly rather than assuming they are covered:
 
-- **IP and domain blocklist feeds** (`blocklist_update`) and **CVE
-  database integration** (`cve_update`). Both tasks are registered and
-  both skip.
+- **IP and domain blocklist feeds** (`blocklist_update`). The task is
+  registered but currently skips because feed loading and request
+  enforcement are not implemented.
+- **CVE feeds** are implemented by `cve_update`: NVD 2.0 records are
+  paginated, stored atomically, and updated incrementally; the optional
+  Trivy database is pulled from its OCI registry layer when enabled.
 - **Overlay metrics.** Tor and I2P managers are wired, but their metric
   values are not populated.
 - **Researcher status email.** The status page and operator triage commands

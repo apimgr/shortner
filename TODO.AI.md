@@ -111,20 +111,25 @@ Still open under PART 9-11:
   `src/httpserver/securityreport.go` now that PART 17 exists. AI.md calls
   these "the CC path, never the primary channel", so a send failure never
   affects the submission: the tracking id is still issued and shown
-  server-side. The maintainer copy carries the report body as inline
-  AES-256-GCM armor rather than a PGP MIME attachment — see the PART 17
-  deferred sub-items below.
+  server-side. The maintainer copy is PGP-encrypted when a project key
+  exists; otherwise it carries an AES-256-GCM encrypted MIME attachment
+  and warning, as required by AI.md PART 11.
   Read: AI.md PART 11 "Submission Flow", PART 17
 - Operator `--maintenance security list|show|update` is implemented,
   including forward-only status updates and content-free audit events.
   Researcher contact status notifications remain unimplemented because the
   report record does not yet persist the separately encrypted `contact_enc`
   field required by AI.md.
-- Security-report database storage still uses AES-256-GCM even when a
-  project PGP key exists; AI.md requires PGP-at-rest in that case. Status
-  email also needs the missing, separately encrypted `contact_enc` field
-  before the server can recover the researcher's address without opening
-  the sealed report body.
+- DONE: Security-report body storage uses the project PGP public key when
+  configured and otherwise uses AES-256-GCM under
+  `server.security.encryption_key` (`src/httpserver/securityreport.go`,
+  `storeSecurityReport`).
+- Security-report records still do not persist the separately encrypted
+  `contact_enc` value. The current schema and CRUD retain a legacy `sealed`
+  field and omit the AI.md PART 11 storage fields; status-change emails
+  therefore cannot be delivered to researchers. Implement the schema,
+  encrypted contact persistence, and status notification flow from AI.md
+  PART 11 "Security Report Storage & Operator Workflow".
 - `src/db` only supports `modernc.org/sqlite`; libsql/Turso remote-DB
   support depends on the full `server.yml` database schema.
   Read: AI.md PART 10, PART 12
@@ -349,16 +354,13 @@ Still open under PART 9-11:
   `ssl_expiring`/`ssl_renewal_failed` (`src/scheduler/tasks.go`), and
   `update_available`/`update_installed` (`src/scheduler/update.go`).
   Deferred sub-items:
-  - `ssl_renewed` is emitted by the autocert `GetCertificate` path when a
-    new certificate has a later expiry than the existing certificate, after
-    the app-managed copy is saved. The first issuance does not count as a
-    renewal.
-    Read: AI.md PART 15, PART 17 "ssl_renewed"
-  - The PART 11 maintainer notification falls back to inline
-    AES-256-GCM armor when no project PGP public key exists; with a key it
-    sends an OpenPGP-encrypted report. The mailer does not emit a MIME
-    attachment because the spec's current mailer only supports text bodies.
-    Read: AI.md PART 11 "Submission Flow", PART 17
+  - DONE: `ssl_renewed` is emitted by the autocert `GetCertificate` path
+    when a renewed certificate is saved; first issuance is excluded
+    (`src/main.go`, `sendSSLRenewed`).
+  - DONE: The PART 11 maintainer notification uses an OpenPGP-encrypted
+    message when a project key exists, or an AES-256-GCM encrypted MIME
+    attachment with a warning otherwise (`src/httpserver/securitynotify.go`,
+    `src/notify/smtp.go`).
   - The toast component now supports stacking, typed feedback, dismiss
     controls, hover-paused timers, keyboard dismissal, localization, and
     configured position/duration. Remaining PART 16 work is the
@@ -376,9 +378,14 @@ Still open under PART 9-11:
   tokens to remain listed), log rotation, self health, SSL renewal,
   `geoip_update`, `disk_check`, overlay health, plus `update_check` from
   PART 22 and `backup_daily`/`backup_hourly` from PART 21). Only
-  `blocklist_update` and `cve_update` remain honest no-op skips because
-  their feed formats and validation contracts are unspecified in AI.md and
-  are recorded in the parent `TODO.API.md`.
+  `blocklist_update` remains an honest skip until its feeds are loaded and
+  enforced. `cve_update` now downloads the paginated NVD 2.0 feed, merges
+  incremental updates atomically, honors the 120-day window and API-key
+  request limits, and optionally pulls the Trivy OCI database layer. A
+  missing initial data set triggers a bounded background update at startup;
+  failures preserve existing data and are reported by the task.
+  The unresolved domain-blocklist enforcement point is recorded in the
+  parent `TODO.API.md`.
   `--scheduler list/show/run/enable/disable/history` CLI dispatch,
   startup catch-up, panic recovery, overlap prevention, persisted next-run,
   and graceful shutdown with the spec's 30-second forced release are
@@ -647,11 +654,13 @@ yet exist.
   anywhere in the repo.
   Read: AI.md PART 29
 - PART 30 (I18N & A11Y) is DONE for the server binary and the Web UI:
-  `src/common/i18n/` (embedded `locales/*.json` for all 7 spec languages,
+  `src/common/i18n/` (embedded `locales/*.json` for the six required spec
+  languages plus the complete Japanese and Chinese catalogs,
   `Translate`/`TranslateFormat`/`TranslatePlural`/`IsSupported`/
   `LangFromRequest`/`SetLanguageCookie`/`Direction`/`RawLocale`/
-  `Languages`/`CLILanguage`), `src/cmd/i18n-validate` + the `i18n-validate`
-  Makefile target, `src/httpserver/i18n.go` (`LanguageMiddleware`, the
+  `Languages`/`CLILanguage`), with locale parity, registry consistency,
+  placeholder, and CLDR plural checks in the regular test suite,
+  `src/httpserver/i18n.go` (`LanguageMiddleware`, the
   `t`/`tf`/`tp` FuncMap funcs, the `/locales/{lang}.json` route),
   `src/config/i18n.go` (`server.i18n.*`), `src/lang.go` (the CLI output
   language). 284 `t`/`tf`/`tp` call sites across 22 templates; RTL via
@@ -662,7 +671,7 @@ yet exist.
 - DONE: PART 30's client-binary i18n. `shortner-cli` embeds the same
   `src/common/i18n` catalog, honors `--lang`, and its `--help`/`--version`
   output is fully translated through a new `client.*` section (22 keys)
-  added to all 7 locale files.
+  added to all 8 locale files.
   Read: AI.md PART 30, PART 32
 - PART 30 deferred sub-item: subcommand help text is still hardcoded
   English. `src/service.go`, `src/update.go`, `src/email_cli.go`,
@@ -729,7 +738,7 @@ wiring, `Tor: {onion_address}` printed once).
   live success paths on a network-capable host.
   Read: AI.md PART 31.1
 
-### PART 31.2: I2P eepsite — implemented (opt-in, default off)
+### PART 31.2: I2P eepsite — implemented (container default on; host default off)
 
 Built: `src/i2p/` (Model A isolated i2pd subprocess with private SAM and empty
 `tunnels.conf`/`tunnels.d`, Model B external SAMv3 bridge, both using the same

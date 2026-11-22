@@ -219,9 +219,9 @@ Messages are RFC 5322 and are built with explicit guards against CRLF
 header injection and dot-stuffing errors.
 
 !!! note
-    `ssl_renewed` has no trigger in this build — there is no in-process
-    observer of a successful renewal yet — so that event never fires even
-    when enabled.
+    `ssl_renewed` is emitted after autocert renews a certificate and the
+    app-managed certificate copy is saved. Initial certificate issuance
+    does not count as a renewal.
 
 ### Report form relay
 
@@ -374,9 +374,12 @@ The server manages a v3 hidden service and serves it over HTTP on the
 dedicated `.onion` address. Install Tor separately; the built-in manager
 does not turn the service into a Tor relay or exit node.
 
-I2P support is opt-in (`server.i2p.enabled: true`). The server can use a
-managed `i2pd` process or an external SAMv3 bridge. Its `.b32.i2p` address
-is served over HTTP. I2P is disabled by default.
+I2P support is off by default on bare metal and VMs, and on by default in
+containers. The binary computes that default; the Docker image does not set
+`I2P_ENABLED`. Runtime precedence is `--i2p`, `I2P_ENABLED`, an explicit
+`server.i2p.enabled` value, then the environment-derived default. The server
+can use a managed `i2pd` process or an external SAMv3 bridge. Its `.b32.i2p`
+address is served over HTTP.
 
 Both overlays have health checks and scheduler tasks. Metrics for overlay
 state remain unpopulated.

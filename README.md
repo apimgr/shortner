@@ -36,6 +36,10 @@ the originating IP anonymized for privacy-respecting analytics.
 - Single static server binary; overlay networking uses optional system runtimes
 - Companion `shortner-cli` with command-line, terminal, and optional native GUI interfaces
 
+The server and client include eight complete translations: English, Spanish,
+Chinese, French, Arabic, German, Italian, and Japanese. See the
+[translation guide](docs/translating.md) to update or contribute a locale.
+
 ## Production
 
 ### Binary
