@@ -16783,7 +16783,7 @@ server:
 | `write_timeout` | Write timeout | 30s |
 | `idle_timeout` | Idle connection timeout | 120s |
 
-The keys live in `yaml.d/security.yml` (`server.limits`, "Area Files and Automatic Migration"). Each timeout is a Go-style duration (`30s`, `2m`) greater than zero and `max_body_size` is a size with a unit; a missing, malformed or non-positive value is invalid and the default applies (invalid-to-default, with one warning). The three timeouts apply by a graceful reload of the HTTP server (no restart, no downtime).
+The keys live in `yaml.d/security.yml` (`server.limits`, "Area Files and Automatic Migration"). Each timeout is a duration with a unit (`30s`, `2m`) greater than zero and `max_body_size` is a size with a unit; a missing, malformed or non-positive value is invalid and the default applies (invalid-to-default, with one warning). The three timeouts apply by a graceful reload of the HTTP server (no restart, no downtime).
 
 ## Response Compression
 
