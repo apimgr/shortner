@@ -6636,6 +6636,8 @@ require modernc.org/sqlite {version}
 
 **libSQL requires a server URL - it does NOT support embedded/local mode with CGO_ENABLED=0.**
 
+**Upstream status:** `libsql-client-go` is marked deprecated upstream. Its suggested replacement `go-libsql` needs `CGO_ENABLED=1` and ships native libraries for linux and darwin on amd64 and arm64 only, and `turso-go` is archived and targets the new Turso Database engine, not libSQL servers. This specification requires `CGO_ENABLED=0` and every supported platform, so `libsql-client-go` stays the required remote driver and `go-libsql` is forbidden. A project may replace `libsql-client-go` only with a pure-Go driver that works on every platform and passes the `govulncheck` gate.
+
 **URL Formats (both supported):**
 
 | Format | Example |
@@ -6708,6 +6710,7 @@ require github.com/tursodatabase/libsql-client-go {version}
 | Library | Reason | Alternative |
 |---------|--------|-------------|
 | `github.com/mattn/go-sqlite3` | Requires CGO | `modernc.org/sqlite` |
+| `github.com/tursodatabase/go-libsql` | Requires CGO (`CGO_ENABLED=1`) and ships native libraries for four platforms only | `github.com/tursodatabase/libsql-client-go` (remote, pure Go) |
 | `github.com/lib/pq` | PostgreSQL driver, not needed | use `libsql` for remote |
 | `github.com/ooni/go-libtor` | Requires CGO | `github.com/cretz/bine` + external Tor |
 | `github.com/dgrijalva/jwt-go` | Unmaintained, security issues | `github.com/golang-jwt/jwt/v5` |
@@ -7931,7 +7934,7 @@ func (req *CreateResourceRequest) Parse() (*Resource, error) {
 | **Reload** | The file watcher watches `server.yml`, `yaml.d/`, `secrets.yml` and `assets/`. A change, add or remove re-merges everything; an invalid value resets that key to its default and an unparseable file keeps its last good copy ("Validation") |
 | **Generated values** | The server writes generated values (the saved random port) to `server.yml` and the secrets to `secrets.yml`. It writes area files only for the automatic migration, the admin panel, the setup flow, the CLI and the database sync. If two files set the same key, the later one wins and the startup log says which file did |
 | **Permissions** | `server.yml`, `secrets.yml` and every drop-in are ALWAYS `0600`, and `yaml.d/` is `0700` (PART 8 → "Directory Validation Rules": private paths); a wrong mode is fixed at start, and a drop-in that is group or world writable and cannot be fixed is refused: it is ignored and the error is logged |
-| **Early read** | Before the privileged bind (PART 8 startup, step 8e), ONLY `server.port`, `server.address` and `server.daemonize` are read, from the same merged view (`server.yml`, then drop-ins in order). So a drop-in MAY set any of these three settings and it takes effect on the first start; none of them is re-read or rebound later, so changing `server.port`, `server.address` or `server.daemonize` needs a restart (PART 12) |
+| **Early read** | Before the privileged bind (PART 8 startup, step 8e), ONLY `server.port`, `server.address` and `server.daemonize` are read (`ssl.enabled` is not among them: it only decides whether an already bound single-port listener serves TLS, and the full load at step 13 reads it), from the same merged view (`server.yml`, then drop-ins in order). So a drop-in MAY set any of these three settings and it takes effect on the first start; none of them is re-read or rebound later, so changing `server.port`, `server.address` or `server.daemonize` needs a restart (PART 12) |
 | **Backup** | `{config_dir}/yaml.d/` and `{config_dir}/secrets.yml` are included in backups whenever they exist (PART 21 → "Backup Contents") |
 - **Visibility:** the startup log lists each loaded drop-in in order (info level) and names the file that won for every overridden key (debug level); secret values are never logged.
 
@@ -8458,6 +8461,8 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 | `--maintenance pgp <action>` | 🔐 Auth | Requires `server.token` OR root | N/A |
 | `--maintenance security <action>` | 🔐 Auth | Requires `server.token` OR root | N/A |
 | `--maintenance secret rotate <name>` | 🔐 Auth | Requires `server.token` OR root | N/A |
+| `--maintenance token list` | 🔐 Auth | Requires `server.token` OR root | N/A |
+| `--maintenance token revoke <prefix>` | 🔐 Auth | Requires `server.token` OR root, plus typed confirmation | N/A |
 | `--maintenance data <export\|delete> --owner <prefix>` | 🔐 Auth | Requires `server.token` OR root | N/A |
 | `--maintenance compliance report` | 🔐 Auth | Requires `server.token` OR root | N/A |
 | (normal start) | ❌ No | Adapts paths to current user | N/A |
@@ -8475,6 +8480,7 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 | `--maintenance mode` | Changes server behavior | `server.token` OR root |
 | `--maintenance pgp export private` / `import` / `delete` | Exposes, replaces, or destroys the security private key | `server.token` OR root + typed confirmation |
 | `--maintenance secret rotate installation_secret` / `encryption_key` | Rotates a root secret or the at-rest encryption key | `server.token` OR root + typed confirmation |
+| `--maintenance token revoke <prefix>` | Revokes one token, or a primary token's whole owner with its linked tokens | `server.token` OR root + typed confirmation (the operator types the prefix; `--yes` skips the prompt for scripts) |
 
 **Setup authorization flow:**
 
@@ -10986,7 +10992,7 @@ PHASE 5: Server startup (actual server start)
       ├─ Format 1: --port {port} (single port)
       │   ├─ HTTP by default
       │   ├─ If port is 443 → HTTPS-only mode
-      │   └─ If ssl.enabled in config → HTTPS on that port
+      │   └─ If ssl.enabled is true in the full config (step 13) → that listener serves HTTPS (the socket is already bound and TLS is layered on it after the privilege drop, so the early peek does not need ssl.enabled)
       ├─ Format 2: --port {http},{https} (dual port)
       │   ├─ First port = HTTP
       │   └─ Second port = HTTPS
@@ -12311,7 +12317,7 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 3. Otherwise: SHA-256 hash, look up in `api_tokens`
 4. Verify `revoked_at IS NULL` and `expires_at IS NULL OR expires_at > now()`
 5. Verify the resource's `owner_id` equals the token's `owner_id`
-6. Update `last_used_at` (at most once per minute per token) and the owner's `last_seen_at`
+6. Update `last_used_at` (at most once per minute per token: in memory, flushed as in "SQLite Concurrency Contract" → Hot counters) and the owner's `last_seen_at`
 
 **Cookie auth scope:** web management forms (plain `POST`: edit, delete, and the `/server/preferences/tokens` token actions) MAY fall back to the owner cookie when no `Authorization` header is present — same hash + constant-time match + revoked/expiry/ownership checks as the Bearer path. API routes (`/api/...`) accept the `Authorization` header ONLY and MUST ignore cookies — no ambient authority for programmatic endpoints. `SameSite=Strict`, POST-only mutations, and CSRF tokens keep the web fallback CSRF-safe.
 
@@ -12438,7 +12444,7 @@ server:
 # revoke one token; a primary revokes its whole owner (linked tokens included)
 {project_name} --maintenance token revoke <prefix>
 ```
-The CLI shows prefixes only — there is no operator path that prints a raw owner token.
+The CLI shows prefixes only — there is no operator path that prints a raw owner token. Both commands need `server.token` OR root ("Sensitive Operations"), and `revoke` asks the operator to type the prefix to confirm (`--yes` skips the prompt for scripts).
 
 **Config Priority :**
 
@@ -14157,13 +14163,13 @@ SQLite allows ONE writer at a time. Without the rules below, concurrent requests
 | Short transactions | A write transaction holds no network call, email send, file I/O, sleep or user callback. Target under 100 ms; `Write` has a 10 s context deadline |
 | Rows are closed first | Rows from a query are fully read and closed before a write in the same flow: collect the ids, close, then write. A cursor held open across a write is a defect |
 | Batches | Cleanup, retention, audit purge and import work in batches of at most 500 rows per transaction, with a short yield between batches (the scheduler tasks of PART 19). `VACUUM` runs only from a maintenance task on the write handle, never inside a transaction and never during a request |
-| Hot counters | Rate-limit counters, request metrics, session `last_used` and other per-request bookkeeping are NOT written per request. They live in memory and one goroutine flushes them in a single transaction every 30 s and on shutdown. `last_used` is written only when it is older than 5 minutes |
+| Hot counters | Rate-limit counters, request metrics, session `last_used` and other per-request bookkeeping are NOT written per request. They live in memory and one goroutine flushes them in a single transaction every 30 s and on shutdown. `last_used` (a token's `last_used_at`, and a session's where the template has sessions) is updated only when the stored value is older than 60 seconds and then reaches the database with the next flush, so a token or session is written at most once a minute |
 | Retry | `Write` retries a busy or locked error (`SQLITE_BUSY`, `SQLITE_LOCKED` and their extended codes) up to 5 times with exponential backoff (25 ms base, doubled each time) plus jitter, always inside the context deadline. A callback is never retried after its commit succeeded |
 | One process | Only the server process writes the file. A CLI or `--maintenance` command that runs while the server is up uses the same store helper (same pragmas, same busy timeout, short transactions). A second server instance is refused by the PID check; `--maintenance restore` requires the server to be stopped |
 | Location | A local disk only, never NFS, SMB or a FUSE mount. The `-wal` and `-shm` files stay next to the database. In Docker the data volume is a local volume or bind mount |
 | Backups | The SQLite online backup API or `VACUUM INTO` through the write handle, never `cp` of a live file |
 | Shutdown | After in-flight requests drain: `PRAGMA wal_checkpoint(TRUNCATE)`, then close `readDB`, then `writeDB` |
-| Observability | A write that waited more than 1 s logs WARN `db.busy` with `wait_ms` and the caller (never SQL parameters). The metrics `db_busy_total` and `db_write_wait_seconds` are exported (PART 21) |
+| Observability | A write that waited more than 1 s logs WARN `db.busy` with `wait_ms` and the caller (never SQL parameters). The metrics `db_busy_total` and `db_write_wait_seconds` are exported (PART 20 → "Database Metrics") |
 | Test | A concurrency test runs 20 writer goroutines and 20 reader goroutines for 10 s against a temporary database and asserts zero `database is locked` errors |
 
 ```go
@@ -14240,7 +14246,7 @@ func isBusy(err error) bool {
 | Simple SELECT | 5 seconds | Fast reads |
 | Complex SELECT (JOIN) | 15 seconds | More processing |
 | INSERT/UPDATE/DELETE | 10 seconds | Write operations |
-| Transactions (multi-statement) | 30 seconds | Bounds the whole `BeginTx`...`Commit`/`Rollback` span, not per-statement |
+| Transactions (multi-statement) | 30 seconds | Bounds the whole `BeginTx`...`Commit`/`Rollback` span, not per-statement. On SQLite the `Write` helper's 10-second deadline bounds the whole write transaction instead ("SQLite Concurrency Contract"), so the 30 seconds apply to remote drivers only |
 | Bulk operations | 60 seconds | Large data sets |
 | Migrations | 5 minutes | Schema changes |
 | Reports | 2 minutes | Aggregations |
@@ -15266,7 +15272,7 @@ web:
 Contact: {report_url}
 Contact: https://{fqdn}/server/contact?security_id={security_id}
 Contact: mailto:{security_contact}
-Policy: https://{fqdn}/server/security
+Policy: https://{fqdn}/server/security/policy
 Expires: {expiry_date}
 ```
 
@@ -15322,7 +15328,7 @@ web:
 |-------|----------|-------------|
 | `Contact` | YES | One or more lines in order of preference (RFC 9116): first the repo's GitHub private vulnerability reporting URL (`web.security.report_url`), then the instance security-report form (`/server/contact?security_id={id}`, auto-generated — see "Security Reports"), last the `mailto:` CC address (prefix added automatically) |
 | `Expires` | YES | Expiration date (auto-renewed yearly by default) |
-| `Policy` | YES | Human-readable security page at `/server/security` — renders the same information as this file plus plain-language reporting instructions. See "Security Reports" → "Public Pages". |
+| `Policy` | YES | The disclosure policy page at `/server/security/policy` (RFC 9116: a link to the security policy). The overview at `/server/security` renders the same information as this file plus plain-language reporting instructions. See "Security Reports" → "Public Pages". |
 
 **URL resolution:** every `{proto}`/`{fqdn}` in this file — and in the generated `llms.txt` and the `/server/security` page — is resolved **per request** via `BuildURL(r, ...)` (PART 8 → "Resolution Order": reverse-proxy headers first, gated by `trusted_proxies`). Never build these URLs from values cached at startup: the URLs a client sees MUST match the Host/proto that client actually used, so `security.txt`, `/server/security`, and every other rendered URL can never disagree behind a reverse proxy.
 
@@ -15535,7 +15541,7 @@ The steps below run on the `confirm` call; the first call only returns the revie
 2. Allocates a `tracking_id` — `sec_` prefix + 16 random hex chars. Stored in the `security_reports` table (see "Security Report Storage & Operator Workflow").
 3. **Encryption at rest:** the report body is encrypted with the project's PGP key if one exists; otherwise AES-256-GCM with `server.security.encryption_key` (the spec's canonical at-rest AES key — see PART 11 → "Cryptographic Keys"). Plaintext is NEVER persisted to disk.
 4. **Maintainer notification:** PGP-encrypted email to the configured operator contact (the `security` role — `server.contact.security.email`, see PART 12 → "Contact Configuration"); falls back to AES-encrypted attachment + warning if no PGP key is configured.
-5. **Researcher acknowledgment:** email to the researcher's submitted address, containing only the `tracking_id` and the URL `/server/security/report/{tracking_id}` (with a one-shot token only the researcher can use) — never any report content. If the researcher submitted a pubkey, the email is PGP-encrypted to it. If not, it is sent unencrypted: it carries no vulnerability details, and the status page it links to shows only the triage state. A pubkey is never required, and the project key is never used for this email (the researcher cannot decrypt it). Without working SMTP the acknowledgment is skipped and the `tracking_id` appears only in the form response.
+5. **Researcher acknowledgment:** email to the researcher's submitted address, containing only the `tracking_id` and the URL `/server/security/report/{tracking_id}` (with a status token only the researcher can use, valid once per day) — never any report content. If the researcher submitted a pubkey, the email is PGP-encrypted to it. If not, it is sent unencrypted: it carries no vulnerability details, and the status page it links to shows only the triage state. A pubkey is never required, and the project key is never used for this email (the researcher cannot decrypt it). Without working SMTP the acknowledgment is skipped and the `tracking_id` appears only in the form response.
 6. **Response to the form POST:** canonical success body — `{"ok": true, "data": {"tracking_id": "sec_..."}}` — with a clear message rendered server-side: "We received your report. Your tracking ID is {tracking_id}." The sentence "A confirmation email is on its way" is added only when step 5 handed the acknowledgment to the mail transport; when step 5 was skipped or failed the message says nothing about email, so the response never promises a message that was not sent. The `tracking_id` in the response is the submitter's one guaranteed record.
 7. **Logging:** one entry to `security.log` as `security.report_received` — `tracking_id`, severity, sanitized affected-component, NO researcher PII, NO vulnerability content. Maintainers see full content only via the encrypted email (no web tracker — there is no admin web UI).
 
@@ -15585,7 +15591,7 @@ CREATE TABLE IF NOT EXISTS security_thanks (
 | `disclosure_date` | Optional expected disclosure date (ISO 8601 date), shown on the researcher status page |
 | `credit_pref`, `credit_name` | Set at submission from "Credit preference". `credit_pref` is `name` ("Yes (real name)": `credit_name` is the Name field), `handle` ("Yes (handle)": `credit_name` is the Credit handle), `anon` ("Anonymous") or `no` ("No"); `credit_name` is NULL for `anon` and `no` |
 | Hall of fame (`security_thanks`) | When an operator sets the status to `disclosed` and `credit_pref` is not `no`, one `security_thanks` row is written in the same transaction (idempotent on `tracking_id`): `credit` is `credit_name`, or `Anonymous Researcher #n` for `anon` (n is the number of existing `anon` rows plus one, fixed once written), `severity` is the report's severity at that moment, `disclosed_on` is today (UTC). The row holds no contact data and is NOT removed by report retention, so the hall of fame outlives the report |
-| `token_hash`, `token_last_used` | SHA-256 of the one-shot status token, compared in constant time; `token_last_used` enforces single use per day |
+| `token_hash`, `token_last_used` | SHA-256 of the status token, compared in constant time; `token_last_used` holds the UTC date of its last use and enforces one use per day |
 | Retention | The daily `security_cleanup` task (scheduler, Built-in Tasks) deletes a report row, including `body_enc` and `contact_enc`, `server.security.reports.retention_days` (default `365`) after `closed_at`. Open reports are never purged. Key rotation re-encrypts retained bodies (GPG Keypair Management → Rotate), so the retention period never outlives the ability to read them. The status link stops working 30 days after `closed_at` |
 | Backup | The table lives in the database, so every backup and restore includes it |
 
@@ -15606,7 +15612,7 @@ CREATE TABLE IF NOT EXISTS security_thanks (
 | `/server/security` | GET | None | Security overview page (HTML). Human-readable rendering of everything in `/.well-known/security.txt` — contact channels in RFC 9116 preference order (GitHub private vulnerability reporting, `/server/contact?security_id={id}`, `mailto:` CC address), `Expires`, and the `Encryption` key when a keypair exists — plus plain-language instructions for reporting a vulnerability and a short section for other reports (terms violations, DMCA notices, privacy requests) linking to `/server/contact`. This is the only public page that links to the form. Links to `/server/security/policy`, `/server/security/thanks`, `/.well-known/pgp-key.asc`, and the machine-readable `/.well-known/security.txt`. Rendered from live config — nothing to edit. |
 | `/server/security/policy` | GET | None | Disclosure policy page (HTML). Default content provided; customizable via the `web.security.policy` config key (Markdown, config file only — no mutation API). Lists the coordinated-disclosure window, in-scope domains, out-of-scope behaviors, safe-harbor language. |
 | `/server/security/thanks` | GET | None | Acknowledgments page. Lists researchers who opted in (real name, handle, or anonymized "Anonymous Researcher #n") with the year and severity: the `security_thanks` entries, newest first (the same entries as the API mirror). |
-| `/server/security/report/{tracking_id}` | GET | One-shot token in URL (no API mirror: explicit exception to the API-for-every-page rule, because the one-shot emailed link must not be duplicated onto the API surface) | Researcher status page — shows triage state (Received / Triaged / Confirmed / Patching / Disclosed / Won't Fix), maintainer comments visible to researcher, expected disclosure date. Token is single-use-per-day; expires after the report is closed for 30 days. |
+| `/server/security/report/{tracking_id}` | GET | Status token in URL, one use per day (no API mirror: explicit exception to the API-for-every-page rule, because the emailed link must not be duplicated onto the API surface) | Researcher status page — shows triage state (Received / Triaged / Confirmed / Patching / Disclosed / Won't Fix), maintainer comments visible to researcher, expected disclosure date. The token works once per UTC day and expires when the report has been closed for 30 days. |
 
 **Built-in default policy text (used when the operator supplies no policy).** The page is generated from these fixed sections, with `{app_name}` and `{fqdn}` filled in; an operator-supplied policy replaces the whole body:
 
@@ -16955,7 +16961,7 @@ When `tor.onion_address` is set, a separate `security.txt` is generated for Tor 
 Contact: {report_url}
 Contact: http://{tor.onion_address}/server/contact?security_id={security_id}
 {tor_contact_line}
-Policy: http://{tor.onion_address}/server/security
+Policy: http://{tor.onion_address}/server/security/policy
 Expires: {expiry_date}
 ```
 
@@ -21487,7 +21493,7 @@ Displayed immediately after the header line, before URLs. Shows current mode and
 - Single port: HTTP by default
 - **Exception: If single port is 443 → HTTPS-only mode**
 - Dual ports: First = HTTP, Second = HTTPS
-- **Override: `CONFIG(ssl.enabled)` can override HTTP → HTTPS on any port**
+- **Override: `CONFIG(ssl.enabled)` can override HTTP → HTTPS on any port** (read by the full config load at startup step 13, not by the early peek: the bound socket is the same either way)
 
 **URL Format Rule:**
 
@@ -29196,7 +29202,7 @@ Language is detected automatically and changed in Preferences. It is never a hea
 | `recaptcha` | Google reCAPTCHA v2 checkbox. Needs `server.pages.contact.captcha_site_key` (public, rendered in the page) and `server.pages.contact.captcha_secret_key` (server-side only, kept in `secrets.yml` like every secret, never returned in a response or written to a log). The server verifies by POSTing `secret`, `response` and `remoteip` to `https://www.google.com/recaptcha/api/siteverify` and accepts only `"success": true`; the widget needs JavaScript, so the no-JavaScript fallback below applies |
 | `hcaptcha` | hCaptcha. Same two keys; verified by POSTing `secret` and `response` to `https://api.hcaptcha.com/siteverify` and accepting only `"success": true`; the widget needs JavaScript, so the no-JavaScript fallback below applies |
 
-- **Validation:** `recaptcha` or `hcaptcha` with an empty site key or secret key fails config validation with a clear error; the keys are ignored for `simple`
+- **Validation:** `recaptcha` or `hcaptcha` with an empty site key or secret key is an invalid value under "Invalid → default" (PART 12): the server logs ONE warning that names the missing key, uses `simple`, and starts normally; the keys are ignored for `simple`
 - **Fail closed:** if the provider cannot be reached, the submission is rejected with a retryable error — never accepted unverified
 - **CSP:** only the selected provider's hosts are added to `script-src`, `frame-src` and `connect-src` (for example `https://www.google.com/recaptcha/` and `https://www.gstatic.com/recaptcha/`, or `https://hcaptcha.com` and `https://*.hcaptcha.com`)
 - **Tor and I2P:** requests served through the onion or I2P address always use `simple`, whatever `captcha` is set to — clearnet providers are never called from there (PART 16 → Tor). The same challenge protects the security-report form
@@ -30431,7 +30437,7 @@ Every project MUST include these scheduled tasks:
 | `update_check` | Daily at 06:00 | Check release channel for a newer version — notify-only unless `update.auto_install: true` (default false); honors `update.defer_days` | Yes |
 | `token_cleanup` | Every 15 minutes | Delete used or expired simple-captcha challenges and apply the owner idle purge (`server.tokens.idle_purge_days`, PART 8). Expired linked tokens are NOT deleted: they stay listed as expired until the owner revokes them or changes their expiry | No |
 | `log_rotation` | Daily at 00:00 | Rotate and compress old logs | No |
-| `backup_daily` | Daily at 02:00 | Full backup + daily incremental (default: 2 files) | Yes |
+| `backup_daily` | Daily at 02:00 | Full backup + daily incremental (2 files per run; 3 on disk, "Incremental Backup Contract") | Yes |
 | `backup_hourly` | Hourly | Hourly incremental (disabled by default) | Yes |
 | `disk_check` | Every 5 minutes | Disk space low check (PART 17 → "Disk Space Low") | Yes |
 | `healthcheck_self` | Every 5 minutes | Self-health verification | No |
@@ -30506,8 +30512,7 @@ server:
       backup_daily:
         schedule: "0 2 * * *"
         enabled: true
-        # Verify after creation (all checks must pass)
-        verify: true
+        # Every backup is verified after creation (not configurable, see "Verification")
         # Creates: {project_name}_backup_YYYY-MM-DD.tar.gz[.enc] (full)
         #          {project_name}_backup_YYYY-MM-DD_HHMMSS.tar.gz[.enc] (manual)
         #          {project_name}-daily.tar.gz[.enc] (incremental)
@@ -30541,8 +30546,7 @@ server:
       tor_health:
         schedule: "@every 10m"
         enabled: true
-        # Auto-restart if unhealthy
-        restart_on_fail: true
+        # The task restarts Tor itself when it is unhealthy (not configurable)
 ```
 
 ### Schedule Format
@@ -30559,20 +30563,20 @@ server:
 
 ### Scheduler State (Persistent)
 
-Task state is stored in `server.db`:
+Task state is stored in `server.db`, in the `scheduler_tasks` table (PART 10); the run history is in `scheduler_history` (`task_id`, `started_at`, `finished_at`, Unix seconds). These are the canonical column names and types:
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `task_id` | String | Unique task identifier |
-| `task_name` | String | Human-readable name |
-| `schedule` | String | Cron/interval expression |
-| `last_run` | Timestamp | When task last completed |
-| `last_status` | String | success, failed, skipped |
-| `last_error` | String | Error message if failed |
-| `next_run` | Timestamp | Scheduled next execution |
+| `id` | Text | Unique task identifier, the task name (for example `backup_daily`); the primary key |
+| `name` | Text | Human-readable name |
+| `schedule` | Text | Cron/interval expression |
+| `last_run` | Integer | Unix seconds when the task last ran |
+| `last_status` | Text | success, failed, running, skipped |
+| `last_error` | Text | Error message if failed |
+| `next_run` | Integer | Unix seconds of the next execution |
 | `run_count` | Integer | Total successful runs |
 | `fail_count` | Integer | Total failed runs |
-| `enabled` | Boolean | Is task enabled |
+| `enabled` | Integer | 1 = enabled, 0 = disabled |
 
 ### Startup Behavior
 
@@ -30632,9 +30636,9 @@ Task activity is logged to log files only — the scheduler NEVER prints to the 
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `max_retries` | 3 | Maximum retry attempts |
-| `retry_delay` | 5m | Delay between retries |
-| `backoff` | exponential | Delay multiplier (5m, 10m, 20m) |
+| `max_retries` | 3 | Maximum retry attempts (fixed, not a config key) |
+| `retry_delay` | 5m | Delay before the first retry (a per-task key, used when `retry_on_fail` is true) |
+| `backoff` | exponential | Delay multiplier (5m, 10m, 20m) (fixed, not a config key) |
 
 ### Scheduler Status
 
@@ -30725,9 +30729,11 @@ The scheduler status is available via the server status API. Task execution can 
 | `keep_yearly` | 0 | January 1st (0 = disabled) |
 | Verify | Yes | All checks must pass |
 
-**What backup_daily creates (default: 2 files):**
+**What backup_daily creates (2 files per run):**
 - `{project_name}_backup_YYYY-MM-DD.tar.gz[.enc]` - Full backup (the state at the run's `T0`, named with its date)
 - `{project_name}-daily.tar.gz[.enc]` - Daily incremental
+
+With `max_backups: 1` the previous full also stays on disk until the next run, because today's incremental is based on it ("Incremental Backup Contract" → Base protection), so three files are on disk after a run.
 
 **What backup_hourly creates (if enabled: +1 file):**
 - `{project_name}-hourly.tar.gz[.enc]` - Hourly incremental
@@ -31048,7 +31054,7 @@ server:
 | **Cache** | Hits, misses, evictions, size | Cache effectiveness |
 | **Scheduler** | Tasks run, duration, failures | Background task health |
 | **System** | CPU, memory, disk, goroutines | System resources |
-| **Business** | Users, sessions, API calls | Application-specific |
+| **Business** | Items, jobs, records processed, API calls | Application-specific |
 
 ## Metric Naming Conventions
 
@@ -31113,6 +31119,8 @@ server:
 | `{project_name}_db_connections_open` | Gauge | - | Open connections |
 | `{project_name}_db_connections_in_use` | Gauge | - | Active connections |
 | `{project_name}_db_errors_total` | Counter | `operation`, `error_type` | Database errors |
+| `{project_name}_db_busy_total` | Counter | - | SQLite writes that hit a busy or locked error and were retried (SQLite only) |
+| `{project_name}_db_write_wait_seconds` | Histogram | - | Time a write waited for the single write handle and the file lock (SQLite only) |
 
 ### Required: Authentication Metrics
 
@@ -31168,6 +31176,7 @@ server:
 | `http_request_duration_seconds` | 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10 |
 | `http_request_size_bytes` | 100, 1K, 10K, 100K, 1M, 10M |
 | `http_response_size_bytes` | 100, 1K, 10K, 100K, 1M, 10M |
+| `db_write_wait_seconds` | 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10 |
 
 ### Database Metrics (REQUIRED if using database)
 
@@ -31178,6 +31187,8 @@ server:
 | `db_connections_open` | Gauge | - | Number of open connections in pool |
 | `db_connections_in_use` | Gauge | - | Number of connections actively in use |
 | `db_errors_total` | Counter | `operation`, `error_type` | Total database errors |
+| `db_busy_total` | Counter | - | SQLite writes that hit a busy or locked error and were retried (SQLite only) |
+| `db_write_wait_seconds` | Histogram | - | Time a write waited for the single write handle and the file lock (SQLite only) |
 
 **Database label values:**
 
@@ -36902,7 +36913,7 @@ jobs:
       - name: Compute version
         id: set
         run: |
-          echo "version=$(date -u +%Y%m%d%H%M%S)-beta" >> "$$GITHUB_OUTPUT"
+          echo "version=$(date -u +%Y%m%d%H%M%S)-beta" >> "$GITHUB_OUTPUT"
 
   build:
     needs: [version]
@@ -37080,7 +37091,7 @@ jobs:
       - name: Compute version
         id: set
         run: |
-          echo "version=$(git rev-parse --short=7 HEAD)" >> "$$GITHUB_OUTPUT"
+          echo "version=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
 
   build:
     needs: [version]
@@ -37866,7 +37877,7 @@ jobs:
       - name: Compute version
         id: set
         run: |
-          echo "version=$(date -u +%Y%m%d%H%M%S)-beta" >> "$$GITEA_OUTPUT"
+          echo "version=$(date -u +%Y%m%d%H%M%S)-beta" >> "$GITEA_OUTPUT"
 
   build:
     needs: [version]
@@ -38035,7 +38046,7 @@ jobs:
       - name: Compute version
         id: set
         run: |
-          echo "version=$(git rev-parse --short=7 HEAD)" >> "$$GITEA_OUTPUT"
+          echo "version=$(git rev-parse --short=7 HEAD)" >> "$GITEA_OUTPUT"
 
   build:
     needs: [version]
@@ -39186,6 +39197,7 @@ Set these in GitLab Project → Settings → CI/CD → Variables:
 | `CI_REGISTRY_USER` | Registry username (auto-set) | `gitlab-ci-token` |
 | `CI_REGISTRY_PASSWORD` | Registry password (auto-set) | `$CI_JOB_TOKEN` |
 | `CI_REGISTRY_IMAGE` | Full image path (auto-set) | `registry.gitlab.com/org/project` |
+| `GITLAB_TOKEN` | NOT auto-set. A project access token with the `api` scope, added as a MASKED variable (Settings → Access tokens, then Settings → CI/CD → Variables). The `release:devel` job uses it to delete the previous rolling `devel` release and tag through the Releases API | `{token}` |
 
 ## GitLab Scheduled Pipelines (for Devel Builds)
 
@@ -41669,7 +41681,7 @@ The table is illustrative — the rule is universal: enumerate IDEA.md's feature
 ### Universal Coverage (Every Project)
 
 - **Full crawl**: start at `/`, follow every internal link — no dead links, no 500s, every navigable route visited
-- **Owner-token management (PART 8 → "API Token Model")**: create a resource via form → `owner_token` cookie set → edit/delete forms work; missing or invalid owner token → rendered error page with no token or resource-existence hints; also: reveal shows the token then masks again, rotate (old token rejected, new works, resources still owned, linked tokens survive), create/rename/expire/revoke a linked token, a linked token gets `403` on every token-management route, restore by pasting the primary token, and MCP `tools/call` with an owner token, a linked token, and no token Also: issuing a token with no token creates an owner (`201`, cookie set on the web route) and with a valid token answers `409`; an MCP request without a token answers `401`; rotating the primary leaves every linked token valid, and rotating a linked token leaves the primary and the other linked tokens valid.
+- **Owner-token management (PART 8 → "API Token Model")**: when the project has user-created resources, create one via its form, otherwise issue a token with the New token form on `/server/preferences/tokens` → `owner_token` cookie set → edit/delete forms work (only when resources exist); missing or invalid owner token → rendered error page with no token or resource-existence hints; also: reveal shows the token then masks again, rotate (old token rejected, new works, resources still owned, linked tokens survive), create/rename/expire/revoke a linked token, a linked token gets `403` on every token-management route, restore by pasting the primary token, and MCP `tools/call` with an owner token, a linked token, and no token Also: issuing a token with no token creates an owner (`201`, cookie set on the web route) and with a valid token answers `409`; an MCP request without a token answers `401`; rotating the primary leaves every linked token valid, and rotating a linked token leaves the primary and the other linked tokens valid.
 - **API docs pages (PART 14)**: Swagger UI at `/server/docs/swagger` and GraphiQL at `/server/docs/graphql` render, and the listed endpoints match the routes the server actually serves
 - **Theme**: dark, light, and auto all render; assert computed styles actually change (PART 16 theme rules)
 - **Responsive**: 375×812 viewport — no horizontal scroll, navigation usable (PART 16 mobile rules)
