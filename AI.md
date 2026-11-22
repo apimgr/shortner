@@ -8997,6 +8997,8 @@ Before proceeding, confirm you understand:
 3. `--mode debug` / `MODE=debug` (debug mode defaults debug on)
 4. Default: `false`
 
+`server.debug.*` holds the debug settings (pprof, query logging, profiling rates), not the flag. The flag has no `server.yml` source by design: debug is an explicit opt-in per run, so a committed or copied config file can never turn it on.
+
 **`debug` mode:** `--mode debug` / `MODE=debug` selects debug mode — explicit opt-in only, NEVER implied or auto-enabled. It defaults the debug flag to on; an explicit `--debug` flag or `DEBUG` env var still wins — `MODE=debug DEBUG=false` runs debug mode with the `/debug/*` endpoints off.
 
 ## Six Operational States
@@ -15449,7 +15451,7 @@ web:
 | No token | Anonymous: only what an unauthenticated API call may do (public endpoints, default rate limits). An operation that needs auth returns the API's normal `401` (with `WWW-Authenticate: Bearer`, PART 8 → "Auth Token Presentation") JSON-RPC error |
 | Authorization | Per tool call, with the caller's token, by the same checks as the matching API endpoint. A token that cannot call an endpoint over REST cannot call its tool |
 | Rate limiting, audit | The same limiters and audit events as the API; the audit `source` is `mcp` so MCP traffic is distinguishable |
-| Owner and linked tokens | Owner tokens exist in EVERY project (PART 8 → "API Token Model"), so every MCP client can always hold a credential for the create, update and delete tools. Both kinds work as the Bearer token. A tool call sees exactly the owner's resources and runs the API's ownership check. **A linked token is the intended credential for MCP clients** — create one named for the client on `/server/preferences/tokens` so it can be revoked without touching the primary |
+| Owner and linked tokens | The owner-token machinery exists in EVERY project (PART 8 → "API Token Model"), so every MCP client can hold a credential for the create, update and delete tools once an owner exists. An owner is issued on the first resource creation; a product with no owner-owned resources never issues one (PART 8 → "Owners and Owner Tokens"), and its MCP clients are anonymous or use the operator token. Both kinds work as the Bearer token. A tool call sees exactly the owner's resources and runs the API's ownership check. **A linked token is the intended credential for MCP clients** — create one named for the client on `/server/preferences/tokens` so it can be revoked without touching the primary |
 | Operator token | `server.token` works as Bearer and sees operator-only tools; for any other caller those tools are absent from `tools/list` AND rejected on `tools/call` |
 | MCP clients | Give each MCP client its own linked token (never the primary, never `server.token` — that is full operator access). |
 | Token management | **Never exposed as tools.** Reveal, rotate, create, revoke and restore of tokens exist only on `/server/preferences/tokens` and its API mirror, never over MCP |

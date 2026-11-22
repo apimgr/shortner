@@ -47,6 +47,11 @@ disclosure date with `shortner --maintenance security update`. Status
 changes send a content-free email when SMTP is available; the message is
 PGP-encrypted when the researcher supplied a public key.
 
+Researchers receive a private status link after submission. Its random token
+is stored only as a SHA-256 hash and can be used once per day. The page shows
+the triage state, maintainer comments, and expected disclosure date; it never
+shows report content. The link expires 30 days after the report is closed.
+
 Closed reports are deleted after 365 days by default. Configure
 `server.security.reports.retention_days` to change that period. Open reports
 are not purged, and the public acknowledgments list outlives report cleanup.
