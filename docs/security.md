@@ -11,8 +11,8 @@ Report security issues privately. Do not open a public issue.
   languages, and expiry.
 - **The instance's own form** — `/server/contact?security_id={id}` switches
   the private report form into security-report mode. It is reached from
-  `/server/security` or the security.txt Contact line; the public report form
-  also accepts abuse, DMCA, and privacy submissions.
+  `/server/security` or the security.txt Contact line. The public
+  `/server/contact` chooser provides separate abuse, DMCA, and privacy forms.
 
 A running server also serves human-readable pages: `/server/security` for
 reporting information, `/server/security/policy` for the coordinated

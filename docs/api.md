@@ -452,8 +452,9 @@ Server-rendered HTML. Every one of these works with JavaScript disabled.
 | `GET /server/help/mcp` | MCP connection guide |
 | `GET /server/privacy` | Privacy policy |
 | `GET /server/terms` | Terms of service |
-| `GET /server/contact` | Private report form (noindex; reachable from `/server/security` and `security.txt`) |
-| `POST /server/contact` | Submit report, then confirm it in the server-rendered review step |
+| `GET /server/contact` | Private noindex report-type chooser; the security pointer and abuse-report guidance appear below it |
+| `GET /server/contact?type={type}` | One noindex form containing only the selected type's fields |
+| `POST /server/contact` | Submit the selected report type, then confirm it in the server-rendered review step |
 | `GET /server/security` | Security and vulnerability reporting page |
 | `GET /server/security/policy` | Coordinated disclosure policy |
 | `GET /server/security/thanks` | Researcher acknowledgments |
@@ -470,8 +471,8 @@ Server-rendered HTML. Every one of these works with JavaScript disabled.
 | `DELETE /api/{api_version}/server/preferences/tokens/{id}` | Revoke linked token |
 | `GET /api/{api_version}/server/security/policy` | Coordinated disclosure policy data |
 | `GET /api/{api_version}/server/dpo` | Public DPO contact data |
-| `GET /api/{api_version}/server/contact` | Report field descriptors, offered types, CAPTCHA descriptor, form token, security URL, and abuse email |
-| `POST /api/{api_version}/server/contact` | Submit a report for review; repeat all fields with the review token and confirmation to deliver |
+| `GET /api/{api_version}/server/contact` | Type-specific report field descriptors, offered types, CAPTCHA descriptor, form token, security URL, and abuse email |
+| `POST /api/{api_version}/server/contact` | Submit a type-specific report for review; repeat its fields with the review token and confirmation to deliver |
 | `GET /api/{api_version}/server/auth/check` | Validate a Bearer token and return its kind |
 | `GET /api/{api_version}/server/help/mcp` | MCP help sections and resolved endpoint |
 | `GET /api/{api_version}/server/about` | About content |
