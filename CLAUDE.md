@@ -18,7 +18,7 @@ Role: Efficient loader for AI.md
 - Use server-side Go templates, progressive enhancement, and mobile-first responsive CSS. Core features must work without JavaScript.
 - Validate all inputs. Use Argon2id for config/backup passwords and SHA-256 for API tokens. Never use CGO; set `CGO_ENABLED=0`.
 - Support all eight targets: linux, darwin, windows, and freebsd on amd64 and arm64.
-- Tor support auto-enables when available. I2P is opt-in. Overlay addresses always use HTTP and never receive HTTPS redirects, HSTS, or insecure-request upgrades.
+- Tor support auto-enables when available. I2P is off by default on hosts and VMs, and on by computed default inside containers (AI.md PART 31.2). Overlay addresses always use HTTP and never receive HTTPS redirects, HSTS, or insecure-request upgrades.
 - Use the built-in scheduler; do not add external cron or premium tiers.
 - Keep Docker files under `docker/`; CI uses explicit commands, never Makefile targets.
 

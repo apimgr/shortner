@@ -19,10 +19,11 @@ reporting information, `/server/security/policy` for the coordinated
 disclosure policy, and `/server/security/thanks` for researcher
 acknowledgments.
 
-Security reports are **sealed with AES-256-GCM before being written** to
-the database, under the key in `server.security.encryption_key`. Report
-bodies are never stored in plaintext. The configured project PGP key is
-used to encrypt the maintainer email; PGP-at-rest storage is not yet wired.
+Security report bodies are encrypted before database storage: the project
+PGP key is used when configured, otherwise AES-256-GCM uses
+`server.security.encryption_key`. Researcher email and optional public key
+are stored separately under AES-256-GCM so the server can send notices.
+Neither report content nor contact details are stored in plaintext.
 
 After the report's review and confirmation, submission returns a tracking ID and triggers two notifications —
 one to the maintainer and one acknowledging the researcher. Those emails
@@ -40,6 +41,20 @@ tracking ID is still issued.
     required to decrypt it. PGP key management is available through
     `shortner --maintenance pgp`; the public key endpoint returns `404`
     until a key has been generated or imported.
+
+Maintainers can update status, severity, comments, and the expected
+disclosure date with `shortner --maintenance security update`. Status
+changes send a content-free email when SMTP is available; the message is
+PGP-encrypted when the researcher supplied a public key.
+
+Closed reports are deleted after 365 days by default. Configure
+`server.security.reports.retention_days` to change that period. Open reports
+are not purged, and the public acknowledgments list outlives report cleanup.
+PGP key rotation re-encrypts retained PGP reports in one database
+transaction. Submissions share a file lock with rotation so a report cannot
+be inserted with the retired key while replacement is in progress. The
+retired private key remains sealed for 30 days and is then removed by the
+daily cleanup task.
 
 ## The Public Endpoint Safety Principle
 
@@ -287,10 +302,9 @@ State these plainly rather than assuming they are covered:
   Trivy database is pulled from its OCI registry layer when enabled.
 - **Overlay metrics.** Tor and I2P managers are wired, but their metric
   values are not populated.
-- **Researcher status email.** The status page and operator triage commands
-  are available; email updates remain open because the report record does
-  not yet store the separately encrypted researcher contact required by
-  AI.md. See `TODO.AI.md`.
+- Researcher status notices are sent after a status change when SMTP is
+  available. Contact details are stored separately under AES-256-GCM, and
+  notices are PGP-encrypted when the researcher supplied a public key.
 
 ## Operational Recommendations
 

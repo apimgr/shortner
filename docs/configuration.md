@@ -686,6 +686,8 @@ default, so no minimum CLI version is enforced.
 server:
   security:
     encryption_key: ""
+    reports:
+      retention_days: 365
     allowlist: []
     blocked_ips: []
     abuse_detection:
@@ -698,7 +700,9 @@ server:
 ```
 
 `encryption_key` is generated on first run and is used to seal sensitive
-records at rest. `allowlist` entries bypass blocking; `blocked_ips` are
+records at rest. Closed security reports are removed after `retention_days`
+by the daily `security_cleanup` task; open reports and researcher thanks
+entries are retained. `allowlist` entries bypass blocking; `blocked_ips` are
 permanent, config-file-only blocks. Entries with an invalid or dangerously
 broad CIDR (an IPv4 prefix shorter than `/8`, or an IPv6 prefix shorter
 than `/16`) are dropped with a warning. See [Security](security.md).
@@ -879,6 +883,7 @@ A representative selection of the validation rules:
 | `server.cache.type` not in the valid set | `memory` |
 | `server.api_version` containing `/`, `?`, `#` | `v1` |
 | `server.security.allowlist[*]` invalid or too broad | Entry removed |
+| `server.security.reports.retention_days` at or below zero | `365` |
 | `server.backup.retention.max_backups` below 1 | `1` |
 | `server.backup.disk_threshold` outside 1–100 | `90` |
 | `server.update.branch` not `stable`/`beta`/`daily` | `stable` |

@@ -116,24 +116,31 @@ Still open under PART 9-11:
   and warning, as required by AI.md PART 11.
   Read: AI.md PART 11 "Submission Flow", PART 17
 - Operator `--maintenance security list|show|update` is implemented,
-  including forward-only status updates and content-free audit events.
-  Researcher contact status notifications remain unimplemented because the
-  report record does not yet persist the separately encrypted `contact_enc`
-  field required by AI.md.
+  including forward-only status updates, severity re-triage, and
+  content-free audit events. Researcher contact status notifications decrypt
+  the separately encrypted `contact_enc` field only when a status changes;
+  the notice is PGP-encrypted when the researcher supplied a public key.
 - DONE: Security-report body storage uses the project PGP public key when
   configured and otherwise uses AES-256-GCM under
   `server.security.encryption_key` (`src/httpserver/securityreport.go`,
   `storeSecurityReport`).
-- Security-report records still do not persist the separately encrypted
-  `contact_enc` value. The current schema and CRUD retain a legacy `sealed`
-  field and omit the AI.md PART 11 storage fields; status-change emails
-  therefore cannot be delivered to researchers. Implement the schema,
-  encrypted contact persistence, and status notification flow from AI.md
-  PART 11 "Security Report Storage & Operator Workflow".
+- DONE: Security-report schema and CRUD now persist the PART 11 storage
+  fields, separately AES-encrypt researcher contact data, hash random
+  status tokens with SHA-256, preserve legacy reports during migration, and
+  maintain the disclosure acknowledgments table. Encryption-key rotation
+  re-seals both AES report bodies and contact data. The daily
+  `security_cleanup` task purges only closed reports after the configured
+  retention period, preserves acknowledgments, and deletes retired PGP keys
+  after 30 days. PGP key rotation re-encrypts retained PGP report bodies
+  within one database transaction; cross-process shared/exclusive key locks
+  coordinate submissions and rotation, and failed database rotation restores
+  the previous key files. Status changes can send a content-free researcher
+  notice when SMTP is available. See AI.md PART 11 "Security Report Storage
+  & Operator Workflow" and PART 18 "Built-in Tasks".
 - `src/db` only supports `modernc.org/sqlite`; libsql/Turso remote-DB
   support depends on the full `server.yml` database schema.
   Read: AI.md PART 10, PART 12
-- PART 18 scheduler and rotation are implemented, but the configured
+- PART 18 scheduler is implemented, but the configured
   `server.logs.*` policy schema and integration for all log types (including
   the separate audit logger) still need to be completed.
 - Apply the Tier 1/2/3 Public Endpoint Safety Principle to every new
@@ -371,12 +378,12 @@ Still open under PART 9-11:
   Read: AI.md PART 17
 - DONE: Internal scheduler (`src/scheduler/`, `src/db/scheduler.go`,
   `src/scheduler_cli.go`, wired into `src/main.go` startup/shutdown).
-  All 13 AI.md PART 18 "Built-in Tasks (Required)" are registered with
+  All 14 AI.md PART 18 "Built-in Tasks (Required)" are registered with
   their default schedules (config-overridable per task via
   `server.scheduler.tasks`); token cleanup (idle-owner purge is active;
   expired linked-token removal is withheld because PART 8 requires those
   tokens to remain listed), log rotation, self health, SSL renewal,
-  `geoip_update`, `disk_check`, overlay health, plus `update_check` from
+  `geoip_update`, `disk_check`, `security_cleanup`, overlay health, plus `update_check` from
   PART 22 and `backup_daily`/`backup_hourly` from PART 21). Only
   `blocklist_update` remains an honest skip until its feeds are loaded and
   enforced. `cve_update` now downloads the paginated NVD 2.0 feed, merges
@@ -726,10 +733,9 @@ top-level navigations only, `Secure` cookies still set),
 (`tor_health` every 10m), `src/overlay.go` + `src/main.go` (start/stop
 wiring, `Tor: {onion_address}` printed once).
 
-- NOT YET ALIGNED: Tor currently starts asynchronously after the server has
-  dropped privileges. PART 8 step 8g requires spawning Tor before the drop
-  with the service UID/GID applied by the process creator. Keep bootstrap
-  asynchronous so Tor does not delay the clearnet listener.
+- RESOLVED: Tor starts asynchronously after the privilege drop, as the
+  service user, per PART 8's reserved step 8g and PART 31.1's process
+  ownership contract. Bootstrap does not delay the clearnet listener.
   Read: AI.md PART 8, PART 31.1
 
 - DEFERRED (environment): Tor was detected and started by the runtime image,
@@ -751,7 +757,7 @@ health monitor), `src/i2p_cli.go`, `server.i2p.*` config + validation,
 the trusted-proxy-gate exception for a `Host` matching the b32 address,
 `features.i2p.{enabled,running,status,hostname,provider}` + `checks.i2p`
 (omitted while disabled), the footer/help I2P blocks, `i2p_health` every
-10m (registered only when opt-in enabled), and the `I2P: http://{addr}`
+10m (registered only when resolved enabled), and the `I2P: http://{addr}`
 banner row.
 
 - VERIFIED: the container-default integration run starts bundled `i2pd`,
@@ -807,7 +813,9 @@ banner row.
   `config.Save` now uses the temp-file + rename pattern — do the same here.
   Read: AI.md PART 15
 - `src/applog/logger.go` `Rotate()` reopens the same path without renaming,
-  so it never actually rotates. Blocked on the PART 18 scheduler.
+  so it never actually rotates. The PART 18 scheduler now invokes it, but
+  the logger's file rotation implementation still needs the rename/compress
+  behavior required by the spec.
   Read: AI.md PART 11 "Log Rotation", PART 18
 
 ## Documented spec deviations
