@@ -143,7 +143,7 @@ IDEA.md is the project PLAN. AI.md (this file) is the SOURCE OF TRUTH for the te
 
 | IDEA.md MAY | IDEA.md MAY NOT |
 |-------------|-----------------|
-| Define the product's features, data models, business rules and audience | Remove, weaken or waive a mandatory AI.md requirement (server baseline, configuration, security, health, build, CI/CD, i18n, accessibility, documentation, testing) |
+| Define the product's features, data models, business rules and audience, and its API surface: the `### API routes` inventory of what callers can do (method, path, auth, purpose, request/response summary), never how a handler is written | Remove, weaken or waive a mandatory AI.md requirement (server baseline, configuration, security, health, build, CI/CD, i18n, accessibility, documentation, testing) |
 | Choose which of the template's explicitly OPTIONAL capabilities the project uses (the PARTs the template labels optional) | Change how a mandatory requirement is implemented |
 | State non-goals in product terms (for example "no user accounts") | Use a non-goal as a reason to skip a mandatory part |
 
@@ -8076,13 +8076,14 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 
 ## Port Rules
 
-**Default port is a random unused port in the 64000-64999 range.**
+**Default port is a random unused port in the 64000-64999 range, except in an application container (Docker, Podman, Kubernetes), where the default is `80` (PART 26 → "Container Port Behavior"); the random 64xxx port there is only the host-side mapping.**
 
 ### Port Selection Logic
 
 | Scenario | Port | Behavior |
 |----------|------|----------|
-| First run (no config) | Random 64xxx | Auto-select unused port in 64000-64999, **save to config** |
+| First run (no config), outside an application container | Random 64xxx | Auto-select unused port in 64000-64999, **save to config** |
+| Application container (no `PORT`) | `80` | Listens on `[::]:80`; nothing is randomized (the image's own default) |
 | Config specifies port | Use specified | Use exact port from config |
 | Port in use | Error | Fail with clear error message |
 | Privileged port (<1024) | Check escalation | Prompt for sudo if can escalate, else fallback to >= 1024 |
@@ -8443,7 +8444,7 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 | `--service stop` | ⚠️ Check | Which service type is installed? | User service |
 | `--service restart` | ⚠️ Check | Which service type is installed? | User service |
 | `--service reload` | ⚠️ Check | Which service type is installed? | User service |
-| `--service status` | ❌ No | N/A - read-only | N/A |
+| `--status`, `--service --help` | ❌ No | N/A - read-only | N/A |
 | `--port <1024` | ⚠️ Check | `isElevated()`? | Random >= 1024 |
 | `--maintenance backup` | ❌ No | Can write to backup dir? (already owned) | N/A |
 | `--maintenance restore` | 🔐 Auth | Requires `server.token` OR root OR first-run | N/A |
@@ -9034,7 +9035,7 @@ Before proceeding, confirm you understand:
 
 | Setting | Behavior |
 |---------|----------|
-| Logging | `debug` level, verbose |
+| Logging | `debug` level, verbose (an explicit `server.logs.level` overrides it) |
 | Debug endpoints | **Disabled** (use `--debug` to enable) |
 | pprof endpoints | **Disabled** (use `--debug` to enable) |
 | Error messages | Detailed (stack traces in logs) |
@@ -9790,6 +9791,8 @@ server:
 
 **Trivy DB (`cve_update`, when `data.trivy.enabled`):** pull `data.trivy.source` with an OCI registry client, read the `application/vnd.aquasec.trivy.db.layer.v1.tar+gzip` layer and extract its `trivy.db` and `metadata.json` into `trivy/`. The pull is skipped while `NextUpdate` in the stored `metadata.json` is still in the future.
 
+**Health and freshness.** `cve_update` registers the check `cve_nvd` and, only when `data.trivy.enabled` is true, the check `trivy_db` (a disabled Trivy database is omitted from `checks`). Both use the same fixed `max_age` of 72 hours as the blocklists (three missed daily runs): past it the check is `degraded` and the last good copy stays in use, and a database that never loaded is `error`. Neither is registered `critical`.
+
 **Atomic update (every data set in this section):** download or extract into a temporary file or directory beside the final path, validate it (non-empty, parses, at least one valid entry or record), then rename it over the old one; a directory is swapped by renaming the old one aside and deleting it afterwards. On any failure the previous data stays untouched and in use, a warning is logged, and the data set's health check reports it as stale (PART 13). `.last_updated` holds one line: the UTC RFC 3339 time of the last SUCCESSFUL update of that directory.
 
 ## Display Environment Detection
@@ -10167,10 +10170,9 @@ require (
     github.com/spf13/cobra {version}
     github.com/spf13/viper {version}
 
-    // GUI (build tag: gui)
-    // Linux: github.com/diamondburned/gotk4/pkg/gtk/v4
-    // macOS: uses cgo with Cocoa
-    // Windows: uses cgo with Win32
+    // GUI (build tag: gui): one pure-Go toolkit for Linux, macOS and Windows, no cgo (see "GUI Mode Requirements")
+    github.com/gogpu/gogpu {version}
+    github.com/gogpu/ui {version}
 
     // Common
     github.com/rs/zerolog {version}
@@ -11036,8 +11038,8 @@ PHASE 5: Server startup (actual server start)
     └─ Apply remaining environment variable overrides ({PROJECT_NAME}_*)
 
 14. Reconfigure logging from config:
-    ├─ Set log level from server.logging.level
-    ├─ Set log format from server.logging.format
+    ├─ Set log level from server.logs.level when set, else from the mode (production info, development and debug debug)
+    ├─ Set each log kind's format from server.logs.{kind}.format
     └─ Configure rotation (per-log rotate/keep policies)
 
 15. Initialize database:
@@ -12211,26 +12213,7 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_active   ON api_tokens(revoked_at) WHE
 
 ```
 
-**Example Config Data:**
-
-```sql
--- Flat key-value pairs (dot notation matches YAML structure)
-INSERT INTO config (key, value, type) VALUES
-    ('server.port', '8080', 'number'),
-    ('server.address', '"[::]"', 'string'),
-    ('ssl.enabled', 'true', 'bool'),
-    -- Empty = auto-detect
-    ('ssl.cert', '""', 'string'),
-    -- Empty = auto-detect
-    ('ssl.key', '""', 'string'),
-    ('ssl.min_version', '"TLS1.2"', 'string'),
-    ('cors.allowed_origins', '["https://example.com","https://api.example.com"]', 'array'),
-    -- per minute per IP (per token when authenticated) (see server.rate_limit.*)
-    ('server.rate_limit.read.requests', '120', 'number'),
-    ('branding.site_name', '"My App"', 'string');
--- NOTE: server.token is NEVER stored here — it lives in secrets.yml only,
--- and only its SHA-256 hash is cached in memory (see API Token Model below)
-```
+**Configuration is never stored in the database.** The merged files (`server.yml`, `yaml.d/*`, `secrets.yml`) are the only source of operator-editable settings (PART 5); the database holds resource state only.
 
 ### API Token Model
 
@@ -12335,7 +12318,7 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 
 | Control | Behavior |
 |---------|----------|
-| **Primary token** (masked) | Shown as `own_••••••••••••••••••••••••XXXX` (last 4 characters visible, read from `token_last4`; list and page loads never decrypt `token_enc`). **Reveal** (POST, CSRF-protected) decrypts and renders the full token in that one response (`Cache-Control: no-store`); **Copy** copies it; masked again on the next page load. Works with JS disabled (reveal is a plain form POST) |
+| **Primary token** (masked) | Shown as `own_••••••••••••••••••••••••XXXX` (last 4 characters visible, read from `token_last4`; list and page loads never decrypt `token_enc`). **Reveal** (POST, CSRF-protected) shows the full token once, on the redirected page load that follows (see "Token delivery"; `Cache-Control: no-store`); **Copy** copies it; masked again on the next page load. Works with JS disabled (reveal is a plain form POST) |
 | **Rotate** | Generates a new token and replaces the old one **in place**: the same `api_tokens` row gets the new `token_hash`, `token_prefix`, `token_last4`, `token_enc` and `rotated_at`. The old token is invalid immediately, the owner cookie is replaced, resources stay owned (they hang off `owner_id`), and linked tokens survive. Confirmation required; the new token is displayed |
 | **New token** | Shown only without an owner cookie: issues a new owner and its primary token on request (see "Owners and Owner Tokens") |
 | **Use an existing token** | Restore an identity on a new browser/device by pasting the primary token (see "Owners and Owner Tokens") |
@@ -12349,7 +12332,7 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 | Rule | Detail |
 |------|--------|
 | Management requires the primary | Token management (reveal, rotate, restore, create/rename/expiry/revoke linked) is allowed only with the primary token (owner cookie, or primary Bearer on the API mirror). A linked token on any of these returns `403` — a leaked automation token can never mint, read, or extend other tokens |
-| Issue on request | `POST /server/preferences/token/create` (web) and `POST /api/{api_version}/server/preferences/tokens/primary` (API) need no token: they create a new owner and its primary token, return it as `owner_token` (`201`), set the owner cookie on the web route, use the `strict` limiter, write `token.created` with source `issue`, and answer `409 CONFLICT` when the caller already presents a valid token (one caller never gets a second primary) |
+| Issue on request | `POST /server/preferences/token/create` (web) and `POST /api/{api_version}/server/preferences/tokens/primary` (API) need no token: they create a new owner and its primary token, return it as `owner_token` (`201`), set the owner cookie on the web route, use the `strict` limiter, write `token.created` with `details.source` set to `issue`, and answer `409 CONFLICT` when the caller already presents a valid token (one caller never gets a second primary) |
 | Independent rotation | Rotating the primary replaces only the primary token: linked tokens keep working with their own values. Rotating a linked token replaces only that token: the primary and the other linked tokens are untouched |
 | Linked = full owner access otherwise | A linked token can do everything the primary can to the owner's resources through the API and MCP, except token management |
 | Expiry | A linked token past `expires_at` is rejected like a revoked one; it stays listed (marked expired) until the owner revokes it or changes its expiry |
@@ -12383,9 +12366,9 @@ Token-management routes get no unversioned alias (they are data-shaped, see "Unv
 | # | Card | Contents |
 |---|------|----------|
 | 0 | **Page header** | `<h1>Owner tokens</h1>` once; above it the back link `← Preferences` (one translation key). No second "Owner tokens" heading |
-| 1 | **New token and Restore** (only when there is no owner cookie) | Two small forms. **New token**: one primary button "Create token" that issues an owner and its primary token, sets the owner cookie and shows the token with Copy. **Restore**: label "Primary token", one text field with a paste hint, one primary button "Restore identity". Nothing else on the page is shown without a cookie |
+| 1 | **New token** and **Restore** (only when there is no owner cookie) | Two cards, each with its own `<h2>` and exactly one primary button. **New token**: one primary button "Create token" that issues an owner and its primary token, sets the owner cookie and shows the token with Copy (see "Token delivery"). **Restore**: label "Primary token", one text field with a paste hint, one primary button "Restore identity". Nothing else on the page is shown without a cookie |
 | 2 | **Primary token** | Title, status badge (Active), the masked value in `.copy-value` (single-line scroll, never wraps), help text ("Full access to your {resources}. Keep it private.", where {resources} is `resource_label_plural` from IDEA.md `## Project variables` (default `items`), never a hardcoded product noun), actions: **Reveal**, **Copy** (once revealed), **Rotate** (confirmation popover) |
-| 3 | **Linked tokens** | Heading with the count. One card per token: name (`<h3>`), status badge (Active / Expired / Revoked), masked value, a `<dl>` with Created, Last used and Expires, and a footer toolbar: **Reveal**, **Rotate**, **Edit** (a `<details>` holding the rename + expiry form with one Save button), **Revoke** (danger, confirmation popover). Empty state: "No linked tokens yet" with the hint "Create one per app, for example your MCP client" |
+| 3 | **Linked tokens** | `<h2>` with the count. One list item per token (an `<li>` of a `<ul>`, not a nested card): name (`<h3>`), status badge (Active / Expired / Revoked), masked value, a `<dl>` with Created, Last used and Expires, and a footer toolbar: **Reveal**, **Rotate**, **Edit** (a `<details>` holding the rename + expiry form with one Save button), **Revoke** (danger, confirmation popover). Empty state: "No linked tokens yet" with the hint "Create one per app, for example your MCP client" |
 | 4 | **Create linked token** | **Name** (label, help "For example: MCP client") and **Expiry** (ONE `<select>`: Never, 7 days, 30 days, 90 days, 1 year, Custom date). When "Custom date" is chosen a labeled **Expires on** date input is used (rendered inside a `<details>` so it works without JavaScript). ONE primary button "Create token" |
 | 5 | **This browser** | "Saved in this browser" with a **Forget saved token** button (danger-ghost, confirmation popover) and the sentence that {resources} are not deleted |
 
@@ -12424,10 +12407,12 @@ PHONE (<768)              TABLET (768-1023)             DESKTOP (>=1024)
 | Viewport | Rules |
 |----------|-------|
 | **Phone** | One column, cards full width, buttons full width and stacked, Revoke visually separate from Reveal/Rotate |
-| **Tablet** | One column up to `40rem` centered; linked-token cards in a 2-column grid when there are two or more; Name and Expiry on one row |
+| **Tablet** | One column up to `40rem` centered; linked-token items in a 2-column grid when there are two or more; Name and Expiry on one row |
 | **Desktop** | Two columns: left (Primary token, Create linked token, This browser), right (Linked tokens), both `minmax(0, 1fr)`; nothing pinned or sticky |
 
 **Behavior rules:** each action is its own small `POST` form with its own CSRF token (above); after any action the `303` redirect returns to `#token-{id}` (or `#primary`) so the page does not jump; Reveal re-renders only that card with the full value in `.copy-value` plus a Copy button and the note "Shown once, on this page load"; a toast confirms Rotate, Create, Rename and Revoke; the masked value uses `.copy-value`, never wraps and never widens the page (see "Layout Integrity & Polish Contract").
+
+**Token delivery (the `303` stays, and the token never travels in a URL).** Every action that shows a raw token (New token, Rotate, Create linked token, Reveal) keeps the `303`. The POST handler sets a one-use view cookie `{project_name}_token_view` (`HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/server/preferences/tokens`, `Max-Age=60`) whose value names the card (`primary` or the token id), never the token, and redirects to that card's anchor. The next `GET` of the page reads the cookie, clears it (`Max-Age=0`), decrypts that ONE card's value from `token_enc` and renders it in `.copy-value` with Copy and the note "Shown once, on this page load", with `Cache-Control: no-store`. A reload or any later visit shows the masked value; a cookie that is missing or names a token the caller does not own adds nothing; a list or page load never decrypts anything by itself. The API mirrors have no redirect: they return the token in the JSON response body.
 
 **Config (`server.yml`):**
 ```yaml
@@ -12449,63 +12434,6 @@ server:
 {project_name} --maintenance token revoke <prefix>
 ```
 The CLI shows prefixes only — there is no operator path that prints a raw owner token.
-
-**Config Load/Save Helpers:**
-
-```go
-// loadConfigFromDB loads config from database into struct
-func loadConfigFromDB(db *sql.DB) (*Config, error) {
-    rows, err := db.Query("SELECT key, value, type FROM config")
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
-
-    cfg := &Config{}
-    for rows.Next() {
-        var key, value, typ string
-        rows.Scan(&key, &value, &typ)
-
-        // Parse JSON value and set on config struct
-        if err := setConfigValue(cfg, key, value, typ); err != nil {
-            log.Printf("Config key %s parse error: %v", key, err)
-        }
-    }
-    return cfg, nil
-}
-
-// saveConfigToDB saves config struct to database
-func saveConfigToDB(db *sql.DB, cfg *Config) error {
-    tx, _ := db.Begin()
-    defer tx.Rollback()
-
-    // Flatten config struct to key-value pairs
-    pairs := flattenConfig(cfg)
-
-    stmt, _ := tx.Prepare(`
-        INSERT INTO config (key, value, type, updated_at)
-        VALUES (?, ?, ?, strftime('%s', 'now'))
-        ON CONFLICT(key) DO UPDATE SET
-            value = excluded.value,
-            type = excluded.type,
-            updated_at = strftime('%s', 'now')
-    `)
-    defer stmt.Close()
-
-    for _, p := range pairs {
-        stmt.Exec(p.Key, p.Value, p.Type)
-    }
-
-    return tx.Commit()
-}
-
-// flattenConfig converts nested struct to flat key-value pairs
-func flattenConfig(cfg *Config) []ConfigPair {
-    // Uses reflection to walk struct and build dot-notation keys
-    // server.port, ssl.enabled, cors.allowed_origins, etc.
-    return flattenStruct(reflect.ValueOf(cfg), "")
-}
-```
 
 **Config Priority :**
 
@@ -12993,7 +12921,7 @@ Raw machine values belong to JSON/API responses, Prometheus metrics, and logs on
 | Rule | Detail |
 |------|--------|
 | **Shared helpers** | One implementation: `format.Duration()` / `format.Size()` / `format.Count()` in the shared/common formatting package — never per-page ad-hoc formatting |
-| **i18n** | Unit names go through translation keys (`format.seconds_one`, `format.seconds_other`, …) with per-language plural rules — never hardcoded English unit strings |
+| **i18n** | Unit names go through translation keys (plural messages `plurals.duration.seconds`, `.minutes`, `.hours` and `.days`, each holding the language's own CLDR categories, PART 30 → "Pluralization"; never flat `_one`/`_other` keys) — never hardcoded English unit strings |
 | **Raw value preserved** | HTML MAY carry the machine value in a `title=`/`data-` attribute for tooltips; the visible text is always the human form |
 | **Machine surfaces unchanged** | JSON API fields, Prometheus metrics, and log files keep raw base units (seconds, bytes) — formatting is a presentation concern only |
 
@@ -13086,7 +13014,7 @@ DOMAIN=myapp.com,www.myapp.com,api.myapp.com
 |----------|-------------|
 | First domain is primary | Used as `{fqdn}` and `GetBaseDomain()` |
 | Auto-infer wildcard | Same base domain → `*.myapp.com` |
-| Skip learning | If DOMAIN set, no need to learn from requests |
+| Learning | A `DOMAIN` list of two or more entries skips learning entirely. A single `DOMAIN` fixes `{fqdn}` and learns only its subdomains from requests |
 | CORS auto-configured | All listed domains added to allowed origins |
 | Validate on startup | Invalid domains cause startup warning |
 
@@ -14783,7 +14711,7 @@ The root secret all other derived material hangs off. Without it, in-flight HMAC
 | Reads during grace | A value that fails under the current key is tried with the previous key; a success also re-encrypts that row under the current key |
 | Retirement | The daily cleanup task deletes `{name}_previous` and `{name}_previous_until` once `_until` has passed. A row that still needs the retired value fails closed and logs `security.decrypt_failed` with the table and row id, never any content |
 
-**Note on consolidation:** `server.security.encryption_key` is the canonical at-rest AES key — every place the spec talks about "encrypt this sensitive data at rest" resolves to this one key, including security report bodies. It is NOT duplicated in `app_secrets`. The three `app_secrets` rows above are HMAC keys (not AES) and a root-secret for HMAC derivation; they are stored in the DB rather than `secrets.yml` because they have independent rotation lifecycles.
+**Note on consolidation:** `server.security.encryption_key` is the canonical at-rest AES key — every place the spec talks about "encrypt this sensitive data at rest" resolves to this one key, including security report bodies. The current AES key is NOT in `app_secrets`: it lives only in `secrets.yml`. The three `app_secrets` rows above are HMAC keys (not AES) and a root-secret for HMAC derivation, stored in the DB rather than `secrets.yml` because they have independent rotation lifecycles. During the 30-day grace period the rows `app_secrets.encryption_key_previous` and `_previous_until` additionally hold the PREVIOUS AES key, wrapped under the new key (see the rotation contract), and they are deleted when the grace period ends.
 
 **All secrets above:**
 - Generated on first start, before any user-visible operation.
@@ -14820,11 +14748,13 @@ X-Request-ID: <per-request UUID — also echoed back in JSON error envelopes>
 Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
 ```
 
-**On token-revocation and consent-withdrawal responses, also include:**
+**On token-revocation responses, also include:**
 
 ```
 Clear-Site-Data: "cache", "cookies", "storage"
 ```
+
+**On consent-withdrawal responses (a decline, or a save that removes a category) include `Clear-Site-Data: "cache", "storage"` and never `"cookies"`:** the response itself stores the new `cookie_consent` value, and clearing cookies would erase that choice (the banner would come back) and the owner token cookie. The server expires the cookies of the withdrawn categories with their own `Set-Cookie` headers instead.
 
 (Spec deliberately omits `"executionContexts"` from the default — it breaks SPA back-navigation. Operator can opt in via `web.headers.clear_site_data.execution_contexts: true` for hard-isolation projects.)
 
@@ -14937,7 +14867,7 @@ web:
 |--------|-----------|---------|----------|
 | `Sec-GPC: 1` (Global Privacy Control) | inbound | honored | When received, treat the request as opt-out of "sale or sharing of personal data" (CCPA/CPRA), opt-out of behavioral profiling (GDPR Art. 21), and skip non-essential cookies. Logged to audit (`compliance.gpc_honored`). |
 | `DNT: 1` (Do Not Track) | inbound | NOT honored by default | DNT was de-facto removed from Firefox/Chrome — honoring it now penalizes users on browsers that still emit it for legacy reasons. Operators with EU-only audiences can opt in via `web.headers.honor_dnt: true`. |
-| `Clear-Site-Data` | outbound | emitted on token-revocation | Sent on token-revocation and consent-withdrawal responses. Default value `"cache", "cookies", "storage"`. `"executionContexts"` opt-in only. Also sent on version-change purge (PART 9) with value `"cache", "storage"` only — never `"cookies"` there. |
+| `Clear-Site-Data` | outbound | emitted on token-revocation | Sent on token-revocation responses with `"cache", "cookies", "storage"` and on consent-withdrawal responses with `"cache", "storage"` only (never `"cookies"`: it would erase the `cookie_consent` choice just stored). `"executionContexts"` opt-in only. Also sent on version-change purge (PART 9) with value `"cache", "storage"` only — never `"cookies"` there. |
 
 **`Sec-GPC` is the load-bearing one.** When received, the binary MUST:
 1. Set the request's `gpc_opt_out=true` flag throughout the request lifecycle.
@@ -15489,7 +15419,7 @@ web:
 | No token | **Rejected.** Every MCP request carries `Authorization: Bearer ...`; without a valid token the endpoint answers `401` (with `WWW-Authenticate: Bearer`, PART 8 → "Auth Token Presentation") and a JSON-RPC error, and `tools/list` is never served. The REST API is different: it works without a token, and a token only links what the caller creates to its owner and unlocks MCP |
 | OAuth | Not implemented by this template: MCP authenticates with the static Bearer tokens above, and the MCP specification makes authorization optional. If a project implements or enables OAuth, its MCP endpoint MUST then support OAuth as the specification defines it (protected resource metadata at `https://{fqdn}/.well-known/oauth-protected-resource`, built per request with `BuildURL` and served as an optional allowlisted well-known entry that exists only while OAuth is enabled, a `resource_metadata` parameter in the `401` challenge carrying that URL, audience-bound tokens), alongside the static tokens |
 | Authorization | Per tool call, with the caller's token, by the same checks as the matching API endpoint. A token that cannot call an endpoint over REST cannot call its tool |
-| Rate limiting, audit | The same limiters and audit events as the API; the audit `source` is `mcp` so MCP traffic is distinguishable |
+| Rate limiting, audit | The same limiters and audit events as the API; the audit entry's top-level `source` field (PART 11 → "Audit Log Format") is `mcp` so MCP traffic is distinguishable |
 | Owner and linked tokens | Owner tokens exist in EVERY project (PART 8 → "API Token Model") and every caller can obtain one: on a first resource creation, or on request from `/server/preferences/tokens` or `POST /api/{api_version}/server/preferences/tokens/primary`, so every MCP client can always hold the credential MCP requires. Owner and linked tokens both work as the Bearer token. A tool call sees exactly what the token's owner owns and runs the API's ownership check. **A linked token is the intended credential for MCP clients**: create one named for the client on `/server/preferences/tokens`; it is revoked, rotated and expired on its own, rotating it never changes the primary or the other linked tokens, and rotating the primary never changes the linked tokens |
 | Operator token | `server.token` works as Bearer and sees operator-only tools; for any other caller those tools are absent from `tools/list` AND rejected on `tools/call` |
 | MCP clients | Give each MCP client its own linked token (never the primary, never `server.token` — that is full operator access). |
@@ -15577,7 +15507,7 @@ Repo-level (source-code) vulnerabilities are reported primarily via GitHub priva
 | Credit preference | Yes (real name) / Yes (handle) / No / Anonymous | Yes | Drives `/server/security/thanks` listing on disclosure. | null |
 | Credit handle | Text | Only when Credit preference is "Yes (handle)" | Public handle shown on the thanks page; required for that choice (published as `required_when`), ignored for the others. "Yes (real name)" uses the Name field. | 100 |
 | Coordinated disclosure agreement | Checkbox | Yes | Researcher agrees to coordinated disclosure (no public release until coordinated date or 90 days, whichever first). | null |
-| Hidden auto-filled | — | — | `app_version`, `commit_hash`, `security_id`, `timestamp`, `request_user_agent`. Used for triage; never shown to researcher. | null |
+| Hidden auto-filled | — | — | `app_version`, `commit_hash`, `timestamp`, `request_user_agent`: triage context, never shown to the researcher. The hidden `security_id` field is not triage data: it only lets the server re-validate the POST (submission step 1), and it is never stored or included in any notification | null |
 
 **Length limits:** `Max length` counts Unicode characters after trimming; `null` means no text limit (the field is an enum, checkbox, number or generated value). The same limits appear as `max_length` in the `GET /api/{api_version}/server/contact` field list (`null` where the table says `null`), and a longer value is rejected with a field-level `VALIDATION_FAILED` error.
 
@@ -15609,7 +15539,8 @@ The steps below run on the `confirm` call; the first call only returns the revie
 ```sql
 CREATE TABLE IF NOT EXISTS security_reports (
     tracking_id        VARCHAR(32) PRIMARY KEY,
-    security_id        VARCHAR(64) NOT NULL,
+    -- 48-hour window index floor(unix_seconds / 172800) of the validated security_id; the id itself is never stored
+    id_window          BIGINT NOT NULL,
     severity           VARCHAR(16) NOT NULL,
     component          VARCHAR(255) NOT NULL,
     status             VARCHAR(16) NOT NULL DEFAULT 'received',
@@ -15703,7 +15634,7 @@ CREATE TABLE IF NOT EXISTS security_thanks (
 |--------|-----|----------|
 | **Generate** | `--maintenance pgp generate` | Generates an Ed25519 (signing) + Curve25519 (encryption) keypair. Identity is `{app_name} Security <{security_contact}>`. Expires 2 years from generation. Private key is encrypted with a key derived from `installation_secret` and stored in `{config_dir}/security/pgp.priv.asc.enc`. Public key stored at `{config_dir}/security/pgp.pub.asc` (also served at `/.well-known/pgp-key.asc`). |
 | **Rotate** | `--maintenance pgp rotate` | Generates a new keypair, signs the new pubkey with the old key, publishes the rotation to configured keyservers. In ONE database transaction, taken under the same lock the submission step uses, it re-encrypts every stored `body_enc` whose `body_alg` is `pgp` to the new key (decrypt with the old private key, encrypt to the new public key). If any row fails, the transaction rolls back and the old key stays active, so no retained report is ever left readable only by a discarded key. After a successful rotation every stored body is readable with the current key for its whole retention period. The old private key is kept encrypted at `{config_dir}/security/pgp.priv.old.asc.enc` for 30 days, only for items already in transit (notifications sent to the old key, researchers who fetched the old public key); the daily `security_cleanup` task then deletes it. |
-| **Publish to keyservers** | `--maintenance pgp publish` | POST the public key to each entry in `web.security.keyservers`. Uses the keyserver's HTTP submission endpoint (`https://keys.openpgp.org/vks/v1/upload` for keys.openpgp.org, similar for ubuntu). Triggered automatically on generate/rotate; manually via `--maintenance pgp publish`. Failures are logged + retried with exponential backoff. |
+| **Publish to keyservers** | `--maintenance pgp publish` | POST the public key to each entry in `web.security.keyservers`. Each entry is a keyserver host name and the host decides the submission form. `keys.openpgp.org` (VKS): `POST https://keys.openpgp.org/vks/v1/upload` with the JSON body `{"keytext": "<ASCII-armored public key>"}`; success is `200` with a JSON body holding `key_fpr` and `status`. Any other host, for example `keyserver.ubuntu.com` (HKP): `POST https://{host}/pks/add` with `Content-Type: application/x-www-form-urlencoded` and the field `keytext=<URL-encoded armored key>`; success is `200`. Triggered automatically on generate/rotate; manually via `--maintenance pgp publish`. A network error, `5xx` or `429` is logged and retried with exponential backoff: 1 minute, doubling each time up to 6 hours, at most 8 attempts per keyserver and key, durable across restarts (the attempt count and the next time are kept in `keyservers.state`). Any other `4xx` is final: logged once and never retried. A keyserver that `keyservers.state` already lists for this fingerprint is skipped. |
 | **Export public key** | `--maintenance pgp export public [path]` | Use the public URL `/.well-known/pgp-key.asc`, copy `{config_dir}/security/pgp.pub.asc` directly, or write it to `[path]` (stdout if omitted) via the CLI. |
 | **Export private key** | `--maintenance pgp export private <path>` | **Full export, ASCII-armored, decrypted after operator token confirmation.** Triggers a sensitive-operation flow (PART 5 → "Sensitive Operations"): re-prompt for the operator token, log to `audit.log` as `security.private_key_exported`, write the key to `<path>` with mode 0600. **The export is rate-limited to 1 per hour per operator and the audit entry includes operator IP and reason text the operator must type.** |
 | **Import private key** | `--maintenance pgp import <file>` | Import an existing `pgp.priv.asc` from a local file (e.g., restoring from backup, migrating from another instance). Same sensitive-operation gate. Validates the key's identity matches the project's expected identity (warns on mismatch — operator can override). |
@@ -15731,9 +15662,9 @@ CREATE TABLE IF NOT EXISTS security_thanks (
 | Security reports DB rows | Always | Tracking metadata. The encrypted report bodies are restored too (encrypted at rest with the same PGP key). |
 | `{config_dir}/security/keyservers.state` | Always | Per-keyserver publish state, so a restore doesn't double-submit. |
 
-**Restore behavior:** restoring a backup re-installs the keypair AND re-publishes the public key to the configured keyservers (idempotent — keyservers de-duplicate by fingerprint). The `installation_secret` is restored from the same backup, so the encrypted private key decrypts correctly.
+**Restore behavior:** restoring a backup re-installs the keypair and `keyservers.state`, then submits the public key only to the configured keyservers that the restored state does not already list for this fingerprint (a keyserver added since the backup, or a different fingerprint). A keyserver already listed is not contacted again, and a submission that does happen is idempotent because keyservers de-duplicate by fingerprint. The `installation_secret` is restored from the same backup, so the encrypted private key decrypts correctly.
 
-**Operator UX:** running `{project_name} --maintenance backup` and `{project_name} --maintenance restore` covers the security keypair without any extra steps. `{project_name} --maintenance backup test` runs a dry-run restore of the keypair specifically and reports whether the encrypted private key decrypts successfully.
+**Operator UX:** running `{project_name} --maintenance backup` and `{project_name} --maintenance restore` covers the security keypair without any extra steps. `{project_name} --maintenance backup test [file]` verifies a backup without touching live data: `file` defaults to the newest backup in `{backup_dir}` (the newest `snapshot_at` wins, as for restore; an incremental is checked together with its base). An encrypted backup asks for its password interactively exactly like restore (there is no password flag; without a terminal the command fails with a message that says so). It extracts into a temporary directory, verifies the manifest checksums, decrypts `pgp.priv.asc.enc` with the `installation_secret` found in that same backup, compares the fingerprint of the decrypted key with `pgp.pub.asc`, reports each result, and removes the temporary directory.
 
 ## Logging
 
@@ -15883,8 +15814,8 @@ When using `format: custom`, these variables are available:
 ```yaml
 server:
   logs:
-    # Global log level: debug, info, warn, error
-    level: warn
+    # Global log level: debug, info, warn, error. Empty follows the mode (production info, development and debug debug); a value set here overrides the mode
+    level: ""
 
     # Defaults every log kind inherits when it does not set the key itself:
     #   custom: custom format string (used when format=custom)
@@ -16084,6 +16015,7 @@ server:
 | `target` | Object | What was acted upon |
 | `details` | Object | Event-specific details |
 | `reason` | String | Reason for action (if provided) |
+| `source` | String | Where the action came in: `web`, `api`, `mcp`, `cli` or `scheduler`. MCP traffic always carries `mcp` |
 
 ## Severity Levels
 
@@ -16367,7 +16299,7 @@ In this project `--maintenance data delete` (see "Data Subject Commands") applie
 | `data.sold` | CCPA Behavior |
 |-------------|---------------|
 | `false` (default) | Display notice: "We do not sell your personal information" - no opt-out needed |
-| `true` | Display "Do Not Sell My Personal Information" opt-out toggle on `/server/privacy#ccpa-opt-out` |
+| `true` | Display "Do Not Sell My Personal Information" opt-out toggle on `/server/privacy#ccpa-opt-out` (its form posts to `POST /server/ccpa`) and on `/server/preferences` (PART 15, rule 17); both write the same `ccpa_opt_out` cookie |
 
 #### ISO27001 (iso27001: true)
 
@@ -16460,7 +16392,7 @@ In this project `--maintenance data delete` (see "Data Subject Commands") applie
 | `/server/privacy` | GET | Privacy policy |
 | `/server/dpo` | GET | Data Protection Officer contact (GDPR) |
 
-**DPO contact source:** `server.contact.dpo.email` (with optional `server.contact.dpo.name`), part of the Contact Configuration tree (PART 12). When `dpo.email` is empty the page shows `server.contact.general.email`; when that is empty too it renders only a link to `/server/security` (the form is never linked from this page). It never invents an address and never shows the admin address. The JSON mirror is `GET /api/{api_version}/server/dpo` (`name`, `email`, `privacy_url`) and follows the same fallback chain for `email`; when no address resolves it still answers `200` with `email` = `""` (and `name` = `""` when unset), never `404`; `privacy_url` is always present and is an absolute URL: the request's resolved base URL (PART 8 → "Resolution Order", never a cached value) + `/server/privacy`, so on an onion or I2P request it carries that address; the HTML page itself links with the root-relative path `/server/privacy`. The HTML page shows the DPO name when set, the address as a `mailto:` link when one resolves, and always links to `/server/privacy` and `/server/contact`.
+**DPO contact source:** `server.contact.dpo.email` (with optional `server.contact.dpo.name`), part of the Contact Configuration tree (PART 12). When `dpo.email` is empty the page shows `server.contact.general.email`; when that is empty too it renders only a link to `/server/security` (the form is never linked from this page). It never invents an address and never shows the admin address. The JSON mirror is `GET /api/{api_version}/server/dpo` (`name`, `email`, `privacy_url`) and follows the same fallback chain for `email`; when no address resolves it still answers `200` with `email` = `""` (and `name` = `""` when unset), never `404`; `privacy_url` is always present and is an absolute URL: the request's resolved base URL (PART 8 → "Resolution Order", never a cached value) + `/server/privacy`, so on an onion or I2P request it carries that address; the HTML page itself links with the root-relative path `/server/privacy`. The HTML page shows the DPO name when set, the address as a `mailto:` link when one resolves, always links to `/server/privacy`, and links to `/server/security` (never `/server/contact`) when no address resolves.
 
 **Compliance is configured entirely in `server.yml`. Consent state is stored client-side (cookies, so the server can read it per-request) — there is no server-side user consent table. Operators run `{project_name} --maintenance compliance report` for a compliance summary.**
 
@@ -18391,9 +18323,9 @@ type TorInfo struct {
     Hostname string `json:"hostname"`
 }
 
-// I2PInfo - from I2P manager (PART 31.2). OPT-IN: all zero-value when disabled.
+// I2PInfo - from I2P manager (PART 31.2). Every field is always present; disabled means enabled false, running false, status "disabled", empty hostname and provider "none".
 type I2PInfo struct {
-    // features.i2p.enabled (opt-in; false by default)
+    // features.i2p.enabled (true by default in a container, false elsewhere unless opted in)
     Enabled  bool   `json:"enabled"`
     // Eepsite active
     Running  bool   `json:"running"`
@@ -19032,14 +18964,14 @@ Same underlying health response as `/server/healthz`, but formatted using the st
 | Invariant | Rule |
 |-----------|------|
 | **Key order** | JSON keys follow the struct order of this specification, written by a custom marshaller. Alphabetical or map order is a bug. A golden-order test covers JSON and both text formats |
-| **Always present** | `project`, `status`, `version`, `go_version`, `build`, `uptime`, `mode`, `timestamp`, `cluster`, `features`, `checks` and `stats` are in every response. In a single instance `cluster` is `{"enabled": false}` |
+| **Always present** | `project`, `status`, `version`, `go_version`, `build`, `uptime`, `mode`, `timestamp`, `features`, `checks` and `stats` are in every response. |
 | **`version`** | Exactly what `--version` prints as `{project_version}`: SemVer for a release, `YYYYMMDDHHMMSS-beta` for a beta, the short commit id for a devel build, `dev` only when the build has none of these. Never the word `devel` |
 | **`timestamp`, `build.date`** | RFC 3339, UTC, whole seconds, `Z` suffix (`2026-11-20T17:21:53Z`); never nanoseconds |
 | **`uptime` (JSON, API text)** | Compact `{d}d {h}h {m}m`: the leading zero units are dropped and seconds appear only under one minute. `45s`, `24m`, `2h 16m`, `1d 1h 4m`. Never `0h 10m 57s` |
 | **`uptime` (frontend)** | `format.Duration()`: `2 hours 16 minutes`, `1 day 1 hour` ("Frontend Human-Readable Rules") |
 | **Status precedence** | `shutting_down`, then `maintenance`, then `unhealthy`, then `degraded`, then `restart_required`, then `healthy`. The first that applies is the overall `status` |
 | **Frontend text** | `/server/healthz` and `/healthz` return the human layout of "Plain Text — Frontend" for curl and other CLI clients. The dotted `key: value` layout is ONLY for the API text routes; a frontend route that prints `project.name:` is a bug |
-| **Frontend HTML sections** | Project header, Status banner, then one card per section in this order with these default headings (i18n keys `health.section.{name}`): `version` Version, `runtime` Runtime, `cluster` Cluster, `features` Features, `checks` Component Status, `stats` Server Statistics. Every section is always rendered, including Runtime |
+| **Frontend HTML sections** | Project header, Status banner, then one card per section in this order with these default headings (i18n keys `health.section.{name}`): `version` Version, `runtime` Runtime, `features` Features, `checks` Component Status, `stats` Server Statistics. Every section is always rendered, including Runtime |
 | **Coherence** | `features.{tor,i2p}.status` and `checks.{tor,i2p}` follow the table in "Overlay Network Health" exactly; `enabled: false` with any status but `disabled` is a bug, and an `unavailable` network with an overall `healthy` is a bug |
 | **Tests** | Table-driven tests per format for key order, the always-present keys, the `uptime` and `timestamp` formats, the status precedence, a frontend `curl` request, and the overlay states |
 
@@ -23972,7 +23904,7 @@ There is no client-side init and no `matchMedia` script. The only JS is an optio
 // every click rather than trusting the form's hidden value (rendered once at
 // page load, and stale after the first JS-driven switch) - this is what keeps
 // repeated clicks cycling instead of sticking after the first one.
-// `auto` = no class, CSS prefers-color-scheme rules apply.
+// `auto` = the `theme-auto` class, whose CSS follows prefers-color-scheme.
 const THEME_CYCLE = ['dark', 'light', 'auto'];
 
 function currentTheme() {
@@ -23986,7 +23918,7 @@ document.querySelectorAll('.theme-toggle-form').forEach((form) => {
     // Does NOT call preventDefault() - the form still submits normally so the
     // server sets the cookie and re-renders with the correct next target.
     const next = THEME_CYCLE[(THEME_CYCLE.indexOf(currentTheme()) + 1) % THEME_CYCLE.length];
-    document.documentElement.className = next === 'auto' ? '' : `theme-${next}`;
+    document.documentElement.className = `theme-${next}`;
   });
 });
 ```
@@ -24870,7 +24802,7 @@ Preferences aren't tied to identity — any two guests who set the same `theme`/
 | 14 | **Import field** | An always-visible field named `code` (textarea or text input, accepts a pasted full URL, query string or short code) in the sync page's own form, `<form method="POST" action="/server/preferences/sync">`, whose only submit button is **Import**. A non-empty `code` is resolved per rule 5 and applied per rule 8, then `303` per rules 9–10; an empty `code` is a no-op. `GET /server/preferences/sync/import` stays for shared links and API parity (rule 5 unchanged). JS may enhance (clipboard paste) but never changes the request |
 | 15 | **Page layout and buttons** | `/server/preferences` is ONE `<form method="POST" action="/server/preferences">` carrying the CSRF token and every section: appearance (`theme`), language (`lang`), cookie-consent and CCPA controls, every `{project_name}_pref_{key}` control — all sections always visible, none collapsed or revealed by a button. A **More preferences** card, outside the form, links every registered preferences page (see "Preferences and Help Hubs"). The form has exactly three action buttons (the header theme toggle is a separate mini-form on other pages and is not part of this page's form): **Save** (submit; applies every changed field, then `303` per rules 9–10), **Cancel** (a link to the rule 10 redirect target; discards unsaved edits, sends no write) and **Reset** (a `type="button"` with `popovertarget` that opens a native HTML `popover` — no JS; the popover holds the warning, an **Erase everything** submit with `action=reset`, and a dismiss control using `popovertargetaction="hide"`; those two belong to Reset, not to the page's button set; forgets the visitor completely: every noncredential cookie this app set — `theme`, `lang`, `{project_name}_pref_*`, `cookie_consent`, `ccpa_opt_out`, `{project_name}_build`, plus any other noncredential cookie the project defines (announcement dismissals, flash messages, age-verification or content-acknowledgment cookies, forwarding preferences) — is deleted (`Max-Age=0`, same `Path`/attributes as rule 8), and the `303` carries `Clear-Site-Data: "storage"` to wipe localStorage/sessionStorage/IndexedDB without JS. Defaults apply and the consent banner returns on the next page. Never deletes session, CSRF or other credential cookies — signing out is a separate action. The popover warning states exactly what is erased. Only Reset confirms — Save and Cancel never ask for confirmation. The popover is styled with CSS, and a direct `POST action=reset` behaves identically on the server). No per-section save buttons and no "Sync", "Export", "Import" or "Show" buttons: sync has its own page. Every other preferences page (`/server/preferences/sync`, `/server/preferences/tokens` where the project has owner tokens, and project pages) is NOT part of this form: each lives on its own page, reached from the More preferences card, and those pages' own forms are exempt from this button limit. Reset never deletes credential cookies: session, CSRF and the owner-token cookie |
 | 16 | **Web save never `400`** | `400 VALIDATION_FAILED` (rule 11) is API-only. A web `POST /server/preferences` or `POST /server/preferences/sync` always answers `303` (rule 9) — including empty submits, unchecked checkboxes (absent fields), invalid values (dropped) and a bad `code`. The only `4xx` is a missing/invalid CSRF token (`403`), so every preferences form MUST always render the token and post only to the canonical route, never to the `/api/{api_version}/…` mirror |
-| 17 | **Consent and CCPA controls** | The page form's cookie-consent toggles (`consent_preferences`, `consent_analytics`; `essential` is always on and not a field) and the CCPA opt-out toggle (`ccpa_opt_out`, rendered only when `server.privacy.data.sold` is `true`; otherwise absent and never written) are web-form-only controls handled by `POST /server/preferences`, with a hidden `consent_form=1` marker rendered inside the form. They are applied only when `consent_form=1` is present — an unchecked checkbox then means off, while a POST without the marker (the header theme toggle) never touches consent or CCPA. Applying writes `cookie_consent` (JSON per PART 16 consent state, with a fresh timestamp in Unix seconds) and `ccpa_opt_out` with the rule 8 attributes. Import and the API mirror never write them, Reset deletes them (rule 15), and they are never exported (rule 1) |
+| 17 | **Consent and CCPA controls** | The page form's cookie-consent toggles (`consent_preferences`, `consent_analytics`; `essential` is always on and not a field) and the CCPA opt-out toggle (`ccpa_opt_out`, rendered only when `server.privacy.data.sold` is `true`; otherwise absent and never written) are web-form-only controls handled by `POST /server/preferences`, with a hidden `consent_form=1` marker rendered inside the form. They are applied only when `consent_form=1` is present — an unchecked checkbox then means off, while a POST without the marker (the header theme toggle) never touches consent or CCPA. Applying writes `cookie_consent` (JSON per PART 16 consent state, with a fresh timestamp in Unix seconds) and `ccpa_opt_out` with the rule 8 attributes. Import and the API mirror never write them, Reset deletes them (rule 15), and they are never exported (rule 1). The privacy page's own CCPA form is the one other writer of `ccpa_opt_out` (`POST /server/ccpa`), as the cookie banner is the other writer of `cookie_consent` (`POST /server/consent`) |
 
 **Page layout (`/server/preferences`) — one form, one Save, always visible, then the More preferences card:**
 ```
@@ -25976,7 +25908,7 @@ func renderFallbackError(w http.ResponseWriter, r *http.Request, status int) {
 
 | Rule | Description |
 |------|-------------|
-| **Theme classes** | Use `theme-dark`, `theme-light` on `<html>` |
+| **Theme classes** | Exactly one of `theme-dark`, `theme-light` or `theme-auto` on `<html>` |
 | **CSS variables** | Theme colors defined once in `common.css`, used everywhere |
 | **Color schemes** | `dark.css` and `light.css` apply globally |
 | **No layout-specific themes** | Do NOT create layout-scoped CSS theme files |
@@ -26044,7 +25976,7 @@ html.theme-light {
 
 **JavaScript theme switching (shared):**
 
-**Note:** Per "HTML5 & CSS Over JavaScript" rules - CSS does all theming via variables. JavaScript is ONLY the toggle click handler: set the cookie and swap the class (cannot be done in pure CSS). The form (see "Theme Toggle" → HTML Structure above) already works with zero JS; this is progressive enhancement only, intercepting the submit to avoid a full page reload. Critically, it recomputes the next mode from the LIVE `<html>` class on every click rather than trusting the form's `value` (which was rendered once at page load and would go stale after the first JS-driven switch) — this is what keeps repeated clicks working instead of "sticking" after one.
+**Note:** Per "HTML5 & CSS Over JavaScript" rules - CSS does all theming via variables. JavaScript is ONLY the toggle click handler: swap the class for an instant preview (cannot be done in pure CSS); the server sets the cookie when the form submits. The form (see "Theme Toggle" → HTML Structure above) already works with zero JS; this is progressive enhancement only, intercepting the submit to avoid a full page reload. Critically, it recomputes the next mode from the LIVE `<html>` class on every click rather than trusting the form's `value` (which was rendered once at page load and would go stale after the first JS-driven switch) — this is what keeps repeated clicks working instead of "sticking" after one.
 
 ```javascript
 // Theme cycle: dark -> light -> auto -> dark. Mirrors the server's
@@ -26057,14 +25989,13 @@ function currentTheme() {
   return match ? match[1] : 'dark';
 }
 
+// Instant preview only: the server writes the cookie when the form submits
 function setTheme(theme) {
   document.documentElement.className = `theme-${theme}`;
-  document.cookie = `theme=${theme}; path=/; max-age=31536000; SameSite=Lax`;
 }
 
 document.querySelectorAll('.theme-toggle-form').forEach((form) => {
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
+  form.addEventListener('submit', () => {
     const next = THEME_CYCLE[(THEME_CYCLE.indexOf(currentTheme()) + 1) % THEME_CYCLE.length];
     setTheme(next);
   });
@@ -27333,7 +27264,7 @@ server:
 |-------|----------|------------|
 | `name` OR `property` | One required | Must be valid meta attribute name |
 | `content` | Yes | Non-empty string, max 256 chars |
-| `name`/`property` value | Yes | Alphanumeric + hyphens/underscores only |
+| `name`/`property` value | Yes | Letters, digits, hyphens, underscores and colons only (`^[A-Za-z0-9_:-]+$`); the colon allows namespaced properties such as `fb:app_id` |
 
 **NEVER render:**
 - Tags with empty content
@@ -27444,6 +27375,8 @@ server:
 | `/rss.xml` | RSS 2.0 | `application/rss+xml; charset=utf-8` |
 
 Both routes carry the same items. They are fixed-format files like `sitemap.xml`: no content negotiation, no `.txt`, no User-Agent detection, `GET` and `HEAD` only.
+
+**Deriving the fields (no invented history).** An item is listed only when the primary resource has its own public page (the permalink) and a creation time. Published is that creation time; Updated is the last-modified time or, when there is none, the creation time. Items are ordered by Published, newest first, with the item id as the tie-break. A resource without a per-item public page or without a creation time contributes no entries: the feed stays valid with zero entries, and no timestamp, order or permalink is ever made up.
 
 **Entry fields:**
 
@@ -28280,7 +28213,7 @@ message := cfg.Privacy.GetConsentMessage()
 | **Render** | The server renders the banner only when the request has no valid `cookie_consent` cookie — no `display: none`, no reveal script |
 | **POST `/server/consent`** | Reads `choice` (`accept` / `decline` / `save` from the Manage Preferences dialog — the banner's own route; the `/server/preferences` page saves consent through `POST /server/preferences`, rule 17), sets the `cookie_consent` cookie (JSON: granular categories + timestamp), redirects back to the originating page |
 | **Later requests** | Server reads `cookie_consent` to skip the banner and to decide tracking injection (`CheckTrackingAllowed`) |
-| **CCPA** | POST `/server/ccpa` sets/clears the `ccpa_opt_out` cookie and redirects back |
+| **CCPA** | POST `/server/ccpa` (the privacy page's own opt-out form; `/server/preferences` saves the same cookie through `POST /server/preferences`, rule 17) sets/clears the `ccpa_opt_out` cookie with the rule 8 attributes and redirects back (`303`). Web-only: no API mirror, never exported |
 
 **Progressive enhancement (consent module in `static/js/app.js` — ONE JS file, referenced via `<script src>`, never inline):**
 
@@ -28686,7 +28619,7 @@ func trackingScript(r *http.Request) template.HTML {
 
 **Polish standard (what "uniform and professional" means, all measurable):** spacing only from the `--space-*` tokens and corners from `--radius`; one type scale; prose lines at most `70ch`; the same card padding, border and radius everywhere; destructive actions visually separate from safe ones and always behind a confirmation popover; sentence-case labels without trailing punctuation; the same word for the same thing on every page ("token", "revoke", "sync"); no layout shift on load; visible focus rings; contrast from the token pairs only; phone, tablet and desktop layouts defined per page type (one column on phones, content never wider than its container modifier).
 
-**Page conformance test (required, runs in CI).** For every registered page (see below) and every error page the test renders the HTML and asserts: exactly one `<main>` and one `<h1>`; the skip links come first; no inline `style` attribute, `<style>` or `<script>` body, and no `on*` attribute; every `<img>` has `alt`; every form control has a label; every `POST` form carries `csrf_token`; every `<table>` has a `<thead>` and sits in `.table-wrapper`; every internal link resolves; the header contains only the elements allowed by "Header and Navigation Conformance"; a sub-page has exactly one breadcrumb link to its hub and a hub has none.
+**Page conformance test (required, runs in CI).** For every registered page (see below) and every error page the test renders the HTML and asserts: exactly one `<main>` and one `<h1>`; the skip links come first; no inline `style` attribute, no `<style>` element, no executable `<script>` body (the one exception is the `<script type="application/ld+json">` structured-data block, which is data and is never executed), and no `on*` attribute; every `<img>` has `alt`; every form control has a label; every `POST` form carries `csrf_token`; every `<table>` has a `<thead>` and sits in `.table-wrapper`; every internal link resolves; the header contains only the elements allowed by "Header and Navigation Conformance"; a sub-page has exactly one breadcrumb link to its hub and a hub has none.
 
 ### Preferences and Help Hubs (page registry)
 
@@ -28719,7 +28652,7 @@ func trackingScript(r *http.Request) template.HTML {
 |------|--------|
 | **Complete** | The hub links every registered page of its tree, exactly once, in `order`. `/server/help` links `/server/help/mcp` and every other registered help page; `/server/preferences` links `/server/preferences/tokens`, `/server/preferences/sync` and every project page |
 | **Registry is the source** | The same registry drives the hub, the sitemap exclusions, the footer links (Help, Preferences point at the hubs) and the `pages` list in the help JSON. Nothing else lists these pages |
-| **Action routes are not pages** | Routes that only change state (`POST /server/preferences/token/reveal`, `GET /server/preferences/sync/import`, the retired export and import paths, which answer `404` like any unknown route) are not registered and never linked |
+| **Action routes are not pages** | Routes that only change state (`POST /server/preferences/token/reveal`, `GET /server/preferences/sync/import`) are registered as routes but are not pages: they are not in the page registry and are never linked from navigation (the import link is a shared URL that a visitor opens). Only the retired standalone export and import pages answer `404` like any unknown route |
 | **Project pages** | A project adds pages as further direct children (`/server/preferences/engines`, `/server/preferences/bangs`, `/server/help/engines`, `/server/help/bangs`), declared in IDEA.md `## Business logic` → `### Product scope & non-goals` with path, title, one-line description and the data the page edits or explains. They follow the page shell, the component standard and the conformance test; they never appear as new rows in this specification |
 | **Depth** | One level below the hub; no page has children of its own. A page that needs sections uses cards and anchors |
 | **Test** | The conformance test enumerates the registry: every entry answers `200` as HTML, appears once on its hub, and, for help pages, in the help JSON; every `/server/preferences/*` and `/server/help/*` route is either registered or an action route |
@@ -28742,7 +28675,7 @@ These rules tighten "Header Layout" above. A header that breaks one of them is a
 
 | No. | Rule |
 |-----|------|
-| 1 | **Allowed elements, in this order, and nothing else:** the brand link, `<nav class="nav-links">`, the hamburger label (below the desktop breakpoint), then `.header-actions` containing exactly the preferences link (or the owner dropdown) and the theme-toggle form. No language selector, no search box (a project's search lives in `<main>`), no install button, no sign-in or sign-up buttons, no sponsor or social icons, no second preferences link for mobile |
+| 1 | **Allowed elements, in this order, and nothing else:** the brand link, `<nav class="nav-links">`, the hamburger label (below the desktop breakpoint), then `.header-actions` containing exactly the preferences link (or the owner dropdown) and the theme-toggle form. No language selector, no search box (a project's search lives in `<main>`), no install button, no sign-in or sign-up buttons, no sponsor or social icons, no second preferences link for mobile. This list is the content of `<header>`: the `nav-toggle` checkbox, the drawer panel and the scrim are not header elements but siblings of `<header>` in `<body>` (as in the example), and the `~` selectors need only those three to share that parent |
 | 2 | **Nav is application sections only:** Home plus the project's own sections, labels of one or two words, plain `<a>` elements, no dropdowns. About, Help, Privacy, Terms, Preferences and API or documentation links belong to the footer; the Contact form is linked nowhere (see "/server/contact" → "Who can reach the form"). The current page carries `aria-current="page"` and `.active`. A project with many sections groups them behind a landing page instead of growing the bar |
 | 3 | **Mobile:** one hamburger (checkbox plus label, no JavaScript) opens the drawer; the preferences link and the theme toggle stay in the bar and never move into the drawer; the drawer holds exactly the nav links |
 | 4 | **No JavaScript required:** the theme toggle is a form `POST` whose target is the server-computed next mode; no `<noscript>` copy of a control; option and button labels come from the value enum (`dark`, `light`, `auto` → their translated names), never by position |
@@ -29201,7 +29134,7 @@ Language is detected automatically and changed in Preferences. It is never a hea
 
 | Request | What the page renders |
 |---------|-----------------------|
-| `GET /server/contact` (no `type`) | The purpose notice, then a CHOOSER: one plain link per offered type to `/server/contact?type={type}` (`abuse` "Report abuse", `dmca` "Send a DMCA notice", `privacy` "Make a privacy request"; `security` only in security mode). No form fields. Below it, one line: "To report a security vulnerability, see `/server/security`". It works without JavaScript |
+| `GET /server/contact` (no `type`) | The purpose notice, then a CHOOSER: one plain link per offered type to `/server/contact?type={type}` (`abuse` "Report abuse", `dmca` "Send a DMCA notice", `privacy` "Make a privacy request"; `security` only in security mode). No form fields. Below it, the two informational sections defined under "Above the form" (Security Issues and Abuse Reports). It works without JavaScript |
 | `GET /server/contact?type={type}` | The purpose notice and ONE form for that type. The type is shown as the page heading and posted as a hidden `type` field; there is no Type dropdown on the web form. An unknown or not-offered `type` renders the chooser |
 | `POST /server/contact` | Validated against that type's field set. A field that is not in the set is an unknown field and fails layer 1; a required field that is missing fails `VALIDATION_FAILED` on that field |
 
@@ -29511,7 +29444,7 @@ curl -H "Accept: application/xml" https://jokes.example.com/api/v1/joke</code></
 | `#overview` | What this is | One short paragraph: this application is an MCP server over Streamable HTTP (remote only); every API operation the project defines, authenticated create, read, update and delete included, is available to an assistant as a tool; every request carries a token, and the token decides which ones it sees |
 | `#endpoint` | Endpoint | The full MCP URL resolved for this request (PART 8 → "Resolution Order", never hardcoded) with the two aliases (`/api/mcp`, `/mcp`) and a copy control; the URL text uses CSS `user-select: all` so it works without JS |
 | `#authentication` | Authentication | Requests authenticate with `Authorization: Bearer {token}` — the same tokens as the REST API, no MCP-specific token. A token is required for every MCP request and there is no anonymous MCP access (the REST API itself works without one). Use a **linked token** created for this client on `/server/preferences/tokens` (named for the client, revocable alone). Never the primary token and never the operator token (`server.token`). |
-| `#connect` | Connect a client | Copy-paste snippets using the resolved URL and the project name: a Claude Code command (`claude mcp add --transport http {project_name} {url} --header "Authorization: Bearer $MCP_TOKEN"`), a generic JSON client config (`mcpServers` with `type`, `url`, `headers`), and a `curl` `initialize` request that verifies the connection. The token is the only value the page cannot know, so it appears as the shell variable `$MCP_TOKEN` — no other placeholders |
+| `#connect` | Connect a client | Copy-paste snippets using the resolved URL and the project name: a Claude Code command (`claude mcp add --transport http {project_name} {url} --header "Authorization: Bearer $MCP_TOKEN"`), a generic JSON client config (`mcpServers` with `type`, `url`, `headers`), and a `curl` `tools/list` request that verifies the connection (the endpoint has no `initialize` handshake: the request carries the Bearer token, `MCP-Protocol-Version: 2026-07-28` and `Mcp-Method: tools/list`, built exactly as "MCP Endpoint" defines). The token is the only value the page cannot know, so it appears as the shell variable `$MCP_TOKEN` — no other placeholders |
 | `#tools` | Tools | The live tool list a standard, non-operator token sees (name and description from the same registry that backs `tools/list`) — never hand-written. When the operator token sees more tools, say so |
 | `#limits` | Behavior and limits | `POST` only; no sessions; the same rate limits and audit as the API; `Origin` validated; the supported MCP protocol versions |
 | `#troubleshooting` | Troubleshooting | A table of `400` (protocol-version or header mismatch), `401` (missing, invalid or expired token — `WWW-Authenticate: Bearer`), `403` (bad `Origin` or insufficient scope), `405` (GET or DELETE; the endpoint is POST-only) with the fix for each |
@@ -29755,6 +29688,8 @@ Email templates allow operators to customize ALL notification messages (system a
 
 ### SMTP Config
 
+The short names used in prose (`smtp.host`, `smtp.tls`, `from.name`, ...) are these keys under `server.notifications.email`; the full path is always the canonical one.
+
 ```yaml
 server:
   notifications:
@@ -29780,13 +29715,13 @@ server:
 
 | Env Var | Config Path | Default |
 |---------|-------------|---------|
-| `SMTP_HOST` | `smtp.host` | (autodetect) |
-| `SMTP_PORT` | `smtp.port` | 587 |
-| `SMTP_USERNAME` | `smtp.username` | (none) |
-| `SMTP_PASSWORD` | `smtp.password` | (none) |
-| `SMTP_TLS` | `smtp.tls` | auto |
-| `SMTP_FROM_NAME` | `from.name` | (app title) |
-| `SMTP_FROM_EMAIL` | `from.email` | no-reply@{fqdn} |
+| `SMTP_HOST` | `server.notifications.email.smtp.host` | (autodetect) |
+| `SMTP_PORT` | `server.notifications.email.smtp.port` | 587 |
+| `SMTP_USERNAME` | `server.notifications.email.smtp.username` | (none) |
+| `SMTP_PASSWORD` | `server.notifications.email.smtp.password` | (none) |
+| `SMTP_TLS` | `server.notifications.email.smtp.tls` | auto |
+| `SMTP_FROM_NAME` | `server.notifications.email.from.name` | (app title) |
+| `SMTP_FROM_EMAIL` | `server.notifications.email.from.email` | no-reply@{fqdn} |
 
 ### SMTP TLS Verification
 
@@ -29832,7 +29767,8 @@ server:
 | Rule | Description |
 |------|-------------|
 | **No SMTP configured** | Email functionality completely disabled |
-| **SMTP configured but invalid** | Validate on save, reject invalid config |
+| **SMTP configured but malformed** | A malformed value (a port that is not a number, an unknown `tls` mode) follows "Invalid → default" (PART 12): one WARN, the default is used, nothing is rejected |
+| **SMTP configured but unreachable** | The handshake fails: email is disabled with one WARN, the setting is kept, and the connection is retried at the next startup and on every reload. Neither a save nor startup ever fails |
 | **SMTP configured and working** | Email functionality enabled |
 
 **Behavior When No SMTP:**
@@ -32515,7 +32451,7 @@ groups:
 
 | Data | Notes |
 |------|-------|
-| Config key-value pairs | All runtime configuration |
+| Resource state | Owners, tokens (hashes and encrypted copies) and the project's own data. Configuration is NOT in the database: it lives in the config files listed above |
 | Rate limit counters | Sliding window state |
 | Audit log entries | Config changes, security events |
 | Scheduler task definitions | Scheduled task state |
@@ -32628,16 +32564,16 @@ When `server.compliance.enabled: true`:
 **CLI Backup with Encryption:**
 
 ```bash
-# If encryption password set during setup:
+# With server.backup.encryption_password set, the backup is encrypted with it and nothing is asked:
 {project_name} --maintenance backup
-# Prompts for password, creates encrypted backup
+# Creates the encrypted backup
 
 # Restore encrypted backup:
 {project_name} --maintenance restore backup.tar.gz.enc
 # Prompts for password
 ```
 
-**Note:** When encryption is enabled the CLI prompts for the password interactively — there is no password flag (passwords on the command line leak via shell history and process lists).
+**Note:** A backup never prompts: it encrypts with the configured `server.backup.encryption_password` when one is set, and is unencrypted (with the warning below) when none is set; with compliance enabled and no password set the backup is refused with a message naming the setting. Only restore and `backup test` of an encrypted backup prompt for the password interactively. There is no password flag (passwords on the command line leak via shell history and process lists).
 
 **Warning Shown if Encryption Not Enabled:**
 
@@ -33149,7 +33085,7 @@ server:
 
 ## Self-Update Implementation
 
-**Self-update is platform-specific because Windows cannot replace a running executable.**
+**Self-update is platform-specific because Windows cannot overwrite or delete a running executable (it can rename one).**
 
 ### Update Flow
 
@@ -33250,7 +33186,7 @@ import (
 )
 
 // replaceBinary replaces the running binary (Windows)
-// Windows cannot delete/rename a running executable, so we:
+// Windows cannot overwrite or delete a running executable, but it CAN rename it, so we:
 // 1. Rename current binary to .old
 // 2. Move new binary to current path
 // 3. Schedule .old for deletion on reboot (or delete after restart)
@@ -33763,9 +33699,10 @@ Sequence). `--service --install` runs the same user/group and directory routine 
 |-------|-------------|---------------|
 | 1 | systemd | `/run/systemd/system` exists (systemd is PID 1) |
 | 2 | OpenRC | `/sbin/openrc-run` exists AND `/run/openrc` exists (OpenRC is running; true in an Alpine Incus container) |
-| 3 | runit / s6 | `/etc/runit` or `sv` on `PATH` / `s6-svc` on `PATH` |
-| 4 | SysVinit | none of the above, `/etc/init.d/` exists, and `update-rc.d` or `chkconfig` works |
-| 5 | rc.d (BSD), launchd, Windows Service | by platform |
+| 3 | runit | `/etc/runit` exists or `sv` is on `PATH` |
+| 4 | s6 | `s6-svc` is on `PATH` and an `s6-svscan` process is running |
+| 5 | SysVinit | none of the above, `/etc/init.d/` exists, and `update-rc.d` or `chkconfig` works |
+| 6 | rc.d (BSD), launchd, Windows Service | by platform |
 
 An OpenRC host is NEVER treated as SysVinit: both use `/etc/init.d/{internal_name}`, and the OpenRC script (`#!/sbin/openrc-run`) is not a SysV script. A system container (Incus/LXC) that runs systemd or OpenRC as its init is a normal host for service installation; "container" is only for application containers (Docker, Podman, Kubernetes).
 
@@ -34539,6 +34476,39 @@ exec /usr/local/bin/{project_name} 2>&1
 exec svlogd -tt /var/log/{internal_org}/{internal_name}
 ```
 
+### s6 (Linux)
+
+**Installation path:** `/etc/s6/sv/{internal_name}/` (the service definition). It is enabled by linking it into the scan directory of the running `s6-svscan`, which is read from that process's command line (`/proc/{pid}/cmdline`; `/run/service` when it cannot be read). `{scandir}` below is that directory.
+
+```
+/etc/s6/sv/{internal_name}/
+├── run           # Main service script
+└── log/
+    └── run       # Logging script
+```
+
+**run script:**
+```bash
+#!/bin/sh
+exec /usr/local/bin/{project_name} 2>&1
+```
+
+**log/run script:**
+```bash
+#!/bin/sh
+exec s6-log n10 s1000000 /var/log/{internal_org}/{internal_name}
+```
+
+| Action | Commands |
+|--------|----------|
+| Install and enable | write the directory, `ln -s /etc/s6/sv/{internal_name} {scandir}/{internal_name}`, then `s6-svscanctl -a {scandir}` |
+| Start / stop / restart | `s6-svc -u` / `-d` / `-r {scandir}/{internal_name}` |
+| Status | `s6-svstat {scandir}/{internal_name}` |
+| Disable | `s6-svc -d {scandir}/{internal_name}`, remove the link, `s6-svscanctl -a {scandir}` |
+| Uninstall | disable, then remove `/etc/s6/sv/{internal_name}` |
+
+The `run` script ends in `exec`, so the server itself is the supervised process, and the restart after exit `75` works because s6 restarts any exit.
+
 ### rc.d (FreeBSD)
 
 **Installation path:** `/usr/local/etc/rc.d/{internal_name}`
@@ -34921,7 +34891,7 @@ build: clean
 
 	# Build for local OS/ARCH
 	@echo "Building local binary..."
-	@$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
+	@$(GO_DOCKER) sh -c "GOOS=\$$(go env GOOS) GOARCH=\$$(go env GOARCH) \
 		go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECT_NAME) ./src"
 
 	# Build server for all platforms (PLATFORMS is comma-separated; split for the loop)
@@ -34967,13 +34937,13 @@ local: clean
 
 	# Build server binary
 	@echo "Building $(PROJECT_NAME)..."
-	@$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
+	@$(GO_DOCKER) sh -c "GOOS=\$$(go env GOOS) GOARCH=\$$(go env GOARCH) \
 		go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECT_NAME) ./src"
 
 	# Build CLI binary (if exists)
 	@if [ -d "src/client" ]; then \
 		echo "Building $(PROJECT_NAME)-cli..."; \
-		$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
+		$(GO_DOCKER) sh -c "GOOS=\$$(go env GOOS) GOARCH=\$$(go env GOARCH) \
 			go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECT_NAME)-cli ./src/client"; \
 	fi
 
@@ -41543,14 +41513,15 @@ echo "Incus tests completed successfully ($MODES)"
 
 **Every mode runs the same steps, in this order:** init identity (PID 1, and no foreign init) → `--service --install` (file exists, enabled, active, health answers) → `--service restart` (new PID) → `--service stop` (stopped, port closed) → `--service start` → API, project-specific, rename and client tests → Tor tests → I2P tests → `incus restart` of the container (service still enabled and back by itself, health answers) → `--service --disable` (not enabled, not active, file kept) → `--service --install` again → `--service --uninstall` (file removed, not enabled, not active, data removed).
 
-**Tor and I2P are tested with both installed, and both are enabled in every container test.** `tests/docker.sh` runs the image as shipped, so I2P is on by default there: `features.i2p.enabled` is `true`, and within `I2P_WAIT` seconds `features.i2p.status` is `healthy` with a `.b32.i2p` hostname and `checks.i2p` is `ok`. On a bare host or VM (`tests/incus.sh`) I2P is opt-in, so that script checks the default (off) first and then enables it through a drop-in. The script installs `tor` and `i2pd` in the container (`apt-get install tor i2pd` on Debian, `apk add tor i2pd` on Alpine) and disables the distro's own `tor` and `i2pd` services, because the server runs its own dedicated, isolated instances (PART 31):
+**Tor and I2P are tested with both installed, and both end up enabled in every test.** `tests/docker.sh` runs the image as shipped (an application container), so I2P is on by default there: `features.i2p.enabled` is `true`, and within `I2P_WAIT` seconds `features.i2p.status` is `healthy` with a `.b32.i2p` hostname and `checks.i2p` is `ok`. An Incus container is a system container that runs its own init, so it counts as a host (PART 23 → "Init system detection") and I2P is opt-in there: `tests/incus.sh` checks the default (off) first and then enables it through a drop-in. The script installs `tor` and `i2pd` in the container (`apt-get install tor i2pd` on Debian, `apk add tor i2pd` on Alpine) and disables the distro's own `tor` and `i2pd` services, because the server runs its own dedicated, isolated instances (PART 31):
 
 | Test | Expected |
 |------|----------|
 | Tor with the binary present | `features.tor.enabled: true`; `status` is one of the four contract words; within `TOR_WAIT` seconds (default 300) it becomes `healthy` with a v3 `.onion` hostname, `checks.tor: ok`, a persisted `hostname` file, and mode `0700` on the config, data and `site` directories |
 | Tor with the binary removed | `enabled: false`, `status: disabled`, empty hostname, NO `checks.tor` key (never `error`, never `unavailable`) |
-| I2P in a container with no explicit setting | `enabled: true`, `provider: i2pd`, `status` is one of the contract words |
-| I2P default ON, once bootstrapped | `enabled: true`, `provider: i2pd`; within `I2P_WAIT` seconds (default 600) it becomes `healthy` with a `.b32.i2p` hostname, `checks.i2p: ok` and a persisted destination key |
+| I2P in an application container with no explicit setting (`tests/docker.sh`) | `enabled: true`, `provider: i2pd`, `status` is one of the contract words |
+| I2P in an Incus system container with no explicit setting (`tests/incus.sh`) | `enabled: false`, `status: disabled`, no `checks.i2p` key |
+| I2P enabled (the shipped default in `tests/docker.sh`, the drop-in in `tests/incus.sh`), once bootstrapped | `enabled: true`, `provider: i2pd`; within `I2P_WAIT` seconds (default 600) it becomes `healthy` with a `.b32.i2p` hostname, `checks.i2p: ok` and a persisted destination key |
 | I2P opted out through a `yaml.d/50-i2p.yml` drop-in (`enabled: false`) | `enabled: false`, `status: disabled`, no `checks.i2p` key |
 | I2P default ON, `i2pd` removed | `enabled: false`, `status: disabled`, `provider: none`, no `checks.i2p` key |
 | Any state | the health response never contains a filesystem path |
@@ -41567,7 +41538,7 @@ set -eo pipefail
 
 # Detect available container runtime and run appropriate test
 if command -v incus &>/dev/null; then
-    echo "Incus detected - running full systemd tests..."
+    echo "Incus detected - running the full systemd and OpenRC tests..."
     exec "$(dirname "$0")/incus.sh"
 elif command -v docker &>/dev/null; then
     echo "Docker detected - running container tests..."
@@ -45418,12 +45389,17 @@ func NewTorManager(ctx context.Context, config *TorConfig) *TorManager {
     }
 }
 
-// Start initializes Tor if binary is found
-// Hidden service is ALWAYS enabled if Tor binary exists
+// Start returns at once. Tor bootstrap can take minutes, so the start runs in its own goroutine and never delays the HTTP listener (PART 8, steps 17a/17b); a failure is one WARN and never fatal.
+// The hidden service is ALWAYS enabled when the Tor binary exists.
 func (tm *TorManager) Start() error {
-    tm.mu.Lock()
-    defer tm.mu.Unlock()
-    return tm.startLocked()
+    go func() {
+        tm.mu.Lock()
+        defer tm.mu.Unlock()
+        if err := tm.startLocked(); err != nil {
+            log.Printf("WARN: Tor not started: %v", err)
+        }
+    }()
+    return nil
 }
 
 // startLocked starts Tor (must be called with mutex held)
@@ -45570,6 +45546,8 @@ func main() {
     // Uses TorConfig struct with all settings
     torConfig := config.Tor
 
+    // Shown inline for brevity: in the server this call runs inside the manager's Start, which
+    // returns at once and runs the provider start in its own goroutine (PART 8, steps 17a/17b).
     // Start Tor. startDedicatedTor resolves the tor binary first; if none is found
     // it returns an error and NO backend port is allocated (Tor stays disabled).
     // When Tor is available it allocates a dedicated PROXY-protocol loopback port
@@ -46085,7 +46063,7 @@ enabled = false
 enabled = false
 ```
 
-`notransit = true` and `floodfill = false` keep the router a pure client (no relay or floodfill duty, as already required above). Launch: `i2pd --conf {config_dir}/i2p/i2pd.conf --tunconf {config_dir}/i2p/tunnels.conf --tunnelsdir {config_dir}/i2p/tunnels.d --datadir {data_dir}/i2p --pidfile {data_dir}/i2p/i2pd.pid`. Option names are validated against the installed i2pd in the startup self-test (below).
+`notransit = true` and `floodfill = false` keep the router a pure client (no relay or floodfill duty, as already required above). Launch: `i2pd --conf {config_dir}/i2p/i2pd.conf --tunconf {config_dir}/i2p/tunnels.conf --tunnelsdir {config_dir}/i2p/tunnels.d --datadir {data_dir}/i2p --pidfile {data_dir}/i2p/i2pd.pid`. Option names are not probed ahead of time: i2pd logs an option it does not know and ignores it, and the check that matters is step 2 of the startup sequence below (the SAM port answers `HELLO`).
 
 **Startup sequence (each step bounded; any failure = WARN + I2P disabled, server keeps running):**
 
@@ -46745,11 +46723,16 @@ func NewI2PManager(ctx context.Context, config *I2PConfig) *I2PManager {
     }
 }
 
-// Start initializes the eepsite if I2P is enabled and a provider is available.
+// Start returns at once. The provider start can wait the full bootstrap_timeout, so it runs in its own goroutine and never delays the HTTP listener (PART 8, steps 17a/17b); a failure is one WARN and never fatal.
 func (im *I2PManager) Start() error {
-    im.mu.Lock()
-    defer im.mu.Unlock()
-    return im.startLocked()
+    go func() {
+        im.mu.Lock()
+        defer im.mu.Unlock()
+        if err := im.startLocked(); err != nil {
+            log.Printf("WARN: I2P not started: %v", err)
+        }
+    }()
+    return nil
 }
 
 func (im *I2PManager) startLocked() error {
@@ -46832,6 +46815,8 @@ func main() {
 
     i2pConfig := config.I2P
 
+    // Shown inline for brevity: in the server this call runs inside the manager's Start, which
+    // returns at once and runs the provider start in its own goroutine (PART 8, steps 17a/17b).
     // Start I2P. startDedicatedI2P returns early (no port, no config) when I2P is
     // disabled or no provider is available. Disabled is silent; a missing provider is
     // ONE WARN; neither is fatal.
@@ -51359,7 +51344,7 @@ make docker
 - [ ] External stylesheets only
 - [ ] CSS variables for theme colors
 - [ ] Same color scheme across all UIs
-- [ ] `theme-dark` / `theme-light` classes on `<html>`
+- [ ] exactly one of `theme-dark` / `theme-light` / `theme-auto` on `<html>`
 
 ### Accessibility (WCAG 2.1 AA)
 
