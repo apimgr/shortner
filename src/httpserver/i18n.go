@@ -24,15 +24,13 @@ func (d *deps) languageMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg := d.i18n
 		lang := cfg.Language()
-		if cfg.Enabled {
-			if chosen := i18n.QueryLang(r); chosen != "" && allowedLanguage(cfg, chosen) {
-				i18n.SetLanguageCookie(w, r, cfg.Cookie(), chosen, cfg.MaxAgeSeconds())
-				lang = chosen
-			} else {
-				detected := i18n.LangFromRequest(r, cfg.Cookie(), cfg.DefaultLanguage)
-				if allowedLanguage(cfg, detected) {
-					lang = detected
-				}
+		if chosen := i18n.QueryLang(r); chosen != "" && allowedLanguage(cfg, chosen) {
+			i18n.SetLanguageCookie(w, r, i18n.CookieName, chosen, i18n.CookieMaxAge)
+			lang = chosen
+		} else {
+			detected := i18n.LangFromRequest(r, i18n.CookieName, cfg.DefaultLanguage)
+			if allowedLanguage(cfg, detected) {
+				lang = detected
 			}
 		}
 		w.Header().Set("Content-Language", lang)

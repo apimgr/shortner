@@ -198,7 +198,7 @@ test:
 		go test -p 1 -v -cover -coverprofile=\$$COVDIR/coverage.out ./... && \
 		COVERAGE=\$$(go tool cover -func=\$$COVDIR/coverage.out | grep total | awk '{print \$$3}' | sed 's/%//') && \
 		echo \"Coverage: \$$COVERAGE%\" && \
-		if [ \$$(echo \"\$$COVERAGE < 60\" | bc -l) -eq 1 ]; then \
+		if ! awk -v coverage="\$$COVERAGE" 'BEGIN { exit !(coverage + 0 >= 60) }'; then \
 			echo \"ERROR: Coverage is \$$COVERAGE%, must be >= 60%\"; exit 1; \
 		fi && \
 		echo \"Tests complete - Coverage: \$$COVERAGE% (>= 60% required)\""

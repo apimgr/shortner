@@ -6,8 +6,7 @@ import (
 	"strings"
 )
 
-// CookieName is AI.md PART 30's default language cookie name; the operator
-// can override it via server.i18n.cookie_name.
+// CookieName is the fixed language cookie name from AI.md PART 16 and PART 30.
 const CookieName = "lang"
 
 // CookieMaxAge is the default lifetime of the language cookie (one year in

@@ -14,6 +14,7 @@ require (
 	github.com/gogpu/gg v0.52.7
 	github.com/gogpu/gogpu v0.54.1
 	github.com/gogpu/ui v0.1.55
+	github.com/gofrs/flock v0.13.1
 	github.com/google/uuid v1.6.0
 	github.com/graphql-go/graphql v0.8.1
 	github.com/microcosm-cc/bluemonday v1.0.27
@@ -133,7 +134,6 @@ require (
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
-	github.com/gofrs/flock v0.13.1 // indirect
 	github.com/gofrs/uuid v4.4.0+incompatible // indirect
 	github.com/gofrs/uuid/v5 v5.5.1 // indirect
 	github.com/gogpu/gpucontext v0.31.3 // indirect

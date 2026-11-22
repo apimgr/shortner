@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/apimgr/shortner/src/pgp"
 	"github.com/apimgr/shortner/src/security"
 )
 
@@ -179,14 +178,20 @@ func ReencryptStoredData(ctx context.Context, sqlDB Handle, oldKey, newKey []byt
 				return HandleQueryError(err)
 			}
 		}
-		rows, err = tx.QueryContext(ctx, `SELECT tracking_id,sealed FROM security_reports`)
+		rows, err = tx.QueryContext(ctx, `SELECT tracking_id,body_enc,body_alg,contact_enc FROM security_reports`)
 		if err != nil {
 			return HandleQueryError(err)
 		}
-		var reports []struct{ id, value string }
+		var reports []struct {
+			id, algorithm string
+			body, contact []byte
+		}
 		for rows.Next() {
-			var row struct{ id, value string }
-			if err := rows.Scan(&row.id, &row.value); err != nil {
+			var row struct {
+				id, algorithm string
+				body, contact []byte
+			}
+			if err := rows.Scan(&row.id, &row.body, &row.algorithm, &row.contact); err != nil {
 				rows.Close()
 				return err
 			}
@@ -196,21 +201,31 @@ func ReencryptStoredData(ctx context.Context, sqlDB Handle, oldKey, newKey []byt
 			return err
 		}
 		for _, row := range reports {
-			// PGP-encrypted report bodies are independent of the AES key and
-			// remain untouched during encryption_key rotation (AI.md PART 11).
-			if pgp.IsArmoredMessage(row.value) {
-				continue
+			if row.algorithm == "aes-256-gcm" && len(row.body) != 0 {
+				plain, err := security.Open(oldKey, string(row.body))
+				if err != nil {
+					return fmt.Errorf("db: decrypt security report: %w", err)
+				}
+				sealed, err := security.Seal(newKey, plain)
+				if err != nil {
+					return err
+				}
+				if _, err = tx.ExecContext(ctx, `UPDATE security_reports SET body_enc=? WHERE tracking_id=?`, []byte(sealed), row.id); err != nil {
+					return HandleQueryError(err)
+				}
 			}
-			plain, err := security.Open(oldKey, row.value)
-			if err != nil {
-				return fmt.Errorf("db: decrypt security report: %w", err)
-			}
-			sealed, err := security.Seal(newKey, plain)
-			if err != nil {
-				return err
-			}
-			if _, err = tx.ExecContext(ctx, `UPDATE security_reports SET sealed=? WHERE tracking_id=?`, sealed, row.id); err != nil {
-				return HandleQueryError(err)
+			if len(row.contact) != 0 {
+				plain, err := security.Open(oldKey, string(row.contact))
+				if err != nil {
+					return fmt.Errorf("db: decrypt security report contact: %w", err)
+				}
+				sealed, err := security.Seal(newKey, plain)
+				if err != nil {
+					return err
+				}
+				if _, err = tx.ExecContext(ctx, `UPDATE security_reports SET contact_enc=? WHERE tracking_id=?`, []byte(sealed), row.id); err != nil {
+					return HandleQueryError(err)
+				}
 			}
 		}
 		return nil

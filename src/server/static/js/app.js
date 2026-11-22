@@ -498,19 +498,5 @@
       successCopy.focus({ preventScroll: true });
     }
 
-    // The language selector is a plain GET form and already works without
-    // JavaScript via its submit button. With JavaScript, changing the
-    // selection submits immediately and the button is hidden as redundant.
-    var langForm = document.querySelector('[data-action="lang-form"]');
-    if (langForm) {
-      var langSelect = langForm.querySelector("select[name=\"lang\"]");
-      var langButton = langForm.querySelector("button[type=\"submit\"]");
-      if (langSelect && langButton) {
-        langButton.hidden = true;
-        langSelect.addEventListener("change", function () {
-          langForm.submit();
-        });
-      }
-    }
   });
 })();

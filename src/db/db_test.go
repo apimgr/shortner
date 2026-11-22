@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/apimgr/shortner/src/pgp"
+	"github.com/apimgr/shortner/src/security"
 )
 
 func openTestDB(t *testing.T) *Store {
@@ -74,6 +77,200 @@ func TestEnsureSchemaIdempotent(t *testing.T) {
 	sqlDB := openTestDB(t)
 	if err := EnsureSchema(context.Background(), sqlDB); err != nil {
 		t.Errorf("second EnsureSchema() error = %v", err)
+	}
+}
+
+func TestEnsureSchemaMigratesLegacySecurityReportBodies(t *testing.T) {
+	sqlDB, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+	_, err = sqlDB.Exec(`CREATE TABLE security_reports (
+		tracking_id TEXT PRIMARY KEY,
+		received_at INTEGER NOT NULL,
+		severity TEXT NOT NULL,
+		component TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'received',
+		sealed TEXT NOT NULL
+	)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPGP := "-----BEGIN PGP MESSAGE-----\nlegacy ciphertext\n-----END PGP MESSAGE-----"
+	if _, err := sqlDB.Exec(`INSERT INTO security_reports (tracking_id, received_at, severity, component, sealed) VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)`,
+		"sec_aaaaaaaaaaaaaaaa", 1, "high", "api", legacyPGP,
+		"sec_bbbbbbbbbbbbbbbb", 2, "low", "api", "legacy-aes-ciphertext"); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureSchema(context.Background(), sqlDB); err != nil {
+		t.Fatalf("EnsureSchema() error = %v", err)
+	}
+	for _, want := range []struct{ id, body, algorithm string }{
+		{"sec_aaaaaaaaaaaaaaaa", legacyPGP, "pgp"},
+		{"sec_bbbbbbbbbbbbbbbb", "legacy-aes-ciphertext", "aes-256-gcm"},
+	} {
+		var body []byte
+		var algorithm string
+		if err := sqlDB.QueryRow(`SELECT body_enc, body_alg FROM security_reports WHERE tracking_id = ?`, want.id).Scan(&body, &algorithm); err != nil {
+			t.Fatal(err)
+		}
+		if string(body) != want.body || algorithm != want.algorithm {
+			t.Errorf("migrated report %s = (%q, %q), want (%q, %q)", want.id, body, algorithm, want.body, want.algorithm)
+		}
+	}
+	if columnExists(context.Background(), sqlDB, "security_reports", "sealed") {
+		t.Fatal("legacy sealed column remains after migration")
+	}
+}
+
+func TestReencryptStoredDataRekeysReportBodiesAndContacts(t *testing.T) {
+	sqlDB := openTestDB(t)
+	oldKey := make([]byte, 32)
+	newKey := make([]byte, 32)
+	newKey[0] = 1
+	body, err := security.Seal(oldKey, []byte("private report"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contact, err := security.Seal(oldKey, []byte(`{"email":"researcher@example.test"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pgpBody := "-----BEGIN PGP MESSAGE-----\nnot rekeyed\n-----END PGP MESSAGE-----"
+	for _, report := range []SecurityReport{
+		{TrackingID: "sec_aaaaaaaaaaaaaaaa", ReceivedAt: time.Now().UTC(), Severity: "high", Component: "api", BodyEnc: []byte(body), BodyAlg: "aes-256-gcm", ContactEnc: []byte(contact)},
+		{TrackingID: "sec_bbbbbbbbbbbbbbbb", ReceivedAt: time.Now().UTC(), Severity: "low", Component: "api", BodyEnc: []byte(pgpBody), BodyAlg: "pgp"},
+	} {
+		if err := InsertSecurityReport(context.Background(), sqlDB, report); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ReencryptStoredData(context.Background(), sqlDB, oldKey, newKey); err != nil {
+		t.Fatalf("ReencryptStoredData() error = %v", err)
+	}
+	updated, err := GetSecurityReport(context.Background(), sqlDB, "sec_aaaaaaaaaaaaaaaa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := security.Open(newKey, string(updated.BodyEnc)); err != nil || string(got) != "private report" {
+		t.Fatalf("rotated report body = (%q, %v)", got, err)
+	}
+	if got, err := security.Open(newKey, string(updated.ContactEnc)); err != nil || string(got) != `{"email":"researcher@example.test"}` {
+		t.Fatalf("rotated report contact = (%q, %v)", got, err)
+	}
+	updatedPGP, err := GetSecurityReport(context.Background(), sqlDB, "sec_bbbbbbbbbbbbbbbb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(updatedPGP.BodyEnc) != pgpBody {
+		t.Fatal("AES-key rotation changed a PGP-encrypted report body")
+	}
+}
+
+func TestDeleteClosedSecurityReportsBeforePreservesOpenReportsAndThanks(t *testing.T) {
+	sqlDB := openTestDB(t)
+	ctx := context.Background()
+	cutoff := time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC)
+	for _, report := range []SecurityReport{
+		{TrackingID: "sec_aaaaaaaaaaaaaaaa", ReceivedAt: cutoff.Add(-time.Hour), ClosedAt: cutoff.Add(-time.Hour), Severity: "high", Component: "api", Sealed: "old"},
+		{TrackingID: "sec_bbbbbbbbbbbbbbbb", ReceivedAt: cutoff.Add(-time.Hour), Severity: "high", Component: "api", Sealed: "open"},
+	} {
+		if err := InsertSecurityReport(ctx, sqlDB, report); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := sqlDB.Exec(`INSERT INTO security_thanks (tracking_id, credit, severity, disclosed_on) VALUES (?, ?, ?, ?)`, "sec_aaaaaaaaaaaaaaaa", "Researcher", "high", "2026-01-01"); err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := DeleteClosedSecurityReportsBefore(ctx, sqlDB, cutoff)
+	if err != nil || deleted != 1 {
+		t.Fatalf("DeleteClosedSecurityReportsBefore() = (%d, %v), want (1, nil)", deleted, err)
+	}
+	if _, err := GetSecurityReport(ctx, sqlDB, "sec_bbbbbbbbbbbbbbbb"); err != nil {
+		t.Fatalf("open report was deleted: %v", err)
+	}
+	var count int
+	if err := sqlDB.QueryRow(`SELECT COUNT(*) FROM security_thanks WHERE tracking_id = ?`, "sec_aaaaaaaaaaaaaaaa").Scan(&count); err != nil || count != 1 {
+		t.Fatalf("security_thanks count = (%d, %v), want (1, nil)", count, err)
+	}
+}
+
+func TestRotateSecurityReportPGPReencryptsAtomically(t *testing.T) {
+	sqlDB := openTestDB(t)
+	ctx := context.Background()
+	keyTime := time.Now().UTC().Add(-time.Minute)
+	oldKey, err := pgp.Generate("Shortner", "security@example.test", keyTime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newKey, err := pgp.Generate("Shortner", "security@example.test", keyTime.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPublic, err := oldKey.ArmorPublic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipients, err := pgp.ParsePublic(oldPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := pgp.EncryptArmored(recipients, []byte("report payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := SecurityReport{TrackingID: "sec_aaaaaaaaaaaaaaaa", ReceivedAt: time.Now().UTC(), Severity: "high", Component: "api", BodyEnc: []byte(sealed), BodyAlg: "pgp"}
+	if err := InsertSecurityReport(ctx, sqlDB, report); err != nil {
+		t.Fatal(err)
+	}
+	if err := RotateSecurityReportPGP(ctx, sqlDB, oldKey, newKey); err != nil {
+		t.Fatalf("RotateSecurityReportPGP() error = %v", err)
+	}
+	rotated, err := GetSecurityReport(ctx, sqlDB, report.TrackingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := pgp.DecryptArmored(newKey, string(rotated.BodyEnc))
+	if err != nil || string(plain) != "report payload" {
+		t.Fatalf("new key decrypt = (%q, %v)", plain, err)
+	}
+	latest, err := LatestPGPKey(ctx, sqlDB)
+	if err != nil {
+		t.Fatalf("new active key metadata missing: %v", err)
+	} else if latest.Fingerprint != newKey.Fingerprint {
+		t.Fatalf("latest key fingerprint = %q, want %q", latest.Fingerprint, newKey.Fingerprint)
+	}
+}
+
+func TestRotateSecurityReportPGPRollsBackOnUndecryptableReport(t *testing.T) {
+	sqlDB := openTestDB(t)
+	ctx := context.Background()
+	keyTime := time.Now().UTC().Add(-time.Minute)
+	oldKey, err := pgp.Generate("Shortner", "security@example.test", keyTime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newKey, err := pgp.Generate("Shortner", "security@example.test", keyTime.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := SecurityReport{TrackingID: "sec_aaaaaaaaaaaaaaaa", ReceivedAt: time.Now().UTC(), Severity: "high", Component: "api", BodyEnc: []byte("not a PGP message"), BodyAlg: "pgp"}
+	if err := InsertSecurityReport(ctx, sqlDB, report); err != nil {
+		t.Fatal(err)
+	}
+	if err := RotateSecurityReportPGP(ctx, sqlDB, oldKey, newKey); err == nil {
+		t.Fatal("RotateSecurityReportPGP() accepted an undecryptable report")
+	}
+	unchanged, err := GetSecurityReport(ctx, sqlDB, report.TrackingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(unchanged.BodyEnc) != "not a PGP message" {
+		t.Fatal("failed PGP rotation changed the report body")
+	}
+	if _, err := LatestPGPKey(ctx, sqlDB); err != ErrNotFound {
+		t.Fatalf("failed rotation wrote key metadata: %v", err)
 	}
 }
 

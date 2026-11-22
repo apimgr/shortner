@@ -51,14 +51,17 @@ func TestNotifySecurityReportSendsOneMaintainerNoticeAndMinimalAcknowledgment(t 
 		configDir: t.TempDir(),
 		resolver:  NewProxyResolver(nil),
 	}
-	sender := &recordingSecuritySender{enabled: true, err: errors.New("smtp unavailable")}
+	sender := &recordingSecuritySender{enabled: true}
 	request := httptest.NewRequest("POST", "https://example.test/api/v1/server/contact", nil)
 	form := securityReportForm{
 		Name: "Researcher Name", Email: "researcher@example.test", Summary: "Private vulnerability summary",
 		Steps: "Private reproduction steps", Impact: "Private impact", DisclosureDays: 90,
 	}
 
-	fd.notifySecurityReportWith(sender, request, "sec_0123456789abcdef", form)
+	statusToken := "f1a4d882"
+	if !fd.notifySecurityReportWith(sender, request, "sec_0123456789abcdef", statusToken, form) {
+		t.Fatal("acknowledgment was not accepted by the mail transport")
+	}
 
 	if len(sender.emails) != 2 {
 		t.Fatalf("sent %d emails, want one maintainer notification and one acknowledgment", len(sender.emails))
@@ -83,7 +86,7 @@ func TestNotifySecurityReportSendsOneMaintainerNoticeAndMinimalAcknowledgment(t 
 		t.Errorf("acknowledgment recipients = %v", ack.to)
 	}
 	if !strings.Contains(ack.body, "Tracking ID: sec_0123456789abcdef\n") ||
-		!strings.Contains(ack.body, "Status URL: https://example.test/server/security/report/sec_0123456789abcdef\n") {
+		!strings.Contains(ack.body, "Status URL: https://example.test/server/security/report/sec_0123456789abcdef?token=f1a4d882\n") {
 		t.Errorf("acknowledgment lacks tracking ID or status URL: %q", ack.body)
 	}
 	for _, private := range []string{form.Name, form.Email, form.Summary, form.Steps, form.Impact} {
@@ -96,13 +99,24 @@ func TestNotifySecurityReportSendsOneMaintainerNoticeAndMinimalAcknowledgment(t 
 	}
 }
 
+func TestNotifySecurityReportAcknowledgmentFailureIsNotReportedAsSent(t *testing.T) {
+	cfg := config.Default("")
+	cfg.Server.Contact.Security.Email = "security@example.test"
+	cfg.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString(make([]byte, 32))
+	fd := &frontendDeps{cfg: cfg, configDir: t.TempDir(), resolver: NewProxyResolver(nil)}
+	sender := &recordingSecuritySender{enabled: true, err: errors.New("smtp unavailable")}
+	if fd.notifySecurityReportWith(sender, httptest.NewRequest("POST", "https://example.test/", nil), "sec_0123456789abcdef", "token", securityReportForm{Email: "researcher@example.test"}) {
+		t.Fatal("failed acknowledgment was reported as sent")
+	}
+}
+
 func TestNotifySecurityReportSkipsAcknowledgmentWithoutResearcherEmail(t *testing.T) {
 	cfg := config.Default("")
 	cfg.Server.Contact.Security.Email = "security@example.test"
 	cfg.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString(make([]byte, 32))
 	fd := &frontendDeps{cfg: cfg, configDir: t.TempDir()}
 	sender := &recordingSecuritySender{enabled: true}
-	fd.notifySecurityReportWith(sender, httptest.NewRequest("POST", "https://example.test/", nil), "sec_0123456789abcdef", securityReportForm{})
+	fd.notifySecurityReportWith(sender, httptest.NewRequest("POST", "https://example.test/", nil), "sec_0123456789abcdef", "token", securityReportForm{})
 	if len(sender.emails) != 1 {
 		t.Fatalf("sent %d emails, want only the maintainer notification", len(sender.emails))
 	}
@@ -111,7 +125,7 @@ func TestNotifySecurityReportSkipsAcknowledgmentWithoutResearcherEmail(t *testin
 func TestNotifySecurityReportDoesNotSendWhenEmailIsDisabled(t *testing.T) {
 	fd := &frontendDeps{cfg: config.Default(""), configDir: t.TempDir()}
 	sender := &recordingSecuritySender{}
-	fd.notifySecurityReportWith(sender, httptest.NewRequest("POST", "https://example.test/", nil), "sec_0123456789abcdef", securityReportForm{
+	fd.notifySecurityReportWith(sender, httptest.NewRequest("POST", "https://example.test/", nil), "sec_0123456789abcdef", "token", securityReportForm{
 		Email: "researcher@example.test",
 	})
 	if len(sender.emails) != 0 {

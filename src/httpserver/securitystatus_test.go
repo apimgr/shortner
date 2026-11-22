@@ -83,6 +83,32 @@ func TestSecurityReportStatusUnknownReportIs404(t *testing.T) {
 	}
 }
 
+func TestSecurityReportStatusAcceptsStoredSHA256Token(t *testing.T) {
+	fd := testSecurityFrontendDeps(t)
+	trackingID, err := db.NewTrackingID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, tokenHash, err := security.NewReportStatusToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := db.SecurityReport{
+		TrackingID: trackingID,
+		ReceivedAt: time.Now().UTC(),
+		Severity:   "high",
+		Component:  "api",
+		Sealed:     "encrypted",
+		TokenHash:  tokenHash,
+	}
+	if err := db.InsertSecurityReport(context.Background(), fd.ld.sqlDB, report); err != nil {
+		t.Fatal(err)
+	}
+	if got := statusRequest(fd, trackingID, token).Code; got != http.StatusOK {
+		t.Fatalf("status with valid stored-token = %d, want 200", got)
+	}
+}
+
 func TestSecurityReportStatusRendersReceivedState(t *testing.T) {
 	fd := testSecurityFrontendDeps(t)
 	trackingID := seedReport(t, fd)

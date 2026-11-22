@@ -244,34 +244,6 @@ input[type="radio"] {
   padding: 0;
 }
 
-/* Language selector, per AI.md PART 30. The form works with no
-   JavaScript: choosing a language and submitting reloads the page with
-   ?lang=, which the server persists in the lang cookie. */
-.lang-form {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-}
-
-.lang-select {
-  min-height: 44px;
-  background: var(--color-surface);
-  color: var(--color-fg);
-  border: 1px solid var(--color-border);
-  border-radius: 0.375rem;
-  padding: 0.25rem 0.5rem;
-}
-
-.lang-go {
-  min-height: 44px;
-  background: var(--color-surface);
-  color: var(--color-fg);
-  border: 1px solid var(--color-border);
-  border-radius: 0.375rem;
-  padding: 0.25rem 0.75rem;
-  cursor: pointer;
-}
-
 /* RTL support, per AI.md PART 30. Layout direction comes from the
    dir attribute the server renders from the active locale's
    meta.direction, so the logical properties used throughout this

@@ -220,6 +220,18 @@ func pgpGenerate(binaryName string, env *pgpEnv) int {
 
 // pgpRotate implements `--maintenance pgp rotate`.
 func pgpRotate(binaryName string, env *pgpEnv) int {
+	unlock, err := env.store.LockExclusive()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
+	lockHeld := true
+	defer func() {
+		if lockHeld {
+			unlock()
+		}
+	}()
+
 	old, err := env.store.ReadPrivateKey(env.installSecret)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
@@ -251,20 +263,24 @@ func pgpRotate(binaryName string, env *pgpEnv) int {
 		return 1
 	}
 	if err := env.store.Write(key, env.installSecret); err != nil {
+		if restoreErr := env.store.RestorePrevious(); restoreErr != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v (rollback failed: %v)\n", binaryName, err, restoreErr)
+			return 1
+		}
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
 
-	record := db.PGPKey{
-		Fingerprint:   key.Fingerprint,
-		CreatedAt:     key.CreatedAt,
-		ExpiresAt:     key.ExpiresAt,
-		LastRotatedAt: now,
-	}
-	if err := db.UpsertPGPKey(context.Background(), env.sqlDB, record); err != nil {
+	if err := db.RotateSecurityReportPGP(context.Background(), env.sqlDB, old, key); err != nil {
+		if restoreErr := env.store.RestorePrevious(); restoreErr != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v (rollback failed: %v)\n", binaryName, err, restoreErr)
+			return 1
+		}
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
+	unlock()
+	lockHeld = false
 
 	pgpAudit(env, "security.pgp_key_rotated", applog.SeverityInfo, applog.ResultSuccess, key.Fingerprint,
 		"", map[string]any{"previous_fingerprint": old.Fingerprint})

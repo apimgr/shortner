@@ -18,6 +18,7 @@ import (
 	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/geoip"
 	"github.com/apimgr/shortner/src/notify"
+	"github.com/apimgr/shortner/src/pgp"
 )
 
 // builtinDef is the static (id, name) pair and honest-skip explanation for
@@ -50,12 +51,14 @@ type Deps struct {
 	DiskCheckInterval       string
 	// TLSEnabled/ConfigDir/FQDN/DevTLD feed ssl_renewal's proactive-renewal
 	// check (AI.md PART 15 "NeedsRenewal" window, called from PART 18).
-	TLSEnabled bool
-	ConfigDir  string
-	FQDN       string
-	DevTLD     bool
-	TLSConfig  *tls.Config
-	CVEOptions cve.Options
+	TLSEnabled                  bool
+	ConfigDir                   string
+	FQDN                        string
+	DevTLD                      bool
+	TLSConfig                   *tls.Config
+	CVEOptions                  cve.Options
+	SecurityReportRetentionDays int
+	PGPStore                    *pgp.Store
 	// GeoIP feeds geoip_update (AI.md PART 19). Nil when GeoIP is disabled
 	// — the task then honestly skips instead of downloading unused files.
 	GeoIP    *geoip.Manager
@@ -84,7 +87,7 @@ type Deps struct {
 // TaskDef, with schedule/enabled taken from cfg (falling back to the
 // hardcoded spec default if an id is missing from cfg.Tasks). Real work is
 // implemented for token_cleanup, log_rotation, healthcheck_self,
-// ssl_renewal, geoip_update, backup_daily, backup_hourly, update_check,
+// ssl_renewal, geoip_update, security_cleanup, backup_daily, backup_hourly, update_check,
 // tor_health, and i2p_health; the remaining required tasks are registered
 // via pendingBuiltins so they stay visible and honestly skip until their
 // subsystem lands.
@@ -99,6 +102,7 @@ func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
 
 	tasks := []TaskDef{
 		{ID: "token_cleanup", Name: "Token Cleanup", Run: tokenCleanupTask(deps.DB, deps.Tokens)},
+		{ID: "security_cleanup", Name: "Security Report Cleanup", Run: securityCleanupTask(deps)},
 		{ID: "log_rotation", Name: "Log Rotation", Run: logRotationTask(deps.Logs)},
 		{ID: "disk_check", Name: "Disk Space Check", Run: diskCheckTask(deps)},
 		{ID: "healthcheck_self", Name: "Self Health Check", Run: healthcheckSelfTask(deps.DB)},
@@ -276,6 +280,35 @@ func cveUpdateTask(deps Deps) TaskFunc {
 		}
 		if err := cve.Update(ctx, deps.CVEOptions); err != nil {
 			return fmt.Errorf("cve_update: %w", err)
+		}
+		return nil
+	}
+}
+
+func securityCleanupTask(deps Deps) TaskFunc {
+	return func(ctx context.Context) error {
+		retentionDays := deps.SecurityReportRetentionDays
+		if retentionDays <= 0 {
+			retentionDays = 365
+		}
+		deleted, err := db.DeleteClosedSecurityReportsBefore(ctx, deps.DB, time.Now().UTC().AddDate(0, 0, -retentionDays))
+		if err != nil {
+			return err
+		}
+		rotationRemoved := false
+		if deps.PGPStore != nil {
+			unlock, lockErr := deps.PGPStore.LockExclusive()
+			if lockErr != nil {
+				return lockErr
+			}
+			rotationRemoved, err = deps.PGPStore.CleanupExpiredRotation(time.Now().UTC())
+			unlock()
+			if err != nil {
+				return err
+			}
+		}
+		if deps.Logger != nil && (deleted > 0 || rotationRemoved) {
+			_ = deps.Logger.WriteLine(applog.LevelInfo, fmt.Sprintf("security_cleanup: deleted %d expired reports; retired PGP key removed=%t\n", deleted, rotationRemoved))
 		}
 		return nil
 	}

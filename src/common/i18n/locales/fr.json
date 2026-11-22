@@ -8,6 +8,7 @@
   },
   "common": {
     "select_language": "Choisir la langue",
+    "language_automatic": "Automatique ({language})",
     "go": "Valider",
     "save": "Enregistrer",
     "cancel": "Annuler",
@@ -451,6 +452,7 @@
     "keep_tracking_id": "Conservez cet identifiant de suivi — c'est la seule référence à votre signalement.",
     "failed": "Le signalement n'a pas pu être envoyé. Veuillez réessayer plus tard.",
     "received": "Nous avons reçu votre signalement. Conservez l'identifiant de suivi ci-dessous — c'est la seule copie qui vous sera fournie.",
+    "acknowledgment_sent": "L’e-mail de confirmation est en route.",
     "encrypted_before": "Votre signalement a été chiffré au repos dès son arrivée. Un mainteneur procédera à son tri et respectera le délai de divulgation coordonnée décrit dans notre",
     "policy_link": "politique de divulgation",
     "form_intro_before": "Vous avez accédé à ce formulaire depuis notre",
@@ -474,6 +476,7 @@
     "credit_none": "Non",
     "credit_anonymous": "Anonyme",
     "validate_credit_handle": "Saisissez un pseudonyme ou choisissez une autre préférence.",
+    "validate_gpg": "Saisissez une clé publique valide ou une URL HTTPS de clé.",
     "agree_disclosure": "J'accepte la divulgation coordonnée — aucune publication avant la date convenue ou 90 jours, selon ce qui survient en premier.",
     "store_failed": "Nous n'avons pas pu enregistrer votre signalement. Veuillez écrire directement au contact sécurité.",
     "validate_name_email": "Le nom et l'adresse e-mail sont obligatoires afin que nous puissions accuser réception de votre signalement.",

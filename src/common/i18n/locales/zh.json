@@ -8,6 +8,7 @@
   },
   "common": {
     "select_language": "选择语言",
+    "language_automatic": "自动（{language}）",
     "go": "前往",
     "save": "保存",
     "cancel": "取消",
@@ -451,6 +452,7 @@
     "keep_tracking_id": "请保管好此跟踪编号 — 它是您报告的唯一索引。",
     "failed": "报告提交失败，请稍后重试。",
     "received": "我们已收到您的报告。请保管好下方的跟踪编号 — 这是您获得的唯一副本。",
+    "acknowledgment_sent": "确认邮件已发送。",
     "encrypted_before": "您的报告在送达的那一刻即已加密存储。维护人员将对其进行分级处理，并遵循我们的",
     "policy_link": "披露政策",
     "form_intro_before": "您是通过我们的",
@@ -474,6 +476,7 @@
     "credit_none": "否",
     "credit_anonymous": "匿名",
     "validate_credit_handle": "请输入署名昵称，或选择其他署名偏好。",
+    "validate_gpg": "请输入有效的公钥或 HTTPS 密钥网址。",
     "agree_disclosure": "我同意协同披露 — 在协商确定的日期或 90 天（以先到者为准）之前不公开发布。",
     "store_failed": "我们无法保存您的报告，请直接发送邮件给安全联系人。",
     "validate_name_email": "必须填写姓名和电子邮箱，以便我们确认收到您的报告。",

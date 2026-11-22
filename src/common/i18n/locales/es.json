@@ -8,6 +8,7 @@
   },
   "common": {
     "select_language": "Seleccionar idioma",
+    "language_automatic": "Automático ({language})",
     "go": "Ir",
     "save": "Guardar",
     "cancel": "Cancelar",
@@ -451,6 +452,7 @@
     "keep_tracking_id": "Conserve este identificador de seguimiento: es la única referencia a su informe.",
     "failed": "No se pudo enviar el informe. Inténtelo de nuevo más tarde.",
     "received": "Hemos recibido su informe. Conserve el identificador de seguimiento que aparece abajo: es la única copia que se le entregará.",
+    "acknowledgment_sent": "El correo de confirmación está en camino.",
     "encrypted_before": "Su informe se cifró en reposo en el momento en que llegó. Un responsable del mantenimiento lo clasificará y seguirá el plazo de divulgación coordinada descrito en nuestra",
     "policy_link": "política de divulgación",
     "form_intro_before": "Ha llegado a este formulario desde nuestro",
@@ -474,6 +476,7 @@
     "credit_none": "No",
     "credit_anonymous": "Anónimo",
     "validate_credit_handle": "Indique un alias de reconocimiento o elija otra preferencia.",
+    "validate_gpg": "Introduzca una clave pública válida o una URL HTTPS de clave.",
     "agree_disclosure": "Acepto la divulgación coordinada: sin publicación pública hasta la fecha coordinada o 90 días, lo que ocurra primero.",
     "store_failed": "No pudimos guardar su informe. Escriba directamente al contacto de seguridad.",
     "validate_name_email": "El nombre y el correo electrónico son obligatorios para poder acusar recibo de su informe.",

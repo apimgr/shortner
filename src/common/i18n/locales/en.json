@@ -8,6 +8,7 @@
   },
   "common": {
     "select_language": "Select language",
+    "language_automatic": "Automatic ({language})",
     "go": "Go",
     "save": "Save",
     "cancel": "Cancel",
@@ -451,6 +452,7 @@
     "keep_tracking_id": "Keep this tracking ID — it is the only reference to your report.",
     "failed": "The report could not be submitted. Please try again later.",
     "received": "We received your report. Keep the tracking id below — it is the only copy you will be given.",
+    "acknowledgment_sent": "A confirmation email is on its way.",
     "encrypted_before": "Your report was encrypted at rest the moment it arrived. A maintainer will triage it and follow the coordinated-disclosure window described in our",
     "policy_link": "disclosure policy",
     "form_intro_before": "You reached this form from our",
@@ -474,6 +476,7 @@
     "credit_none": "No",
     "credit_anonymous": "Anonymous",
     "validate_credit_handle": "Enter a credit handle or choose another credit preference.",
+    "validate_gpg": "Enter a valid public key or HTTPS key URL.",
     "agree_disclosure": "I agree to coordinated disclosure — no public release until the coordinated date or 90 days, whichever comes first.",
     "store_failed": "We could not store your report. Please email the security contact directly.",
     "validate_name_email": "Name and email are required so we can acknowledge your report.",

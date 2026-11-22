@@ -8,6 +8,7 @@
   },
   "common": {
     "select_language": "Seleziona la lingua",
+    "language_automatic": "Automatico ({language})",
     "go": "Vai",
     "save": "Salva",
     "cancel": "Cancellare",
@@ -451,6 +452,7 @@
     "keep_tracking_id": "Conserva questo ID di monitoraggio: è l'unico riferimento alla tua segnalazione.",
     "failed": "Non è stato possibile inviare la relazione. Per favore riprova più tardi.",
     "received": "Abbiamo ricevuto la tua segnalazione. Conserva l'ID di tracciamento qui sotto: è l'unica copia che ti verrà fornita.",
+    "acknowledgment_sent": "L’email di conferma è in arrivo.",
     "encrypted_before": "La tua segnalazione è stata crittografata a riposo nel momento in cui è arrivata. Un manutentore lo valuterà e seguirà la finestra di divulgazione coordinata descritta nel ns",
     "policy_link": "politica di divulgazione",
     "form_intro_before": "Hai raggiunto questo modulo dal ns",
@@ -474,6 +476,7 @@
     "credit_none": "NO",
     "credit_anonymous": "Anonimo",
     "validate_credit_handle": "Inserisci un handle di credito o scegli un'altra preferenza di credito.",
+    "validate_gpg": "Inserisci una chiave pubblica valida o un URL HTTPS della chiave.",
     "agree_disclosure": "Accetto la divulgazione coordinata: nessun rilascio pubblico fino alla data coordinata o 90 giorni, a seconda di quale evento si verifichi per primo.",
     "store_failed": "Non è stato possibile archiviare il tuo rapporto. Invia un'e-mail direttamente al contatto per la sicurezza.",
     "validate_name_email": "Il nome e l'e-mail sono obbligatori per consentirci di riconoscere la tua segnalazione.",

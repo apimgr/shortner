@@ -8,6 +8,7 @@
   },
   "common": {
     "select_language": "言語を選択",
+    "language_automatic": "自動（{language}）",
     "go": "移動",
     "save": "保存",
     "cancel": "キャンセル",
@@ -451,6 +452,7 @@
     "keep_tracking_id": "この追跡 ID は保管してください。報告を参照できる唯一の手がかりです。",
     "failed": "報告を送信できませんでした。しばらくしてからもう一度お試しください。",
     "received": "報告を受け付けました。以下の追跡 ID は再発行されませんので、必ず保管してください。",
+    "acknowledgment_sent": "確認メールを送信しました。",
     "encrypted_before": "報告は到着した時点で暗号化して保存されました。メンテナーが内容を確認し、当方の以下の方針に記載された協調的開示の期間に従って対応します：",
     "policy_link": "開示ポリシー",
     "form_intro_before": "このフォームには当方の",
@@ -474,6 +476,7 @@
     "credit_none": "いいえ",
     "credit_anonymous": "匿名",
     "validate_credit_handle": "クレジット名を入力するか、別の希望を選択してください。",
+    "validate_gpg": "有効な公開鍵または HTTPS の鍵 URL を入力してください。",
     "agree_disclosure": "協調的開示に同意します。調整した公開日または 90 日のいずれか早い方まで、公開しません。",
     "store_failed": "報告を保存できませんでした。セキュリティ連絡先まで直接メールをお送りください。",
     "validate_name_email": "報告の受領をお知らせするため、氏名とメールアドレスは必須です。",

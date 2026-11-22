@@ -159,6 +159,7 @@ func New(opts Options) *Server {
 
 	r := chi.NewRouter()
 	r.MethodNotAllowed(http.HandlerFunc(mcpMethodNotAllowed))
+	apiHandler := d.setupMiddleware(r)
 	if cfg.Server.Compression.Enabled {
 		r.Use(chimw.Compress(cfg.Server.Compression.Level, cfg.Server.Compression.Types...))
 	}
@@ -220,12 +221,12 @@ func New(opts Options) *Server {
 		registerCLIUpdateRoutes(api, cfg, opts.Version)
 		api.Method(http.MethodGet, "/swagger", openAPIHandler(fd))
 		api.Method(http.MethodPost, "/graphql", graphQLHandler(ld, r))
-		api.Method(http.MethodPost, "/mcp", mcpHandler(fd, r))
+		api.Method(http.MethodPost, "/mcp", mcpHandler(fd, apiHandler))
 		api.Route("/{api_version}", func(v chi.Router) {
 			v.Get("/server/healthz", hd.healthHandler())
 			v.Method(http.MethodGet, "/server/swagger", openAPIHandler(fd))
 			v.Method(http.MethodPost, "/server/graphql", graphQLHandler(ld, r))
-			v.Method(http.MethodPost, "/server/mcp", mcpHandler(fd, r))
+			v.Method(http.MethodPost, "/server/mcp", mcpHandler(fd, apiHandler))
 			v.Get("/server/about", fd.pageContentAPIHandler("about"))
 			v.Get("/server/privacy", fd.privacyAPIHandler)
 			v.Get("/server/help", fd.pageContentAPIHandler("help"))
@@ -255,7 +256,7 @@ func New(opts Options) *Server {
 			ld.registerLinkAPIRoutes(v)
 		})
 	})
-	r.Method(http.MethodPost, "/mcp", mcpHandler(fd, r))
+	r.Method(http.MethodPost, "/mcp", mcpHandler(fd, apiHandler))
 	registerCLIBinaryRoute(r, cfg)
 	RegisterMetricsRoutes(r, cfg.Server.Metrics, opts.Metrics, opts.AccessLog)
 
@@ -314,7 +315,7 @@ func New(opts Options) *Server {
 		sendError(w, req, apperr.New(apperr.CodeNotFound))
 	})
 
-	handler := d.setupMiddleware(r)
+	handler := apiHandler
 
 	readTimeout, _ := config.ParseDuration(cfg.Server.Limits.ReadTimeout, 30*time.Second)
 	writeTimeout, _ := config.ParseDuration(cfg.Server.Limits.WriteTimeout, 30*time.Second)

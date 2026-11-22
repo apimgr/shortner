@@ -14,7 +14,7 @@
 </fieldset></section>
 <section aria-labelledby="preferences-language"><h2 id="preferences-language">{{t .Base.Lang "common.select_language"}}</h2>
 <label for="preferences-lang">{{t .Base.Lang "common.select_language"}}</label>
-<select id="preferences-lang" name="lang"><option value="{{.State.Lang}}" selected>{{.State.Lang}}</option>{{range .Base.AvailableLanguages}}{{if ne .Code $.State.Lang}}<option value="{{.Code}}">{{.NativeName}}</option>{{end}}{{end}}</select></section>
+<select id="preferences-lang" name="lang"><option value="auto" lang="{{.Base.Lang}}"{{if .State.LangAutomatic}} selected{{end}}>{{tf .Base.Lang "preferences.language_automatic" "language" .State.LangName}}</option>{{range .Base.AvailableLanguages}}<option value="{{.Code}}" lang="{{.Code}}"{{if and (not $.State.LangAutomatic) (eq .Code $.State.Lang)}} selected{{end}}>{{.NativeName}}</option>{{end}}</select></section>
 <section aria-labelledby="preferences-privacy"><h2 id="preferences-privacy">{{t .Base.Lang "privacy.cookie_policy"}}</h2>
 <p><strong>{{t .Base.Lang "cookie_consent.essential"}}</strong> — {{t .Base.Lang "cookie_consent.essential_description"}}</p>
 <input type="hidden" name="consent_preferences" value="off"><label><input type="checkbox" name="consent_preferences" value="on"{{if .Preferences}} checked{{end}}> {{t .Base.Lang "privacy.preference_cookies"}}</label>

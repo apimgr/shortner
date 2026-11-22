@@ -5,6 +5,11 @@
 <p>{{t $lang "contact.disabled"}} {{if .AbuseEmail}}{{tf $lang "contact.urgent_email" "email" .AbuseEmail}}{{end}}</p>
 {{else if .Submitted}}
 <p class="form-success" role="status">{{.SuccessMessage}}</p>
+{{else if .Chooser}}
+<p>{{t $lang "contact.purpose_notice"}}</p>
+<nav aria-label="{{t $lang "contact.type"}}"><ul>
+{{range .Types}}<li><a href="/server/contact?type={{.}}">{{t $lang (printf "contact.type_%s" .)}}</a></li>{{end}}
+</ul></nav>
 {{else if .Review}}
 <section class="contact-review" role="dialog" aria-labelledby="contact-review-title">
 <h2 id="contact-review-title">{{t $lang "contact.review_title"}}</h2>
@@ -18,22 +23,22 @@
 <input type="hidden" name="review_token" value="{{.ReviewToken}}">
 <input type="hidden" name="name" value="{{.Name}}"><input type="hidden" name="email" value="{{.Email}}">
 <input type="hidden" name="subject" value="{{.Subject}}"><input type="hidden" name="message" value="{{.Message}}">
-<input type="hidden" name="type" value="{{.Type}}"><input type="hidden" name="reported_url" value="{{.ReportedURL}}">
-<input type="hidden" name="reason" value="{{.Reason}}"><input type="hidden" name="copyrighted_work" value="{{.CopyrightedWork}}">
-{{if .GoodFaith}}<input type="hidden" name="good_faith_statement" value="true">{{end}}{{if .Accuracy}}<input type="hidden" name="accuracy_statement" value="true">{{end}}
-<input type="hidden" name="signature" value="{{.Signature}}"><input type="hidden" name="request_kind" value="{{.RequestKind}}">
+<input type="hidden" name="type" value="{{.Type}}">
+{{if eq .Type "abuse"}}<input type="hidden" name="reported_url" value="{{.ReportedURL}}"><input type="hidden" name="reason" value="{{.Reason}}">{{else if eq .Type "dmca"}}<input type="hidden" name="reported_url" value="{{.ReportedURL}}"><input type="hidden" name="copyrighted_work" value="{{.CopyrightedWork}}"><input type="hidden" name="good_faith_statement" value="true"><input type="hidden" name="accuracy_statement" value="true"><input type="hidden" name="signature" value="{{.Signature}}">{{else if eq .Type "privacy"}}<input type="hidden" name="request_kind" value="{{.RequestKind}}">{{end}}
 <input type="hidden" name="form_token" value="{{.FormToken}}">
 <input type="hidden" name="website" value="">
 <div class="form-group form-check"><input type="checkbox" id="confirmed" name="confirmed" value="true" required><label for="confirmed">{{t $lang "contact.review_confirm"}}</label></div>
 <button type="submit" class="btn btn-primary">{{t $lang "contact.review_submit"}}</button>
 </form>
-<form method="POST" action="/server/contact"><input type="hidden" name="step" value="edit"><input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}"><input type="hidden" name="name" value="{{.Name}}"><input type="hidden" name="email" value="{{.Email}}"><input type="hidden" name="subject" value="{{.Subject}}"><input type="hidden" name="message" value="{{.Message}}"><input type="hidden" name="type" value="{{.Type}}"><input type="hidden" name="reported_url" value="{{.ReportedURL}}"><input type="hidden" name="reason" value="{{.Reason}}"><input type="hidden" name="copyrighted_work" value="{{.CopyrightedWork}}">{{if .GoodFaith}}<input type="hidden" name="good_faith_statement" value="true">{{end}}{{if .Accuracy}}<input type="hidden" name="accuracy_statement" value="true">{{end}}<input type="hidden" name="signature" value="{{.Signature}}"><input type="hidden" name="request_kind" value="{{.RequestKind}}"><input type="hidden" name="form_token" value="{{.FormToken}}"><input type="hidden" name="website" value=""><button type="submit" class="btn">{{t $lang "contact.review_edit"}}</button></form>
+<form method="POST" action="/server/contact"><input type="hidden" name="step" value="edit"><input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}"><input type="hidden" name="name" value="{{.Name}}"><input type="hidden" name="email" value="{{.Email}}"><input type="hidden" name="subject" value="{{.Subject}}"><input type="hidden" name="message" value="{{.Message}}"><input type="hidden" name="type" value="{{.Type}}">{{if eq .Type "abuse"}}<input type="hidden" name="reported_url" value="{{.ReportedURL}}"><input type="hidden" name="reason" value="{{.Reason}}">{{else if eq .Type "dmca"}}<input type="hidden" name="reported_url" value="{{.ReportedURL}}"><input type="hidden" name="copyrighted_work" value="{{.CopyrightedWork}}"><input type="hidden" name="good_faith_statement" value="true"><input type="hidden" name="accuracy_statement" value="true"><input type="hidden" name="signature" value="{{.Signature}}">{{else if eq .Type "privacy"}}<input type="hidden" name="request_kind" value="{{.RequestKind}}">{{end}}<input type="hidden" name="form_token" value="{{.FormToken}}"><input type="hidden" name="website" value=""><button type="submit" class="btn">{{t $lang "contact.review_edit"}}</button></form>
 </section>
 {{else}}
-<form method="POST" action="/server/contact" class="contact-form" data-action="contact-form" novalidate>
 <p>{{t $lang "contact.purpose_notice"}}</p>
+<h2>{{t $lang (printf "contact.type_%s" .Type)}}</h2>
+<form method="POST" action="/server/contact" class="contact-form" data-action="contact-form" novalidate>
 <input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
 <input type="hidden" name="form_token" value="{{.FormToken}}">
+<input type="hidden" name="type" value="{{.Type}}">
 <div class="contact-honeypot" aria-hidden="true">
 <label for="contact-website">{{t $lang "contact.honeypot_label"}}</label><input type="text" id="contact-website" name="website" maxlength="200" tabindex="-1" autocomplete="off">
 </div>
@@ -47,48 +52,46 @@
 <input type="email" id="email" name="email" maxlength="254" required aria-required="true" class="input-field" value="{{.Email}}" aria-describedby="email-help">
 <p id="email-help" class="field-help">{{t $lang "contact.email_hint"}}</p>
 </div>
+{{if eq .Type "abuse"}}
 <div class="form-group">
-<label for="type">{{t $lang "contact.type"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
-<select id="type" name="type" required aria-required="true" class="input-field">
-<option value="">{{t $lang "contact.type_choose"}}</option>
-{{range .Types}}<option value="{{.}}"{{if eq . $.Type}} selected{{end}}>{{t $lang (printf "contact.type_%s" .)}}</option>{{end}}
-</select>
-</div>
-<div class="form-group">
-<label for="reported_url">{{t $lang "contact.reported_url"}} <span class="form-optional">{{t $lang "form.optional_field"}}</span></label>
-<input type="url" id="reported_url" name="reported_url" maxlength="2048" class="input-field" value="{{.ReportedURL}}" aria-describedby="reported-url-help">
+<label for="reported_url">{{t $lang "contact.reported_url"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
+<input type="url" id="reported_url" name="reported_url" maxlength="2048" required aria-required="true" class="input-field" value="{{.ReportedURL}}" aria-describedby="reported-url-help">
 <p id="reported-url-help" class="field-help">{{t $lang "contact.reported_url_help"}}</p>
 </div>
 <div class="form-group">
-<label for="reason">{{t $lang "contact.reason"}} <span class="form-optional">{{t $lang "form.optional_field"}}</span></label>
-<select id="reason" name="reason" class="input-field">
+<label for="reason">{{t $lang "contact.reason"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
+<select id="reason" name="reason" required aria-required="true" class="input-field">
 <option value="">{{t $lang "contact.reason_choose"}}</option>
 {{range .Reasons}}<option value="{{.}}"{{if eq . $.Reason}} selected{{end}}>{{t $lang (printf "contact.reason_%s" .)}}</option>{{end}}
 </select>
 </div>
+{{else if eq .Type "dmca"}}
+<div class="form-group"><label for="reported_url">{{t $lang "contact.reported_url"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label><input type="url" id="reported_url" name="reported_url" maxlength="2048" required aria-required="true" class="input-field" value="{{.ReportedURL}}" aria-describedby="reported-url-help"><p id="reported-url-help" class="field-help">{{t $lang "contact.reported_url_help"}}</p></div>
 <div class="form-group">
-<label for="copyrighted_work">{{t $lang "contact.copyrighted_work"}} <span class="form-optional">{{t $lang "form.optional_field"}}</span></label>
-<textarea id="copyrighted_work" name="copyrighted_work" maxlength="2000" class="input-field" rows="3">{{.CopyrightedWork}}</textarea>
+<label for="copyrighted_work">{{t $lang "contact.copyrighted_work"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
+<textarea id="copyrighted_work" name="copyrighted_work" maxlength="2000" required aria-required="true" class="input-field" rows="3">{{.CopyrightedWork}}</textarea>
 </div>
 <div class="form-group form-check">
-<input type="checkbox" id="good_faith_statement" name="good_faith_statement" value="true"{{if .GoodFaith}} checked{{end}}>
-<label for="good_faith_statement">{{t $lang "contact.good_faith_statement"}}</label>
+<input type="checkbox" id="good_faith_statement" name="good_faith_statement" value="true" required aria-required="true"{{if .GoodFaith}} checked{{end}}>
+<label for="good_faith_statement">{{t $lang "contact.good_faith_statement"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
 </div>
 <div class="form-group form-check">
-<input type="checkbox" id="accuracy_statement" name="accuracy_statement" value="true"{{if .Accuracy}} checked{{end}}>
-<label for="accuracy_statement">{{t $lang "contact.accuracy_statement"}}</label>
+<input type="checkbox" id="accuracy_statement" name="accuracy_statement" value="true" required aria-required="true"{{if .Accuracy}} checked{{end}}>
+<label for="accuracy_statement">{{t $lang "contact.accuracy_statement"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
 </div>
 <div class="form-group">
-<label for="signature">{{t $lang "contact.signature"}} <span class="form-optional">{{t $lang "form.optional_field"}}</span></label>
-<input type="text" id="signature" name="signature" maxlength="100" class="input-field" value="{{.Signature}}">
+<label for="signature">{{t $lang "contact.signature"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
+<input type="text" id="signature" name="signature" maxlength="100" required aria-required="true" class="input-field" value="{{.Signature}}">
 </div>
+{{else if eq .Type "privacy"}}
 <div class="form-group">
-<label for="request_kind">{{t $lang "contact.request_kind"}} <span class="form-optional">{{t $lang "form.optional_field"}}</span></label>
-<select id="request_kind" name="request_kind" class="input-field">
+<label for="request_kind">{{t $lang "contact.request_kind"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
+<select id="request_kind" name="request_kind" required aria-required="true" class="input-field">
 <option value="">{{t $lang "contact.request_kind_choose"}}</option>
 {{range .RequestKinds}}<option value="{{.}}"{{if eq . $.RequestKind}} selected{{end}}>{{t $lang (printf "contact.request_kind_%s" .)}}</option>{{end}}
 </select>
 </div>
+{{end}}
 <div class="form-group">
 <label for="subject">{{t $lang "contact.subject"}} <span class="form-required">{{t $lang "form.required_field"}}</span></label>
 <input type="text" id="subject" name="subject" maxlength="200" required aria-required="true" class="input-field" value="{{.Subject}}">
@@ -112,6 +115,7 @@
 </form>
 {{end}}
 
+{{if .Chooser}}
 <section class="contact-info">
 <h2>{{t $lang "contact.security_title"}}</h2>
 <p>{{t $lang "contact.security_body_before"}}
@@ -122,5 +126,8 @@
 <h2>{{t $lang "contact.abuse_title"}}</h2>
 <p>{{t $lang "contact.abuse_body"}}{{if .AbuseEmail}} {{tf $lang "contact.abuse_or_email" "email" .AbuseEmail}}{{end}}</p>
 </section>
+{{else}}
+<section class="contact-info"><p>{{t $lang "contact.security_body_before"}} <a href="/server/security">/server/security</a>.</p></section>
+{{end}}
 </article>
 {{end}}

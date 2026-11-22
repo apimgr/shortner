@@ -8,6 +8,7 @@
   },
   "common": {
     "select_language": "Sprache auswählen",
+    "language_automatic": "Automatisch ({language})",
     "go": "Los",
     "save": "Speichern",
     "cancel": "Abbrechen",
@@ -451,6 +452,7 @@
     "keep_tracking_id": "Bewahren Sie diese Vorgangsnummer auf – sie ist der einzige Verweis auf Ihre Meldung.",
     "failed": "Die Meldung konnte nicht übermittelt werden. Bitte versuchen Sie es später erneut.",
     "received": "Wir haben Ihre Meldung erhalten. Bewahren Sie die untenstehende Vorgangsnummer auf – sie ist die einzige Kopie, die Sie erhalten.",
+    "acknowledgment_sent": "Die Bestätigungs-E-Mail ist unterwegs.",
     "encrypted_before": "Ihre Meldung wurde unmittelbar nach Eingang verschlüsselt gespeichert. Ein Maintainer wird sie sichten und dabei das Zeitfenster für die koordinierte Offenlegung einhalten, das in unserer",
     "policy_link": "Offenlegungsrichtlinie",
     "form_intro_before": "Sie haben dieses Formular über unsere",
@@ -474,6 +476,7 @@
     "credit_none": "Nein",
     "credit_anonymous": "Anonym",
     "validate_credit_handle": "Geben Sie einen Credit-Namen ein oder wählen Sie eine andere Angabe.",
+    "validate_gpg": "Geben Sie einen gültigen öffentlichen Schlüssel oder eine HTTPS-Schlüssel-URL ein.",
     "agree_disclosure": "Ich stimme der koordinierten Offenlegung zu – keine Veröffentlichung vor dem abgestimmten Datum oder 90 Tagen, je nachdem, was zuerst eintritt.",
     "store_failed": "Wir konnten Ihre Meldung nicht speichern. Bitte schreiben Sie direkt an den Sicherheitskontakt.",
     "validate_name_email": "Name und E-Mail-Adresse sind erforderlich, damit wir den Eingang Ihrer Meldung bestätigen können.",

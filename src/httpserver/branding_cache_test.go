@@ -43,6 +43,48 @@ func TestScaleBrandingImagePreservesAspectAndCachesVariant(t *testing.T) {
 	}
 }
 
+func TestScaleBrandingImageUsesCoverForOpenGraphAndFitForFavicon(t *testing.T) {
+	source := image.NewRGBA(image.Rect(0, 0, 200, 100))
+	for y := 0; y < 100; y++ {
+		for x := 0; x < 200; x++ {
+			source.Set(x, y, color.RGBA{B: 255, A: 255})
+		}
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, source); err != nil {
+		t.Fatal(err)
+	}
+	og, err := scaleBrandingImage(encoded.Bytes(), "size=1200x630")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ogImage, _, err := image.Decode(bytes.NewReader(og))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ogImage.Bounds().Size(); got != image.Pt(1200, 630) {
+		t.Fatalf("OpenGraph size=%v, want 1200x630", got)
+	}
+	if _, _, _, alpha := ogImage.At(600, 0).RGBA(); alpha == 0 {
+		t.Fatal("OpenGraph image has a transparent letterbox; it must cover and crop")
+	}
+
+	icon, err := scaleBrandingImage(encoded.Bytes(), "size=16")
+	if err != nil {
+		t.Fatal(err)
+	}
+	iconImage, _, err := image.Decode(bytes.NewReader(icon))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := iconImage.Bounds().Size(); got != image.Pt(16, 16) {
+		t.Fatalf("favicon size=%v, want 16x16", got)
+	}
+	if _, _, _, alpha := iconImage.At(8, 0).RGBA(); alpha != 0 {
+		t.Fatal("fitted favicon should retain transparent padding rather than crop or stretch")
+	}
+}
+
 func TestBrandingConfigWatcherReloadsDropIn(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "server.yml")

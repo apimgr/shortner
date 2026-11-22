@@ -13,7 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const serverConfigHeader = "# Settings of this node only (listen, identity, database, cache, ssl). Everything else lives in yaml.d/: branding.yml, web.yml, pages.yml, contact.yml, privacy.yml, security.yml, logs.yml, metrics.yml, notifications.yml, tor.yml, i2p.yml, maintenance.yml, accounts.yml, app.yml. Credentials live in secrets.yml.\n"
+const serverConfigHeader = "# This node only: listen, identity, database, cache, ssl. The rest is in yaml.d/ and credentials are in secrets.yml.\n"
 
 var nodeServerKeys = map[string]bool{
 	"port": true, "address": true, "fqdn": true, "mode": true, "api_version": true,
@@ -329,6 +329,7 @@ func migrateLegacyConfig(root *yaml.Node) bool {
 		"server.ssl.letsencrypt.credentials_encrypted", "server.ssl.letsencrypt.validated_at", "server.ssl.letsencrypt.domain", "server.ssl.letsencrypt.domains",
 		"server.ssl.dns01",
 		"server.i18n.auto_detect", "server.i18n.rtl_languages", "server.i18n.show_selector", "server.i18n.translations_dir",
+		"server.i18n.enabled", "server.i18n.fallback_language", "server.i18n.cookie_name", "server.i18n.cookie_max_age",
 		"server.geoip.dir", "server.geoip.databases", "server.geoip.country_mode", "server.database.sqlite",
 		"server.metrics.endpoint", "server.notifications.email_enabled", "server.notifications.webhook_enabled",
 	} {

@@ -20,6 +20,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/apimgr/shortner/src/metrics"
+	"github.com/apimgr/shortner/src/pgp"
 )
 
 // Pool holds connection-pool tuning, per AI.md PART 10 "Connection
@@ -148,7 +149,8 @@ func isWindowsDrivePath(path string) bool {
 // statements applied on every startup, per AI.md PART 10 "Schema Updates
 // (Idempotent Approach)". Table shapes: links/clicks from IDEA.md
 // "Data models"; api_tokens verbatim from AI.md PART 8 "API Tokens"
-// schema; app_secrets from AI.md PART 11 "Cryptographic Keys".
+// schema; app_secrets from AI.md PART 11 "Cryptographic Keys"; pgp_keys
+// stores the non-secret metadata from AI.md PART 11 "Keypair properties".
 var createStatements = []string{
 	`CREATE TABLE IF NOT EXISTS server_stats (
 		id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -271,23 +273,47 @@ var createStatements = []string{
 	`CREATE INDEX IF NOT EXISTS idx_backups_created ON backups(created_at)`,
 
 	// Coordinated-disclosure security reports, per AI.md PART 11 "Security
-	// Reports" -> "Submission Flow". Only triage metadata is stored in the
-	// clear; the researcher's identity and the vulnerability body live in
-	// `sealed`, encrypted at rest and never persisted as plaintext.
+	// Reports" -> "Submission Flow". Report and contact payloads are
+	// independently encrypted; clear columns contain triage metadata only.
 	`CREATE TABLE IF NOT EXISTS security_reports (
 		tracking_id TEXT PRIMARY KEY,
+		security_id TEXT NOT NULL DEFAULT '',
 		received_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+		created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
 		updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
 		severity    TEXT NOT NULL,
 		component   TEXT NOT NULL,
 		status      TEXT NOT NULL DEFAULT 'received',
-		sealed      TEXT NOT NULL,
+		body_enc BLOB NOT NULL DEFAULT X'',
+		body_alg TEXT NOT NULL DEFAULT '',
+		contact_enc BLOB,
+		credit_pref TEXT NOT NULL DEFAULT 'no',
+		credit_name TEXT,
+		researcher_comment TEXT NOT NULL DEFAULT '',
+		disclosure_date TEXT,
+		cve_requested INTEGER NOT NULL DEFAULT 0,
+		token_hash TEXT NOT NULL DEFAULT '',
+		token_last_used TEXT,
 		closed_at INTEGER NOT NULL DEFAULT 0,
 		last_viewed_at INTEGER NOT NULL DEFAULT 0,
 		disclosure_at INTEGER NOT NULL DEFAULT 0,
 		comments TEXT NOT NULL DEFAULT ''
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_security_reports_received ON security_reports(received_at)`,
+	`CREATE TABLE IF NOT EXISTS security_thanks (
+		tracking_id TEXT PRIMARY KEY,
+		credit TEXT NOT NULL,
+		severity TEXT NOT NULL,
+		disclosed_on TEXT NOT NULL
+	)`,
+	`CREATE TABLE IF NOT EXISTS pgp_keys (
+		fingerprint TEXT PRIMARY KEY,
+		created_at INTEGER NOT NULL,
+		expires_at INTEGER NOT NULL,
+		last_rotated_at INTEGER,
+		keyservers_published TEXT NOT NULL DEFAULT '',
+		revoked INTEGER NOT NULL DEFAULT 0
+	)`,
 }
 
 // schemaUpdates holds idempotent ALTER TABLE / index additions applied
@@ -300,6 +326,22 @@ var schemaUpdates = []string{
 	`ALTER TABLE security_reports ADD COLUMN comments TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE security_reports ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`,
 	`UPDATE security_reports SET updated_at = received_at WHERE updated_at = 0`,
+	`ALTER TABLE security_reports ADD COLUMN security_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE security_reports ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE security_reports ADD COLUMN body_enc BLOB NOT NULL DEFAULT X''`,
+	`ALTER TABLE security_reports ADD COLUMN body_alg TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE security_reports ADD COLUMN contact_enc BLOB`,
+	`ALTER TABLE security_reports ADD COLUMN credit_pref TEXT NOT NULL DEFAULT 'no'`,
+	`ALTER TABLE security_reports ADD COLUMN credit_name TEXT`,
+	`ALTER TABLE security_reports ADD COLUMN researcher_comment TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE security_reports ADD COLUMN disclosure_date TEXT`,
+	`ALTER TABLE security_reports ADD COLUMN cve_requested INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE security_reports ADD COLUMN token_hash TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE security_reports ADD COLUMN token_last_used TEXT`,
+	`UPDATE security_reports SET created_at = received_at WHERE created_at = 0`,
+	`UPDATE security_reports SET researcher_comment = comments WHERE researcher_comment = '' AND comments <> ''`,
+	`UPDATE security_reports SET disclosure_date = date(disclosure_at, 'unixepoch') WHERE disclosure_date IS NULL AND disclosure_at > 0`,
+	`UPDATE security_reports SET token_last_used = date(last_viewed_at, 'unixepoch') WHERE token_last_used IS NULL AND last_viewed_at > 0`,
 }
 
 // EnsureSchema creates tables and applies schema updates. Safe to run on
@@ -316,6 +358,51 @@ func EnsureSchema(ctx context.Context, sqlDB Handle) error {
 	for _, stmt := range schemaUpdates {
 		if _, err := sqlDB.ExecContext(ctx, stmt); err != nil && !isColumnExistsError(err) {
 			return fmt.Errorf("db: schema update: %w", err)
+		}
+	}
+	if columnExists(ctx, sqlDB, "security_reports", "sealed") {
+		if err := migrateLegacySecurityReportBodies(ctx, sqlDB); err != nil {
+			return err
+		}
+		if _, err := sqlDB.ExecContext(ctx, `ALTER TABLE security_reports DROP COLUMN sealed`); err != nil {
+			return fmt.Errorf("db: remove legacy security report body column: %w", err)
+		}
+	}
+	if _, err := sqlDB.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_security_reports_status ON security_reports(status, created_at)`); err != nil {
+		return fmt.Errorf("db: create security report status index: %w", err)
+	}
+	return nil
+}
+
+func migrateLegacySecurityReportBodies(ctx context.Context, sqlDB Handle) error {
+	rows, err := sqlDB.QueryContext(ctx, `SELECT tracking_id, sealed FROM security_reports WHERE body_enc IS NULL OR length(body_enc) = 0`)
+	if err != nil {
+		return fmt.Errorf("db: read legacy security report bodies: %w", err)
+	}
+	type legacyReportBody struct{ id, body string }
+	var reports []legacyReportBody
+	for rows.Next() {
+		var report legacyReportBody
+		if err := rows.Scan(&report.id, &report.body); err != nil {
+			rows.Close()
+			return fmt.Errorf("db: scan legacy security report body: %w", err)
+		}
+		reports = append(reports, report)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("db: iterate legacy security report bodies: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, report := range reports {
+		algorithm := "aes-256-gcm"
+		if pgp.IsArmoredMessage(report.body) {
+			algorithm = "pgp"
+		}
+		if _, err := sqlDB.ExecContext(ctx, `UPDATE security_reports SET body_enc = CAST(? AS BLOB), body_alg = ? WHERE tracking_id = ?`, report.body, algorithm, report.id); err != nil {
+			return fmt.Errorf("db: migrate legacy security report body: %w", err)
 		}
 	}
 	return nil

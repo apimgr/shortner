@@ -71,15 +71,12 @@ type PageData struct {
 	ToastPosition          string
 	ToastDuration          int
 
-	// Lang, Dir, and AvailableLanguages drive AI.md PART 30: the active
-	// language of every {{t .Base.Lang ...}} call, the <html dir> attribute
-	// taken from that locale's meta.direction, and the language selector's
-	// option list. I18NEnabled hides the selector entirely when the
-	// operator disabled language negotiation.
+	// Lang and Dir drive translated templates and the document's language
+	// metadata. LangName is the active locale's native name for the footer.
 	Lang               string
+	LangName           string
 	Dir                string
 	AvailableLanguages []i18n.Language
-	I18NEnabled        bool
 
 	FooterCustomHTML template.HTML
 	OperatorHeader   template.HTML
@@ -283,9 +280,9 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 		ToastDuration:          cfg.Server.Notifications.WebUI.Duration,
 
 		Lang:               lang,
+		LangName:           i18n.MetaFor(lang).NativeName,
 		Dir:                i18n.Direction(lang),
 		AvailableLanguages: i18n.LanguagesFor(cfg.Server.I18N.AvailableLanguages),
-		I18NEnabled:        cfg.Server.I18N.Enabled,
 
 		FooterCustomHTML: footerHTML,
 		OperatorHeader:   headerHTML,

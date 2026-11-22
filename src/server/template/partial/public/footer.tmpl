@@ -27,6 +27,8 @@
 <a href="/server/help">{{t .Base.Lang "nav.help"}}</a>
 <span aria-hidden="true">&middot;</span>
 <a href="/server/privacy#cookies" data-action="open-consent-preferences">{{t .Base.Lang "footer.cookie_preferences"}}</a>
+<span aria-hidden="true">&middot;</span>
+<a href="/server/preferences#language" lang="{{.Base.Lang}}">{{.Base.LangName}}</a>
 </p>
 <p class="footer-branding">
 {{tf .Base.Lang "footer.copyright" "year" .Base.CurrentYear "org" .Base.ProjectOrg}}

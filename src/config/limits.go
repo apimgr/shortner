@@ -595,6 +595,11 @@ func validAnnouncementConfigID(id string) bool {
 func validateSecurity(cfg *Config, defaults *Config) []string {
 	var warnings []string
 	sec := &cfg.Server.Security
+	if sec.Reports.RetentionDays <= 0 {
+		retentionDefault := defaults.Server.Security.Reports.RetentionDays
+		warnings = append(warnings, fmt.Sprintf("invalid server.security.reports.retention_days %d (must be positive), using default %d", sec.Reports.RetentionDays, retentionDefault))
+		sec.Reports.RetentionDays = retentionDefault
+	}
 
 	keptAllow := sec.Allowlist[:0]
 	for _, e := range sec.Allowlist {

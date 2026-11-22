@@ -5,22 +5,63 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/db"
 )
 
-func TestMCPInitializeNegotiatesRequestedVersion(t *testing.T) {
+func TestMCPRejectsLegacyInitialize(t *testing.T) {
 	fd := &frontendDeps{cfg: &config.Config{}, version: "test"}
-	req := httptest.NewRequest("POST", "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}`))
+	req := authenticatedMCPRequest(httptest.NewRequest("POST", "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}`)))
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	mcpHandler(fd, httpNotFoundHandler()).ServeHTTP(rec, req)
-	if rec.Code != 200 || rec.Header().Get("MCP-Protocol-Version") != "2025-03-26" || !strings.Contains(rec.Body.String(), `"protocolVersion":"2025-03-26"`) {
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "UnsupportedProtocolVersionError") {
 		t.Fatalf("unexpected initialize response: status=%d headers=%v body=%s", rec.Code, rec.Header(), rec.Body.String())
+	}
+}
+
+func TestMCPVersionValidationPrecedesContentType(t *testing.T) {
+	fd := &frontendDeps{cfg: &config.Config{}}
+	req := authenticatedMCPRequest(httptest.NewRequest("POST", "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`)))
+	rec := httptest.NewRecorder()
+	mcpHandler(fd, httpNotFoundHandler()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "UnsupportedProtocolVersionError") {
+		t.Fatalf("legacy initialize status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMCPAcceptsModernInitializeMetadata(t *testing.T) {
+	fd := &frontendDeps{cfg: &config.Config{}, version: "test"}
+	req := authenticatedMCPRequest(httptest.NewRequest("POST", "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"},"params":{"protocolVersion":"2026-07-28"}}`)))
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("MCP-Protocol-Version", "2026-07-28")
+	req.Header.Set("Mcp-Method", "initialize")
+	rec := httptest.NewRecorder()
+	mcpHandler(fd, httpNotFoundHandler()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"protocolVersion":"2026-07-28"`) {
+		t.Fatalf("modern initialize status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMCPProtocolMetadataMismatchIsHeaderMismatch(t *testing.T) {
+	fd := &frontendDeps{cfg: &config.Config{}}
+	req := authenticatedMCPRequest(httptest.NewRequest("POST", "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping","_meta":{"io.modelcontextprotocol/protocolVersion":"2025-03-26"}}`)))
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("MCP-Protocol-Version", "2026-07-28")
+	req.Header.Set("Mcp-Method", "ping")
+	rec := httptest.NewRecorder()
+	mcpHandler(fd, httpNotFoundHandler()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "HeaderMismatch") {
+		t.Fatalf("metadata mismatch status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -31,7 +72,7 @@ func TestMCPRejectsUnsupportedVersionAndBadJSON(t *testing.T) {
 		{"bad JSON", "", `{`, "ParseError"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest("POST", "/mcp", strings.NewReader(tc.body))
+			req := authenticatedMCPRequest(httptest.NewRequest("POST", "/mcp", strings.NewReader(tc.body)))
 			req.Header.Set("Accept", "application/json")
 			req.Header.Set("Content-Type", "application/json")
 			if tc.header != "" {
@@ -56,10 +97,11 @@ func TestMCPHeaderMismatchAndMethodHandling(t *testing.T) {
 		{"POST", "tools/list", 400, "HeaderMismatch"},
 		{"GET", "", 405, "MethodNotAllowed"},
 	} {
-		req := httptest.NewRequest(tc.method, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
+		req := authenticatedMCPRequest(httptest.NewRequest(tc.method, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping","_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}`)))
 		req.Header.Set("Accept", "application/json")
 		if tc.method == "POST" {
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("MCP-Protocol-Version", "2026-07-28")
 		}
 		if tc.mcpMethod != "" {
 			req.Header.Set("Mcp-Method", tc.mcpMethod)
@@ -79,6 +121,70 @@ func TestMCPHeaderMismatchAndMethodHandling(t *testing.T) {
 				t.Fatalf("GET response is not a numeric JSON-RPC error: headers=%v body=%s", rec.Header(), rec.Body.String())
 			}
 		}
+	}
+}
+
+func authenticatedMCPRequest(req *http.Request) *http.Request {
+	return req.WithContext(context.WithValue(req.Context(), authTokenContextKey{}, &db.APIToken{Kind: "primary"}))
+}
+
+func TestMCPValidationOrderAndUnknownMethod(t *testing.T) {
+	fd := &frontendDeps{cfg: &config.Config{}, resolver: NewProxyResolver(nil)}
+	legacy := httptest.NewRequest("POST", "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":4,"method":"initialize"}`))
+	legacy.Header.Set("Origin", "https://blocked.example")
+	rec := httptest.NewRecorder()
+	mcpHandler(fd, httpNotFoundHandler()).ServeHTTP(rec, legacy)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("Origin validation status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	unauthenticated := httptest.NewRequest("POST", "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":4,"method":"initialize"}`))
+	rec = httptest.NewRecorder()
+	mcpHandler(fd, httpNotFoundHandler()).ServeHTTP(rec, unauthenticated)
+	if rec.Code != http.StatusUnauthorized || rec.Header().Get("WWW-Authenticate") != "Bearer" {
+		t.Fatalf("missing token status=%d headers=%v body=%s", rec.Code, rec.Header(), rec.Body.String())
+	}
+
+	unknown := authenticatedMCPRequest(httptest.NewRequest("POST", "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":7,"method":"made/up","_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}`)))
+	unknown.Header.Set("Content-Type", "application/json")
+	unknown.Header.Set("MCP-Protocol-Version", "2026-07-28")
+	unknown.Header.Set("Mcp-Method", "made/up")
+	unknown.Header.Set("Accept", "application/json")
+	rec = httptest.NewRecorder()
+	mcpHandler(fd, httpNotFoundHandler()).ServeHTTP(rec, unknown)
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), `"id":7`) || !strings.Contains(rec.Body.String(), `"code":-32601`) {
+		t.Fatalf("unknown method status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMCPToolAuditIdentifiesSource(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	audit, err := applog.NewAuditLogger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fd := &frontendDeps{audit: audit, resolver: NewProxyResolver(nil)}
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	req.RemoteAddr = "192.0.2.10:4321"
+	req = req.WithContext(context.WithValue(req.Context(), authTokenContextKey{}, &db.APIToken{OwnerID: "owner_123"}))
+	auditMCPToolCall(fd, req, mcpTool{Name: "getLink", Method: "get"}, "/api/v1/links/demo", http.StatusOK)
+	if err := audit.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entry struct {
+		Event   string         `json:"event"`
+		Actor   applog.Actor   `json:"actor"`
+		Details map[string]any `json:"details"`
+	}
+	if err := json.Unmarshal(data, &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry.Event != "api.mcp_tool_call" || entry.Details["source"] != "mcp" || entry.Details["operation"] != "getLink" || entry.Actor.UserID != "owner_123" {
+		t.Fatalf("MCP audit entry = %+v", entry)
 	}
 }
 

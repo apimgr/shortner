@@ -15,6 +15,27 @@ func TestNormalizeCIDRBareIPv4ExpandsToSlash32(t *testing.T) {
 	}
 }
 
+func TestSecurityReportRetentionDefaultsAndValidation(t *testing.T) {
+	cfg := Default("")
+	if cfg.Server.Security.Reports.RetentionDays != 365 {
+		t.Fatalf("default retention days = %d, want 365", cfg.Server.Security.Reports.RetentionDays)
+	}
+	cfg.Server.Security.Reports.RetentionDays = 0
+	warnings := Validate(cfg)
+	if cfg.Server.Security.Reports.RetentionDays != 365 {
+		t.Fatalf("validated retention days = %d, want 365", cfg.Server.Security.Reports.RetentionDays)
+	}
+	found := false
+	for _, warning := range warnings {
+		if strings.Contains(warning, "server.security.reports.retention_days") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("Validate() did not warn about invalid report retention")
+	}
+}
+
 func TestNormalizeCIDRBareIPv6ExpandsToSlash128(t *testing.T) {
 	got, err := NormalizeCIDR("2001:db8::1")
 	if err != nil {

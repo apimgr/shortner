@@ -357,6 +357,7 @@ func (fd *frontendDeps) privacyHandler(w http.ResponseWriter, r *http.Request) {
 type contactPageData struct {
 	Base            PageData
 	Enabled         bool
+	Chooser         bool
 	Submitted       bool
 	SuccessMessage  string
 	Error           string
@@ -391,22 +392,23 @@ var contactPrivacyKinds = []string{"access", "export", "deletion", "correction",
 // — the security-report mode of /server/contact, per AI.md PART 11
 // "`/server/contact?security_id={id}` — Mode Switch".
 type securityContactPageData struct {
-	Base         PageData
-	SecurityMode bool
-	SecurityID   string
-	FormToken    string
-	Review       bool
-	ReviewToken  string
-	ConfirmAfter int
-	ReviewValues url.Values
-	Captcha      captchaDescriptor
-	Severities   []string
-	Components   []string
-	CreditPrefs  []string
-	Form         securityReportForm
-	Error        string
-	Submitted    bool
-	TrackingID   string
+	Base               PageData
+	SecurityMode       bool
+	SecurityID         string
+	FormToken          string
+	Review             bool
+	ReviewToken        string
+	ConfirmAfter       int
+	ReviewValues       url.Values
+	Captcha            captchaDescriptor
+	Severities         []string
+	Components         []string
+	CreditPrefs        []string
+	Form               securityReportForm
+	Error              string
+	Submitted          bool
+	TrackingID         string
+	AcknowledgmentSent bool
 }
 
 func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
@@ -450,6 +452,12 @@ func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
 		fd.contactPost(w, r)
 		return
 	}
+	typeValue := r.URL.Query().Get("type")
+	if !oneOf(typeValue, contactReportTypes...) {
+		data := contactPageData{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "contact.title"), fd.cfg.Server.Branding.Description), Enabled: true, Chooser: true, Types: contactReportTypes, AbuseEmail: fd.contactAbuseEmail()}
+		_ = renderPage(w, http.StatusOK, "contact", data)
+		return
+	}
 	captcha, captchaErr := fd.issueCaptcha(r)
 	if captchaErr != nil {
 		http.Error(w, "captcha temporarily unavailable", http.StatusServiceUnavailable)
@@ -458,8 +466,7 @@ func (fd *frontendDeps) contactHandler(w http.ResponseWriter, r *http.Request) {
 	data := contactPageData{
 		Base:         fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "contact.title"), fd.cfg.Server.Branding.Description),
 		Enabled:      true,
-		AbuseEmail:   fd.contactAbuseEmail(),
-		Types:        contactReportTypes,
+		Type:         typeValue,
 		Reasons:      contactAbuseReasons,
 		RequestKinds: contactPrivacyKinds,
 		FormToken:    fd.contactToken(time.Now()),
@@ -664,7 +671,7 @@ func (fd *frontendDeps) consumeContactNonce(nonce string, now time.Time) bool {
 
 func (fd *frontendDeps) newContactPageData(r *http.Request, base PageData, message string, captcha captchaDescriptor) contactPageData {
 	return contactPageData{
-		Base: base, Enabled: true, AbuseEmail: fd.contactAbuseEmail(), Types: contactReportTypes,
+		Base: base, Enabled: true, AbuseEmail: fd.contactAbuseEmail(),
 		Reasons: contactAbuseReasons, RequestKinds: contactPrivacyKinds,
 		FormToken: fd.contactToken(time.Now()), Captcha: captcha, Error: message,
 		Type: r.FormValue("type"), ReportedURL: r.FormValue("reported_url"), Reason: r.FormValue("reason"),

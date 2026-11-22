@@ -15,14 +15,14 @@ import (
 func TestBuiltinTasksOmitsModeBoundTasksWhenDisabled(t *testing.T) {
 	cfg := config.Default("").Server.Scheduler
 	tasks := BuiltinTasks(cfg, Deps{})
-	if len(tasks) != 11 {
-		t.Fatalf("len(BuiltinTasks()) = %d, want 11 with overlay features disabled", len(tasks))
+	if len(tasks) != 12 {
+		t.Fatalf("len(BuiltinTasks()) = %d, want 12 with overlay features disabled", len(tasks))
 	}
 	want := map[string]bool{
 		"ssl_renewal": true, "geoip_update": true, "blocklist_update": true,
 		"cve_update": true, "update_check": true, "token_cleanup": true,
 		"log_rotation": true, "disk_check": true, "backup_daily": true, "backup_hourly": true,
-		"healthcheck_self": true,
+		"healthcheck_self": true, "security_cleanup": true,
 	}
 	for _, task := range tasks {
 		if !want[task.ID] {
@@ -38,6 +38,29 @@ func TestBuiltinTasksOmitsModeBoundTasksWhenDisabled(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Errorf("missing task ids: %v", want)
+	}
+}
+
+func TestSecurityCleanupTaskDeletesOnlyExpiredClosedReports(t *testing.T) {
+	sqlDB := openTestDB(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	for _, report := range []db.SecurityReport{
+		{TrackingID: "sec_aaaaaaaaaaaaaaaa", ReceivedAt: now.Add(-60 * 24 * time.Hour), ClosedAt: now.Add(-60 * 24 * time.Hour), Severity: "high", Component: "api", Sealed: "expired"},
+		{TrackingID: "sec_bbbbbbbbbbbbbbbb", ReceivedAt: now, Severity: "low", Component: "api", Sealed: "open"},
+	} {
+		if err := db.InsertSecurityReport(ctx, sqlDB, report); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := securityCleanupTask(Deps{DB: sqlDB, SecurityReportRetentionDays: 30})(ctx); err != nil {
+		t.Fatalf("securityCleanupTask() error = %v", err)
+	}
+	if _, err := db.GetSecurityReport(ctx, sqlDB, "sec_aaaaaaaaaaaaaaaa"); err == nil {
+		t.Fatal("expired closed report remains after cleanup")
+	}
+	if _, err := db.GetSecurityReport(ctx, sqlDB, "sec_bbbbbbbbbbbbbbbb"); err != nil {
+		t.Fatalf("open report was deleted: %v", err)
 	}
 }
 

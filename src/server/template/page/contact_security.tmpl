@@ -3,6 +3,7 @@
 
 {{if .Submitted}}
 <p class="form-success" role="status">{{t $lang "security_report.received"}}</p>
+{{if .AcknowledgmentSent}}<p>{{t $lang "security_report.acknowledgment_sent"}}</p>{{end}}
 <p class="tracking-id"><strong>{{t $lang "security_report.tracking_id"}}</strong> <code>{{.TrackingID}}</code></p>
 <p>{{t $lang "security_report.encrypted_before"}}
 <a href="/server/security/policy">{{t $lang "security_report.policy_link"}}</a>.</p>

@@ -8,11 +8,13 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"golang.org/x/net/html"
 
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/db"
@@ -43,6 +45,7 @@ func testFrontendDeps(t *testing.T) (*frontendDeps, *linkDeps) {
 func TestStoreSecurityReportUsesProjectPGPKeyWhenConfigured(t *testing.T) {
 	fd, _ := testFrontendDeps(t)
 	fd.configDir = t.TempDir()
+	fd.cfg.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString(make([]byte, 32))
 	key, err := pgp.Generate("Shortner", "security@example.test", time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +54,7 @@ func TestStoreSecurityReportUsesProjectPGPKeyWhenConfigured(t *testing.T) {
 		t.Fatal(err)
 	}
 	form := securityReportForm{Summary: "private report body", Severity: "high", Component: "API"}
-	id, err := fd.storeSecurityReport(context.Background(), form)
+	id, statusToken, err := fd.storeSecurityReport(context.Background(), form)
 	if err != nil {
 		t.Fatalf("storeSecurityReport() error = %v", err)
 	}
@@ -61,6 +64,12 @@ func TestStoreSecurityReportUsesProjectPGPKeyWhenConfigured(t *testing.T) {
 	}
 	if !pgp.IsArmoredMessage(report.Sealed) {
 		t.Fatal("stored report is not PGP-encrypted")
+	}
+	if report.BodyAlg != "pgp" || len(report.ContactEnc) == 0 || !security.ValidReportStatusToken(report.TokenHash, statusToken) {
+		t.Fatal("report metadata, encrypted contact, or stored one-time status token is missing")
+	}
+	if (form.Email != "" && strings.Contains(string(report.ContactEnc), form.Email)) || strings.Contains(report.Sealed, form.Summary) {
+		t.Fatal("report body or contact was persisted in plaintext")
 	}
 	plain, err := pgp.DecryptArmored(key, report.Sealed)
 	if err != nil {
@@ -81,7 +90,7 @@ func TestStoreSecurityReportUsesAESWhenNoProjectPGPKey(t *testing.T) {
 	keyBytes := make([]byte, 32)
 	fd.cfg.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString(keyBytes)
 	form := securityReportForm{Summary: "private report body", Severity: "high", Component: "API"}
-	id, err := fd.storeSecurityReport(context.Background(), form)
+	id, statusToken, err := fd.storeSecurityReport(context.Background(), form)
 	if err != nil {
 		t.Fatalf("storeSecurityReport() error = %v", err)
 	}
@@ -91,6 +100,12 @@ func TestStoreSecurityReportUsesAESWhenNoProjectPGPKey(t *testing.T) {
 	}
 	if pgp.IsArmoredMessage(report.Sealed) {
 		t.Fatal("stored fallback report unexpectedly uses PGP")
+	}
+	if report.BodyAlg != "aes-256-gcm" || len(report.ContactEnc) == 0 || !security.ValidReportStatusToken(report.TokenHash, statusToken) {
+		t.Fatal("AES report metadata, encrypted contact, or stored one-time status token is missing")
+	}
+	if (form.Email != "" && strings.Contains(string(report.ContactEnc), form.Email)) || strings.Contains(report.Sealed, form.Summary) {
+		t.Fatal("report body or contact was persisted in plaintext")
 	}
 	plain, err := security.Open(keyBytes, report.Sealed)
 	if err != nil {
@@ -253,9 +268,112 @@ func TestContactHandler_GET(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "contact-form") {
-		t.Errorf("expected contact form, got: %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "/server/contact?type=abuse") || strings.Contains(rec.Body.String(), `name="email"`) {
+		t.Errorf("expected a field-free chooser, got: %s", rec.Body.String())
 	}
+	doc, err := html.Parse(strings.NewReader(rec.Body.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	main := findHTMLNode(doc, "main")
+	if main == nil {
+		t.Fatal("main element missing")
+	}
+	inputs, sections := 0, 0
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			if n.Data == "input" || n.Data == "select" || n.Data == "textarea" {
+				inputs++
+			}
+			if n.Data == "section" {
+				sections++
+			}
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(main)
+	if inputs != 0 || sections != 2 {
+		t.Fatalf("chooser content has %d controls and %d sections, want none and two", inputs, sections)
+	}
+}
+
+func TestContactPageGoldenFieldsByType(t *testing.T) {
+	want := map[string]map[string]bool{
+		"abuse":   {"csrf_token": true, "form_token": true, "type": true, "website": true, "name": true, "email": true, "reported_url": true, "reason": true, "subject": true, "message": true, "captcha_id": true, "captcha_answer": true},
+		"dmca":    {"csrf_token": true, "form_token": true, "type": true, "website": true, "name": true, "email": true, "reported_url": true, "copyrighted_work": true, "good_faith_statement": true, "accuracy_statement": true, "signature": true, "subject": true, "message": true, "captcha_id": true, "captcha_answer": true},
+		"privacy": {"csrf_token": true, "form_token": true, "type": true, "website": true, "name": true, "email": true, "request_kind": true, "subject": true, "message": true, "captcha_id": true, "captcha_answer": true},
+	}
+	required := map[string][]string{
+		"abuse":   {"name", "email", "reported_url", "reason", "subject", "message", "captcha_answer"},
+		"dmca":    {"name", "email", "reported_url", "copyrighted_work", "good_faith_statement", "accuracy_statement", "signature", "subject", "message", "captcha_answer"},
+		"privacy": {"name", "email", "request_kind", "subject", "message", "captcha_answer"},
+	}
+	for kind, expected := range want {
+		t.Run(kind, func(t *testing.T) {
+			fd, _ := testFrontendDeps(t)
+			rec := httptest.NewRecorder()
+			fd.contactHandler(rec, httptest.NewRequest(http.MethodGet, "/server/contact?type="+kind, nil))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			doc, err := html.Parse(strings.NewReader(rec.Body.String()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			main := findHTMLNode(doc, "main")
+			if main == nil {
+				t.Fatal("main element missing")
+			}
+			got, requiredGot := map[string]bool{}, map[string]bool{}
+			var walk func(*html.Node)
+			walk = func(n *html.Node) {
+				if n.Type == html.ElementNode && (n.Data == "input" || n.Data == "select" || n.Data == "textarea") {
+					name, hasRequired := "", false
+					for _, attr := range n.Attr {
+						if attr.Key == "name" {
+							name = attr.Val
+						}
+						if attr.Key == "required" {
+							hasRequired = true
+						}
+					}
+					if name != "" {
+						got[name] = true
+						if hasRequired {
+							requiredGot[name] = true
+						}
+					}
+				}
+				for child := n.FirstChild; child != nil; child = child.NextSibling {
+					walk(child)
+				}
+			}
+			walk(main)
+			if !reflect.DeepEqual(got, expected) {
+				t.Fatalf("fields=%v want %v", got, expected)
+			}
+			for _, name := range required[kind] {
+				if !requiredGot[name] {
+					t.Errorf("required field %q lacks required attribute", name)
+				}
+			}
+		})
+	}
+}
+
+func findHTMLNode(n *html.Node, name string) *html.Node {
+	if n.Type == html.ElementNode && n.Data == name {
+		return n
+	}
+	for child := n.FirstChild; child != nil; child = child.NextSibling {
+		if found := findHTMLNode(child, name); found != nil {
+			return found
+		}
+	}
+	return nil
 }
 
 func TestContactHandler_POSTSuccess(t *testing.T) {

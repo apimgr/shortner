@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/apimgr/shortner/src/config"
@@ -28,16 +29,16 @@ type securityReportSender interface {
 // submission into a visitor-facing error. When no SMTP works at all,
 // notify.Notifier refuses the send outright and nothing is queued — AI.md
 // PART 17 "SMTP Requirement".
-func (fd *frontendDeps) notifySecurityReport(r *http.Request, trackingID string, f securityReportForm) {
-	fd.notifySecurityReportWith(fd.notifier, r, trackingID, f)
+func (fd *frontendDeps) notifySecurityReport(r *http.Request, trackingID, statusToken string, f securityReportForm) bool {
+	return fd.notifySecurityReportWith(fd.notifier, r, trackingID, statusToken, f)
 }
 
-func (fd *frontendDeps) notifySecurityReportWith(sender securityReportSender, r *http.Request, trackingID string, f securityReportForm) {
+func (fd *frontendDeps) notifySecurityReportWith(sender securityReportSender, r *http.Request, trackingID, statusToken string, f securityReportForm) bool {
 	if sender == nil || !sender.Enabled() {
-		return
+		return false
 	}
 	fd.notifyMaintainerSecurityReport(sender, trackingID, f)
-	fd.notifyResearcherSecurityReport(sender, r, trackingID, f)
+	return fd.notifyResearcherSecurityReport(sender, r, trackingID, statusToken, f)
 }
 
 // notifyMaintainerSecurityReport implements step 4. AI.md requires a
@@ -108,26 +109,26 @@ func (fd *frontendDeps) sealedReportBytes(f securityReportForm) ([]byte, error) 
 // notifyResearcherSecurityReport implements step 5: the acknowledgment
 // carrying the tracking id and the researcher status-page URL. AI.md
 // specifies a PGP-encrypted body when the researcher supplied a public key.
-func (fd *frontendDeps) notifyResearcherSecurityReport(sender securityReportSender, r *http.Request, trackingID string, f securityReportForm) {
+func (fd *frontendDeps) notifyResearcherSecurityReport(sender securityReportSender, r *http.Request, trackingID, statusToken string, f securityReportForm) bool {
 	to := strings.TrimSpace(f.Email)
 	if to == "" {
-		return
+		return false
 	}
-	statusURL := fd.resolver.BuildURL(r, "/server/security/report/"+trackingID)
+	statusURL := fd.resolver.BuildURL(r, "/server/security/report/"+trackingID) + "?token=" + url.QueryEscape(statusToken)
 
 	body := fmt.Sprintf("Tracking ID: %s\nStatus URL: %s\n", trackingID, statusURL)
 	if f.ResearcherGPG != "" {
 		recipients, err := pgp.ParsePublic(f.ResearcherGPG)
 		if err != nil {
-			return
+			return false
 		}
 		message, err := pgp.EncryptArmored(recipients, []byte(body))
 		if err != nil {
-			return
+			return false
 		}
 		body = message
 	}
 
-	_ = sender.SendRaw([]string{to},
-		fmt.Sprintf("Security report received - %s", trackingID), body)
+	return sender.SendRaw([]string{to},
+		fmt.Sprintf("Security report received - %s", trackingID), body) == nil
 }

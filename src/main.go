@@ -37,6 +37,7 @@ import (
 	"github.com/apimgr/shortner/src/mode"
 	"github.com/apimgr/shortner/src/notify"
 	"github.com/apimgr/shortner/src/paths"
+	"github.com/apimgr/shortner/src/pgp"
 	"github.com/apimgr/shortner/src/scheduler"
 	"github.com/apimgr/shortner/src/service"
 	"github.com/apimgr/shortner/src/signal"
@@ -1060,15 +1061,17 @@ func newBuiltinScheduler(cfg *config.Config, sqlDB db.Handle, schedulerLog, acce
 			d, _ := config.ParseDuration(cfg.Server.Notifications.DiskLow.Repeat, 24*time.Hour)
 			return d
 		}(),
-		Logger:     schedulerLog,
-		TLSEnabled: cfg.Server.TLS.Enabled || portIncludes(cfg.Server.Port, 443),
-		ConfigDir:  p.Config,
-		FQDN:       host,
-		DevTLD:     fqdn.IsDevTLD(host, internalName),
-		TLSConfig:  tlsConfig,
-		CVEOptions: cve.Options{SecurityDir: cfg.Data.SecurityDir, NVDSource: cfg.Data.CVE.Source, APIKey: cfg.Data.CVE.APIKey, TrivyEnabled: cfg.Data.Trivy.Enabled, TrivySource: cfg.Data.Trivy.Source},
-		GeoIP:      geoManager,
-		GeoIPCfg:   cfg.Server.GeoIP,
+		Logger:                      schedulerLog,
+		TLSEnabled:                  cfg.Server.TLS.Enabled || portIncludes(cfg.Server.Port, 443),
+		ConfigDir:                   p.Config,
+		FQDN:                        host,
+		DevTLD:                      fqdn.IsDevTLD(host, internalName),
+		TLSConfig:                   tlsConfig,
+		CVEOptions:                  cve.Options{SecurityDir: cfg.Data.SecurityDir, NVDSource: cfg.Data.CVE.Source, APIKey: cfg.Data.CVE.APIKey, TrivyEnabled: cfg.Data.Trivy.Enabled, TrivySource: cfg.Data.Trivy.Source},
+		SecurityReportRetentionDays: cfg.Server.Security.Reports.RetentionDays,
+		PGPStore:                    pgp.NewStore(p.Config),
+		GeoIP:                       geoManager,
+		GeoIPCfg:                    cfg.Server.GeoIP,
 		// AI.md PART 21: the backup directory is the one resolved at
 		// startup and cached here — never re-resolved per run.
 		Backup: scheduler.BackupDeps{

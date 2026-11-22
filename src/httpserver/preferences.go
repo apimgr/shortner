@@ -21,11 +21,13 @@ const preferenceCookieMaxAge = 31536000
 var preferenceKeyPattern = regexp.MustCompile(`^shortner_pref_[a-z][a-z0-9_]{0,63}$`)
 
 type preferenceSnapshot struct {
-	Theme string            `json:"theme"`
-	Lang  string            `json:"lang"`
-	Prefs map[string]string `json:"prefs"`
-	URL   string            `json:"url,omitempty"`
-	Code  string            `json:"code,omitempty"`
+	Theme         string            `json:"theme"`
+	Lang          string            `json:"lang"`
+	LangAutomatic bool              `json:"lang_automatic"`
+	LangName      string            `json:"-"`
+	Prefs         map[string]string `json:"prefs"`
+	URL           string            `json:"url,omitempty"`
+	Code          string            `json:"code,omitempty"`
 }
 
 type preferencePageData struct {
@@ -65,6 +67,7 @@ func (fd *frontendDeps) renderPreferences(w http.ResponseWriter, r *http.Request
 	state := readPreferences(r)
 	if lang := langFromContext(r); lang != "" {
 		state.Lang = lang
+		state.LangName = i18n.MetaFor(lang).NativeName
 	}
 	fullURL, code := fd.preferenceExport(r, state)
 	consent := readConsent(r)
@@ -210,13 +213,16 @@ func readPreferences(r *http.Request) preferenceSnapshot {
 	if cookie, err := r.Cookie("theme"); err == nil && isValidTheme(cookie.Value) {
 		theme = cookie.Value
 	}
-	lang := i18n.DefaultLanguage
+	lang := i18n.FromAcceptLanguage(r.Header.Get("Accept-Language"))
+	if lang == "" {
+		lang = i18n.DefaultLanguage
+	}
+	automatic := true
 	if cookie, err := r.Cookie(i18n.CookieName); err == nil {
 		if normalized := normalizePreferenceLang(cookie.Value); normalized != "" {
 			lang = normalized
+			automatic = false
 		}
-	} else if detected := i18n.FromAcceptLanguage(r.Header.Get("Accept-Language")); detected != "" {
-		lang = detected
 	}
 	prefs := map[string]string{}
 	for _, cookie := range r.Cookies() {
@@ -224,7 +230,7 @@ func readPreferences(r *http.Request) preferenceSnapshot {
 			prefs[strings.TrimPrefix(cookie.Name, "shortner_pref_")] = cookie.Value
 		}
 	}
-	return preferenceSnapshot{Theme: theme, Lang: lang, Prefs: prefs}
+	return preferenceSnapshot{Theme: theme, Lang: lang, LangAutomatic: automatic, LangName: i18n.MetaFor(lang).NativeName, Prefs: prefs}
 }
 
 func applyPreferences(w http.ResponseWriter, r *http.Request, values url.Values) preferenceApplyResult {
@@ -246,7 +252,11 @@ func applyPreferences(w http.ResponseWriter, r *http.Request, values url.Values)
 			result.Ignored = append(result.Ignored, key)
 			continue
 		}
-		setPreferenceCookie(w, r, name, canonical)
+		if name == "lang" && canonical == "auto" {
+			expirePreferenceCookie(w, r, i18n.CookieName)
+		} else {
+			setPreferenceCookie(w, r, name, canonical)
+		}
 		result.Applied = append(result.Applied, key)
 	}
 	result.State = readPreferencesWithValues(r, values)
@@ -261,10 +271,18 @@ func readPreferencesWithValues(r *http.Request, values url.Values) preferenceSna
 		state.Theme = value
 	}
 	if value := values.Get("lang"); value != "" {
-		if lang := normalizePreferenceLang(value); lang != "" {
+		if value == "auto" {
+			state.LangAutomatic = true
+			state.Lang = i18n.FromAcceptLanguage(r.Header.Get("Accept-Language"))
+			if state.Lang == "" {
+				state.Lang = i18n.DefaultLanguage
+			}
+		} else if lang := normalizePreferenceLang(value); lang != "" {
 			state.Lang = lang
+			state.LangAutomatic = false
 		}
 	}
+	state.LangName = i18n.MetaFor(state.Lang).NativeName
 	for key, value := range values {
 		if preferenceKeyPattern.MatchString(key) && len(value) > 0 && validPreferenceValue(value[0]) {
 			state.Prefs[strings.TrimPrefix(key, "shortner_pref_")] = value[0]
@@ -278,6 +296,9 @@ func validatePreference(key, value string) (string, string, bool) {
 	case "theme":
 		return key, value, isValidTheme(value)
 	case "lang":
+		if value == "auto" {
+			return key, value, true
+		}
 		lang := normalizePreferenceLang(value)
 		return key, lang, lang != ""
 	default:
@@ -314,10 +335,18 @@ func setPreferenceCookie(w http.ResponseWriter, r *http.Request, name, value str
 	http.SetCookie(w, &http.Cookie{Name: name, Value: value, Path: "/", MaxAge: preferenceCookieMaxAge, SameSite: http.SameSiteLaxMode, Secure: requestIsHTTPS(r)})
 }
 
+func expirePreferenceCookie(w http.ResponseWriter, r *http.Request, name string) {
+	http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: "/", MaxAge: -1, SameSite: http.SameSiteLaxMode, Secure: requestIsHTTPS(r)})
+}
+
 func canonicalPreferenceQuery(state preferenceSnapshot) string {
 	values := url.Values{}
 	values.Set("theme", state.Theme)
-	values.Set("lang", state.Lang)
+	if state.LangAutomatic {
+		values.Set("lang", "auto")
+	} else {
+		values.Set("lang", state.Lang)
+	}
 	for key, value := range state.Prefs {
 		if preferenceKeyPattern.MatchString("shortner_pref_"+key) && validPreferenceValue(value) {
 			values.Set("shortner_pref_"+key, value)

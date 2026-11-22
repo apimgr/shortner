@@ -166,11 +166,29 @@ func scaleBrandingImage(source []byte, variant string) ([]byte, error) {
 		}
 		box = image.Pt(size, size)
 	}
-	scale := min(float64(box.X)/float64(src.Bounds().Dx()), float64(box.Y)/float64(src.Bounds().Dy()))
-	w, h := max(1, int(float64(src.Bounds().Dx())*scale)), max(1, int(float64(src.Bounds().Dy())*scale))
 	canvas := image.NewRGBA(image.Rect(0, 0, box.X, box.Y))
-	dst := image.Rect((box.X-w)/2, (box.Y-h)/2, (box.X-w)/2+w, (box.Y-h)/2+h)
-	xdraw.CatmullRom.Scale(canvas, dst, src, src.Bounds(), xdraw.Over, nil)
+	if variant == "size=1200x630" {
+		bounds := src.Bounds()
+		sourceRatio := float64(bounds.Dx()) / float64(bounds.Dy())
+		targetRatio := float64(box.X) / float64(box.Y)
+		crop := bounds
+		if sourceRatio > targetRatio {
+			width := int(float64(bounds.Dy())*targetRatio + 0.5)
+			left := bounds.Min.X + (bounds.Dx()-width)/2
+			crop = image.Rect(left, bounds.Min.Y, left+width, bounds.Max.Y)
+		} else if sourceRatio < targetRatio {
+			height := int(float64(bounds.Dx())/targetRatio + 0.5)
+			top := bounds.Min.Y + (bounds.Dy()-height)/2
+			crop = image.Rect(bounds.Min.X, top, bounds.Max.X, top+height)
+		}
+		xdraw.CatmullRom.Scale(canvas, canvas.Bounds(), src, crop, xdraw.Over, nil)
+	} else {
+		bounds := src.Bounds()
+		scale := min(float64(box.X)/float64(bounds.Dx()), float64(box.Y)/float64(bounds.Dy()))
+		w, h := max(1, int(float64(bounds.Dx())*scale)), max(1, int(float64(bounds.Dy())*scale))
+		dst := image.Rect((box.X-w)/2, (box.Y-h)/2, (box.X-w)/2+w, (box.Y-h)/2+h)
+		xdraw.CatmullRom.Scale(canvas, dst, src, bounds, xdraw.Over, nil)
+	}
 	var out bytes.Buffer
 	if err := png.Encode(&out, canvas); err != nil {
 		return nil, err

@@ -12,7 +12,10 @@ import (
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/db"
+	"github.com/apimgr/shortner/src/fqdn"
 	"github.com/apimgr/shortner/src/paths"
+	"github.com/apimgr/shortner/src/pgp"
+	"github.com/apimgr/shortner/src/security"
 )
 
 func runSecurityReportMaintenance(binaryName string, p paths.Paths, args []string) int {
@@ -67,13 +70,13 @@ func runSecurityReportMaintenance(binaryName string, p paths.Paths, args []strin
 		fmt.Printf("Tracking ID: %s\nStatus: %s\nSeverity: %s\nComponent: %s\nCreated at: %s\nUpdated at: %s\nResearcher comment: %s\nDisclosure date: %s\n", rep.TrackingID, rep.Status, rep.Severity, rep.Component, rep.ReceivedAt.Format(time.RFC3339), rep.UpdatedAt.Format(time.RFC3339), rep.Comments, formatDisclosureDate(rep.DisclosureAt))
 		return 0
 	case "update":
-		return runSecurityReportUpdate(binaryName, p, sqlDB, ctx, args[1:])
+		return runSecurityReportUpdate(binaryName, p, cfg, sqlDB, ctx, args[1:])
 	default:
 		return securityReportUsage(binaryName)
 	}
 }
 
-func runSecurityReportUpdate(binaryName string, p paths.Paths, sqlDB db.Handle, ctx context.Context, args []string) int {
+func runSecurityReportUpdate(binaryName string, p paths.Paths, cfg *config.Config, sqlDB db.Handle, ctx context.Context, args []string) int {
 	if len(args) == 0 {
 		return securityReportUsage(binaryName)
 	}
@@ -99,7 +102,11 @@ func runSecurityReportUpdate(binaryName string, p paths.Paths, sqlDB db.Handle, 
 			update.DisclosureAt = date
 			continue
 		}
-		if arg != "--status" && arg != "--comment" && arg != "--disclosure-date" {
+		if strings.HasPrefix(arg, "--severity=") {
+			update.Severity = stringPointer(strings.ToLower(strings.TrimPrefix(arg, "--severity=")))
+			continue
+		}
+		if arg != "--status" && arg != "--comment" && arg != "--disclosure-date" && arg != "--severity" {
 			return securityReportUsage(binaryName)
 		}
 		if i+1 >= len(args) {
@@ -117,6 +124,8 @@ func runSecurityReportUpdate(binaryName string, p paths.Paths, sqlDB db.Handle, 
 				return securityReportError(binaryName, err)
 			}
 			update.DisclosureAt = date
+		case "--severity":
+			update.Severity = stringPointer(strings.ToLower(args[i]))
 		}
 	}
 	now := time.Now().UTC()
@@ -127,14 +136,61 @@ func runSecurityReportUpdate(binaryName string, p paths.Paths, sqlDB db.Handle, 
 	if err := writeSecurityReportAudit(p.Logs, id, oldStatus, rep.Status, now); err != nil {
 		return securityReportError(binaryName, err)
 	}
+	if oldStatus != rep.Status {
+		sendSecurityReportStatusNotice(cfg, p, rep)
+	}
 	fmt.Printf("Security report %s updated. Status: %s.\n", rep.TrackingID, rep.Status)
 	return 0
+}
+
+func sendSecurityReportStatusNotice(cfg *config.Config, p paths.Paths, rep *db.SecurityReport) {
+	if cfg == nil || rep == nil || len(rep.ContactEnc) == 0 {
+		return
+	}
+	key, err := config.DecodeEncryptionKey(cfg)
+	if err != nil {
+		return
+	}
+	plain, err := security.Open(key, string(rep.ContactEnc))
+	if err != nil {
+		return
+	}
+	var contact struct {
+		Email string `json:"email"`
+		GPG   string `json:"gpg"`
+	}
+	if err := json.Unmarshal(plain, &contact); err != nil || strings.TrimSpace(contact.Email) == "" {
+		return
+	}
+	body := fmt.Sprintf("Security report %s status changed to %s.\n", rep.TrackingID, rep.Status)
+	if rep.Comments != "" {
+		body += "Researcher comment: " + rep.Comments + "\n"
+	}
+	if !rep.DisclosureAt.IsZero() {
+		body += "Expected disclosure date: " + rep.DisclosureAt.UTC().Format("2006-01-02") + "\n"
+	}
+	if contact.GPG != "" {
+		recipients, err := pgp.ParsePublic(contact.GPG)
+		if err != nil {
+			return
+		}
+		message, err := pgp.EncryptArmored(recipients, []byte(body))
+		if err != nil {
+			return
+		}
+		body = message
+	}
+	n := newNotifier(cfg, p, fqdn.GetFQDN(internalName))
+	if !n.Startup(fqdn.GetFQDN(internalName)).Enabled {
+		return
+	}
+	_ = n.SendRaw([]string{contact.Email}, "Security report status updated - "+rep.TrackingID, body)
 }
 
 func stringPointer(value string) *string { return &value }
 
 func securityReportUsage(binaryName string) int {
-	fmt.Fprintf(os.Stderr, "Usage: %s --maintenance security list [--status STATUS] | show TRACKING_ID | update TRACKING_ID [--status STATUS] [--comment TEXT] [--disclosure-date YYYY-MM-DD]\n", binaryName)
+	fmt.Fprintf(os.Stderr, "Usage: %s --maintenance security list [--status STATUS] | show TRACKING_ID | update TRACKING_ID [--status STATUS] [--comment TEXT] [--disclosure-date YYYY-MM-DD] [--severity LEVEL]\n", binaryName)
 	return 2
 }
 

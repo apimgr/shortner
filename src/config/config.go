@@ -984,6 +984,7 @@ func Default(dbPath string) *Config {
 					"cve_update":       {Schedule: "0 5 * * *", Enabled: true},
 					"update_check":     {Schedule: "0 6 * * *", Enabled: true},
 					"token_cleanup":    {Schedule: "@every 15m", Enabled: true},
+					"security_cleanup": {Schedule: "30 3 * * *", Enabled: true},
 					"log_rotation":     {Schedule: "0 0 * * *", Enabled: true},
 					"backup_daily":     {Schedule: "0 2 * * *", Enabled: true},
 					"backup_hourly":    {Schedule: "@hourly", Enabled: false},

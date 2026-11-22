@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/apimgr/shortner/src/common/i18n"
 )
 
 func TestPreferenceCodeAcceptsQueryURLAndBase64(t *testing.T) {
@@ -48,7 +50,7 @@ func TestPreferenceValidationAndRedirect(t *testing.T) {
 		ok         bool
 	}{
 		{"theme", "auto", true}, {"theme", "blue", false},
-		{"lang", "fr-CA", true}, {"lang", "xx", false},
+		{"lang", "fr-CA", true}, {"lang", "auto", true}, {"lang", "xx", false},
 		{"shortner_pref_sort", "name", true}, {"shortner_pref_sort", "<script>", false},
 		{"cookie_consent", "yes", false},
 	} {
@@ -64,6 +66,28 @@ func TestPreferenceValidationAndRedirect(t *testing.T) {
 	}
 	if got := safePreferenceRedirect("/server/help?q=1", ""); got != "/server/help?q=1" {
 		t.Errorf("safe local redirect = %q", got)
+	}
+}
+
+func TestApplyAutomaticLanguageExpiresOverrideCookie(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/server/preferences", nil)
+	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "fr"})
+	rec := httptest.NewRecorder()
+	result := applyPreferences(rec, req, url.Values{"lang": {"auto"}})
+	if !result.State.LangAutomatic {
+		t.Fatalf("automatic language selection state = %+v", result.State)
+	}
+	var found bool
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == i18n.CookieName {
+			found = true
+			if cookie.MaxAge != -1 || cookie.Value != "" {
+				t.Fatalf("language override cookie was not expired: %+v", cookie)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("language override cookie was not cleared")
 	}
 }
 

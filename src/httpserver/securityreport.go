@@ -4,6 +4,8 @@ package httpserver
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -41,6 +43,7 @@ type securityReportForm struct {
 	SubmittedAt      string `json:"submitted_at"`
 	RequestUA        string `json:"request_user_agent"`
 	AgreedDisclosure bool   `json:"agreed_disclosure"`
+	SecurityID       string `json:"security_id,omitempty"`
 }
 
 // securitySeverities and securityCreditPrefs are the closed vocabularies
@@ -75,6 +78,7 @@ func (fd *frontendDeps) securityMode(r *http.Request) bool {
 	// The supplied id is logged deliberately: it is already invalid, so it
 	// grants nothing, and AI.md requires it for spotting scrape attempts.
 	if fd.audit != nil {
+		digest := sha256.Sum256([]byte(id))
 		ip := ""
 		if fd.resolver != nil {
 			ip = fd.resolver.ResolveClientIP(r)
@@ -85,7 +89,7 @@ func (fd *frontendDeps) securityMode(r *http.Request) bool {
 			Category: "security",
 			Severity: applog.SeverityWarn,
 			Actor:    applog.Actor{IP: ip},
-			Details:  map[string]any{"supplied_id": id, "user_agent": r.UserAgent()},
+			Details:  map[string]any{"supplied_id_hash": hex.EncodeToString(digest[:])[:8], "user_agent": r.UserAgent()},
 			Result:   applog.ResultFailure,
 		})
 	}
@@ -223,15 +227,23 @@ func (fd *frontendDeps) securityReportPost(w http.ResponseWriter, r *http.Reques
 		fd.renderSecurityContactFailure(w, r, http.StatusTooManyRequests, &data, t(r, "errors.captcha_failed"))
 		return
 	}
+	if data.Form.ResearcherGPG != "" {
+		key, err := resolveResearcherPublicKey(r.Context(), data.Form.ResearcherGPG)
+		if err != nil {
+			fd.renderSecurityContactFailure(w, r, http.StatusBadRequest, &data, t(r, "security_report.validate_gpg"))
+			return
+		}
+		data.Form.ResearcherGPG = key
+	}
 
-	trackingID, err := fd.storeSecurityReport(r.Context(), data.Form)
+	trackingID, statusToken, err := fd.storeSecurityReport(r.Context(), data.Form)
 	if err != nil {
 		fd.renderSecurityContactFailure(w, r, http.StatusInternalServerError, &data, t(r, "security_report.store_failed"))
 		return
 	}
 
 	// Steps 4 and 5: maintainer notification and researcher acknowledgment.
-	fd.notifySecurityReport(r, trackingID, data.Form)
+	data.AcknowledgmentSent = fd.notifySecurityReport(r, trackingID, statusToken, data.Form)
 
 	// Step 7: metadata only — no researcher PII, no vulnerability content.
 	if fd.audit != nil {
@@ -372,12 +384,20 @@ func (fd *frontendDeps) securityReportAPIPost(w http.ResponseWriter, r *http.Req
 		writeError(http.StatusTooManyRequests, "rate limited", true)
 		return
 	}
-	trackingID, err := fd.storeSecurityReport(r.Context(), form)
+	if form.ResearcherGPG != "" {
+		key, err := resolveResearcherPublicKey(r.Context(), form.ResearcherGPG)
+		if err != nil {
+			writeError(http.StatusBadRequest, t(r, "security_report.validate_gpg"), true)
+			return
+		}
+		form.ResearcherGPG = key
+	}
+	trackingID, statusToken, err := fd.storeSecurityReport(r.Context(), form)
 	if err != nil {
 		writeError(http.StatusInternalServerError, "report could not be stored", true)
 		return
 	}
-	fd.notifySecurityReport(r, trackingID, form)
+	fd.notifySecurityReport(r, trackingID, statusToken, form)
 	if fd.audit != nil {
 		_ = fd.audit.Write(applog.Entry{
 			Time: time.Now().UTC(), Event: "security.report_received", Category: "security",
@@ -426,6 +446,7 @@ func (fd *frontendDeps) readSecurityForm(r *http.Request) securityReportForm {
 		SubmittedAt:      time.Now().UTC().Format(time.RFC3339),
 		RequestUA:        r.UserAgent(),
 		AgreedDisclosure: config.IsTruthy(field("agreed_disclosure")),
+		SecurityID:       field("security_id"),
 	}
 }
 
@@ -446,10 +467,24 @@ func validateSecurityForm(r *http.Request, f securityReportForm) string {
 		return t(r, "security_report.validate_credit")
 	case f.CreditPref == "handle" && f.CreditHandle == "":
 		return t(r, "security_report.validate_credit_handle")
+	case len([]rune(f.ResearcherGPG)) > 16384:
+		return t(r, "security_report.validate_gpg")
+	case strings.HasPrefix(f.ResearcherGPG, "https://") && len([]rune(f.ResearcherGPG)) > 2048:
+		return t(r, "security_report.validate_gpg")
 	case !f.AgreedDisclosure:
 		return t(r, "security_report.validate_disclosure")
 	}
 	return ""
+}
+
+func resolveResearcherPublicKey(ctx context.Context, submitted string) (string, error) {
+	if strings.HasPrefix(submitted, "https://") {
+		return pgp.FetchPublicKey(ctx, submitted)
+	}
+	if _, err := pgp.ParsePublic(submitted); err != nil {
+		return "", err
+	}
+	return submitted, nil
 }
 
 // containsString reports whether want is one of the allowed values.
@@ -465,43 +500,88 @@ func containsString(allowed []string, want string) bool {
 // storeSecurityReport encrypts the report with the project PGP key when
 // configured, or seals it under server.security.encryption_key otherwise,
 // per AI.md PART 11 "Submission Flow" step 3.
-func (fd *frontendDeps) storeSecurityReport(ctx context.Context, f securityReportForm) (string, error) {
+func (fd *frontendDeps) storeSecurityReport(ctx context.Context, f securityReportForm) (string, string, error) {
+	unlock, err := pgp.NewStore(fd.configDir).LockShared()
+	if err != nil {
+		return "", "", err
+	}
+	defer unlock()
+
 	body, err := json.Marshal(f)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	var sealed string
+	bodyAlg := "pgp"
 	if armored, readErr := pgp.NewStore(fd.configDir).ReadPublicKey(); readErr == nil {
 		recipients, parseErr := pgp.ParsePublic(armored)
 		if parseErr != nil {
-			return "", parseErr
+			return "", "", parseErr
 		}
 		sealed, err = pgp.EncryptArmored(recipients, body)
 	} else if errors.Is(readErr, pgp.ErrNoKeypair) {
+		bodyAlg = "aes-256-gcm"
 		key, keyErr := config.DecodeEncryptionKey(fd.cfg)
 		if keyErr != nil {
-			return "", keyErr
+			return "", "", keyErr
 		}
 		sealed, err = security.Seal(key, body)
 	} else {
-		return "", readErr
+		return "", "", readErr
 	}
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	trackingID, err := db.NewTrackingID()
 	if err != nil {
-		return "", err
+		return "", "", err
+	}
+	statusToken, tokenHash, err := security.NewReportStatusToken()
+	if err != nil {
+		return "", "", err
+	}
+	key, err := config.DecodeEncryptionKey(fd.cfg)
+	if err != nil {
+		return "", "", err
+	}
+	contact, err := json.Marshal(struct {
+		Email string `json:"email"`
+		GPG   string `json:"gpg,omitempty"`
+	}{Email: f.Email, GPG: f.ResearcherGPG})
+	if err != nil {
+		return "", "", err
+	}
+	contactEnc, err := security.Seal(key, contact)
+	if err != nil {
+		return "", "", err
+	}
+	creditName := ""
+	if f.CreditPref == "name" {
+		creditName = f.Name
+	} else if f.CreditPref == "handle" {
+		creditName = f.CreditHandle
+	}
+	disclosureDate := time.Time{}
+	if f.DisclosureDays > 0 {
+		disclosureDate = time.Now().UTC().AddDate(0, 0, f.DisclosureDays)
 	}
 	rep := db.SecurityReport{
-		TrackingID: trackingID,
-		ReceivedAt: time.Now().UTC(),
-		Severity:   f.Severity,
-		Component:  f.Component,
-		Sealed:     sealed,
+		TrackingID:   trackingID,
+		SecurityID:   f.SecurityID,
+		CreatedAt:    time.Now().UTC(),
+		Severity:     strings.ToLower(strings.TrimSpace(f.Severity)),
+		Component:    f.Component,
+		Sealed:       sealed,
+		BodyAlg:      bodyAlg,
+		ContactEnc:   []byte(contactEnc),
+		CreditPref:   f.CreditPref,
+		CreditName:   creditName,
+		CVERequested: f.CVERequested,
+		TokenHash:    tokenHash,
+		DisclosureAt: disclosureDate,
 	}
 	if err := db.InsertSecurityReport(ctx, fd.ld.sqlDB, rep); err != nil {
-		return "", err
+		return "", "", err
 	}
-	return trackingID, nil
+	return trackingID, statusToken, nil
 }

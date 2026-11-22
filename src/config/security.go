@@ -23,8 +23,9 @@ type Security struct {
 	// (standard encoding) of 32 random bytes. Auto-generated on first run
 	// by EnsureEncryptionKey. NEVER returned by any API response and never
 	// logged, per AI.md PART 11 "Cryptographic Keys".
-	EncryptionKey        string `yaml:"encryption_key"`
-	EncryptionKeyVersion int    `yaml:"encryption_key_version"`
+	EncryptionKey        string          `yaml:"encryption_key"`
+	EncryptionKeyVersion int             `yaml:"encryption_key_version"`
+	Reports              SecurityReports `yaml:"reports"`
 	// Allowlist entries bypass blocklists, rate limiting, GeoIP country
 	// blocking, and auto-blocking — never CSRF, path security, or TLS.
 	Allowlist []AllowlistEntry `yaml:"allowlist"`
@@ -33,6 +34,12 @@ type Security struct {
 	// here, per AI.md PART 11 "IP Block Management" -> "Block Types".
 	BlockedIPs     []BlockedIPEntry `yaml:"blocked_ips"`
 	AbuseDetection AbuseDetection   `yaml:"abuse_detection"`
+}
+
+// SecurityReports holds retention policy for coordinated-disclosure
+// records, per AI.md PART 11 "Security Report Storage & Operator Workflow".
+type SecurityReports struct {
+	RetentionDays int `yaml:"retention_days"`
 }
 
 // AllowlistEntry is one trusted IP/CIDR, per AI.md PART 11 "IP Block
@@ -415,6 +422,7 @@ func DefaultSecurity() Security {
 	return Security{
 		Allowlist:  []AllowlistEntry{},
 		BlockedIPs: []BlockedIPEntry{},
+		Reports:    SecurityReports{RetentionDays: 365},
 		AbuseDetection: AbuseDetection{
 			Enabled: true,
 			RequestFlood: RequestFlood{

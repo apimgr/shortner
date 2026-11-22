@@ -216,6 +216,22 @@ func contactShapeValid(values url.Values, security, api bool) (string, bool) {
 		if typeValue != "abuse" && typeValue != "dmca" && typeValue != "privacy" {
 			return "shape", false
 		}
+		fieldsByType := map[string][]string{
+			"abuse":   {"reported_url", "reason"},
+			"dmca":    {"reported_url", "copyrighted_work", "good_faith_statement", "accuracy_statement", "signature"},
+			"privacy": {"request_kind"},
+		}
+		allowedTypeFields := make(map[string]struct{}, len(fieldsByType[typeValue]))
+		for _, field := range fieldsByType[typeValue] {
+			allowedTypeFields[field] = struct{}{}
+		}
+		for _, field := range []string{"reported_url", "reason", "copyrighted_work", "good_faith_statement", "accuracy_statement", "signature", "request_kind"} {
+			if _, present := values[field]; present {
+				if _, allowed := allowedTypeFields[field]; !allowed {
+					return "shape", false
+				}
+			}
+		}
 		switch typeValue {
 		case "abuse":
 			if !validReportedURL(values.Get("reported_url")) || !oneOf(values.Get("reason"), "illegal_content", "terms_violation", "harassment", "malware_phishing", "other") {

@@ -5,6 +5,22 @@ import (
 	"time"
 )
 
+func TestReportStatusTokenUsesStoredSHA256Hash(t *testing.T) {
+	token, digest, err := NewReportStatusToken()
+	if err != nil {
+		t.Fatalf("NewReportStatusToken() error = %v", err)
+	}
+	if len(token) != 64 || len(digest) != 64 {
+		t.Fatalf("token/hash lengths = %d/%d, want 64/64", len(token), len(digest))
+	}
+	if token == digest || !ValidReportStatusToken(digest, token) {
+		t.Fatal("generated token was not validated by its stored digest")
+	}
+	if ValidReportStatusToken(digest, token+"x") || ValidReportStatusToken("invalid", token) {
+		t.Fatal("invalid status token or digest was accepted")
+	}
+}
+
 func TestReportToken(t *testing.T) {
 	tests := []struct {
 		name       string

@@ -2,15 +2,48 @@ package security
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"time"
 )
 
 // reportTokenLength is the number of hex characters kept from the HMAC of
 // a security-report tracking id.
 const reportTokenLength = 32
+
+// NewReportStatusToken creates a random status token and its SHA-256 digest.
+// Only the digest is persisted; the raw value is delivered once by email.
+func NewReportStatusToken() (string, string, error) {
+	var raw [32]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", "", errors.New("security: generate report status token")
+	}
+	token := hex.EncodeToString(raw[:])
+	return token, HashReportStatusToken(token), nil
+}
+
+// HashReportStatusToken returns the SHA-256 hex digest stored for a report.
+func HashReportStatusToken(token string) string {
+	digest := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(digest[:])
+}
+
+// ValidReportStatusToken compares a candidate status token to its stored
+// SHA-256 digest in constant time.
+func ValidReportStatusToken(tokenHash, token string) bool {
+	if len(tokenHash) != sha256.Size*2 || token == "" {
+		return false
+	}
+	expected, err := hex.DecodeString(tokenHash)
+	if err != nil {
+		return false
+	}
+	candidate := sha256.Sum256([]byte(token))
+	return subtle.ConstantTimeCompare(expected, candidate[:]) == 1
+}
 
 // ReportToken derives the one-shot token that authorizes viewing
 // `/server/security/report/{tracking_id}`, per AI.md PART 11 "Public

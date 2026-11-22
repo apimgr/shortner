@@ -1,15 +1,6 @@
 {{define "header"}}<header class="site-header" role="banner">
 <div class="container site-header-inner">
 <a href="/" class="brand">{{if .Base.LogoURL}}<img src="{{.Base.LogoURL}}" srcset="{{.Base.LogoURL}}?width=50 50w, {{.Base.LogoURL}}?width=200 200w" sizes="(max-width: 600px) 50px, 200px" alt="">{{end}}{{.Base.SiteName}}</a>
-{{if .Base.I18NEnabled}}
-<form method="get" action="" class="lang-form" data-action="lang-form">
-<label for="lang-select" class="sr-only">{{t .Base.Lang "common.select_language"}}</label>
-<select id="lang-select" name="lang" class="lang-select">
-{{$active := .Base.Lang}}{{range .Base.AvailableLanguages}}<option value="{{.Code}}"{{if eq .Code $active}} selected{{end}}>{{.NativeName}}</option>{{end}}
-</select>
-<button type="submit" class="lang-go">{{t .Base.Lang "common.go"}}</button>
-</form>
-{{end}}
 <nav class="profile-preferences" aria-label="{{t .Base.Lang "header.preferences"}}">
 {{if .Base.OwnerTokenCookieExists}}
 <a href="/server/preferences/tokens" class="header-link">{{t .Base.Lang "header.manage_tokens"}}</a>

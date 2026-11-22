@@ -223,6 +223,29 @@ func TestStoreRetireKeepsOldKeyReadable(t *testing.T) {
 	}
 }
 
+func TestStoreCleanupExpiredRotation(t *testing.T) {
+	store := NewStore(t.TempDir())
+	old := testKey(t)
+	now := time.Now().UTC()
+	if err := store.Write(old, "installation-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Retire(now); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := store.CleanupExpiredRotation(now.AddDate(0, 0, PreviousKeyGraceDays-1))
+	if err != nil || removed {
+		t.Fatalf("cleanup before expiry = (%t, %v), want (false, nil)", removed, err)
+	}
+	removed, err = store.CleanupExpiredRotation(now.AddDate(0, 0, PreviousKeyGraceDays+1))
+	if err != nil || !removed {
+		t.Fatalf("cleanup after expiry = (%t, %v), want (true, nil)", removed, err)
+	}
+	if _, err := store.PreviousKey("installation-secret", now.AddDate(0, 0, PreviousKeyGraceDays+2)); err == nil {
+		t.Fatal("retired key still exists after cleanup")
+	}
+}
+
 func TestSignPublicKeyOf(t *testing.T) {
 	old := testKey(t)
 	next := testKey(t)
