@@ -15427,7 +15427,7 @@ web:
 
 | Aspect | Rule |
 |--------|------|
-| Availability | **Always on.** There is no `server.mcp` key in `server.yml` and no admin toggle; the Bearer token (the same one the API uses) is the only gate |
+| Availability | **Always on.** There is no `server.mcp` key in `server.yml` and no toggle of any kind; the Bearer token (the same one the API uses) is the only gate |
 | Transport | **Streamable HTTP, remote only** — one endpoint, JSON-RPC 2.0 over HTTP `POST`. No stdio build, no local-process mode, no separate MCP binary or port |
 | Specification | This template targets MCP revision **2026-07-28** (https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http). A request whose `MCP-Protocol-Version` names any other revision, or an `initialize` handshake from an older client, is answered `400` with the spec's `UnsupportedProtocolVersionError` listing `2026-07-28`; the older initialize negotiation that answers with another supported version is not implemented. The header, error and transport rules come from that revision, not from this file |
 | Canonical route | `/api/{api_version}/server/mcp` |
@@ -15439,7 +15439,8 @@ web:
 | Responses | A single `application/json` object per request; an SSE stream only when a tool needs to stream progress. Server-initiated requests are never sent |
 | Sessions | None. An `Mcp-Session-Id` header, if sent by an older client, is ignored — never minted, never echoed |
 | `Origin` | If an `Origin` header is present it MUST be the request's own origin, a configured public origin (PART 8 → "Resolution Order"), or an explicit entry of the resolved CORS allow-list (PART 16 → "CORS Allow-list Resolution Order"); the `*` default of that list does NOT authorize MCP origins; anything else → `403` (DNS-rebinding protection required by the spec). Requests without an `Origin` header (non-browser clients) are unaffected |
-| Header checks | `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` MUST match the JSON-RPC body; mismatch → `400` with the spec's `HeaderMismatch` error |
+| Header checks | Every `POST` carries `MCP-Protocol-Version` (equal to `_meta` `io.modelcontextprotocol/protocolVersion` in the body) and `Mcp-Method` (equal to the body `method`); `tools/call`, `resources/read` and `prompts/get` also carry `Mcp-Name` (equal to `params.name` or `params.uri`; a value that is not plain ASCII arrives as `=?base64?…?=` and is decoded before it is compared). A missing, malformed or mismatched header → `400` with JSON-RPC error code `-32020` (`HeaderMismatch`) |
+| Unknown method | A method the server does not implement → `404` with JSON-RPC error code `-32601` (`Method not found`) |
 
 #### Authentication — reuse, never new
 
@@ -15469,7 +15470,7 @@ web:
 
 #### Configuration
 
-**None.** The MCP endpoint is always on: there is no `server.mcp.enabled` setting, and no switch in the config file or the admin panel.
+**None.** The MCP endpoint is always on: there is no `server.mcp.enabled` setting, and no switch in the config file, the environment or the CLI.
 
 | Element | Type | Description |
 |---------|------|-------------|
@@ -31094,7 +31095,7 @@ server:
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `{project_name}_auth_attempts_total` | Counter | `method`, `status` | Auth attempts |
-| `{project_name}_owner_tokens_active` | Gauge | `kind` | Active (not revoked, not expired) owner tokens; `kind` is `primary` or `linked`. Always emitted: owner tokens exist in every project. This product has no sessions or user accounts |
+| `{project_name}_owner_tokens_active` | Gauge | `kind` | Active (not revoked, not expired) owner tokens; `kind` is `primary` or `linked`. Always emitted: the owner-token machinery exists in every project, and the gauge stays `0` until an owner is issued. This product has no sessions or user accounts |
 
 ### Optional: Extended Metrics
 
@@ -31578,13 +31579,6 @@ var (
         prometheus.GaugeOpts{
             Name: "{project_name}_items_active",
             Help: "Number of items updated in last 24 hours",
-        },
-    )
-
-    APITokensActive = promauto.NewGauge(
-        prometheus.GaugeOpts{
-            Name: "{project_name}_api_tokens_active",
-            Help: "Number of active API tokens",
         },
     )
 
