@@ -470,6 +470,11 @@ content-type, and size checks, then served from a daily cache on the same
 origin. Logo, favicon, and OpenGraph variants are resized locally, so Tor and
 I2P visitors do not contact third-party image hosts.
 
+Logo variants preserve their aspect ratio at 200px and 50px widths. Favicon
+variants (16, 32, 48, 180, 192, and 512 square pixels) fit inside a transparent
+square without cropping. The 1200×630 OpenGraph variant covers the full frame
+and is center-cropped.
+
 Atom 1.0 and RSS 2.0 feeds are always available at `/feed.xml` and
 `/rss.xml`. Both contain the same newest public, unexpired links.
 `feed.max_items` is clamped to 1–200 during validation; `feed.title`
