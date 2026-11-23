@@ -125,7 +125,7 @@ AI reads AI.md for the first time
 
 **See `IDEA.md` for features, data models, and business rules.**
 
-IDEA.md is the project PLAN. AI.md (this file) is the SOURCE OF TRUTH for the template baseline; only a SPEC.md override can differ from it.
+IDEA.md is the project PLAN. AI.md (this file) is the authoritative template baseline. The order of authority is: a project's SPEC.md (optional overrides) > AI.md > global CLAUDE.md; IDEA.md never overrides any of them.
 
 | File | Role | Update When |
 |------|------|-------------|
@@ -473,7 +473,7 @@ docker run --rm --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -
 make test
 
 # Phase 2: Binary validation — shell scripts run against the compiled binary
-# Basic tier: Docker (Incus only as the fallback)
+# Basic tier: Docker
 ./tests/run_tests.sh
 
 # 5. Production test (before release)
@@ -954,7 +954,7 @@ The `release` job already has `contents: write` to push assets — this covers t
 --status                     # Show status and health (exit 0=healthy, 1=unhealthy)
 --service {start,restart,stop,reload,--install,--uninstall,--disable,--help}
 --daemon                     # Daemonize (detach from terminal)
---maintenance {backup,restore,update,mode,setup,pgp,security,secret,token,data,compliance,--help} [optional-file-or-setting-or-action]
+--maintenance {backup,restore,update,mode,setup,pgp,security,secret,token,data,compliance,scheduler,--help} [optional-file-or-setting-or-action]
 --update [check|yes|branch {stable|beta|devel}]
 ```
 
@@ -1437,7 +1437,7 @@ For complete details, see AI.md PART 0, 1
 |------|----------------|
 | /server/about | IDEA.md → name, tagline, description, features, links |
 | /server/help | IDEA.md → real endpoints, real curl examples, real FAQ |
-| /server/privacy | Built-in privacy text (project data), extended by `server.branding.content.privacy`; `server.privacy.*` only switches behavior (consent, `data.sold`) |
+| /server/privacy | Built-in privacy text (project data), extended by `server.branding.content.privacy`; `server.privacy.*` holds the behavior switches (consent, `data.sold`) AND the deployment facts the page shows (`data.sharing`, `retention`, `cookies`, `third_party`); the other sections are built-in text |
 | /server/terms | Config → customizable, default template |
 | /server/contact | Config → `server.contact.general.*` + `server.pages.contact.*` settings |
 
@@ -3793,7 +3793,7 @@ logging:
 
 ## The Three Laws of Migration
 
-1. **SPEC IS LAW** - The SPEC (AI.md) is the single source of truth. No exceptions.
+1. **SPEC IS LAW** - AI.md is the authority for the template baseline; the only thing that overrides it is a project's SPEC.md, and nothing else does (not IDEA.md, not CLAUDE.md, not a code comment).
 2. **NO INVENTION** - Never invent, assume, or hallucinate. If not in SPEC, don't add it.
 3. **VERIFY EVERYTHING** - Before every change, verify it matches SPEC exactly.
 
@@ -4245,7 +4245,7 @@ If blocked on current feature:
 ### Infrastructure
 ```
 □ Dockerfile matches SPEC multi-stage pattern
-□ docker-compose.yml, docker-compose.dev.yml, docker-compose.test.yml present
+□ docker/docker-compose.yml, docker/docker-compose.dev.yml, docker/docker-compose.test.yml present (never in the project root)
 □ entrypoint.sh matches SPEC exactly
 □ Makefile has all required targets
 □ CI/CD workflows in place
@@ -4387,7 +4387,7 @@ make build
 make test
 
 # CORRECT - Integration tests
-# Basic tier: Docker (Incus only as the fallback)
+# Basic tier: Docker
 ./tests/run_tests.sh
 # Full OS test with systemd (PREFERRED)
 ./tests/incus.sh
@@ -5474,18 +5474,18 @@ curl -L https://api.example.com/server/healthz
 | **Sane Defaults** | Everything has sensible default values |
 | **No AI/ML** | Smart logic only, no machine learning |
 | **Concise Responses** | Short, descriptive, and helpful |
-| **Everything Configurable** | ALL settings MUST be configurable via `server.yml` |
+| **Everything Configurable** | ALL settings MUST be configurable in the configuration files (`server.yml`, the `yaml.d/` area files and `secrets.yml`) |
 | **Live Reload** | Configuration changes apply without restart (file-watch hot-reload), except the restart-required settings of "Smart Config Reload" (listen port and address, `ssl.*`, `database.*`, `server.daemonize`, `tor.*`), which are logged as a warning and apply at the next start |
 | **Built-in Scheduler** | NEVER use cron, Task Scheduler, or external schedulers (PART 18) |
 
 ### File-Only Configuration
 
-**ALL configuration is via `server.yml`. There is no admin web UI, no runtime config mutation via API.**
+**ALL configuration is file-based: `server.yml`, the `yaml.d/` area files and `secrets.yml`. There is no admin web UI, no runtime config mutation via API.**
 
 | Rule | Description |
 |------|-------------|
 | **Files are the source of truth** | `server.yml`, the `yaml.d/` drop-ins and `secrets.yml` are the only places settings are changed; page content lives in `branding.yml` and branding images in `assets/` |
-| **Hot-reload** | Server watches `server.yml` for changes and reloads immediately |
+| **Hot-reload** | The server watches `server.yml`, `yaml.d/`, `secrets.yml` and `assets/` and re-merges everything immediately after any change (PART 5 → "Drop-in Config Directory") |
 | **No runtime API config** | No endpoints that write to or mutate server configuration |
 | **Sane defaults** | Every setting has a working default; `server.yml` is optional for basic operation |
 
@@ -7613,11 +7613,9 @@ server:
       disk_threshold: 90
       # Delete logs older than 7 days during cleanup
       log_retention_days: 7
-      # Keep last 5 backups during cleanup
-      # Retention and disk-pressure cleanup scan the backup directory
-      # resolved and cached at startup step 7 — the same directory
-      # backups are written to. Never re-resolve the path at cleanup time.
-      backup_keep_count: 5
+      # How many backups are kept is server.backup.retention (PART 21), the only place;
+      # disk-pressure cleanup applies that policy and scans the backup directory resolved and cached
+      # at startup step 7 (the directory backups are written to; never re-resolve it at cleanup time)
 
     # Notifications
     notify:
@@ -7890,7 +7888,7 @@ func (req *CreateResourceRequest) Parse() (*Resource, error) {
 | `PORT` | Server port |
 | `LISTEN` | Listen address |
 | `APPLICATION_NAME` | Application title |
-| `APPLICATION_TAGLINE` | Application description |
+| `APPLICATION_TAGLINE` | Application description. Like `APPLICATION_NAME`, it is written ONCE, on the first run and only when set, to `yaml.d/branding.yml` (`server.branding`). The first-run init variables are one of the named workflows that may create an area file, so a fresh install without them still writes only `server.yml` |
 | `DATABASE_DRIVER` | First run: the database driver when `DATABASE_URL` is not set (`sqlite` (+ `sqlite2`, `sqlite3`), `libsql` (+ `turso`)) |
 | `DATABASE_URL` | First run: the full database connection string, saved to `secrets.yml` (when it carries a credential) or `server.yml`; ignored afterwards ("Connection Strings") |
 | `CACHE_URL` | First run: the full cache connection string (`valkey://`, `redis://`), saved the same way |
@@ -7946,7 +7944,7 @@ func (req *CreateResourceRequest) Parse() (*Resource, error) {
 
 | File | Holds |
 |------|-------|
-| `server.yml` | This node only: `server.port`, `server.address`, `server.fqdn`, `server.mode`, `server.api_version`, `server.baseurl`, `server.pidfile`, `server.daemonize`, `server.debug`, `server.database`, `server.cache`, `server.ssl`, `server.trusted_proxies` |
+| `server.yml` | This node only: `server.port`, `server.address`, `server.fqdn`, `server.mode`, `server.api_version`, `server.baseurl`, `server.pidfile`, `server.daemonize`, `server.debug.*` (the debug SETTINGS; the debug flag itself has no config key), `server.database`, `server.cache`, `server.ssl`, `server.trusted_proxies` |
 | `yaml.d/branding.yml` | `server.branding`, `server.seo`, `web.ui` ("Branding File") |
 | `yaml.d/web.yml` | `web.*` except `web.ui`; `server.cors`, `server.csrf`, `server.url_detection`, `server.compression`, `server.healthz`, `server.i18n` |
 | `yaml.d/pages.yml` | `server.pages` (the report form and its antispam, the help pages) |
@@ -8012,10 +8010,10 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 | `server.admin.password`, `.token`, `.username`, `.two_factor.*` | removed (the operator token is `server.token`; there are no admin passwords) |
 | `server.https_port` | when `server.port` is a single number and `https_port` is greater than 0, folded into `server.port` as the quoted string `"{port},{https_port}"` ("Dual Port Support"); otherwise removed. An already-dual `server.port` is kept as written, and `server.ssl.enabled` is never changed by the migration |
 | `server.ssl.dns01.*`, `server.ssl.letsencrypt.provider`, `.credentials_encrypted` | `server.ssl.letsencrypt.dns_provider`, `server.ssl.letsencrypt.dns_credentials` (`validated_at`, `domain` and `domains` are removed) |
-| `server.security.installation_secret`, `.installation_secret_previous`, `.installation_secret_previous_expires`, `.encryption_key_previous`, `.encryption_key_previous_expires` | imported into the database `app_secrets` row of the same name when that row is missing, then removed from the file (PART 11 → "Rotation contract") |
+| `server.security.installation_secret`, `.installation_secret_previous`, `.installation_secret_previous_expires`, `.encryption_key_previous`, `.encryption_key_previous_expires` | imported into the database `app_secrets` row of the same name when that row is missing (the legacy `..._previous_expires` keys become the canonical `{name}_previous_until` rows), then removed from the file (PART 11 → "Rotation contract") |
 | Settings that no longer exist | removed: `web.llms.enabled`, `server.privacy.content.*`, `server.mcp`, `server.rate_limit.enabled`, `server.rate_limit.requests`, `server.rate_limit.window`, `server.scheduler.enabled`, `server.maintenance_mode`, `server.i18n.auto_detect`, `.rtl_languages`, `.show_selector`, `.translations_dir`, `server.geoip.dir`, `.databases`, `.country_mode`, `server.database.sqlite`, `server.metrics.endpoint`, `server.notifications.email_enabled`, `.webhook_enabled`, `server.secret_key`, `web.permissions_policy`, `web.honor_dnt`, `web.robots.ai_bots` |
 
-**Scheduler tasks.** A task under `server.scheduler.tasks` has exactly the keys `enabled`, `schedule`, `retry_on_fail` and `retry_delay` (and `retention` for `backup`). Any other per-task key is removed by the migration, and a built-in task that still has its default values is not written at all.
+**Scheduler tasks.** A task under `server.scheduler.tasks` has exactly the keys `enabled`, `schedule`, `retry_on_fail` and `retry_delay` (backup retention is NOT a task key: it lives only in `server.backup.retention`, PART 21). Any other per-task key is removed by the migration, and a built-in task that still has its default values is not written at all.
 
 **Layout.** Sections and keys are written in the order this specification lists them, so a rewrite never reshuffles a file and diffs stay small.
 
@@ -8026,7 +8024,7 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 | Rule | Behavior |
 |------|----------|
 | **Keys** | Only these, for every one the project has: `server.token`; `server.security.encryption_key` and `server.security.encryption_key_version`; `server.notifications.email.smtp.password`; `server.cache.password`; `server.database.token` (libsql only); `server.database.url` and `server.cache.url` (each only while the URL carries a credential); `server.pages.contact.captcha_secret_key`; `server.ssl.letsencrypt.dns_credentials`; `data.cve.api_key`; `server.backup.encryption_password`; `server.metrics.auth.tokens.*`; every webhook URL and its `_secret` under `server.contact.{role}.webhooks`. `server.tokens.*` is token policy, not a secret. Every other key stays in its area file |
-| **Generated** | When one of these keys is empty or missing at start, the server generates it BEFORE it serves anything, writes it to `secrets.yml` (atomic, `0600`) and records `config.secret_generated` (the key name only) in `audit.log`: `server.token`; `server.security.encryption_key` (with `encryption_key_version: 1`); `server.metrics.auth.tokens.prometheus`, `.grafana` and `.loki`; and a `webhooks.<name>_secret` whenever its webhook URL is set. `server.token` is an `adm_` token and each metrics token an `mtr_` token, each plus 32 random base62 characters ("Token Catalogue") and the encryption key is 32 random bytes. Only `server.token` is printed, once, at first creation; every other value is read from `secrets.yml` |
+| **Generated** | When one of these keys is empty or missing at start, the server generates it BEFORE it serves anything, writes it to `secrets.yml` (atomic, `0600`) and records `config.secret_generated` (the key name only) in `audit.log`: `server.token`; `server.security.encryption_key` (with `encryption_key_version: 1`); `server.metrics.auth.tokens.prometheus`, `.grafana` and `.loki`; and a `webhooks.<name>_secret` whenever its webhook URL is set. `server.token` is an `adm_` token and each metrics token an `mtr_` token, each plus 32 random base62 characters ("Token Catalogue") and the encryption key is 32 random bytes. Only `server.token` is printed, once, to the console at first creation ("First-start disclosure") and never logged; every other value is read from `secrets.yml` |
 | **Never generated** | Credentials that someone else issues stay empty until the operator sets them: `server.notifications.email.smtp.password`, `server.cache.password`, `server.database.token`, `server.database.url` and `server.cache.url` with a credential in them, `server.pages.contact.captcha_secret_key`, `server.ssl.letsencrypt.dns_credentials`, `data.cve.api_key`, `server.backup.encryption_password` and the webhook URLs |
 | **Rotation** | Blank a generated key in `secrets.yml` and restart: a new value is generated. `--maintenance secret rotate {name}` rotates the encryption key and the HMAC secrets with their grace periods (PART 11) |
 | **Written by** | The server writes generated, rotated and moved secrets to `secrets.yml` and ONLY there, never to `server.yml` and never to a drop-in (this limits what the server writes; an operator may still hand-write a value elsewhere, see "Operator-set values"): the first-run `server.token`, `server.security.encryption_key` with its version, and every rotation (`--maintenance secret rotate encryption_key`) |
@@ -8034,7 +8032,7 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 | **Migration** | At start, if `server.token` or `server.security.encryption_key` is found in `server.yml` and `secrets.yml` does not hold it, the server writes `secrets.yml` first (atomic, `0600`, fsynced) and only then rewrites `server.yml` without those keys, so a secret is never in both files and never lost |
 | **Early read** | The early config read (PART 8 startup, step 8e) never opens `secrets.yml`: it needs only `server.port`, `server.address` and `server.daemonize` |
 | **Permissions** | Always `0600` (PART 8 → "Directory Validation Rules": private paths); a wrong mode is fixed at start |
-| **Reload** | The file watcher watches it with `server.yml` and `yaml.d/`; a change re-merges everything and an invalid result keeps the last good config |
+| **Reload** | The file watcher watches it with `server.yml`, `yaml.d/` and `assets/`; a change re-merges everything and an invalid result keeps the last good config |
 | **Backup** | Included in every backup whenever it exists (PART 21 → "Backup Contents"), so a restore brings back the same token and encryption key |
 | **Never exposed** | Secret values are never logged, never printed by `--config` (shown as `********`), and never returned by any API response (PART 11) |
 ### Connection Strings (database and cache)
@@ -8467,6 +8465,8 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 | `--maintenance token revoke <prefix>` | 🔐 Auth | Requires `server.token` OR root, plus typed confirmation | N/A |
 | `--maintenance data <export\|delete> --owner <prefix>` | 🔐 Auth | Requires `server.token` OR root | N/A |
 | `--maintenance compliance report` | 🔐 Auth | Requires `server.token` OR root | N/A |
+| `--maintenance scheduler list`, `show <id>`, `history <id>` | 🔐 Auth | Requires `server.token` OR root | N/A |
+| `--maintenance scheduler run <id>`, `enable <id>`, `disable <id>` | 🔐 Auth | Requires `server.token` OR root; each run, enable and disable is audited | N/A |
 | (normal start) | ❌ No | Adapts paths to current user | N/A |
 
 **Key insight:** After service install, the `{internal_name}` user owns all data directories. However, sensitive operations require AUTHORIZATION, not just file access.
@@ -8911,13 +8911,11 @@ server:
         enabled: true
         # Every 15 minutes
         schedule: "*/15 * * * *"
-      backup:
+      backup_daily:
         enabled: true
         # Daily: 2:00 AM
         schedule: "0 2 * * *"
-        # Keep max 5 backups (storage management, matches
-        # maintenance backup_keep_count)
-        retention: 5
+        # How many backups are kept is server.backup.retention (PART 21), never a task key
 
       # SSL certificate management (only when app manages certs)
       ssl_renewal:
@@ -9067,7 +9065,7 @@ Before proceeding, confirm you understand:
 |---------|----------|
 | Logging | `debug` level, maximum verbosity |
 | Sanitization | Minimal — internals, dumps, and stack traces may be exposed |
-| Credentials | Keys, tokens, passwords, secrets ALWAYS redacted — no exceptions |
+| Credentials | Keys, tokens, passwords, secrets ALWAYS redacted in logs, responses, dumps and errors; the only exception is the single first-start console print of `server.token` ("First-start disclosure") |
 | Security checks | Never disabled — authentication and authorization fully enforced |
 | Everything else | As Development Mode |
 
@@ -9155,7 +9153,7 @@ import (
 
 // registerDebugRoutes registers debug endpoints (--debug/DEBUG=true only); every endpoint also requires the operator token
 func (s *Server) registerDebugRoutes(r chi.Router) {
-    if !s.config.IsDebug() {
+    if !mode.IsDebugEnabled() {
         // No debug routes unless --debug or DEBUG=true
         return
     }
@@ -9302,7 +9300,7 @@ import (
 
 // debugLog logs detailed request information (--debug/DEBUG=true only)
 func (s *Server) debugLog(r *http.Request, status int, duration time.Duration, size int) {
-    if !s.config.IsDebug() {
+    if !mode.IsDebugEnabled() {
         return
     }
 
@@ -9322,7 +9320,7 @@ func (s *Server) debugLog(r *http.Request, status int, duration time.Duration, s
 
 // debugLogDB logs database queries (--debug/DEBUG=true only)
 func (s *Server) debugLogDB(query string, args []any, duration time.Duration, err error) {
-    if !s.config.IsDebug() {
+    if !mode.IsDebugEnabled() {
         return
     }
 
@@ -9345,7 +9343,7 @@ func (s *Server) debugLogDB(query string, args []any, duration time.Duration, er
 
 // debugLogCache logs cache operations (--debug/DEBUG=true only)
 func (s *Server) debugLogCache(op string, key string, hit bool, duration time.Duration) {
-    if !s.config.IsDebug() {
+    if !mode.IsDebugEnabled() {
         return
     }
 
@@ -9374,7 +9372,7 @@ import (
 // debugMiddleware logs detailed request/response info (--debug/DEBUG=true only)
 func (s *Server) debugMiddleware(next http.Handler) http.Handler {
     // No-op unless debug enabled
-    if !s.config.IsDebug() {
+    if !mode.IsDebugEnabled() {
         return next
     }
 
@@ -9623,7 +9621,8 @@ func IsAppModeProd() bool {
     return currentMode == Production
 }
 
-// IsDebugEnabled returns true if debug mode is enabled (--debug or DEBUG=true)
+// IsDebugEnabled returns true if debug mode is enabled (--debug or DEBUG=true).
+// It is the ONLY accessor: the config type has no IsDebug method, because the debug flag has no server.yml source
 func IsDebugEnabled() bool {
     return debugEnabled
 }
@@ -10656,7 +10655,7 @@ NO_COLOR=1 {project_name} --status | grep -E '✅|❌|⚠️|🚀'
 --color {auto|yes|no}
 # Language for output (default: auto, from LANG env)
 --lang {code}
---maintenance {backup,restore,update,mode,setup,pgp,security,secret,token,data,compliance,--help} [optional-file-or-setting-or-action]
+--maintenance {backup,restore,update,mode,setup,pgp,security,secret,token,data,compliance,scheduler,--help} [optional-file-or-setting-or-action]
 # Check/perform updates
 --update [check|yes|branch {stable|beta|devel}|--help]
 # Shell integration
@@ -10773,6 +10772,8 @@ func EnsurePIDFile(path string, isRoot bool) error {
 
 **Stale PID detection is REQUIRED.** A crash or kill -9 leaves stale PID files.
 
+**Two PID files, never one:** the server's OWN PID file is `/var/run/{internal_org}/{internal_name}/{internal_name}.pid` (steps 11-12 of the startup). A service manager that needs a PID file of its own (OpenRC `pidfile` with `command_background=true`, FreeBSD `daemon -P`, SysV `start-stop-daemon --make-pidfile`) uses a DIFFERENT path, `/var/run/{internal_org}-{internal_name}.pid`; sharing the path makes the server read the supervisor's PID as its own and exit "already running".
+
 **Containers: no PID file.** When `isContainer()` is true, skip PID file creation and checking entirely (the `pidfile: true` config default is ignored). The container runtime supervises the process, and PIDs are namespace-local - a PID file on a mounted volume read from the host or another container points at the wrong process or produces a false "already running".
 
 ```go
@@ -10861,19 +10862,22 @@ func isOurProcessDarwin(pid int) bool {
 // +build windows
 
 // isProcessRunning checks if a process with given PID exists (Windows)
+// stillActive is the exit code GetExitCodeProcess reports for a running process (STILL_ACTIVE, 259);
+// golang.org/x/sys/windows does not export it
+const stillActive = 259
+
 func isProcessRunning(pid int) bool {
-    // On Windows, FindProcess succeeds for any valid PID
-    // Use OpenProcess with PROCESS_QUERY_LIMITED_INFORMATION to check
-    process, err := os.FindProcess(pid)
+    // OpenProcess takes the PID and returns a real process handle (a PID is NOT a handle)
+    handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
     if err != nil {
         return false
     }
-    // Try to get exit code - fails if process doesn't exist or no permission
-    // But for our own processes, this should work
+    defer windows.CloseHandle(handle)
     var exitCode uint32
-    handle := windows.Handle(uintptr(process.Pid))
-    err = windows.GetExitCodeProcess(handle, &exitCode)
-    return err == nil && exitCode == windows.STILL_ACTIVE
+    if err := windows.GetExitCodeProcess(handle, &exitCode); err != nil {
+        return false
+    }
+    return exitCode == stillActive
 }
 
 // isOurProcess verifies the process is actually our binary (Windows)
@@ -11001,7 +11005,8 @@ PHASE 3: Handle maintenance commands (NO startup)
    ├─ --maintenance secret     → rotate a project secret, exit
    ├─ --maintenance token      → manage API tokens, exit
    ├─ --maintenance data       → data maintenance operations, exit
-   └─ --maintenance compliance → compliance report, exit
+   ├─ --maintenance compliance → compliance report, exit
+   └─ --maintenance scheduler  → list, show, run, enable, disable or history a task, exit
 
 PHASE 4: Handle update commands (NO startup)
 ────────────────────────────────────────────
@@ -11054,7 +11059,7 @@ PHASE 5: Server startup (actual server start)
       │   └─ Second port = HTTPS
       ├─ No --port? → check PORT env var (same format)
       ├─ No env var? → EARLY CONFIG PEEK: read ONLY `server.port`, `server.address` and `server.daemonize` from the merged view of {config_dir}/server.yml and the ordered {config_dir}/yaml.d/* drop-ins (same file selection, order and replace-whole-value rule as PART 5 → "Drop-in Config Directory"; read-only, as root, after the step 8d permission fix; no other key is read or validated here, and a file that does not parse is skipped for these three keys, its error is reported by the full load at step 13)
-      └─ No file, or no `server.port` in it? → random port in 64000-64999 range (single, HTTP); step 13 writes it to the new config
+      └─ No file, or no `server.port` in it? → the default for the context: port `80` in an application container (it starts as root, so step 8f binds it before the drop), otherwise a random port in 64000-64999 (a system container or any host; single, HTTP); step 13 writes it to the new config
       Listen address (resolved in the same early step): `--address` flag > `LISTEN` env > the early peek of `server.address` > default `[::]` (IPv4 `0.0.0.0` fallback when the kernel has no IPv6, logged once as a warning). `[::]` and `::` are both accepted for `--address`, `LISTEN` and `server.address`; the brackets are stripped before the value is parsed as an IP. Privileged sockets are bound to THIS address and never to a broader one; step 13 never rebinds (`server.address` needs a restart, PART 12)
    e2. Daemonize (manual start only; never for `--service start` or in a container, see "Daemonization"): when `--daemon` was given, or the early peek found `server.daemonize: true`, re-execute now (marker `_DAEMON_CHILD=1`) and exit the parent with 0. This happens BEFORE any privileged socket is bound, so the child repeats steps 6-8e (all idempotent) and binds the ports itself; a bound socket never has to cross the re-execute.
    f. Bind ALL privileged ports (< 1024) NOW while still root:
@@ -11093,7 +11098,7 @@ PHASE 5: Server startup (actual server start)
     │   ├─ --port CLI flag → use specified
     │   ├─ PORT env var → use specified
     │   ├─ Config file server.port → use specified
-    │   └─ Default → random 64000-64999
+    │   └─ Default → the context default of step 8e (80 in an application container, otherwise random 64000-64999)
     ├─ If MISSING (first run):
     │   ├─ Generate default server.yml
     │   ├─ Save determined port(s) to config
@@ -12067,6 +12072,7 @@ server:
 
     # Local SQLite cache for fast reads and offline resilience
     cache:
+      # Default: false (opt-in); this example turns it on
       enabled: true
       path: ${DATA_DIR}/db/cache.db
       # Sync from remote
@@ -12076,6 +12082,8 @@ server:
       # Max cache age before forcing remote
       max_age: 1h
 ```
+
+**Default:** `server.database.cache.enabled` is `false`: the local cache is opt-in.
 
 When enabled:
 - Reads check local cache first
@@ -12298,7 +12306,7 @@ Authorization: Bearer adm_xxxxxxxxxxxxxxxxxxxx   (operator)
 Authorization: Bearer own_xxxxxxxxxxxxxxxxxxxx   (owner)
 ```
 
-**Token format:** `{prefix}_` + 32 URL-safe random base62 chars: `adm_` for `server.token`, `own_` for owner and linked tokens ("Token Catalogue"). The server stores `SHA-256(token)` for lookup and an AES-256-GCM encrypted copy (`token_enc`, key: `server.security.encryption_key`) so the owner can **view the token again at any time** — masked by default, revealed on request. The raw token is never logged, never in a backup in plaintext, and never in any list/detail response. The operator token is the exception: it lives in `secrets.yml`, is only compared by hash, and is never shown by the server.
+**Token format:** `{prefix}_` + 32 URL-safe random base62 chars: `adm_` for `server.token`, `own_` for owner and linked tokens ("Token Catalogue"). The server stores `SHA-256(token)` for lookup and an AES-256-GCM encrypted copy (`token_enc`, key: `server.security.encryption_key`) so the owner can **view the token again at any time** — masked by default, revealed on request. The raw token is never logged, never in a backup in plaintext, and never in any list/detail response. The operator token is the exception: it lives in `secrets.yml`, is only compared by hash, and, after its single first-start console print ("First-start disclosure"), is never shown by the server again.
 
 ---
 
@@ -12308,7 +12316,7 @@ Authorization: Bearer own_xxxxxxxxxxxxxxxxxxxx   (owner)
 
 | Prefix | Holder | Lives in | Shown | Notes |
 |--------|--------|----------|-------|-------|
-| `adm_` | Server admin | The OPERATOR token `server.token`, kept in `secrets.yml` (never in the database) | Printed once at first start | The operator token IS the admin token: this project has no admin accounts, so it is the only `adm_` token. It works without the database, so it also authorizes `/debug/*`, `--maintenance` confirmations and secret rotation |
+| `adm_` | Server admin | The OPERATOR token `server.token`, kept in `secrets.yml` (never in the database) | Printed once, to the console, at first start ("First-start disclosure") | The operator token IS the admin token: this project has no admin accounts, so it is the only `adm_` token. It works without the database, so it also authorizes `/debug/*`, `--maintenance` confirmations and secret rotation |
 | `own_` | Owner (primary or linked) | `api_tokens` table | Recoverable: an encrypted copy (`token_enc`) lets the owner view it again | An owner is the anonymous holder of resources; the primary token manages the owner's linked tokens, a linked token is identical minus token management |
 | `mtr_` | Metrics scraper | `server.metrics.auth.tokens.*` in `secrets.yml` | Read from the file | `GET /server/metrics` only |
 
@@ -12317,6 +12325,8 @@ Authorization: Bearer own_xxxxxxxxxxxxxxxxxxxx   (owner)
 #### `server.token` — Global Operator Token
 
 The operator token is the ADMIN token: the one admin credential that lives in `secrets.yml`, not the database. Declared in `secrets.yml` under `server.token`. Auto-generated and written back to `secrets.yml` on first run if absent or empty. Grants full access to every resource and every server management endpoint.
+
+**First-start disclosure (the one exception to redaction):** when the server generates `server.token` it prints the raw value ONCE, to the console (stdout), in the first-start output of the process that created it; in a container that is the container's stdout. It is never written to a log file, an audit entry, an API or health response, `--config` output, an error message or a debug dump (the audit record `config.secret_generated` holds the key name only). Every later start shows only the masked form (`adm_` plus the last 4 characters). An operator who lost it reads it from `secrets.yml` (mode `0600`) or blanks the key and restarts, which generates a new one and invalidates the old one.
 
 ```yaml
 server:
@@ -12342,7 +12352,7 @@ server:
 | Ownership | Resources store `owner_id`. Tokens resolve to an `owner_id`. A resource is never bound to a token hash, so rotating a token, or revoking a linked token, never touches resource rows (revoking a primary deletes the whole owner: see "Revoking a primary token") |
 | One primary per owner | Created with the owner; **never expires and never disappears** — not when resources expire or are deleted, not when the owner has none left. Rotating it replaces its value in place (same row, same owner) and never ends it. It ends only when its owner is deleted: by revoking the primary (the owner on the tokens page or the API, or the operator on the CLI) or by the optional idle purge below |
 | Reuse | A caller presenting a valid token (Bearer header, or cookie on web forms) creates new resources under the same owner and receives no new token. The `owner_token` response field is present only when a NEW owner was issued |
-| Cookie | `{project_name}_owner_token_XXXXXX` holds the primary token (HttpOnly + Secure + SameSite=Strict + Path=/). Max-Age `server.tokens.cookie_max_age` (default `1y`), **sliding** — refreshed on every valid use. An invalid or revoked cookie is cleared on the next response |
+| Cookie | `{project_name}_owner_token_XXXXXXXX` holds the primary token (HttpOnly + Secure + SameSite=Strict + Path=/). Max-Age `server.tokens.cookie_max_age` (default `1y`), **sliding** — refreshed on every valid use. An invalid or revoked cookie is cleared on the next response |
 | Lost cookie / new device | Paste the primary token into "Use an existing token" on `/server/preferences/tokens` (restore). Valid → cookie set, identity restored. Linked tokens cannot restore an identity |
 | Idle purge | `server.tokens.idle_purge_days` (default `0` = never). When greater than 0, an owner with **zero resources** and no token use for that many days is deleted with its tokens. Owners with resources are never purged |
 | No guessing aid | Invalid/revoked/expired tokens and non-owned resources return the same response as a missing resource — no existence hints (see "Ownership check") |
@@ -12363,9 +12373,9 @@ POST /pastes                       (no token)
 POST /pastes                       (Authorization: Bearer own_...)
 → 201 Created   { "ok": true, "data": { "id": "def456", "url": "/pastes/def456" } }
 ```
-The server creates the owner and its primary token (hash + encrypted copy), stores the resource with `owner_id`, and returns the raw token in the creation response so API clients can save it. Browsers get **dual delivery**: the web-form create response shows the token (copy button) AND sets the owner cookie, so web management works with JS disabled; JS may additionally save a convenience copy to `localStorage` — never load-bearing. The token is not "shown once": it remains viewable on `/server/preferences/tokens` (see "Token Management").
+The server creates the owner and its primary token (hash + encrypted copy), stores the resource with `owner_id`, and returns the raw token in the creation response so API clients can save it. Browsers get **dual delivery**: the web-form create response shows the token (copy button) AND sets the owner cookie, so web management works with JS disabled; JS may additionally save a convenience copy to `localStorage` — never load-bearing. The token is not a "shown once" secret: the server keeps an encrypted copy, so the owner can reveal it again on `/server/preferences/tokens`. What is one-time is each DISPLAY: the creation response shows it once, and every later view (a Reveal `POST`) renders the raw value for ONE page load through the one-use view cookie; a reload or a later visit shows it masked until the next explicit Reveal (see "Token Management").
 
-**Naming:** the JSON response field `owner_token` is fixed across all projects — never rename it. Browser storage names are project-unique: both the cookie and the localStorage key are `{project_name}_owner_token_XXXXXX`, where `XXXXXX` is a random suffix generated once at project creation and recorded verbatim in IDEA.md (e.g. `owner_token: pastebin_owner_token_5qvQQyc5`) — fixed for the project's lifetime so the server always knows which cookie to read, and unique so apps, forks, or sibling deployments on one domain never collide. The suffix is not a secret (cookie names are visible); HttpOnly protects the value. Spec text uses `owner_token` as shorthand for that cookie.
+**Naming:** the JSON response field `owner_token` is fixed across all projects — never rename it. Browser storage names are project-unique: both the cookie and the localStorage key are `{project_name}_owner_token_XXXXXXXX`, where `XXXXXXXX` is 8 random LOWERCASE letters (a-z only: no digits, no capitals) generated once at project creation and recorded verbatim in IDEA.md (e.g. `owner_token: pastebin_owner_token_qwhzkfta`) — fixed for the project's lifetime so the server always knows which cookie to read, and unique so apps, forks, or sibling deployments on one domain never collide. The suffix is not a secret (cookie names are visible); it is lowercase letters only so that credential and entropy scanners never read it as one, which makes it the ONE random-looking identifier IDEA.md may contain (the "credential-shaped string" ban of the secret-scanning rule does not apply to it); HttpOnly protects the value. Spec text uses `owner_token` as shorthand for that cookie.
 
 **Ownership check (every read-of-private / write / delete on a resource):**
 1. Extract `Authorization: Bearer own_...` (API routes), or fall back to the owner cookie (web forms only, see below)
@@ -14177,10 +14187,10 @@ server:
 
     # Connection pool settings. SQLite: max_open sizes the READ pool only; the write pool is always exactly 1 connection (see "SQLite Concurrency Contract"). libsql: adjust as needed
     pool:
-      # SQLite: 1 writer + readers; libsql: adjust as needed
-      max_open: 5
-      # Max idle connections
-      max_idle: 2
+      # Default 25 open for SQLite readers and libsql alike (SQLite always has exactly 1 writer on top)
+      max_open: 25
+      # Default 5 idle connections
+      max_idle: 5
       # Max connection lifetime
       max_lifetime: 5m
       # Max idle time before close
@@ -14772,7 +14782,7 @@ The root secret all other derived material hangs off. Without it, in-flight HMAC
 
 | Secret | Length | Storage | Purpose | Rotation |
 |--------|--------|---------|---------|----------|
-| `cookie_signing_key` | 32 bytes (HMAC-SHA256) | `server.db` row `app_secrets.cookie_signing_key` | Signs session cookies to detect tampering. | Auto-rotated every 90 days; previous key valid for 7 days. |
+| `cookie_signing_key` | 32 bytes (HMAC-SHA256) | `server.db` row `app_secrets.cookie_signing_key` | Signs the short-lived values the server gives a browser so tampering is detected (the contact-form token, the one-use token view cookie). There is no session cookie: the product has no sessions. | Auto-rotated every 90 days; previous key valid for 7 days. |
 | `csrf_token_secret` | 32 bytes | `server.db` row `app_secrets.csrf_token_secret` | HMAC base for CSRF tokens (double-submit pattern, PART 16 → CSRF). | Auto-rotated on API key regeneration + every 180 days. |
 
 **Pre-existing key (auto-generated in `server.yml` on first run):**
@@ -14825,9 +14835,9 @@ Cross-Origin-Embedder-Policy: <see "Cross-Origin Isolation" below — default un
 Cross-Origin-Resource-Policy: <see "Cross-Origin Isolation" below — default cross-origin>
 Content-Security-Policy: <see "Content Security Policy" below>
 Permissions-Policy: <built from the project's declared features — see "Permissions-Policy" below>
-Reporting-Endpoints: default="https://{fqdn}/api/{api_version}/server/reports/default"
-Report-To: {"group":"default","max_age":10886400,"endpoints":[{"url":"https://{fqdn}/api/{api_version}/server/reports/default"}]}
-NEL: {"report_to":"default","max_age":2592000,"include_subdomains":true}
+Reporting-Endpoints: default="https://{fqdn}/api/{api_version}/server/reports/default", nel="https://{fqdn}/api/{api_version}/server/reports/nel"
+Report-To: {"group":"default","max_age":10886400,"endpoints":[{"url":"https://{fqdn}/api/{api_version}/server/reports/default"}]}, {"group":"nel","max_age":10886400,"endpoints":[{"url":"https://{fqdn}/api/{api_version}/server/reports/nel"}]}
+NEL: {"report_to":"nel","max_age":2592000,"include_subdomains":true}
 X-Request-ID: <per-request UUID — also echoed back in JSON error envelopes>
 ```
 
@@ -14960,9 +14970,11 @@ web:
 
 **`Sec-GPC` is the load-bearing one.** When received, the binary MUST:
 1. Set the request's `gpc_opt_out=true` flag throughout the request lifecycle.
-2. Skip personalization, behavioral analytics, and any cookie not strictly required.
+2. Skip personalization, behavioral analytics, and any cookie not strictly required (the theme and language preference cookies are not strictly required, so they are not set until the visitor explicitly accepts them).
 3. Surface in the audit log so the compliance officer can prove honoring.
 4. Echo back a `Sec-GPC` notice on the privacy/preferences page indicating the signal was received.
+
+**`DNT: 1` (only when `web.headers.honor_dnt: true`)** is treated like `Sec-GPC: 1` for steps 1, 2, 3 and 4 above (no personalization, no behavioral analytics, no non-essential cookie, an audit entry with `signal: dnt`, a notice on the preferences page). It is NOT a CCPA "sale or sharing" opt-out: that remains `Sec-GPC` or the visitor's own toggle. With `honor_dnt: false` (the default) the header is ignored.
 
 ## Sec-Fetch-* Request Validation
 
@@ -14980,12 +14992,12 @@ web:
 
 ## Reporting API (Modern + Legacy)
 
-**The spec emits BOTH the modern `Reporting-Endpoints` header (RFC draft, supported in Chrome/Edge/Firefox) AND the legacy `Report-To` header (deprecated but still used by Safari and some embedded WebViews). Same endpoint, two delivery mechanisms.**
+**The spec emits BOTH the modern `Reporting-Endpoints` header (RFC draft, supported in Chrome/Edge/Firefox) AND the legacy `Report-To` header (deprecated but still used by Safari and some embedded WebViews). Same endpoints, two delivery mechanisms. NEL has its OWN reporting group `nel` (endpoint `/api/{api_version}/server/reports/nel`); every other report type uses the `default` group.**
 
 ```
-Reporting-Endpoints: default="https://{fqdn}/api/{api_version}/server/reports/default"
-Report-To: {"group":"default","max_age":10886400,"endpoints":[{"url":"https://{fqdn}/api/{api_version}/server/reports/default"}]}
-NEL: {"report_to":"default","max_age":2592000,"include_subdomains":true}
+Reporting-Endpoints: default="https://{fqdn}/api/{api_version}/server/reports/default", nel="https://{fqdn}/api/{api_version}/server/reports/nel"
+Report-To: {"group":"default","max_age":10886400,"endpoints":[{"url":"https://{fqdn}/api/{api_version}/server/reports/default"}]}, {"group":"nel","max_age":10886400,"endpoints":[{"url":"https://{fqdn}/api/{api_version}/server/reports/nel"}]}
+NEL: {"report_to":"nel","max_age":2592000,"include_subdomains":true}
 ```
 
 **Network Error Logging (NEL — RFC draft, Chrome/Edge):** browser POSTs `application/reports+json` to `/api/{api_version}/server/reports/nel` for TLS handshake failures, DNS failures, TCP resets, HTTP errors. Sample rate `1.0` by default — drop to `0.1` on busy sites via `web.headers.nel.sample_rate`.
@@ -15165,7 +15177,7 @@ The middleware substitutes `{request_nonce}` per response and adds the same nonc
 | `<base href="https://evil/">` redirecting all relative URLs | ✓ Yes (base-uri `'self'`) |
 | Form-action hijack to `https://evil/login` | ✓ Yes (form-action `'self'`) |
 | Mixed-content `http://` references | ✓ Yes (upgrade-insecure-requests on HTTPS requests) |
-| Stolen session cookie replay | ✗ No (CSP can't help — session/CSRF problem) |
+| Stolen credential replay (an owner or operator token) | ✗ No (CSP can't help — a credential problem) |
 | Server-side template injection | ✗ No (CSP runs in the browser; SSTI is server-side) |
 
 ## Route Context
@@ -15723,7 +15735,7 @@ CREATE TABLE IF NOT EXISTS security_thanks (
 |--------|-----|----------|
 | **Generate** | `--maintenance pgp generate` | Generates an Ed25519 (signing) + Curve25519 (encryption) keypair. Identity is `{app_name} Security <{security_contact}>`. Expires 2 years from generation. Private key is encrypted with a key derived from `installation_secret` and stored in `{config_dir}/security/pgp.priv.asc.enc`. Public key stored at `{config_dir}/security/pgp.pub.asc` (also served at `/.well-known/pgp-key.asc`). |
 | **Rotate** | `--maintenance pgp rotate` | Generates a new keypair, signs the new pubkey with the old key, publishes the rotation to configured keyservers. In ONE database transaction, taken under the same lock the submission step uses, it re-encrypts every stored `body_enc` whose `body_alg` is `pgp` to the new key (decrypt with the old private key, encrypt to the new public key). If any row fails, the transaction rolls back and the old key stays active, so no retained report is ever left readable only by a discarded key. After a successful rotation every stored body is readable with the current key for its whole retention period. The old private key is kept encrypted at `{config_dir}/security/pgp.priv.old.asc.enc` for 30 days, only for items already in transit (notifications sent to the old key, researchers who fetched the old public key); the daily `security_cleanup` task then deletes it. |
-| **Publish to keyservers** | `--maintenance pgp publish` | POST the public key to each entry in `web.security.keyservers`. Each entry is a keyserver host name and the host decides the submission form. `keys.openpgp.org` (VKS): `POST https://keys.openpgp.org/vks/v1/upload` with the JSON body `{"keytext": "<ASCII-armored public key>"}`; success is `200` with a JSON body holding `key_fpr` and `status`. Any other host, for example `keyserver.ubuntu.com` (HKP): `POST https://{host}/pks/add` with `Content-Type: application/x-www-form-urlencoded` and the field `keytext=<URL-encoded armored key>`; success is `200`. Triggered automatically on generate/rotate; manually via `--maintenance pgp publish`. A network error, `5xx` or `429` is logged and retried with exponential backoff: 1 minute, doubling each time up to 6 hours, at most 8 attempts per keyserver and key, durable across restarts (the attempt count and the next time are kept in `keyservers.state`). Any other `4xx` is final: logged once and never retried. A keyserver that `keyservers.state` already lists for this fingerprint is skipped. |
+| **Publish to keyservers** | `--maintenance pgp publish` | POST the public key to each entry in `web.security.keyservers`. Each entry is a keyserver host name and the host decides the submission form. `keys.openpgp.org` (VKS): `POST https://keys.openpgp.org/vks/v1/upload` with the JSON body `{"keytext": "<ASCII-armored public key>"}`; success is `200` with a JSON body holding `key_fpr` and `status`. Any other host, for example `keyserver.ubuntu.com` (HKP): `POST https://{host}/pks/add` with `Content-Type: application/x-www-form-urlencoded` and the field `keytext=<URL-encoded armored key>`; success is `200`. Triggered automatically on generate/rotate; manually via `--maintenance pgp publish`. A network error, `5xx` or `429` is logged and retried with exponential backoff: 1 minute, doubling each time up to 6 hours, at most 8 attempts per keyserver and key, durable across restarts (the attempt count and the next time are kept in `keyservers.state`, and the scheduler task `keyserver_retry` submits again whenever a stored time has passed). Any other `4xx` is final: logged once and never retried. A keyserver that `keyservers.state` already lists for this fingerprint is skipped. |
 | **Export public key** | `--maintenance pgp export public [path]` | Use the public URL `/.well-known/pgp-key.asc`, copy `{config_dir}/security/pgp.pub.asc` directly, or write it to `[path]` (stdout if omitted) via the CLI. |
 | **Export private key** | `--maintenance pgp export private <path>` | **Full export, ASCII-armored, decrypted after operator token confirmation.** Triggers a sensitive-operation flow (PART 5 → "Sensitive Operations"): re-prompt for the operator token, log to `audit.log` as `security.private_key_exported`, write the key to `<path>` with mode 0600. **The export is rate-limited to 1 per hour per operator and the audit entry includes operator IP and reason text the operator must type.** |
 | **Import private key** | `--maintenance pgp import <file>` | Import an existing `pgp.priv.asc` from a local file (e.g., restoring from backup, migrating from another instance). Same sensitive-operation gate. Validates the key's identity matches the project's expected identity (warns on mismatch — operator can override). |
@@ -16037,7 +16049,7 @@ server:
 | `security.report_received` | Security vulnerability report received | tracking_id, severity, sanitized affected-component |
 | `security.private_key_exported` | PGP private key exported | Operator IP, reason |
 | `security.csrf_failure` | CSRF token validation failed | IP, endpoint, reason |
-| `security.audit_chain_broken` | Audit log hash chain failed verification | File name, line number (never entry content) |
+| `security.audit_chain_broken` | Audit log hash chain failed verification | File name, line number or `reason` (`anchor_mismatch`, `anchor_missing`); never entry content |
 
 ### Backup & System Events
 
@@ -16096,7 +16108,7 @@ server:
 | `event` | String | Event type (e.g., `config.updated`) |
 | `category` | String | Event category (e.g., `authentication`) |
 | `severity` | String | `info`, `warn`, `error`, `critical` |
-| `actor` | Object | Who performed the action |
+| `actor` | Object | Who performed the action: `type` (`owner`, `operator`, `visitor` or `system`), `id` (the owner id, or `server` or `scheduler`) and `ip` when the event arrived over the network. Autonomous events (startup, shutdown, backups, scheduler tasks) have `type: system` and no `ip` |
 | `result` | String | `success` or `failure` |
 | `prev` | String | Lowercase hex SHA-256 of the previous entry's line (hash chain, see "Audit Log Integrity") |
 
@@ -16181,8 +16193,8 @@ server:
 
 **ALWAYS Log:**
 - ✓ Timestamp in UTC with milliseconds
-- ✓ IP address for all events
-- ✓ Actor identity (who did it)
+- Client IP address for every event that arrives over the network (`web`, `api`, `mcp`); autonomous events have `actor.type: system` and no IP
+- Actor identity on every event (`actor.type` and `actor.id`; `system` for startup, shutdown, backups and scheduler tasks)
 - ✓ Event result (success/failure)
 - ✓ Unique event ID
 
@@ -16219,6 +16231,7 @@ server:
 | No truncate | Application cannot truncate the log file |
 | Rotation only | Only log rotation can remove old entries |
 | Hash chain | REQUIRED. Every entry has a `prev` field: the lowercase hex SHA-256 of the previous entry's exact line (without the newline). The first entry ever uses 64 zeros; the first entry of a rotated file carries the hash of the last line of the file it follows. One writer appends entries in order under a lock, so the chain never forks |
+| Anchor | `{log_dir}/audit.anchor` (mode `0600`) holds the hash of the last line of the file that was just closed. It is written at every rotation BEFORE the old file is deleted and is kept whatever `keep` says, so `keep: none` never breaks the chain. At start the first `prev` of the current file must equal the anchor; no anchor and a first `prev` of 64 zeros is a new log. A mismatch, or a missing anchor with a non-zero first `prev`, is reported once as `security.audit_chain_broken` with `reason: anchor_mismatch` or `anchor_missing`. Deleting the anchor together with every audit file is an operator reset: the chain restarts at 64 zeros and one `info` line says so |
 | Verification | The server re-computes the chain of the current file at start and of the closed file at every rotation. A mismatch (an edited, removed or reordered entry) is reported once as `security.audit_chain_broken` (severity `critical`; file name and line number, never entry content); the server keeps running and keeps appending |
 | Limit | Tamper-evident, not tamper-proof: someone who can rewrite the whole file can recompute every hash. Forward the log to another host if that case matters |
 
@@ -16241,7 +16254,7 @@ Group: audit group (if configured)
 
 **Rotation Schedule:**
 - Daily rotation at midnight UTC
-- If `keep: none`: Old log deleted immediately after rotation
+- If `keep: none`: Old log deleted immediately after rotation (its last hash lives on in `audit.anchor`, so the chain stays verifiable)
 - If `keep: Nd`: Rotated files named `audit.log.2025-01-15.gz`, deleted after N days
 - Current day's log always available until next rotation
 
@@ -16330,65 +16343,67 @@ In this project `--maintenance data delete` (see "Data Subject Commands") applie
 
 ### Compliance-Specific Behaviors
 
+**This section is a controls map, not a feature list.** Every control of a standard is one of two kinds: **Server** (the product provides or enforces it, and the detail names the setting, command or event) or **Operator** (a procedure the operator runs outside the product: the server has no feature, record, form or notification for it, and this specification defines none). An Operator control is a reminder of what the standard expects of the operator, never behavior to implement. A control that does not apply to a project that does not process the named data is simply not relevant to it.
+
 #### GDPR (gdpr: true)
 
-| Feature | Behavior |
+| Control | Kind and detail |
 |---------|----------|
-| Cookie consent | Required popup before any tracking |
-| Data export | `{project_name} --maintenance data export` CLI command |
-| Data deletion | `{project_name} --maintenance data delete` CLI command |
-| Consent tracking | All consents logged with timestamp |
-| Data residency | Configurable allowed regions |
-| Privacy policy | Required, must specify data processing |
-| DPO contact | Displayed in privacy policy |
-| Breach notification | 72-hour automated alert system |
+| Cookie consent | **Server:** the consent banner; nothing non-essential runs before the visitor accepts |
+| Data export | **Server:** `{project_name} --maintenance data export` CLI command |
+| Data deletion | **Server:** `{project_name} --maintenance data delete` CLI command |
+| Consent tracking | **Server:** every consent change is logged as `compliance.consent_updated`; consent itself lives in the visitor's `cookie_consent` cookie |
+| Data residency | **Operator:** Configurable allowed regions (the server has no feature for it) |
+| Privacy policy | **Server:** the `/server/privacy` page |
+| DPO contact | **Server:** `server.contact.dpo.*`, shown on `/server/dpo` and in the privacy policy |
+| Breach notification | **Operator:** 72-hour automated alert system; the server supplies the tamper-evident audit log and its `security.*` events as evidence (the server has no feature for it) |
 
 #### HIPAA (hipaa: true)
 
-| Feature | Behavior |
+| Control | Kind and detail |
 |---------|----------|
-| PHI encryption | All health data encrypted with per-record keys |
-| Audit trail | 6-year minimum retention, tamper-evident |
-| Access controls | Role-based with minimum necessary access |
+| PHI encryption | **Server:** sensitive fields are encrypted at rest with `server.security.encryption_key` (AES-256-GCM); there are no per-record keys |
+| Audit trail | **Server:** the tamper-evident audit log; the strictest enabled standard sets the minimum retention (6 years with HIPAA) |
+| Access controls | **Server:** operator, owner and linked tokens; a token reaches only the resources it owns (there are no roles) |
 | Session timeout | Not applicable: no sessions (see the note under the matrix) |
-| Token auth | Required for all API access |
-| BAA tracking | Business Associate Agreements logged |
-| Breach notification | 60-day notification system |
+| Token auth | **Server:** routes that act on a resource require its owner token and management routes the operator token |
+| BAA tracking | **Operator:** Business Associate Agreements logged (the server has no feature for it) |
+| Breach notification | **Operator:** 60-day notification system; the server supplies the tamper-evident audit log and its `security.*` events as evidence (the server has no feature for it) |
 
 #### SOC2 (soc2: true)
 
-| Feature | Behavior |
+| Control | Kind and detail |
 |---------|----------|
-| Change management | All config changes require approval workflow |
-| Access reviews | Quarterly access review reminders |
-| Vulnerability management | Integration with security scanners |
-| Incident response | Defined escalation paths |
-| Vendor management | Third-party risk tracking |
-| Availability monitoring | Uptime SLA tracking |
+| Change management | **Operator:** All config changes require approval workflow (the server has no feature for it) |
+| Access reviews | **Operator:** Quarterly access review reminders (the server has no feature for it) |
+| Vulnerability management | **Server:** the `cve_update` task keeps the CVE and Trivy data current; acting on findings is the operator's |
+| Incident response | **Operator:** Defined escalation paths (the server has no feature for it) |
+| Vendor management | **Operator:** Third-party risk tracking (the server has no feature for it) |
+| Availability monitoring | **Server:** `/server/healthz` and `/server/metrics`; SLA targets and their tracking are the operator's |
 
 #### PCI-DSS (pci_dss: true)
 
-| Feature | Behavior |
+| Control | Kind and detail |
 |---------|----------|
-| Cardholder data | Never stored (use tokenization) |
-| Network segmentation | Cardholder environment isolated |
-| Password policy | 12+ chars, complexity, 90-day rotation |
+| Cardholder data | **Server:** never stored and never logged: the product handles no card data |
+| Network segmentation | **Operator:** Cardholder environment isolated (the server has no feature for it) |
+| Password policy | Not applicable: no passwords (the token policy row of the matrix applies) |
 | Session timeout | Not applicable: no sessions (see the note under the matrix) |
-| Audit logging | All access to cardholder data logged |
-| Vulnerability scanning | Quarterly scans required |
-| Penetration testing | Annual requirement tracking |
+| Audit logging | **Server:** the tamper-evident audit log (retention from the matrix) |
+| Vulnerability scanning | **Operator:** Quarterly scans required (the server has no feature for it) |
+| Penetration testing | **Operator:** Annual requirement tracking (the server has no feature for it) |
 
 #### CCPA (ccpa: true)
 
-| Feature | Behavior |
+| Control | Kind and detail |
 |---------|----------|
-| Data disclosure | `{project_name} --maintenance data export` - what data is collected (we do not sell data) |
-| Opt-out of sale | Dynamic: if `data.sold=false` shows notice; if `data.sold=true` shows opt-out toggle |
-| Right to delete | `{project_name} --maintenance data delete` CLI command |
-| Non-discrimination | Cannot deny service for exercising rights |
-| Privacy notice | Dynamic based on `server.privacy.data.sold` setting |
-| Verification | Identity verification before data requests |
-| Response time | 45 days to fulfill requests (90 with extension) |
+| Data disclosure | **Server:** `{project_name} --maintenance data export` - what data is collected (we do not sell data) |
+| Opt-out of sale | **Server:** Dynamic: if `data.sold=false` shows notice; if `data.sold=true` shows opt-out toggle |
+| Right to delete | **Server:** `{project_name} --maintenance data delete` CLI command |
+| Non-discrimination | **Operator:** Cannot deny service for exercising rights (the server has no feature for it) |
+| Privacy notice | **Server:** Dynamic based on `server.privacy.data.sold` setting |
+| Verification | **Server:** holding the owner token (or the operator confirming its prefix) is the verification; there are no accounts |
+| Response time | **Operator:** 45 days to fulfill requests (90 with extension) (the server has no feature for it) |
 
 **CCPA "Do Not Sell" Implementation (based on `server.privacy.data.sold`):**
 
@@ -16399,87 +16414,87 @@ In this project `--maintenance data delete` (see "Data Subject Commands") applie
 
 #### ISO27001 (iso27001: true)
 
-| Feature | Behavior |
+| Control | Kind and detail |
 |---------|----------|
-| Risk assessment | Documented risk register required |
-| Asset inventory | All data assets tracked |
-| Access control | Role-based, principle of least privilege |
-| Cryptography | Encryption policy enforced |
+| Risk assessment | **Operator:** Documented risk register required (the server has no feature for it) |
+| Asset inventory | **Operator:** All data assets tracked (the server has no feature for it) |
+| Access control | **Server:** operator, owner and linked tokens, each limited to its own scope |
+| Cryptography | **Server:** AES-256-GCM at rest, TLS in transit, SHA-256 token hashes |
 | Physical security | N/A (cloud-native, document controls) |
-| Operations security | Change management, capacity planning |
-| Incident management | Defined response procedures |
-| Business continuity | Backup and recovery procedures |
-| Audit logging | 3-year minimum retention |
+| Operations security | **Operator:** Change management, capacity planning (the server has no feature for it) |
+| Incident management | **Operator:** Defined response procedures (the server has no feature for it) |
+| Business continuity | **Server:** `--maintenance backup` and `restore`, plus the scheduled backups |
+| Audit logging | **Server:** the tamper-evident audit log; the strictest enabled standard sets the retention (3 years with ISO27001) |
 
 #### FedRAMP (fedramp: true)
 
-| Feature | Behavior |
+| Control | Kind and detail |
 |---------|----------|
-| Authorization level | Low/Moderate/High impact configurable |
-| Continuous monitoring | Automated security scanning |
-| FIPS 140-2 | Cryptographic module compliance |
-| Data residency | US-only data centers required |
-| Personnel security | Background check tracking |
-| Incident response | US-CERT notification procedures |
-| Vulnerability scanning | Monthly automated scans |
-| Penetration testing | Annual third-party testing |
-| POA&M tracking | Plan of Action & Milestones dashboard |
+| Authorization level | **Operator:** Low/Moderate/High impact configurable (the server has no feature for it) |
+| Continuous monitoring | **Operator:** Automated security scanning (the server has no feature for it) |
+| FIPS 140-2 | **Operator:** Cryptographic module compliance (the server has no feature for it) |
+| Data residency | **Operator:** US-only data centers required (the server has no feature for it) |
+| Personnel security | **Operator:** Background check tracking (the server has no feature for it) |
+| Incident response | **Operator:** US-CERT notification procedures (the server has no feature for it) |
+| Vulnerability scanning | **Operator:** Monthly automated scans (the server has no feature for it) |
+| Penetration testing | **Operator:** Annual third-party testing (the server has no feature for it) |
+| POA&M tracking | **Operator:** Plan of Action & Milestones dashboard (the server has no feature for it) |
 
 #### LGPD (lgpd: true)
 
-| Feature | Behavior |
+| Control | Kind and detail |
 |---------|----------|
-| Legal basis | Consent or legitimate interest tracking |
-| Data subject rights | Access, correction, deletion, portability |
-| DPO requirement | Data Protection Officer contact displayed |
-| International transfer | Adequacy or safeguards required |
-| Breach notification | ANPD notification within reasonable time |
-| Privacy notice | Clear, accessible privacy policy in Portuguese |
-| Consent | Granular, specific, freely given |
-| Children's data | Parental consent for under 18 |
+| Legal basis | **Operator:** Consent or legitimate interest tracking (the server has no feature for it) |
+| Data subject rights | **Server:** access and portability through `data export`, deletion through `data delete`; correction is the owner editing their own resources |
+| DPO requirement | **Server:** `server.contact.dpo.*`, shown on `/server/dpo` |
+| International transfer | **Operator:** Adequacy or safeguards required (the server has no feature for it) |
+| Breach notification | **Operator:** ANPD notification within reasonable time; the server supplies the tamper-evident audit log and its `security.*` events as evidence (the server has no feature for it) |
+| Privacy notice | **Server:** the `/server/privacy` page, localized by the i18n rules |
+| Consent | **Server:** granular categories in the consent banner |
+| Children's data | **Operator:** Parental consent for under 18 (the server has no feature for it) |
 
 #### PIPEDA (pipeda: true)
 
-| Feature | Behavior |
+| Control | Kind and detail |
 |---------|----------|
-| Consent | Meaningful consent for collection/use/disclosure |
-| Purpose limitation | Data used only for stated purposes |
-| Access rights | Users can access their personal information |
-| Accuracy | Users can challenge and correct data |
-| Retention limits | Data kept only as long as necessary |
-| Safeguards | Appropriate security for sensitivity level |
-| Openness | Privacy policies publicly available |
-| Accountability | Designated privacy officer |
-| Breach notification | OPC notification for significant breaches |
+| Consent | **Server:** the consent banner, opt-in for everything non-essential |
+| Purpose limitation | **Operator:** Data used only for stated purposes (the server has no feature for it) |
+| Access rights | **Server:** `data export` |
+| Accuracy | **Server:** owners edit or delete their own resources with their token |
+| Retention limits | **Server:** the retention periods in the privacy text and the cleanup tasks (`token_cleanup`, `security_cleanup`) |
+| Safeguards | **Server:** encryption at rest and in transit, hashed tokens, the audit log |
+| Openness | **Server:** the public `/server/privacy` page |
+| Accountability | **Operator:** Designated privacy officer (the server has no feature for it) |
+| Breach notification | **Operator:** OPC notification for significant breaches; the server supplies the tamper-evident audit log and its `security.*` events as evidence (the server has no feature for it) |
 
 #### APPI (appi: true)
 
-| Feature | Behavior |
+| Control | Kind and detail |
 |---------|----------|
-| Purpose specification | Clear purpose before collection |
-| Use limitation | No use beyond specified purpose |
-| Proper acquisition | No deceptive collection practices |
-| Accuracy | Keep data accurate and up-to-date |
-| Security control | Appropriate safeguards required |
-| Third-party oversight | Supervise data handling by processors |
-| Disclosure restrictions | User consent for third-party sharing |
-| Cross-border transfer | Consent or equivalent protection required |
-| Breach notification | PPC and affected individuals notified |
+| Purpose specification | **Operator:** Clear purpose before collection (the server has no feature for it) |
+| Use limitation | **Operator:** No use beyond specified purpose (the server has no feature for it) |
+| Proper acquisition | **Operator:** No deceptive collection practices (the server has no feature for it) |
+| Accuracy | **Operator:** Keep data accurate and up-to-date (the server has no feature for it) |
+| Security control | **Server:** encryption at rest and in transit, hashed tokens, the audit log |
+| Third-party oversight | **Operator:** Supervise data handling by processors (the server has no feature for it) |
+| Disclosure restrictions | **Server:** analytics and any third-party sharing only after the visitor accepts |
+| Cross-border transfer | **Operator:** Consent or equivalent protection required (the server has no feature for it) |
+| Breach notification | **Operator:** PPC and affected individuals notified; the server supplies the tamper-evident audit log and its `security.*` events as evidence (the server has no feature for it) |
 
 #### PDPA (pdpa: true)
 
-| Feature | Behavior |
+| Control | Kind and detail |
 |---------|----------|
-| Consent | Consent required before collection |
-| Purpose limitation | Data used only for notified purposes |
-| Notification | Inform users of purposes at collection |
-| Access and correction | Users can access and correct data |
-| Accuracy | Reasonable efforts to ensure accuracy |
-| Protection | Reasonable security arrangements |
-| Retention limitation | Delete when no longer needed |
-| Transfer limitation | Adequate protection for overseas transfers |
-| DPO requirement | Data Protection Officer for certain orgs |
-| Breach notification | PDPC notification within 3 days |
+| Consent | **Server:** the consent banner, opt-in for everything non-essential |
+| Purpose limitation | **Operator:** Data used only for notified purposes (the server has no feature for it) |
+| Notification | **Server:** the consent banner and the privacy page state the purposes |
+| Access and correction | **Server:** `data export`; owners edit their own resources |
+| Accuracy | **Operator:** Reasonable efforts to ensure accuracy (the server has no feature for it) |
+| Protection | **Server:** encryption at rest and in transit, hashed tokens, the audit log |
+| Retention limitation | **Server:** the cleanup tasks and owner deletion |
+| Transfer limitation | **Operator:** Adequate protection for overseas transfers (the server has no feature for it) |
+| DPO requirement | **Operator:** Data Protection Officer for certain orgs (the server has no feature for it) |
+| Breach notification | **Operator:** PDPC notification within 3 days; the server supplies the tamper-evident audit log and its `security.*` events as evidence (the server has no feature for it) |
 
 ### Compliance Routes
 
@@ -16502,7 +16517,7 @@ In this project `--maintenance data delete` (see "Data Subject Commands") applie
 | `--maintenance data delete --owner <prefix> [--yes]` | Deletes the owner record, all its tokens and its resources in ONE transaction, after the operator types the owner id to confirm (`--yes` skips the prompt for scripts). A retention standard (HIPAA/SOC2) never blocks the command: what it requires to keep is the audit log, and the log keeps only an anonymized owner id (a new random id; the original-id mapping is deleted in the same transaction, the rule above). The template default is that NO resource kind is retained, so every resource of the owner is deleted and the command is fully defined without IDEA.md. A project that must keep a kind for a legal or contractual reason declares it in IDEA.md (kind name and reason); such a kind is not deleted: its owner reference is replaced by the same anonymized id, so it stays for retention with no link back to the person. The command prints how many items were deleted and how many were anonymized, and `compliance.data_deletion_completed` records both counts. Backups are not rewritten: the data leaves them with their normal retention |
 | `--maintenance compliance report` | Prints a plain-text summary: the enabled standards with their effective settings, the retention periods, counts (owners, resources, active tokens, open security reports), the compliance events of the last 30 days, the time of the last backup, and the audit log integrity result (`intact (N entries)`, or `broken at <file>:<line>`; see "Audit Log Integrity"). It contains counts and settings only, never personal data |
 
-In the audit events below, `User ID` means the owner id in this project (a random identifier, never an email address or a token).
+In the audit events below, `User ID` means the owner id in this project (a random identifier, never an email address or a token); an event about an anonymous visitor has none.
 
 ### Compliance Audit Events
 
@@ -16514,12 +16529,7 @@ In the audit events below, `User ID` means the owner id in this project (a rando
 | `compliance.data_export_completed` | Data export ready | User ID, request ID, file size |
 | `compliance.data_deletion_requested` | User requested deletion | User ID, request ID |
 | `compliance.data_deletion_completed` | Deletion completed | User ID (anonymized after), deleted count, anonymized count |
-| `compliance.consent_updated` | User updated consents | User ID, consent type, new value |
-| `compliance.breach_reported` | Data breach reported | Breach ID, severity, reporter |
-| `compliance.breach_notified` | Breach notification sent | Breach ID, notification type |
-| `compliance.breach_investigation_started` | Investigation began | Breach ID, investigator |
-| `compliance.breach_investigation_completed` | Investigation closed | Breach ID, outcome |
-| `compliance.breach_escalated` | Breach escalated to authorities | Breach ID, authority |
+| `compliance.consent_updated` | A visitor or owner changed cookie consent | Consent type, new value, policy version; the User ID only when the visitor holds an owner cookie (an anonymous visitor has none); `actor.ip` anonymized (last IPv4 octet or last 80 IPv6 bits zeroed) |
 | `compliance.report_generated` | Compliance report generated | Report type, generated by |
 
 ### Data Protection
@@ -17774,7 +17784,7 @@ server:
       essential:
         # Always true, not configurable
         enabled: true
-        description: "Required for the site to function. Includes security tokens (CSRF) and site preferences. These cookies are strictly necessary and cannot be disabled."
+        description: "Required for the site to function. Includes the owner cookie, security tokens (CSRF) and the consent cookie itself. The theme and language preferences are NOT essential: they are the separate consent-controlled category below. These cookies are strictly necessary and cannot be disabled."
 
       # Preference cookies (theme, language, UI settings)
       preferences:
@@ -17805,9 +17815,17 @@ server:
       #     policy_url: "https://matomo.org/privacy-policy/"
 ```
 
+**Which `server.privacy.*` keys do what:**
+
+| Keys | Role |
+|------|------|
+| `consent.*` (banner message, buttons, position, `show_preferences`), `cookies.*.enabled` | Behavior only: they change what the server does, they do not add page text |
+| `data.sold` | Behavior AND page: picks the banner message, the CCPA opt-out and the Data Usage text |
+| `data.stored_on_server`, `data.sharing`, `retention.*`, `cookies.*.description`, `third_party.services` | Page content only: they fill the Data Storage, Data Retention, Cookie Policy and Third Parties sections of `/server/privacy` |
+
 ### Built-in privacy text (not configurable)
 
-**The privacy page text below is project data, not configuration: it is never read from `server.yml`.** `data_usage` is shown when `server.privacy.data.sold` is false and `data_usage_if_sold` when it is true. An operator adds to the page with `server.branding.content.privacy` ("Page Content"); a project replaces these defaults in its own source.
+**The BUILT-IN sections below (`data_collection`, `data_usage`, `data_security`) are project data, never read from `server.yml`; the page's other sections show deployment facts that only the operator knows and come from `server.privacy` (table above).** `data_usage` is shown when `server.privacy.data.sold` is false and `data_usage_if_sold` when it is true. An operator adds to the page with `server.branding.content.privacy` ("Page Content"); a project replaces these defaults in its own source.
 
 #### `data_collection`
 
@@ -17869,7 +17887,7 @@ server:
 
 - All data is stored on our servers (not third-party cloud services unless specified)
 - API tokens are stored as SHA-256 hashes (never in plain text)
-- All connections are encrypted (HTTPS/TLS)
+- Connections are encrypted with HTTPS/TLS when the site is served that way; the page says "This site is currently served without TLS" instead when the request did not arrive over TLS (as URL detection sees it, trusted reverse proxy headers included)
 - Regular security audits and updates
 - Access controls and audit logging for operator actions
 ```
@@ -18415,19 +18433,23 @@ type TorInfo struct {
     Enabled  bool   `json:"enabled"`
     // Hidden service active
     Running  bool   `json:"running"`
-    // "disabled", "starting", "healthy" or "unavailable" - never free text
+    // Full lifecycle for operators: "disabled", "no_provider", "starting", "building", "running" or "error" (the CLI --status values)
+    State    string `json:"state"`
+    // The normalized four-word contract for clients, mapped from State: "disabled", "starting", "healthy" or "unavailable" - never free text
     Status   string `json:"status"`
     // "abc123...xyz.onion" (56 chars, v3)
     Hostname string `json:"hostname"`
 }
 
-// I2PInfo - from I2P manager (PART 31.2). Every field is always present; disabled means enabled false, running false, status "disabled", empty hostname and provider "none".
+// I2PInfo - from I2P manager (PART 31.2). Every field is always present, `state` (the lifecycle, for operators) and `status` (the four-word contract, for clients, mapped from `state`) alike; clients branch on `status`, never on `state`; disabled means enabled false, running false, status "disabled", empty hostname and provider "none".
 type I2PInfo struct {
     // features.i2p.enabled (true by default in a container, false elsewhere unless opted in)
     Enabled  bool   `json:"enabled"`
     // Eepsite active
     Running  bool   `json:"running"`
-    // "disabled", "starting", "healthy" or "unavailable" - never free text
+    // Full lifecycle for operators: "disabled", "no_provider", "starting", "building", "running" or "error" (the CLI --status values)
+    State    string `json:"state"`
+    // The normalized four-word contract for clients, mapped from State: "disabled", "starting", "healthy" or "unavailable" - never free text
     Status   string `json:"status"`
     // "abc...uv.b32.i2p" (empty when disabled)
     Hostname string `json:"hostname"`
@@ -19692,8 +19714,9 @@ func getAPIResponseFormat(r *http.Request) string {
         return "text"
     }
 
-    // 4. Check if non-interactive client (uses same detection as frontend)
-    if isNonInteractiveClient(r) {
+    // 4. HTTP tools AND text browsers get plain text on /api/**: a text browser has no JavaScript and cannot
+    // render JSON usefully (on FRONTEND routes it still gets the no-JS HTML)
+    if isNonInteractiveClient(r) || isTextBrowser(r) {
         return "text"
     }
 
@@ -19953,7 +19976,8 @@ func isHttpTool(r *http.Request) bool {
 
 // isNonInteractiveClient detects clients that need pre-formatted text
 // ONLY HTTP tools are non-interactive
-// Our client and text browsers are INTERACTIVE (handle their own rendering)
+// Our client and text browsers are INTERACTIVE on frontend routes (handle their own rendering);
+// on /api/** a text browser is sent plain text (see getAPIResponseFormat)
 func isNonInteractiveClient(r *http.Request) bool {
     // Our client is INTERACTIVE - receives JSON
     if isOurCliClient(r) {
@@ -20214,6 +20238,7 @@ func renderNoJSHTML(w http.ResponseWriter, data interface{}) {
 | **Auto-generated** | Both specs generated from code (annotations, comments, or schema) |
 | **Never manual** | NEVER manually edit OpenAPI JSON or GraphQL schema |
 | **Build-time generation** | Specs regenerated on every build |
+| **Optional routes** | The embedded build-time spec is the full SUPERSET of routes, and every route that depends on a flag or a setting (the `/debug/*` routes, `/metrics`, the root aliases, optional well-known files) carries `x-mounted-when` naming its condition (for example `--debug` or `server.metrics.root.enabled`). At startup the server derives the SERVED spec from the embedded one by removing every operation whose condition is false for this run, so the spec a client reads always matches the routes that are actually mounted. The drift test compares the superset with the route table |
 | **JSON only** | OpenAPI spec uses JSON format only (NO YAML) |
 | **Source of truth** | AI.md defines the TEMPLATE routes and the `### API routes` inventory in IDEA.md defines EVERY project-defined route, including any native or compatibility API of the project; together they are the API CONTRACT: routes, methods, auth and shapes. AI.md never enumerates project routes. The code and its annotations implement that contract, and the specs are GENERATED from the code, so they are artifacts, never edited by hand. Drift is detected by a test with three legs: the generated OpenAPI route and method list, the router's registered routes, and the union of the AI.md template routes and the IDEA.md `### API routes` inventory. A route present in one leg and missing from another fails the build, naming the route and the missing place; a project whose IDEA.md has no `### API routes` subsection fails with that message instead of passing vacuously. A deliberate change is made in AI.md or IDEA.md first, then the code, then the specs are regenerated |
 | **Match site theme** | Both UIs styled to match site theme (light/dark/auto) |
@@ -20964,6 +20989,8 @@ Before proceeding, confirm you understand:
 | HTTP-01 | HTTP-based challenge (default, requires port 80) |
 | TLS-ALPN-01 | TLS-based challenge (requires port 443) |
 | DNS-01 | DNS TXT record challenge (wildcard certs, no port requirements) |
+
+**Challenge listeners:** the server never opens a socket of its own for a challenge. HTTP-01 is answered on the server's HTTP listener and TLS-ALPN-01 on its HTTPS listener, so both are bound by the startup steps that determine and bind the server's ports (only `server.port`, `server.address` and `server.daemonize` are read early). The CA reaches them on ports 80 and 443, so the usual setup is `server.port: "80,443"` (the privileged ports are bound while root, before the drop), or a reverse proxy or port mapping that forwards 80 and 443 to the listener; on any other arrangement use DNS-01.
 
 ### DNS-01 Provider Configuration
 
@@ -23839,7 +23866,7 @@ function showToast(message, type = 'info', duration = 3000) {
 
 ### Site Banner
 
-**Site-wide announcements (scheduled maintenance, service notices) are a server-rendered banner — the FIRST element inside `<body>`, before `<main>`. No notification center, no bell icon — API projects have no user accounts and no server-side notification storage (see PART 17 → "Notification Storage"). The banner renders and dismisses without JavaScript; JS only makes dismissal reload-free.**
+**Site-wide announcements (scheduled maintenance, service notices) are a server-rendered banner — the first element inside `<body>` AFTER the two skip links (the skip links stay the first focusable elements of the page), before the header and `<main>`. No notification center, no bell icon — API projects have no user accounts and no server-side notification storage (see PART 17 → "Notification Storage"). The banner renders and dismisses without JavaScript; JS only makes dismissal reload-free.**
 
 **Banner Behavior:**
 
@@ -24826,7 +24853,7 @@ async function checkLocationPermission() {
 // Clear local token copies — keeps UI preferences (theme, lang) intact
 async function revokeLocalToken() {
   // Remove the optional localStorage copy; the owner_token cookie expires via Max-Age
-  localStorage.removeItem('{project_name}_owner_token_XXXXXX');
+  localStorage.removeItem('{project_name}_owner_token_XXXXXXXX');
 
   // Clear any cached private/token-scoped data from IndexedDB
   const databases = await indexedDB.databases();
@@ -28255,7 +28282,7 @@ When `branding.content.footer` is set, the server logs at startup and on every r
 | Action | Result |
 |--------|--------|
 | **I Agree** | Form POST to `/server/consent` — server sets the `cookie_consent` cookie (all categories accepted), redirects back, enables all cookies + tracking |
-| **Decline** | Form POST to `/server/consent` — server sets the `cookie_consent` cookie (essential only), redirects back, session cookies only |
+| **Decline** | Form POST to `/server/consent` — server sets the `cookie_consent` cookie (essential only), redirects back, essential cookies only |
 | **Already set** | Server doesn't render the banner when a valid `cookie_consent` cookie exists |
 | **First visit** | Server renders the banner (visible, no JS required) until the user responds |
 
@@ -28392,7 +28419,7 @@ function saveAndApplyConsent(consent) {
 }
 
 function applyConsent(consent) {
-  // Essential cookies always work (sessions, CSRF)
+  // Essential cookies always work (owner token, CSRF)
 
   // Preference cookies (theme, language)
   if (consent.preferences) {
@@ -28565,7 +28592,7 @@ initCCPA();
 | Decline clicked | No | Yes | No | No |
 | Custom preferences saved | No | Yes | User choice | User choice |
 
-**Cookie consent is ALWAYS enabled - we use cookies for sessions and preferences.**
+**Cookie consent is ALWAYS enabled - we use cookies for the owner token, CSRF protection and preferences (there are no sessions).**
 
 **Cookie categories:**
 
@@ -28583,14 +28610,14 @@ initCCPA();
 |----------|----------|---------|
 | **Analytics/Tracking** | **NEVER loaded** | No tracking scripts injected, no data sent to analytics providers |
 | **Preference cookies** | **NOT set** | Theme defaults to system/dark, language defaults to browser/en |
-| **Essential cookies** | **Still work** | Session, CSRF, auth tokens required for app to function |
+| **Essential cookies** | **Still work** | The owner cookie, CSRF and token-view cookies required for the app to function |
 | **localStorage** | **Not used** | Decline is remembered in the `cookie_consent` cookie (essential — the server must read it to skip the banner and block tracking) |
 | **Third-party scripts** | **NOT loaded** | No Google Analytics, Matomo, etc. |
 | **Embedded content** | **Placeholder shown** | YouTube, social embeds show "Content blocked" placeholder |
 
 **What IS allowed after decline:**
 ```
-✓ Session cookie (required for login/auth)
+✓ Owner cookie (the token the owner created; required for owner management)
 ✓ CSRF token cookie (required for form security)
 ✓ Remember decline choice (`cookie_consent` cookie — essential)
 ✓ Basic functionality (browse, view content)
@@ -29122,7 +29149,7 @@ Language is detected automatically and changed in Preferences. It is never a hea
     "cookies": {
       "essential": {
         "enabled": true,
-        "description": "Required for the site to function. Includes security tokens (CSRF) and site preferences."
+        "description": "Required for the site to function. Includes the owner cookie, security tokens (CSRF) and the consent cookie itself. The theme and language preferences are NOT essential: they are the separate consent-controlled category below."
       },
       "preferences": {
         "enabled": true,
@@ -30159,7 +30186,7 @@ A custom template that uses translation keys follows this order. A custom templa
 
 Templates are stored as files on disk. Override any built-in template by placing a file in the configured template directory. Use `{project_name} email test` to send a test email and verify configuration.
 
-**No web editor:** API projects have no admin or settings UI (PART 16), so templates are edited as files on disk and hot-reloaded. Validation and preview run from the CLI: `{project_name} email test --dry-run` renders every template with the sample data below and runs the validation below without sending anything (it warns on unknown `{variables}`).
+**No web editor:** API projects have no admin or settings UI (PART 16), so templates are edited as files on disk and hot-reloaded. Validation and preview run from the CLI: `{project_name} email test --dry-run` renders every template with the sample data below and runs the validation below without sending anything (an unknown `{variable}` is an ERROR, not a warning: the override file is not loaded and the embedded default stays in use; `--dry-run` reports every error and exits `65`).
 
 ### Template Preview
 
@@ -30194,6 +30221,8 @@ Templates are stored as files on disk. Override any built-in template by placing
 | Empty subject | `Subject cannot be empty` |
 | Empty body | `Body cannot be empty` |
 | Invalid syntax | `Invalid template syntax at line 5` |
+
+Every row of this table is a BLOCKING error: the template is not loaded (the embedded default stays in use) and `--dry-run` exits `65`. Only the warnings below never block.
 
 **Warnings (non-blocking):**
 - Using deprecated variables
@@ -30491,7 +30520,7 @@ External schedulers (cron, Task Scheduler, etc.) are not supported
 because the built-in scheduler provides:
 - Automatic catch-up for missed runs
 - State tracking and logging
-- Visibility via `{project_name} scheduler list` CLI command
+- Visibility via `{project_name} --maintenance scheduler list` CLI command
 ```
 
 ### Exceptions (NONE)
@@ -30516,6 +30545,7 @@ Every project MUST include these scheduled tasks:
 | `geoip_update` | Weekly (Sunday 03:00) | Download/update ip-location-db GeoIP databases | Yes |
 | `blocklist_update` | Daily at 04:00 | Download/update IP/domain blocklists | Yes |
 | `security_cleanup` | Daily at 03:30 | Delete closed security reports `server.security.reports.retention_days` (default `365`) after `closed_at`, and delete the retired PGP private key (`pgp.priv.old.asc.enc`) 30 days after a rotation | No |
+| `keyserver_retry` | Every 15 minutes | Submit the public key again to each keyserver whose persisted `next_attempt` in `keyservers.state` has passed (PGP publishing, PART 11); does nothing when no attempt is due | No |
 | `cve_update` | Daily at 05:00 | Download/update CVE (NVD) and Trivy vulnerability databases — trivy has no separate scheduled task despite its own directory/config; this task owns it too | Yes |
 | `update_check` | Daily at 06:00 | Check release channel for a newer version — notify-only unless `update.auto_install: true` (default false); honors `update.defer_days` | Yes |
 | `token_cleanup` | Every 15 minutes | Delete used or expired simple-captcha challenges and apply the owner idle purge (`server.tokens.idle_purge_days`, PART 8). Expired linked tokens are NOT deleted: they stay listed as expired until the owner revokes them or changes their expiry | No |
@@ -30585,6 +30615,11 @@ server:
         schedule: "@every 15m"
         enabled: true
 
+      # Every 15 minutes: keyserver submissions whose next_attempt has passed
+      keyserver_retry:
+        schedule: "@every 15m"
+        enabled: true
+
       # Daily at midnight
       log_rotation:
         schedule: "0 0 * * *"
@@ -30599,19 +30634,7 @@ server:
         # Creates: {project_name}_backup_YYYY-MM-DD.tar.gz[.enc] (full)
         #          {project_name}_backup_YYYY-MM-DD_HHMMSS.tar.gz[.enc] (manual)
         #          {project_name}-daily.tar.gz[.enc] (incremental)
-        retention:
-          # 1-365: daily full backups to keep
-          max_backups: 1
-          # 0-52: Sunday backups (0 = disabled)
-          keep_weekly: 0
-          # 0-12: 1st of month backups (0 = disabled)
-          keep_monthly: 0
-          # 0-10: January 1st backups (0 = disabled)
-          keep_yearly: 0
-          # Hard size cap: percent of backup volume (e.g. "10%") or absolute
-          # (e.g. "50G"). 0 = disabled. Size cap overrides all count limits —
-          # oldest files deleted first until total is under the cap.
-          max_total_size: "10%"
+        # Retention is NOT a task key: it lives only in server.backup.retention (PART 21)
 
       # Hourly incremental backup (disabled by default)
       backup_hourly:
@@ -30727,7 +30750,7 @@ Task activity is logged to log files only — the scheduler NEVER prints to the 
 
 The scheduler status is available via the server status API. Task execution can be triggered or toggled via CLI commands.
 
-**CLI - Scheduler Overview** (`{project_name} scheduler list`):
+**CLI - Scheduler Overview** (`{project_name} --maintenance scheduler list`):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -30749,7 +30772,7 @@ The scheduler status is available via the server status API. Task execution can 
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**CLI - Task Detail** (`{project_name} scheduler show backup`):
+**CLI - Task Detail** (`{project_name} --maintenance scheduler show backup_daily`):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -30804,6 +30827,8 @@ The scheduler status is available via the server status API. Task execution can 
 | `backup_daily` | 02:00 daily | Enabled | Full backup + daily incremental |
 | `backup_hourly` | Hourly | Disabled | Hourly incremental |
 
+Retention is configured ONLY at `server.backup.retention.*` (PART 21); a scheduler task has no retention key. The defaults:
+
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `max_backups` | 1 | Daily full backups to keep |
@@ -30823,14 +30848,16 @@ With `max_backups: 1` the previous full also stays on disk until the next run, b
 
 ### CLI Commands
 
+These are `--maintenance` verbs: the server binary has no top-level subcommands and its top-level flag set is closed (PART 8), so the scheduler commands use the same dispatch, authorization and exit codes as every other `--maintenance` verb.
+
 | Command | Description |
 |---------|-------------|
-| `{project_name} scheduler list` | List all tasks and status |
-| `{project_name} scheduler show <id>` | Get task details |
-| `{project_name} scheduler run <id>` | Run task immediately |
-| `{project_name} scheduler enable <id>` | Enable task |
-| `{project_name} scheduler disable <id>` | Disable task |
-| `{project_name} scheduler history <id>` | Get execution history |
+| `{project_name} --maintenance scheduler list` | List all tasks and status |
+| `{project_name} --maintenance scheduler show <id>` | Get task details |
+| `{project_name} --maintenance scheduler run <id>` | Run task immediately |
+| `{project_name} --maintenance scheduler enable <id>` | Enable task |
+| `{project_name} --maintenance scheduler disable <id>` | Disable task |
+| `{project_name} --maintenance scheduler history <id>` | Get execution history |
 
 ### Shutdown Behavior
 
@@ -30889,7 +30916,7 @@ GeoIP databases are NEVER embedded in the binary — they are downloaded on firs
 | **Never sole gate** | Country / ASN / city signals can raise risk score, trigger MFA, lower rate-limit thresholds, or feed audit logs — they MUST NOT be the only thing standing between an attacker and a resource. |
 | **Always alongside, not instead of** | The country check runs after the blocklist and the rate limiter and before authentication (PART 5 → "Middleware Order", positions 6–8 then 9). It only denies; it never replaces authentication or authorization for any request that passes it. |
 | **VPN / proxy / Tor caveat** | Country data is trivially bypassed via VPN, residential proxy, or Tor. Treat any blocking decision based on country as advisory, not authoritative. |
-| **GeoIP-only auth is forbidden** | "Allow if country = US" is not authentication. Login, API keys, session cookies, and tokens are still required regardless of source country. |
+| **GeoIP-only auth is forbidden** | "Allow if country = US" is not authentication. The operator token and owner tokens are still required regardless of source country. |
 | **Failure mode** | If a GeoIP database is missing, stale, or the lookup fails, the request MUST be processed by the rest of the pipeline normally (fail-open for GeoIP, fail-closed for real auth). Never block a request because a GeoIP lookup errored. |
 | **Private/internal IPs** | RFC 1918 / RFC 4193 / loopback addresses are never looked up or country-blocked. |
 
@@ -32550,11 +32577,14 @@ groups:
 | `{config_dir}/yaml.d/` | ✓ If exists | Drop-in config files |
 | `{config_dir}/secrets.yml` | ✓ If exists | Secrets (token, encryption key, credentials) |
 | `{config_dir}/assets/` | ✓ If exists | Branding image files |
-| `server.db` | ✓ Always | Main database (settings, rate limits, audit log) |
+| `server.db` | ✓ When the local file exists | The local SQLite database: the main database with the SQLite driver (settings, rate limits, audit log); with the libSQL driver, the local cache file when `server.database.cache.enabled` is true. A remote database is never part of a backup (see below) |
 | `{config_dir}/template/` | ✓ If exists | Custom email templates |
 | `{config_dir}/ssl/` | Optional | SSL certificates (flag: `--include-ssl`) |
 | Connection TLS files | ✓ Always, when referenced | The files named by `tls_ca`, `tls_cert`, `tls_key` (cache), even without `--include-ssl`; only those files, not the whole `ssl/` directory ("Connection Strings") |
+| External TLS files | ✓ Always, when referenced | The files named by `server.ssl.cert` and `server.ssl.key` that lie OUTSIDE `{config_dir}/ssl/` (a manually supplied certificate), even without `--include-ssl`: only those two files, stored under `ssl-external/` in the archive. On restore they are written into `{config_dir}/ssl/` (the key with mode `0600`) and `server.ssl.cert` and `server.ssl.key` are rewritten to those paths, so the restored config never points at a file the archive lacks |
 | `{data_dir}/` | Optional | Data files (flag: `--include-data`) |
+
+**Remote database (libSQL/Turso driver):** the remote database itself is never part of a backup, and that is neither an error nor a warning (a remote database is backed up by its own provider; the backup writes one `info` line naming the driver). On restore with a remote driver configured, the restored `server.db` seeds the remote database ONLY when that database is empty, exactly as a new setup initializes it; a remote database that already holds data is left untouched.
 
 ### What Is in server.db
 
@@ -34075,6 +34105,15 @@ useradd --system --uid {id} --gid {id} \
   {internal_name}
 ```
 
+**Alpine Linux and other BusyBox systems (no `shadow` package):** `groupadd` and `useradd` are absent, so the binary uses the BusyBox tools:
+
+```bash
+addgroup -S -g {id} {internal_name}
+adduser -S -D -H -u {id} -G {internal_name} -h /var/lib/{internal_org}/{internal_name} -s /sbin/nologin -g "{internal_name} service account" {internal_name}
+```
+
+**Selection:** the binary uses the account tools of the platform it runs on (`useradd`/`groupadd` when present, otherwise BusyBox `adduser`/`addgroup`, `dscl` on macOS, `pw` on FreeBSD). These tools are part of each platform's base system, not a dependency of the project, so the "no runtime dependencies" rule is unaffected; a platform with none of them gets exit `69` and a reason on stderr, never a silent skip.
+
 **Default rule:** create and use a dedicated service user/group.
 
 **Exception:** skip dedicated user creation only when the project is explicitly approved to run permanently as root/Administrator in IDEA.md.
@@ -34429,7 +34468,8 @@ command="/usr/local/bin/{project_name}"
 command_args=""
 # No command_user: the service starts as root so the binary can bind privileged ports, then drops to
 # {internal_name}:{internal_name} in-process (PART 8). start_pre creates the pid and log directories for that user.
-pidfile="/var/run/{internal_org}/{internal_name}/{internal_name}.pid"
+# OpenRC's own supervisor pid file. It must NOT be the server's own PID file (/var/run/{internal_org}/{internal_name}/{internal_name}.pid): OpenRC would write its supervisor PID there and the server would find it and exit "already running"
+pidfile="/var/run/{internal_org}-{internal_name}.pid"
 command_background=true
 output_log="/var/log/{internal_org}/{internal_name}/server.log"
 error_log="/var/log/{internal_org}/{internal_name}/error.log"
@@ -34485,7 +34525,8 @@ sudo rc-update del {internal_name} default
 NAME={internal_name}
 DAEMON=/usr/local/bin/{project_name}
 DAEMON_USER={internal_name}
-PIDFILE=/var/run/{internal_org}/{internal_name}/{internal_name}.pid
+# The supervisor's pid file (start-stop-daemon --make-pidfile): NOT the server's own PID file (/var/run/{internal_org}/{internal_name}/{internal_name}.pid)
+PIDFILE=/var/run/{internal_org}-{internal_name}.pid
 LOGFILE=/var/log/{internal_org}/{internal_name}/server.log
 
 case "$1" in
@@ -34617,7 +34658,8 @@ The `run` script ends in `exec`, so the server itself is the supervised process,
 
 name="{internal_name}"
 rcvar="{internal_name}_enable"
-pidfile="/var/run/{internal_org}/{internal_name}/{internal_name}.pid"
+# daemon(8)'s supervisor pid file: NOT the server's own PID file (/var/run/{internal_org}/{internal_name}/{internal_name}.pid), or the server would find the supervisor's PID there and exit "already running"
+pidfile="/var/run/{internal_org}-{internal_name}.pid"
 # daemon(8) backgrounds and supervises the foreground server and writes the supervisor pid to ${pidfile}
 command="/usr/sbin/daemon"
 command_args="-P ${pidfile} -r -f /usr/local/bin/{project_name}"
@@ -34737,6 +34779,7 @@ func (ws *windowsService) Execute(args []string, r <-chan svc.ChangeRequest, s c
 
 - Single-line version for local Makefile builds (see PART 13); optional, empty or missing means the devel rule
 - Semantic versioning: `MAJOR.MINOR.PATCH` (e.g., `1.2.3`)
+- `make release` accepts ONLY a stable `X.Y.Z` here (`release-check` fails the run with an `ERROR:` on stderr for a devel commit id or a prerelease such as `-beta`; `make` itself reports exit `2` for a failed recipe); it tags `v{version}` and marks the release `--latest`. Devel and beta releases come from CI, never from `make release`
 - Read only by the Makefile for local testing and debugging, when present and non-empty; empty or missing means the devel rule (short commit id); CI/CD never reads it; an explicitly set `VERSION` env var overrides it (user only, AI never sets it)
 
 ### Official Site File: `site.txt` (Optional)
@@ -34973,7 +35016,7 @@ GO_DOCKER_RUN := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthchec
 GO_DOCKER := $(GO_DOCKER_RUN) casjaysdev/go:latest
 # CGO_ENABLED=0 and GOFLAGS=-buildvcs=false are casjaysdev/go:latest defaults; set explicitly for clarity
 
-.PHONY: build local release docker test dev clean
+.PHONY: build local release release-check docker test dev clean
 
 # =============================================================================
 # BUILD - Build all platforms + local binary (via Docker with cached modules)
@@ -35028,7 +35071,11 @@ local: clean
 # =============================================================================
 # RELEASE - Manual local release (stable only)
 # =============================================================================
-release: build
+# Stable SemVer only: a devel version (short commit id or "devel") and any prerelease (-beta, -rc) are published by CI, never by this target
+release-check:
+	@echo "$(VERSION)" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$$' >/dev/null || { echo "ERROR: make release needs a stable SemVer X.Y.Z in release.txt (got '$(VERSION)')" >&2; exit 78; }
+
+release: release-check build
 	@mkdir -p $(RELDIR)
 	@echo "Preparing release $(VERSION)..."
 
@@ -35266,7 +35313,7 @@ All Docker builds use persistent Go module caching to avoid re-downloading depen
 3. No `-ldflags` (version info not embedded)
 4. Outputs to `{tempdir}/{project_org}/{internal_name}-XXXXXX/` (isolated, org-identifiable)
 5. Uses Docker (`casjaysdev/go:latest`) - keeps local machine clean
-6. Easy cleanup: `rm -rf "${TMPDIR:-/tmp}/${PROJECT_ORG}"/${INTERNAL_NAME}-*/` or auto-deleted on reboot
+6. Cleanup: `rm -rf "$BUILD_DIR"` for the directory this run printed; other directories expire with the OS temp cleaner (never a wildcard over the org directory)
 
 ### `make local`
 
@@ -35317,7 +35364,7 @@ docker run --rm \
 
 | Script | Container | Best For |
 |--------|-----------|----------|
-| `./tests/run_tests.sh` | Docker (Incus fallback) | The basic tier: runs `docker.sh`; `incus.sh`, `virt.sh` and `e2e.sh` are run explicitly |
+| `./tests/run_tests.sh` | Docker | The basic tier: runs `docker.sh`; `incus.sh`, `virt.sh` and `e2e.sh` are run explicitly |
 | `./tests/docker.sh` | Docker `alpine:latest` | Quick binary validation |
 | `./tests/incus.sh [systemd\|openrc\|all]` | Incus CONTAINERS: `debian/trixie` (with systemd) and `alpine/{latest_stable}` (without it, OpenRC) | **PREFERRED** for the whole app - both init systems, service lifecycle, reboot, Tor and I2P |
 | `./tests/virt.sh [systemd\|openrc\|all]` | Incus VMs (`--vm`): `debian/trixie` and `alpine/{latest_stable}` | OPTIONAL - a clean OS with its own kernel and a real boot, only when a container cannot show it (PART 28) |
@@ -35332,7 +35379,7 @@ make dev
 make test
 
 # Before commit
-# Basic tests (Docker; Incus only as the fallback)
+# Basic tests (Docker)
 ./tests/run_tests.sh
 
 # Before release
@@ -35394,7 +35441,7 @@ The **only** times binaries are copied are the CI/CD release process, the `make 
 
 **This is handled by CI/CD, not manual commands.**
 
-**Disposable test containers (the third exception).** `tests/*.sh` may push the binary into a Docker or Incus test container, and may copy it under another name inside that container for the rename test (PART 28). That copy exists only inside the container, the file in `binaries/` is never modified, and the container is removed when the test ends. Copies on the host (`/tmp`, `/usr/local/bin`, `releases/` by hand) stay prohibited.
+**Disposable test containers (the third exception).** `tests/*.sh` may push the binary into a Docker or Incus test container, and may copy it under another name inside that container for the rename test (PART 28). That copy exists only inside the container, the file in `binaries/` is never modified, and the container is removed when the test ends. Copies on the host (`/tmp`, `/usr/local/bin`, `releases/` by hand) stay prohibited, with ONE allowance: a test script may stage the binary it tests in its own `{tempdir}/{project_org}/{internal_name}-XXXXXX/` directory (to pick the musl build), and its `trap` removes that directory.
 
 ## Release Artifacts
 
@@ -35535,7 +35582,7 @@ The **only** times binaries are copied are the CI/CD release process, the `make 
 
 ## Docker Directory Structure
 
-Docker build/runtime definitions are split between `docker/` and runtime `./volumes/` mounts:
+Docker build/runtime definitions are split between `docker/` and runtime `./volumes/` mounts. **ALL compose files live in `docker/`** (the paths in the tree below are relative to it); a compose file in the project root is a violation.
 
 ```
 docker/
@@ -35575,7 +35622,7 @@ docker/
 | Meta labels | All OCI labels (see below) |
 | Required packages | git, curl, bash, tini, tor, i2pd, tzdata, ca-certificates |
 | Image contract | EVERY image the project ships (release, `:devel`, the all-in-one Debian image, any variant) installs `bash`, `curl`, `tor`, `i2pd`, `tini`, `tzdata` and `ca-certificates` in its FINAL stage. `tor` and `i2pd` are installed even though I2P is opt-in: a missing package is an image bug, never a runtime fallback. A project may ADD packages and never remove these |
-| Image check | After every build, CI and `tests/docker.sh` run `docker run --rm --entrypoint sh {image} -c 'for c in bash curl tor i2pd tini; do command -v "$c" || exit 1; done'` and fail on any missing command; the container's `/server/healthz` must then report `features.tor.status` `healthy` (never `unavailable`) within `server.tor.bootstrap_timeout` (default 180 seconds): it is `starting` while Tor bootstraps and becomes `healthy` only once the hidden service address exists, so the check waits for the bootstrap timeout, not the shorter `startup_timeout` |
+| Image check | After every build, CI and `tests/docker.sh` run `docker run --rm --entrypoint sh {image} -c 'for c in bash curl tor i2pd tini; do command -v "$c" || exit 1; done'` and fail on any missing command; the container's `/server/healthz` must then report `features.tor.status` `healthy` within `server.tor.bootstrap_timeout` (default 180 seconds): it is `starting` while Tor bootstraps and becomes `healthy` only once the hidden service address exists, so the check waits for the bootstrap timeout, not the shorter `startup_timeout`. The image contract assumes outbound network access, because Tor cannot bootstrap without it: on a runner with none, the check accepts `starting` or `unavailable` (never `error`), prints `SKIP: no outbound network` on stderr and does not fail, and `REQUIRE_OVERLAY=1` makes `healthy` mandatory |
 | Tor handling | Installed but **binary controls** (see PART 31) |
 | Binary location | `/usr/local/bin/{project_name}` |
 | Entrypoint script | `/usr/local/bin/entrypoint.sh` |
@@ -36747,7 +36794,7 @@ jobs:
 |------|--------|
 | **Flag** | `--results=verified,unknown` or `--results=verified`, always with `--exclude-paths=.github/trufflehog-exclude.txt`. The old `--only-verified` flag is not used. `unknown` means verification was attempted and could not complete; `unverified` (checked and found inactive) is reported and does not fail the job |
 | **Never `default_branch`** | `base` is never `repository.default_branch`: after a push it equals the pushed commit and truffleHog skips the scan ("BASE and HEAD commits are the same") |
-| **Documentation examples** | `AI.md`, `IDEA.md`, `README.md` and `docs/` never contain a credential-shaped string. Connection strings use `{user}:{password}` placeholders; a flagged example is rewritten, not allowlisted, because a copied spec file is read-only in the projects that receive it |
+| **Documentation examples** | `AI.md`, `IDEA.md`, `README.md` and `docs/` never contain a credential-shaped string (the one identifier allowed to look random is the `owner_token` cookie-name suffix: 8 lowercase letters, PART 8). Connection strings use `{user}:{password}` placeholders; a flagged example is rewritten, not allowlisted, because a copied spec file is read-only in the projects that receive it |
 | **Excluded paths** | `.github/trufflehog-exclude.txt` (the same path on every provider), passed as `--exclude-paths=.github/trufflehog-exclude.txt`. One regex per line, no comments (it is a data file). It lists ONLY files that are not production code: `^go\.sum$` (dependency hashes), `(^|/)testdata/` (test fixtures) and `^AI\.md$` (the read-only copy of this specification, which carries example values; the template repository scans the original itself). Source, test code, docs, configuration and the exclude file itself are never listed. Adding a path needs a reason in the commit message. Everything else is handled by the placeholder rule or the allowlist below |
 | **Test fixtures** | Fixtures live ONLY in `testdata/` (the one directory the exclude file lists). Their values are obviously fake (`EXAMPLE`, `xxxx`, `{placeholder}`) and never a real credential, because that directory is not scanned. A test that needs a credential-shaped string builds it at run time in the test code, which IS scanned |
 | **Allowlist** | Only a reviewed true false positive in project code or a test fixture, with truffleHog's inline `trufflehog:ignore` comment on that line. There is no root config file for it |
@@ -40158,6 +40205,8 @@ When a test or debug step requires `reboot`, `systemctl`, `iptables`, `mount`, p
 
 **The project directory is for SOURCE CODE ONLY. All runtime/test data goes to the OS temp directory.**
 
+**Build artifacts are not runtime or test data.** `make` writes them to `binaries/` and `releases/` in the project root (the Makefile's `BINDIR` and `RELDIR`, both gitignored), and the test scripts read the binaries from there; each script takes the directory from `BINDIR` (default `binaries`) and passes it to the Makefile (`make build BINDIR="$BIN_DIR"`), so a project that overrides it stays consistent. Everything a test or a running binary WRITES (configs, databases, logs, volumes) stays in the temp directory.
+
 ## AI Docker Compose Rules
 
 **AI assistants have STRICT rules about docker-compose usage:**
@@ -40308,12 +40357,14 @@ Config files are NEVER in the repository. They are generated at RUNTIME:
 
 ### Cleanup
 
+Remove ONLY the directory this run created, by the exact path saved when it was made. The org directory is shared by every project and every session of the organization: listing it is fine, deleting it or any other entry in it never is. `make clean` removes `BINDIR` and `RELDIR` only and never touches the temp directory. Directories left by other runs expire with the OS temp cleaner.
+
 ```bash
-# Find all temp dirs for this org
+# List what exists for this org (read-only)
 ls -la "${TMPDIR:-/tmp}/${PROJECT_ORG}/"
 
-# Clean all temp dirs for this org
-rm -rf "${TMPDIR:-/tmp}/${PROJECT_ORG}/"
+# Remove the directory THIS run created (the path saved from mktemp)
+rm -rf "$TEST_DIR"
 ```
 
 ### Correct vs Incorrect
@@ -40355,7 +40406,7 @@ rm -rf "${TMPDIR:-/tmp}/${PROJECT_ORG}/"
 
 **Why this structure:**
 - Prevents conflicts between projects
-- Makes cleanup easy (`rm -rf /tmp/{project_org}/`)
+- Makes cleanup exact: each run removes the one directory it created
 - Identifies which project created temp files
 - Prevents pollution of root `/tmp` directory
 - Multiple projects can run simultaneously
@@ -40754,7 +40805,8 @@ curl -q -LSsf /links/abc123
 
 **What NOT to test in unit tests:**
 - ✗ Full HTTP requests (use integration tests)
-- ✗ Database operations (use integration tests)
+- ✗ A remote or shared database (libSQL/Turso, any server you do not start inside the test): use integration tests
+- ✓ A local SQLite database that the test creates itself (in-memory or a file in `t.TempDir()`): this IS a unit test, runs in `make test` and counts toward the coverage gate
 - ✗ External services (use integration tests)
 - ✗ Authentication flows (use integration tests)
 
@@ -41043,7 +41095,7 @@ fi
 
 | Script | Purpose | Container | Tests |
 |--------|---------|-----------|-------|
-| `tests/run_tests.sh` | Run the basic tier | Docker (Incus only when Docker is absent) | Runs docker.sh; the full-app, clean-OS and browser scripts are explicit |
+| `tests/run_tests.sh` | Run the basic tier | Docker | Runs docker.sh; the full-app, clean-OS and browser scripts are explicit |
 | `tests/docker.sh` | Basic tier: the binary-validation suite in Docker | `alpine:latest` | Does it start and answer: version, help, endpoints, CLI; no init system, no service lifecycle |
 | `tests/incus.sh` | Full-app testing in Incus CONTAINERS (`[systemd\|openrc\|all]`) | `debian/trixie` (with systemd) + `alpine/{latest_stable}` (without it, OpenRC) | The same suite plus the whole service lifecycle under a real init, reboot persistence, Tor and I2P |
 | `tests/virt.sh` | Clean-OS testing in real VMs (`[systemd\|openrc\|all]`, OPTIONAL) | Incus VMs: `debian/trixie` + `alpine/{latest_stable}` | The same suite on a pristine OS with its own kernel, plus VM-only checks and a cold power cycle |
@@ -41080,25 +41132,27 @@ set -eo pipefail
 # Detect project info
 PROJECT_NAME=$(basename "$PWD")
 PROJECT_ORG=$(basename "$(dirname "$PWD")")
+# The build output directory is the Makefile's BINDIR (default binaries)
+BIN_DIR="${BINDIR:-binaries}"
 
 # Build — use Makefile if present (standard for all bootstrapped projects)
 # Output always lands in binaries/
 if [ -f "Makefile" ]; then
     echo "Building with make build..."
-    make build
+    make build BINDIR="$BIN_DIR"
 else
     # No Makefile yet — fallback to direct docker run
     echo "Building in Docker (no Makefile)..."
     GO_CACHE="${GO_CACHE:-$HOME/go/pkg/mod}"
     GO_BUILD="${GO_BUILD:-$HOME/.cache/go-build/${PROJECT_NAME}}"
-    mkdir -p "$GO_CACHE" "$GO_BUILD" binaries
+    mkdir -p "$GO_CACHE" "$GO_BUILD" "$BIN_DIR"
     docker run --rm \
       --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
       -v $PWD:/app \
       -v $GO_CACHE:/usr/local/share/go/pkg/mod \
       -v $GO_BUILD:/usr/local/share/go/cache \
       -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
-      casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o /app/binaries/${PROJECT_NAME} ./src
+      casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o /app/${BIN_DIR}/${PROJECT_NAME} ./src
     if [ -d "src/client" ]; then
         docker run --rm \
           --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
@@ -41106,14 +41160,14 @@ else
           -v $GO_CACHE:/usr/local/share/go/pkg/mod \
           -v $GO_BUILD:/usr/local/share/go/cache \
           -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
-          casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o /app/binaries/${PROJECT_NAME}-cli ./src/client
+          casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o /app/${BIN_DIR}/${PROJECT_NAME}-cli ./src/client
     fi
 fi
 
 echo "Testing in Docker (Alpine)..."
 docker run --rm \
   --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
-  -v "$PWD/binaries:/app" \
+  -v "$PWD/$BIN_DIR:/app" \
   alpine:latest sh -c "
     set -e
 
@@ -41282,26 +41336,29 @@ cleanup() {
     local c
     for c in "${CONTAINERS[@]}"; do incus delete "$c" --force 2>/dev/null || true; done
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
+
+# The build output directory is the Makefile's BINDIR (default binaries); every build below passes it on
+BIN_DIR="${BINDIR:-binaries}"
 
 # Build — use Makefile if present (standard for all bootstrapped projects)
-# Output always lands in binaries/
+# Output always lands in $BIN_DIR
 if [ -f "Makefile" ]; then
     echo "Building with make build..."
-    make build
+    make build BINDIR="$BIN_DIR"
 else
     # No Makefile yet — fallback to direct docker run
     echo "Building in Docker (no Makefile)..."
     GO_CACHE="${GO_CACHE:-$HOME/go/pkg/mod}"
     GO_BUILD="${GO_BUILD:-$HOME/.cache/go-build/${PROJECT_NAME}}"
-    mkdir -p "$GO_CACHE" "$GO_BUILD" binaries
+    mkdir -p "$GO_CACHE" "$GO_BUILD" "$BIN_DIR"
     docker run --rm \
       --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
       -v $PWD:/app \
       -v $GO_CACHE:/usr/local/share/go/pkg/mod \
       -v $GO_BUILD:/usr/local/share/go/cache \
       -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
-      casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o /app/binaries/${PROJECT_NAME} ./src
+      casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o /app/${BIN_DIR}/${PROJECT_NAME} ./src
     if [ -d "src/client" ]; then
         docker run --rm \
           --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
@@ -41309,11 +41366,9 @@ else
           -v $GO_CACHE:/usr/local/share/go/pkg/mod \
           -v $GO_BUILD:/usr/local/share/go/cache \
           -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
-          casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o /app/binaries/${PROJECT_NAME}-cli ./src/client
+          casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o /app/${BIN_DIR}/${PROJECT_NAME}-cli ./src/client
     fi
 fi
-
-BIN_DIR="binaries"
 
 REMOTE_LIB=$(cat <<'REMOTE_LIB_EOF'
 INTERNAL_NAME="${INTERNAL_NAME:-$PROJECT_NAME}"
@@ -41327,9 +41382,11 @@ wait_for() { local n="$1" i; shift; for i in $(seq 1 "$n"); do "$@" >/dev/null 2
 
 # A native service listens on the port the server saved in server.yml (a random 64xxx port; 80 is only the container default), so read it there
 CONFIG_FILE="/etc/${INTERNAL_ORG}/${INTERNAL_NAME}/server.yml"
-port() { sed -n 's/^  port: *"\{0,1\}\([0-9]\{1,5\}\).*/\1/p' "$CONFIG_FILE" 2>/dev/null | head -1; }
+# server.port is read inside the server: section at ANY indentation; a dual port such as "8090,8443" yields its first number
+port() { awk '/^server:/ {s=1; next} /^[^[:space:]#]/ {s=0} s && /^[[:space:]]+port:/ {v=$2; gsub(/[^0-9,]/, "", v); sub(/,.*/, "", v); print v; exit}' "$CONFIG_FILE" 2>/dev/null; }
 api() { echo "http://localhost:$(port)/api/{api_version}/server/healthz"; }
-healthz() { curl -q -LSsf --max-time 10 "$(api)"; }
+# The health helper asks for JSON: without an Accept header a curl client gets plain text and every jq check below would fail
+healthz() { curl -q -LSsf --max-time 10 -H 'Accept: application/json' "$(api)"; }
 healthz_up() { healthz | jq -e '.status' >/dev/null; }
 overlay() { healthz | jq -r ".features.$1.$2"; }
 
@@ -41372,7 +41429,7 @@ echo "=== [$INIT_MODE] Service install (--service --install also enables and sta
 ${PROJECT_NAME} --service --install
 check "service file installed at ${UNIT_FILE}" test -f "$UNIT_FILE"
 if [ "$INIT_MODE" = "openrc" ]; then
-    check "init script starts with #!/sbin/openrc-run" sh -c "head -1 '$UNIT_FILE' | grep -q '^#!/sbin/openrc-run'"
+    check "init script starts with #!/sbin/openrc-run" sh -c "head -1 '$UNIT_FILE' | grep '^#!/sbin/openrc-run' >/dev/null"
     check "init script is executable" test -x "$UNIT_FILE"
     check_not "init script is not a SysV script" grep -q 'BEGIN INIT INFO' "$UNIT_FILE"
 fi
@@ -41418,8 +41475,8 @@ echo "=== Project-Specific Endpoint Tests ==="
 #
 # Example for jokes frontend (smart detection, no .txt - test with text for simplicity):
 #   JOKE=$(curl -q -LSsf http://localhost:$(port)/jokes/random)
-#   if echo "$JOKE" | grep -q "Why"; then pass "Frontend text works"; else fail "Frontend text"; fi
-#   curl -q -LSsfI -H 'Accept: text/html' http://localhost:$(port)/jokes/random | grep -q 'text/html' || fail "Frontend HTML"
+#   if echo "$JOKE" | grep "Why" >/dev/null; then pass "Frontend text works"; else fail "Frontend text"; fi
+#   curl -q -LSsfI -H 'Accept: text/html' http://localhost:$(port)/jokes/random | grep 'text/html' >/dev/null || fail "Frontend HTML"
 #
 # Example for open data CRUD (full test suite):
 #   curl -q -LSsf http://localhost:$(port)/api/{api_version}/items || fail "LIST items API"
@@ -41432,13 +41489,13 @@ echo "=== Project-Specific Endpoint Tests ==="
 
 echo "=== Open API Smoke Test ==="
 # No token needed for the public endpoints; MCP, metrics and token routes are checked separately (a missing token answers 401)
-if curl -q -LSsf http://localhost:$(port)/server/healthz | grep -q '"status"'; then pass "Health endpoint works"; else fail "Health endpoint"; fi
+if curl -q -LSsf http://localhost:$(port)/server/healthz | grep '"status"' >/dev/null; then pass "Health endpoint works"; else fail "Health endpoint"; fi
 
 echo "=== Binary Rename Tests ==="
 # Binaries show the ACTUAL name in --help/--version (not hardcoded)
 cp /usr/local/bin/${PROJECT_NAME} /tmp/renamed-server
 chmod +x /tmp/renamed-server
-if /tmp/renamed-server --help 2>&1 | grep -q 'renamed-server'; then pass "Server binary rename works (--help shows actual name)"; else fail "Server --help does not show renamed binary name"; fi
+if /tmp/renamed-server --help 2>&1 | grep 'renamed-server' >/dev/null; then pass "Server binary rename works (--help shows actual name)"; else fail "Server --help does not show renamed binary name"; fi
 
 echo "=== Client Tests (if exists) ==="
 if [ -f /usr/local/bin/${PROJECT_NAME}-cli ]; then
@@ -41447,7 +41504,7 @@ if [ -f /usr/local/bin/${PROJECT_NAME}-cli ]; then
 
     cp /usr/local/bin/${PROJECT_NAME}-cli /tmp/renamed-cli
     chmod +x /tmp/renamed-cli
-    if /tmp/renamed-cli --help 2>&1 | grep -q 'renamed-cli'; then pass "CLI binary rename works"; else fail "CLI --help does not show renamed binary name"; fi
+    if /tmp/renamed-cli --help 2>&1 | grep 'renamed-cli' >/dev/null; then pass "CLI binary rename works"; else fail "CLI --help does not show renamed binary name"; fi
 
     echo '--- CLI Full Functionality Tests ---'
     if [ -n "${API_TOKEN:-}" ]; then
@@ -41507,10 +41564,22 @@ mv "${TOR_BIN}.hidden" "$TOR_BIN"
 ${PROJECT_NAME} --service restart
 wait_for 60 healthz_up
 
-echo "=== [$INIT_MODE] I2P (default ON in a container, i2pd is installed) ==="
+echo "=== [$INIT_MODE] I2P (off by default in a system container, i2pd is installed) ==="
 check "i2pd binary is installed" command -v i2pd
 check "server.yml is 0600 after start" test "$(stat -c %a "${CONF_ROOT}/server.yml")" = "600"
-check "features.i2p.enabled is true by default in a container" test "$(overlay i2p enabled)" = "true"
+check "features.i2p.enabled is false by default in a system container" test "$(overlay i2p enabled)" = "false"
+check "status is disabled by default" test "$(overlay i2p status)" = "disabled"
+check "checks.i2p is omitted by default" test "$(healthz | jq '(.checks | has("i2p"))')" = "false"
+
+echo "=== [$INIT_MODE] I2P enabled by a drop-in (opt-in, i2pd is installed) ==="
+mkdir -p "${CONF_ROOT}/yaml.d"
+printf 'server:\n  i2p:\n    enabled: true\n' > "${CONF_ROOT}/yaml.d/50-i2p.yml"
+chown "${INTERNAL_NAME}:${INTERNAL_NAME}" "${CONF_ROOT}/yaml.d" "${CONF_ROOT}/yaml.d/50-i2p.yml"
+chmod 0700 "${CONF_ROOT}/yaml.d"
+chmod 0600 "${CONF_ROOT}/yaml.d/50-i2p.yml"
+${PROJECT_NAME} --service restart
+wait_for 60 healthz_up
+check "features.i2p.enabled is true after opting in" test "$(overlay i2p enabled)" = "true"
 check "features.i2p.provider is i2pd" test "$(overlay i2p provider)" = "i2pd"
 case "$(overlay i2p status)" in
     starting|healthy|unavailable) pass "features.i2p.status is a contract word for an enabled network" ;;
@@ -41521,7 +41590,7 @@ if [ "$(overlay i2p status)" = "healthy" ]; then
     if [[ "$(overlay i2p hostname)" =~ ^[a-z2-7]{52}\.b32\.i2p$ ]]; then pass "i2p hostname is a .b32.i2p address"; else fail "i2p hostname is not a .b32.i2p address"; fi
     check "features.i2p.running is true" test "$(overlay i2p running)" = "true"
     check "checks.i2p is ok" test "$(healthz | jq -r '.checks.i2p')" = "ok"
-    check "destination key persisted" sh -c "find '${DATA_ROOT}/i2p/site' -type f -size +0 | grep -q ."
+    check "destination key persisted" sh -c "find '${DATA_ROOT}/i2p/site' -type f -size +0 | grep . >/dev/null"
 elif [ "${REQUIRE_OVERLAY:-0}" = "1" ]; then
     fail "I2P did not become healthy within ${I2P_WAIT:-600}s"
 else
@@ -41529,22 +41598,7 @@ else
 fi
 if healthz | grep -Eq '/(etc|var|home|config|data)/'; then fail "health response leaks a filesystem path"; else pass "health response carries no filesystem path"; fi
 
-echo "=== [$INIT_MODE] I2P opt-out (an explicit config value beats the container default) ==="
-mkdir -p "${CONF_ROOT}/yaml.d"
-printf 'server:\n  i2p:\n    enabled: false\n' > "${CONF_ROOT}/yaml.d/50-i2p.yml"
-chown "${INTERNAL_NAME}:${INTERNAL_NAME}" "${CONF_ROOT}/yaml.d" "${CONF_ROOT}/yaml.d/50-i2p.yml"
-chmod 0700 "${CONF_ROOT}/yaml.d"
-chmod 0600 "${CONF_ROOT}/yaml.d/50-i2p.yml"
-${PROJECT_NAME} --service restart
-wait_for 60 healthz_up
-check "features.i2p.enabled is false after opt-out" test "$(overlay i2p enabled)" = "false"
-check "status is disabled after opt-out" test "$(overlay i2p status)" = "disabled"
-check "checks.i2p is omitted after opt-out" test "$(healthz | jq '(.checks | has("i2p"))')" = "false"
-rm -f "${CONF_ROOT}/yaml.d/50-i2p.yml"
-${PROJECT_NAME} --service restart
-wait_for 60 healthz_up
-
-echo "=== [$INIT_MODE] I2P missing provider (default on, no i2pd: disabled, never an error) ==="
+echo "=== [$INIT_MODE] I2P missing provider (enabled by the drop-in, no i2pd: disabled, never an error) ==="
 I2PD_BIN=$(command -v i2pd)
 mv "$I2PD_BIN" "${I2PD_BIN}.hidden"
 ${PROJECT_NAME} --service restart
@@ -41594,9 +41648,11 @@ REMOTE_AFTER_EOF
 )
 
 # Run a script inside the container with the init mode and project names
+# Every script fragment is its own argument: printf puts a newline after each one, because $(cat <<EOF) strips the trailing newline of a heredoc
 remote() {
-    local container="$1" init="$2" script="$3"
-    printf '%s\n' "$script" | incus exec "$container" -- env INIT_MODE="$init" PROJECT_NAME="$PROJECT_NAME" PROJECT_ORG="$PROJECT_ORG" \
+    local container="$1" init="$2"
+    shift 2
+    printf '%s\n' "$@" | incus exec "$container" -- env INIT_MODE="$init" PROJECT_NAME="$PROJECT_NAME" PROJECT_ORG="$PROJECT_ORG" \
         INTERNAL_NAME="$INTERNAL_NAME" INTERNAL_ORG="$INTERNAL_ORG" REQUIRE_OVERLAY="${REQUIRE_OVERLAY:-0}" \
         TOR_WAIT="${TOR_WAIT:-300}" I2P_WAIT="${I2P_WAIT:-600}" bash -s
 }
@@ -41615,7 +41671,7 @@ wait_boot() {
     else
         for i in $(seq 1 60); do incus exec "$container" -- test -d /run/openrc 2>/dev/null && break; sleep 1; done
     fi
-    for i in $(seq 1 60); do incus exec "$container" -- sh -c 'ip route | grep -q "^default"' 2>/dev/null && break; sleep 1; done
+    for i in $(seq 1 60); do incus exec "$container" -- sh -c 'ip route | grep "^default" >/dev/null' 2>/dev/null && break; sleep 1; done
 }
 
 run_mode() {
@@ -41647,12 +41703,12 @@ run_mode() {
     fi
 
     echo "=== [$init] Running tests in Incus ==="
-    remote "$container" "$init" "${REMOTE_LIB}${REMOTE_MAIN}"
+    remote "$container" "$init" "$REMOTE_LIB" "$REMOTE_MAIN"
 
     echo "=== [$init] Restarting the container (boot persistence) ==="
     incus restart "$container"
     wait_boot "$container" "$init"
-    remote "$container" "$init" "${REMOTE_LIB}${REMOTE_AFTER}"
+    remote "$container" "$init" "$REMOTE_LIB" "$REMOTE_AFTER"
 }
 
 # One container per init system, run one after the other (never in parallel)
@@ -41688,6 +41744,7 @@ echo "Incus tests completed successfully ($MODES)"
 | I2P enabled (the shipped default in `tests/docker.sh`, the drop-in in `tests/incus.sh`), once bootstrapped | `enabled: true`, `provider: i2pd`; within `I2P_WAIT` seconds (default 600) it becomes `healthy` with a `.b32.i2p` hostname, `checks.i2p: ok` and a persisted destination key |
 | I2P opted out through a `yaml.d/50-i2p.yml` drop-in (`enabled: false`) | `enabled: false`, `status: disabled`, no `checks.i2p` key |
 | I2P default ON, `i2pd` removed | `enabled: false`, `status: disabled`, `provider: none`, no `checks.i2p` key |
+| I2P enabled by the `yaml.d/50-i2p.yml` drop-in in an Incus system container, `i2pd` removed (`tests/incus.sh`) | `enabled: false`, `status: disabled`, `provider: none`, no `checks.i2p` key |
 | Any state | the health response never contains a filesystem path |
 
 Bootstrapping Tor and I2P needs outbound network access from the container. When the network is missing, the `healthy` checks print `SKIP` and the contract checks still run; `REQUIRE_OVERLAY=1` turns a missing bootstrap into a failure (use it for the release run). The script exits non-zero when any check failed; a failure is never printed and then ignored.
@@ -41751,7 +41808,9 @@ detect_backend
 
 # Detect project info
 PROJECT_NAME=$(basename "$PWD")
-BIN_DIR="${BIN_DIR:-binaries}"
+# The build output directory is the Makefile's BINDIR (default binaries)
+BIN_DIR="${BINDIR:-binaries}"
+make build BINDIR="$BIN_DIR"
 VM_PREFIX="${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)"
 VMS=()
 
@@ -41827,12 +41886,12 @@ run_mode() {
     vm_exec "$vm" chmod +x "/usr/local/bin/${PROJECT_NAME}"
 
     echo "=== [$init] Running the shared guest-side steps ==="
-    remote "$vm" "$init" "${REMOTE_LIB}${REMOTE_MAIN}"
+    remote "$vm" "$init" "$REMOTE_LIB" "$REMOTE_MAIN"
 
     echo "=== [$init] Cold power cycle (power off, then on) ==="
     vm_cycle "$vm"
     vm_wait "$vm"
-    remote "$vm" "$init" "${REMOTE_LIB}${REMOTE_AFTER}"
+    remote "$vm" "$init" "$REMOTE_LIB" "$REMOTE_AFTER"
 }
 
 # One VM per init system, one after the other (never in parallel)
@@ -41855,24 +41914,19 @@ echo "VM tests completed successfully ($MODES on $BACKEND)"
 
 #### tests/run_tests.sh
 
-**Purpose:** Runs the basic tier: `tests/docker.sh`. `tests/incus.sh` (the whole app), `tests/virt.sh` (a clean OS) and `tests/e2e.sh` (the browser) are never started automatically; a developer runs them explicitly. When Docker is absent it falls back to `tests/incus.sh`
+**Purpose:** Runs the basic tier: `tests/docker.sh`. `tests/incus.sh` (the whole app), `tests/virt.sh` (a clean OS) and `tests/e2e.sh` (the browser) are never started automatically; a developer runs them explicitly. Docker is required, because every test script builds with `casjaysdev/{lang}:latest` in Docker: without it the script exits `69` with the reason on stderr (there is no Incus fallback, `tests/incus.sh` builds with Docker too)
 
 ```bash
 #!/usr/bin/env bash
 set -eo pipefail
 
-# Basic tier is Docker; Incus is only the fallback when Docker is absent
+# The basic tier is Docker, and every test script builds in Docker, so a host without Docker cannot run any of them
 if command -v docker &>/dev/null; then
     echo "Docker detected - running the basic tests..."
     exec "$(dirname "$0")/docker.sh"
-elif command -v incus &>/dev/null; then
-    echo "Docker not found - falling back to the Incus container tests..."
-    exec "$(dirname "$0")/incus.sh"
 else
-    echo "ERROR: Neither docker nor incus found" >&2
-    echo "Please install one of the following:" >&2
-    echo "  - Docker (basic tests): https://docker.com/" >&2
-    echo "  - Incus (fallback): https://linuxcontainers.org/incus/" >&2
+    echo "ERROR: docker not found: every test script builds with Docker" >&2
+    echo "Install Docker: https://docker.com/" >&2
     exit 69
 fi
 ```
@@ -41900,6 +41954,7 @@ fi
 | **Cleanup** | ALWAYS use `trap` for cleanup |
 | **Exit codes** | `0` every check passed, `1` one or more checks failed (run every check, then exit `1` naming the count), `2` usage, `69` the script cannot run here (missing Docker, Incus, hypervisor or `/dev/kvm`; the reason is on stderr). A `curl ... \|\| echo FAILED` that only prints is a spec violation: use `fail` (see "Output Streams & Exit Codes") |
 | **Output** | Clear progress messages with `echo` on stdout; every error, warning and `SKIP:` on stderr (`>&2`) |
+| **Pipes under `pipefail`** | Never end a pipeline in `grep -q`: grep exits at the first match, the producer then receives SIGPIPE, and `pipefail` reports a failure for a healthy result. Use `grep PATTERN >/dev/null` (it reads everything) or capture the output first |
 | **Error handling** | `set -eo pipefail` for bash/zsh; `set -e` for POSIX sh |
 | **License** | All shell scripts are WTFPL — `# @@License : WTFPL` in header |
 
@@ -42030,7 +42085,7 @@ sleep 3
 
 # 1. Health check
 echo "Testing health endpoint..."
-curl -q -LSsf http://localhost:64580/server/healthz | grep -q '"status"' \
+curl -q -LSsf http://localhost:64580/server/healthz | grep '"status"' >/dev/null \
     && echo '✓ Health endpoint works' \
     || { echo '✗ FAILED: Health endpoint' >&2; kill $SERVER_PID; exit 1; }
 
@@ -42454,6 +42509,7 @@ Documentation uses MkDocs Material theme with dark/light/auto switching.
 2. Organization accounts typically use `{project_org}-{project_name}`
 3. Standalone projects may use just `{project_name}`
 4. Custom domains require RTD paid plan or manual DNS setup
+5. **Before the RTD project exists:** set `site_url` to the predictable default `https://{project_org}-{project_name}.readthedocs.io` and create the RTD project under the name `{project_org}-{project_name}` so the two match. When the dashboard later shows a different URL (name taken, custom domain), correct `site_url`, the README badge and the links in ONE commit. Never commit an empty `site_url` or a placeholder such as `{RTD_URL}`
 
 ## Required Files
 
@@ -47405,11 +47461,17 @@ update:
 
 **Why CLI download default is unauthenticated:** the CLI is the entry point for new users. Forcing auth on the download means they need a token before they can install the tool that obtains the token. Operators who run a private deployment can flip `cli.binary_download.require_auth` to `true`.
 
+**Autodiscover response.** `/api/autodiscover` follows the standard envelope like every JSON route (it is unversioned, not unenveloped): `{"ok": true, "data": {...}}`. `data.api.current_version` is the API version prefix the server serves (for example `v1`); `data.cli_versions` and `data.cli_min_version` are described below; the rest of `data` carries the server settings, config schema and options the CLI needs. A client, and every test helper, reads these fields under `data`.
+
+**CLI binaries: where they come from.** The binaries the server distributes live in `{data_dir}/cli/` (override: `cli.binary_download.dir`) and are provisioned by the OPERATOR, or by the image or package build, by copying the files of a release into it: `{project_name}-cli-{os}-{arch}[.exe]`, `version.txt` and `sha256.txt` (the release already produces all three: "Release Artifacts"). The server never builds, downloads or edits them. At start, and whenever the directory changes, it derives what it publishes itself: the platforms are the `{os}-{arch}` of the files present, `version` is the line of `version.txt`, and `sha256` is read from `sha256.txt` AND recomputed from the file; a file whose hash does not match is not published and a WARN names it. An empty or missing directory publishes `cli_versions: {}`, `/cli/binaries/*` answers `404 NOT_FOUND`, and the CLI reports that no update is available. `cli_min_version` comes only from `update.cli_min_version`.
+
 **Configuration (server `server.yml`):**
 
 ```yaml
 cli:
   binary_download:
+    # Directory holding the release files the server distributes (default {data_dir}/cli)
+    dir: "{data_dir}/cli"
     # false (default): the CLI binary download is public; true: it needs an Authorization: Bearer token
     require_auth: false
 ```
@@ -47646,7 +47708,7 @@ if env.IsAutoDetectDisplayModeGUI() {
 
 | DisplayMode | Priority | When Auto-Detected | CLI Binary Behavior |
 |-------------|----------|-------------------|---------------------|
-| **DisplayModeGUI** | 1 | Native display, no remote | Launch native GUI (`gogpu/ui`, pure Go) |
+| **DisplayModeGUI** | 1 | Native display, no remote | Launch native GUI (`gogpu/ui`) in the separate `gui` build; the default static client uses the TUI ("GUI build separation") |
 | **DisplayModeTUI** | 2 | Interactive terminal | Launch bubbletea TUI |
 | **DisplayModeCLI** | 3 | Command provided or piped | Text output with colors |
 | **DisplayModeHeadless** | 4 | No display, no TTY | Error (CLI requires interaction) |
@@ -47959,10 +48021,12 @@ func EnsureConfigured() error {
 
 | Platform | Toolkit | Notes |
 |----------|---------|-------|
-| **Linux** | `github.com/gogpu/ui` + `github.com/gogpu/gogpu` | Pure Go, zero CGO — `goffi` `dlopen`s `libX11`/`libwayland-client` at runtime, no link-time C dependency; native Wayland, not XWayland compat |
+| **Linux** | `github.com/gogpu/ui` + `github.com/gogpu/gogpu` | Pure Go, zero CGO — `goffi` `dlopen`s `libX11`/`libwayland-client` at runtime, no link-time C dependency; native Wayland, not XWayland compat. The binary still needs the system loader, so it is the separate `gui` build only |
 | **macOS** | `github.com/gogpu/ui` + `github.com/gogpu/gogpu` | Pure Go, no cgo — Metal access via the Objective-C runtime through `goffi` |
 | **Windows** | `github.com/gogpu/ui` + `github.com/gogpu/gogpu` | Pure Go, no cgo — DX12 via `goffi` |
 | **BSD** | none | `gogpu/gogpu`'s windowing layer does not implement BSD yet (stubbed via build tags). Compile GUI support out on `freebsd`/`netbsd`/`openbsd` (`caps.GUISupported == false`); falls back to TUI, or CLI if no TTY (see APPLICATION.md's Smart Detect Rules) |
+
+**GUI build separation (REQUIRED).** `gogpu` loads the platform's graphics libraries through `goffi`, so a binary that contains it depends on the system dynamic loader even with `CGO_ENABLED=0` (built in the Alpine toolchain on Linux, that is the musl loader): it is NOT a static, cross-distribution binary and it would not even start in a Debian test container. The GUI is therefore compiled out of every default build. The default client `{project_name}-cli-{os}-{arch}` (and the server and the TUI) is built WITHOUT the `gui` build tag: fully static, runs on every distribution, and `caps.GUISupported` is `false`, so a request for GUI mode resolves to the TUI. The GUI is a separate, OPTIONAL artifact `{project_name}-cli-gui-{os}-{arch}`, built with `-tags gui` for Linux, macOS and Windows only; it is documented as dynamically linked (on Linux it needs the loader of the toolchain that built it) and desktop-only, and the update flow of the static client never replaces it.
 
 **One toolkit, one implementation, every platform GUI is supported on.** `gogpu/ui` (+ `gogpu/gogpu` for windowing) is cross-platform in a single codebase for Linux/macOS/Windows — there is no per-OS launcher file and no `runtime.GOOS` dispatch. `gioui.org` (Gio) and `fyne.io/fyne/v2` are **NOT compliant** — both require cgo on Linux (Gio's own install docs list `libwayland-dev`/`libx11-dev`/`libxkbcommon-x11-dev`/etc.; Fyne is built on `go-gl`/`glfw`) and are therefore banned project-wide, not just discouraged.
 
