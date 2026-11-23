@@ -19,8 +19,9 @@
 have_name=$(grep -cE '^project_name:[[:space:]]*.+$' IDEA.md 2>/dev/null || true)
 have_org=$(grep -cE '^project_org:[[:space:]]*.+$' IDEA.md 2>/dev/null || true)
 have_internal=$(grep -cE '^internal_name:[[:space:]]*.+$' IDEA.md 2>/dev/null || true)
+have_internal_org=$(grep -cE '^internal_org:[[:space:]]*.+$' IDEA.md 2>/dev/null || true)
 
-[ "$have_name" -eq 0 ] || [ "$have_org" -eq 0 ] || [ "$have_internal" -eq 0 ] && \
+[ "$have_name" -eq 0 ] || [ "$have_org" -eq 0 ] || [ "$have_internal" -eq 0 ] || [ "$have_internal_org" -eq 0 ] && \
   echo "SETUP NEEDED - IDEA.md project variables incomplete"
 ```
 
@@ -16336,9 +16337,9 @@ server:
 
 When GDPR/CCPA (right to erasure) conflicts with HIPAA/SOC2 (retention requirements):
 1. User data is **anonymized** (not deleted) to preserve audit trail
-2. All PII is removed, replaced with `[REDACTED]` or anonymized IDs
-3. Audit log entries reference anonymized user ID
-4. Original user ID mapping is deleted
+2. All PII is removed from the stored data, replaced with `[REDACTED]` or a new random ID
+3. Audit log entries are never rewritten (append-only, hash-chained): they identify the subject only by an opaque ID (never a name or email address), which names nobody once the record is gone
+4. Every mapping from that ID to a person is deleted
 5. This satisfies both erasure (PII gone) and retention (audit preserved)
 
 In this project `--maintenance data delete` (see "Data Subject Commands") applies this rule.
@@ -16516,7 +16517,7 @@ In this project `--maintenance data delete` (see "Data Subject Commands") applie
 | Command | Behavior |
 |---------|----------|
 | `--maintenance data export --owner <prefix> [--output FILE]` | Writes ONE JSON file (default `{project_name}-export-{owner_id}-{YYYYMMDD}.json` in the current directory, mode `0600`; `--output -` writes to stdout). Contents: `format: 1`, the owner id with its created and last-seen times, the metadata of its tokens (prefix, kind, name, created, last used, expires, status; NEVER a token value or hash), and every resource the owner owns in the same shape the API returns. Nothing about other owners, no audit or security log lines |
-| `--maintenance data delete --owner <prefix> [--yes]` | Deletes the owner record, all its tokens and its resources in ONE transaction, after the operator types the owner id to confirm (`--yes` skips the prompt for scripts). A retention standard (HIPAA/SOC2) never blocks the command: what it requires to keep is the audit log, and the log keeps only an anonymized owner id (a new random id; the original-id mapping is deleted in the same transaction, the rule above). The template default is that NO resource kind is retained, so every resource of the owner is deleted and the command is fully defined without IDEA.md. A project that must keep a kind for a legal or contractual reason declares it in IDEA.md (kind name and reason); such a kind is not deleted: its owner reference is replaced by the same anonymized id, so it stays for retention with no link back to the person. The command prints how many items were deleted and how many were anonymized, and `compliance.data_deletion_completed` records both counts. Backups are not rewritten: the data leaves them with their normal retention |
+| `--maintenance data delete --owner <prefix> [--yes]` | Deletes the owner record, all its tokens and its resources in ONE transaction, after the operator types the owner id to confirm (`--yes` skips the prompt for scripts). A retention standard (HIPAA/SOC2) never blocks the command: what it requires to keep is the audit log, and the log is never rewritten (it is append-only and hash-chained): its entries keep the owner id they were written with, a random identifier that names nobody once the owner record, its tokens and any mapping from that id to a person are deleted in the same transaction (the rule above). The template default is that NO resource kind is retained, so every resource of the owner is deleted and the command is fully defined without IDEA.md. A project that must keep a kind for a legal or contractual reason declares it in IDEA.md (kind name and reason); such a kind is not deleted: its owner reference is replaced by a new random id (the same id in every retained row of that owner), so it stays for retention with no link back to the person. The command prints how many items were deleted and how many were anonymized, and `compliance.data_deletion_completed` records both counts. Backups are not rewritten: the data leaves them with their normal retention |
 | `--maintenance compliance report` | Prints a plain-text summary: the enabled standards with their effective settings, the retention periods, counts (owners, resources, active tokens, open security reports), the compliance events of the last 30 days, the time of the last backup, and the audit log integrity result (`intact (N entries)`, or `broken at <file>:<line>`; see "Audit Log Integrity"). It contains counts and settings only, never personal data |
 
 In the audit events below, `User ID` means the owner id in this project (a random identifier, never an email address or a token); an event about an anonymous visitor has none.
@@ -16530,8 +16531,8 @@ In the audit events below, `User ID` means the owner id in this project (a rando
 | `compliance.data_export_requested` | User requested data export | User ID, request ID |
 | `compliance.data_export_completed` | Data export ready | User ID, request ID, file size |
 | `compliance.data_deletion_requested` | User requested deletion | User ID, request ID |
-| `compliance.data_deletion_completed` | Deletion completed | User ID (anonymized after), deleted count, anonymized count |
-| `compliance.consent_updated` | A visitor or owner changed cookie consent | Consent type, new value, policy version (`server.privacy.consent.policy.version`); `actor.id` only when the visitor holds an owner cookie, otherwise `actor.type: anonymous` and no `actor.id`; `actor.ip` anonymized (last IPv4 octet or last 80 IPv6 bits zeroed) |
+| `compliance.data_deletion_completed` | Deletion completed | User ID (as written; audit entries are never rewritten), deleted count, anonymized count |
+| `compliance.consent_updated` | A visitor or owner changed cookie consent | Consent type, new value, policy version (`server.privacy.consent.policy.version`); `actor.id` only when the visitor holds an owner cookie, otherwise `actor.type: anonymous` and no `actor.id`; `actor.ip` anonymized (last IPv4 octet or last 80 IPv6 bits zeroed); for a Tor request `actor.ip` is the `tor:{circuit_id}` key, or the sentinel `tor` when circuit-ID export is off ("Tor Request Logging & Identity"), never an IP address |
 | `compliance.report_generated` | Compliance report generated | Report type, generated by |
 
 ### Data Protection
@@ -17949,6 +17950,8 @@ type ConsentConfig struct {
     Policy                struct {
         Text string `yaml:"text"`
         URL  string `yaml:"url"`
+        // Recorded in every compliance.consent_updated event; default "1"
+        Version string `yaml:"version"`
     } `yaml:"policy"`
     Buttons struct {
         Decline string `yaml:"decline"`
@@ -26182,14 +26185,9 @@ src/server/static/
   --font-family: system-ui, -apple-system, sans-serif;
   --font-size-base: 1rem;
 
-  /* Spacing */
-  --spacing-xs: 0.25rem;
-  --spacing-sm: 0.5rem;
-  --spacing-md: 1rem;
-  --spacing-lg: 2rem;
+  /* Spacing: use the --space-* scale from the CSS Variable Reference; never define another scale here */
 
-  /* Borders */
-  --border-radius: 0.25rem;
+  /* Borders: use the --radius-* scale from the CSS Variable Reference; never define another scale here */
 }
 ```
 
@@ -28715,6 +28713,14 @@ func trackingScript(r *http.Request) template.HTML {
 | **Cards** | Content lives in `.section-card`, one concern per card, each labelled by its `<h2>` (`aria-labelledby`). No bare `<h2>` sections on the page background, no card inside a card, no card without a heading |
 | **Classes** | Only the shared theme classes (see "Shared Theme Classes"). A page never borrows a wrapper class from another page type (a help page is not a `search-section`, a preferences page is not a `paste-view`) and never invents a page-specific wrapper |
 | **Frontend rules** | The "HTML5 & CSS Over JavaScript", "CSS Rules", "JavaScript Rules", "Template Rules" and "CSRF" sections apply unchanged: semantic HTML5 first, no inline `style`, executable `<script>` body (the `application/ld+json` data block is the one exception) or `on*` handler, every state-changing form is a `POST` with the CSRF token, and the page is fully usable without JavaScript |
+
+**Interactive API documentation pages (`/server/docs/swagger`, `/server/docs/graphql`).** These two pages follow the shell above: the shared chrome, `<h1 class="page-title">`, `.page-lead`, and the interactive tool mounted inside one `.section-card`. The tool itself (Swagger UI, GraphiQL) is a JavaScript application and is the one place a page may require JavaScript, so the "usable without JavaScript" rule applies to everything around it, not to the tool:
+
+| Rule | Detail |
+|------|--------|
+| **Assets** | The tool's JavaScript and CSS are served from the project's own static files (`'self'`, never a CDN) and its start-up code lives in a static file (no inline script, no inline style, no `on*` handler), so the Content Security Policy of PART 11 holds unchanged |
+| **Theme** | The tool follows the project-wide theme through the project's Swagger and GraphiQL theme modules and the shared CSS custom properties; no hardcoded colors |
+| **Without JavaScript** | A `<noscript>` card states that the interactive view needs JavaScript and links to the plain endpoints: the OpenAPI JSON (`/api/{api_version}/server/swagger`) or the GraphQL endpoint (`/api/{api_version}/server/graphql`) |
 | **Same chrome everywhere** | The same header, footer, consent banner and skip links on every page, error pages included. A page never adds, removes or reorders header or footer elements |
 
 **Shared shell CSS (in `components.css`, tokens only, no pixel literals except the width caps):**
@@ -28747,7 +28753,7 @@ func trackingScript(r *http.Request) template.HTML {
 | Markdown text | Any text that comes from configuration, the registry or an OpenAPI description (tool descriptions, branding content, help content) is rendered from Markdown to sanitized HTML; literal backticks or Markdown markers never reach the page |
 | Icons | Header icons are inline SVG using `currentColor`, with the accessible name on the control (`aria-label`); the hamburger is the `☰` glyph or an SVG; an emoji is never a header control |
 
-**Polish standard (what "uniform and professional" means, all measurable):** spacing only from the `--space-*` tokens and corners from `--radius`; one type scale; prose lines at most `70ch`; the same card padding, border and radius everywhere; destructive actions visually separate from safe ones and always behind a confirmation popover; sentence-case labels without trailing punctuation; the same word for the same thing on every page ("token", "revoke", "sync"); no layout shift on load; visible focus rings; contrast from the token pairs only; phone, tablet and desktop layouts defined per page type (one column on phones, content never wider than its container modifier).
+**Polish standard (what "uniform and professional" means, all measurable):** spacing only from the `--space-*` tokens and corners from the `--radius-*` tokens; one type scale; prose lines at most `70ch`; the same card padding, border and radius everywhere; destructive actions visually separate from safe ones and always behind a confirmation popover; sentence-case labels without trailing punctuation; the same word for the same thing on every page ("token", "revoke", "sync"); no layout shift on load; visible focus rings; contrast from the token pairs only; phone, tablet and desktop layouts defined per page type (one column on phones, content never wider than its container modifier).
 
 **Page conformance test (required, runs in CI).** For every registered page (see below) and every error page the test renders the HTML and asserts: exactly one `<main>` and one `<h1>`; the skip links come first; no inline `style` attribute, no `<style>` element, no executable `<script>` body (the one exception is the `<script type="application/ld+json">` structured-data block, which is data and is never executed), and no `on*` attribute; every `<img>` has `alt`; every form control has a label; every `POST` form carries `csrf_token`; every `<table>` has a `<thead>` and sits in `.table-wrapper`; every internal link resolves; the header contains only the elements allowed by "Header and Navigation Conformance"; a sub-page has exactly one breadcrumb link to its hub and a hub has none.
 
@@ -42555,11 +42561,11 @@ Documentation uses MkDocs Material theme with dark/light/auto switching.
 
 ```yaml
 site_name: {PROJECT_NAME}
-# site_url: Use whichever RTD URL format matches your project:
+# site_url: the predictable default is the org-project form below; change it only when the RTD dashboard shows another URL (then update the badge and links in one commit):
 #   https://{project_org}-{project_name}.readthedocs.io  (org-project)
 #   https://{project_name}.readthedocs.io               (project only)
 #   https://{custom_rtd_address}                       (custom domain)
-site_url: https://{RTD_URL}
+site_url: https://{project_org}-{project_name}.readthedocs.io
 site_description: "{Project description}"
 site_author: {project_org}
 
@@ -50853,7 +50859,8 @@ maintainer_email: jane@example.com
 - [ ] **NEVER run `go run` locally** - ALWAYS use Docker `casjaysdev/go:latest`
 
 **Testing (Docker OR Incus):**
-- [ ] **Quick tests** - Docker `alpine:latest` for unit tests, CI/CD
+- [ ] **Unit tests** - `make test` in the Docker toolchain image `casjaysdev/go:latest` (locally and in CI/CD), never in `alpine:latest`
+- [ ] **Quick binary checks** - Docker `alpine:latest` (`tests/docker.sh`), for the compiled binary only
 - [ ] **Full OS tests** - Incus `debian:latest` for systemd (PREFERRED)
 - [ ] **NEVER run binaries locally** - use Docker or Incus container
 
@@ -52026,7 +52033,7 @@ When integrating this specification into an existing project:
 
 ### Phase 1: Assessment (Read-Only)
 
-1. **Read the entire AI.md specification** (this file)
+1. **Read the specification section by section** (this file is too large to read at once): follow "How to Read This Large File" - use the PART index, then read every PART that applies to the integration, each one completely
 2. **Read the existing project codebase** - understand current structure
 3. **Identify gaps** between current state and specification requirements
 4. **Create TODO.AI.md** with comprehensive task list organized by priority:
@@ -52159,7 +52166,7 @@ Stop immediately and ask the human if you encounter:
 
 Before starting integration:
 
-- [ ] Have you read the ENTIRE AI.md specification?
+- [ ] Have you read every PART that applies to this work, section by section, following "How to Read This Large File"?
 - [ ] Have you read and understood the existing codebase?
 - [ ] Have you created a comprehensive TODO.AI.md with prioritized tasks?
 - [ ] Have you reviewed the TODO.AI.md with the human?
@@ -52452,7 +52459,7 @@ Implement the required client, then any project-specific optional features:
 
 ### Before You Start
 
-- [ ] Have you read the ENTIRE AI.md specification?
+- [ ] Have you read every PART that applies to this work, section by section, following "How to Read This Large File"?
 - [ ] Do you understand the project purpose and scope?
 - [ ] Have you confirmed all project details (name, org, description)?
 - [ ] Have you asked clarifying questions about project-specific requirements?

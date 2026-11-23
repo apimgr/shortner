@@ -781,10 +781,9 @@ is simply off.** Nothing is queued, nothing is retried, and nothing is
 logged as "would have sent". See
 [Integrations](integrations.md#email-and-smtp).
 
-The Web UI renders toast feedback for clipboard actions. Non-AJAX form
-submissions currently render their response inline; the remaining
-server-rendered flash-message flow and feedback for other visitor actions
-are tracked in `TODO.AI.md` under PART 16.
+The Web UI renders form feedback in server-generated pages and uses toast
+feedback for clipboard actions. Core forms submit without JavaScript;
+JavaScript enhances validation and presentation.
 
 ## Web Headers and Content Security Policy
 

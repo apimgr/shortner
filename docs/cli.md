@@ -406,8 +406,8 @@ without UTF-8 get an ASCII symbol set automatically.
     The GUI supports setup, link creation, public link listing, lookup,
     update, deletion, click statistics, and server health. Other client
     configuration and update controls remain available through the CLI/TUI;
-    full GUI parity and native screen-reader support remain open in
-    `TODO.AI.md`.
+    full GUI parity and native screen-reader support are not currently
+    available; use the CLI or TUI for those controls.
 
 The server publishes `/api/autodiscover` and serves colocated client
 binaries from `/cli/binaries/{project}-cli-{os}-{arch}`. The discovery

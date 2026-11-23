@@ -299,9 +299,10 @@ otherwise.
 
 State these plainly rather than assuming they are covered:
 
-- **IP and domain blocklist feeds** (`blocklist_update`). The task is
-  registered but currently skips because feed loading and request
-  enforcement are not implemented.
+- **Remote IP and domain blocklist feeds** (`blocklist_update`). The task is
+  registered but currently skips because feed loading is not implemented.
+  Configured permanent IP blocks and temporary abuse blocks are enforced;
+  remote domain-feed rules are not yet available.
 - **CVE feeds** are implemented by `cve_update`: NVD 2.0 records are
   paginated, stored atomically, and updated incrementally; the optional
   Trivy database is pulled from its OCI registry layer when enabled.

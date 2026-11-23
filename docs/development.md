@@ -2,9 +2,9 @@
 
 This project is spec-driven. `AI.md` in the repository root is the
 authoritative specification and is **read-only** — never edit it. Project
-specifics (name, org, business logic) live in `IDEA.md`, the outstanding
-work list lives in `TODO.AI.md`, and `CLAUDE.md` plus `.claude/rules/*.md`
-are condensed quick references generated from `AI.md`.
+specifics (name, org, business logic) live in `IDEA.md`. A `TODO.AI.md` is
+used when the project has a multi-item implementation backlog. `CLAUDE.md`
+and `.claude/rules/*.md` are condensed quick references to `AI.md`.
 
 ## Prerequisites
 
@@ -196,7 +196,7 @@ Two rules are non-negotiable in CI:
   are the same — above the setting.
 - Every text file ends with exactly one trailing newline.
 - No `TODO`/`FIXME`/`HACK` markers and no commented-out code in committed
-  files. Open work belongs in `TODO.AI.md`.
+  files. Multi-item implementation backlogs belong in `TODO.AI.md`.
 - No CGO, ever. `CGO_ENABLED=0` in every build path, which is why the
   database driver is pure-Go `modernc.org/sqlite`.
 - Server-side rendering only. No React, Vue, or any client-side framework;

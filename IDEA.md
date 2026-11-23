@@ -14,6 +14,8 @@ project_name:    shortner
 project_org:     apimgr
 # FROZEN — equals project_name on first install, never changes
 internal_name:   shortner
+# FROZEN — equals project_org on first install, never changes
+internal_org:    apimgr
 app_name:        Shortner
 official_site:   https://csj.lol
 maintainer_name: casjay

@@ -109,14 +109,16 @@ routes) HTML. The format is chosen in this order:
 
 1. **API `.txt` suffix** forces plain text. There is no `.json` API suffix;
    JSON is the default.
-2. **`Accept` header** — explicit `application/json` selects JSON and
+2. **`Accept` header** — explicit `application/json` selects JSON,
+   `text/html` selects the browser representation where one exists, and
    `text/plain` selects text.
-3. **User-Agent** — recognized non-interactive clients (`curl`, `wget`,
-   `httpie`, `python-requests`, `go-http-client`, and `shortner-cli`) and an
-   empty User-Agent get text. Other API clients get JSON.
+3. **User-Agent** — non-interactive HTTP tools (`curl`, `wget`, `httpie`,
+   common HTTP libraries) and an empty User-Agent get text. The interactive
+   `shortner-cli` gets JSON; browser clients get JSON from API routes and
+   HTML from frontend routes. Text browsers receive server-rendered HTML.
 
-So `curl` gets readable text without any flags, and a browser gets a page,
-from the same URL.
+So `curl` gets readable text without flags, while an ordinary browser gets
+HTML from frontend routes and JSON from API routes.
 
 ## Response Envelope
 
