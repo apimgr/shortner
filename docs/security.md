@@ -102,6 +102,17 @@ Tokens are looked up by **SHA-256 hash** and owner-token encrypted copies
 support the explicit reveal action. Raw values never appear in logs or token-list
 responses. The operator token comparison is constant-time.
 
+During the primary-token metadata migration, existing SHA-256 hashes,
+prefixes, owner associations, and authentication remain unchanged. At startup,
+the server backfills the last four characters from an existing encrypted copy
+only when it decrypts and matches the hash and token prefix. Startup does not
+create an encrypted copy. If a hash-only record cannot be recovered, it stays
+valid for authentication but has no displayed suffix and cannot be revealed;
+the server never guesses, rotates, or deletes it. A valid raw-token
+presentation that matches the stored hash and prefix can populate the missing
+suffix lazily and, when the encryption key is available, store an encrypted
+reveal copy. Startup logs only an aggregate warning for unrecoverable records.
+
 The browser owner credential uses the fixed cookie name
 `shortner_owner_token_zgnygola` from IDEA.md. For compatibility, the server
 reads the prior mixed-case `shortner_owner_token_Lu2YwQRQ` only when the new
@@ -328,18 +339,9 @@ never loaded reports `error`; a cached source older than 72 hours reports
 copy remains active. A degraded or unavailable feed does not make the service
 unhealthy, but it is visible in `/server/healthz`.
 
-## Not Implemented
+## Current Limitation
 
-State these plainly rather than assuming they are covered:
-
-- **CVE feeds** are implemented by `cve_update`: NVD 2.0 records are
-  paginated, stored atomically, and updated incrementally; the optional
-  Trivy database is pulled from its OCI registry layer when enabled.
-- **Overlay metrics.** Tor and I2P managers are wired, but their metric
-  values are not populated.
-- Researcher status notices are sent after a status change when SMTP is
-  available. Contact details are stored separately under AES-256-GCM, and
-  notices are PGP-encrypted when the researcher supplied a public key.
+Tor and I2P managers are wired, but overlay metric values are not populated.
 
 ## Operational Recommendations
 

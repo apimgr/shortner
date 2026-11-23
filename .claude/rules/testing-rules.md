@@ -43,25 +43,27 @@
     container; standalone, never invoked by `run_tests.sh`
 - All runtime/test data goes to `${TMPDIR:-/tmp}/apimgr/shortner-XXXXXX/`
   — never the project directory
-- No full beta/e2e run has been executed yet; see `TODO.AI.md`
+- The browser suite is maintained separately from the required test entry
+  points; run `tests/e2e.sh` when validating browser behavior.
 - PART 29 is implemented: root `mkdocs.yml` (Material theme, slate/deep-purple
   dark default, search + minify plugins, the PART 29 nav) and
   `.readthedocs.yaml` (v2, ubuntu-24.04, python 3.12), plus
   `docs/requirements.txt`, `docs/stylesheets/dark.css` + `light.css`
   (verbatim from the spec), and all eight pages — `index.md`,
   `installation.md`, `configuration.md`, `api.md`, `cli.md`, `security.md`,
-  `integrations.md`, `development.md`. Every page documents what the code
-  actually does: deferred items (no `shortner-cli`, no Swagger/OpenAPI/
-  GraphQL, no Tor/I2P, no DNS-01, no PGP CLI, inert cache, unpopulated
-  business metrics) are stated as not implemented rather than described as
-  working. RTD site URL is `https://apimgr-shortner.readthedocs.io` per
+  `integrations.md`, `development.md`. Keep feature statements synchronized
+  with the actual code and AI.md: the companion client, Swagger/OpenAPI,
+  GraphQL, Tor/I2P, DNS-01, PGP key management and IP/domain blocklists are
+  implemented. Explicit current limitations include OAuth, PWA background
+  sync/geolocation, and shared cache-backed application data paths. The RTD
+  site URL is `https://apimgr-shortner.readthedocs.io` per
   PART 29's organization-account format. `mkdocs build --strict` verified
   clean inside `python:alpine` (zero warnings, so every nav entry and
   internal link resolves)
 
 - PART 30 (I18N & A11Y) is implemented for the server binary and Web UI:
   `src/common/i18n/` is the single shared catalog (`go:embed
-  locales/*.json`, 7 languages, `Translate`/`TranslateFormat`/
+  locales/*.json`, 8 languages, `Translate`/`TranslateFormat`/
   `TranslatePlural`/`LangFromRequest`/`Direction`/`RawLocale`/
   `CLILanguage`). Interpolation is LITERAL `{token}` replacement — never
   `fmt.Sprintf`, so a stray `%` in a translation can never corrupt
@@ -69,13 +71,14 @@
   categories via `golang.org/x/text/feature/plural`, with an explicit
   `zero` form preferred at count 0 when the catalog defines one.
   `src/cmd/i18n-validate` + `make i18n-validate` enforce key-set, `{token}`,
-  and plural-category parity across all 7 files. Web language priority:
+  and plural-category parity across all 8 files. Web language priority:
   `?lang=` (sets the `lang` cookie) > cookie > `Accept-Language` >
   server default. CLI priority: `--lang` > config `lang` (unless
   `auto`) > `LC_ALL` > `LANG` > `en`. Email templates keep PART 17's own
-  `{variable}` mechanism and are NOT in this catalog — see `TODO.AI.md`
-  for that and the other deferred sub-items (client binary, subcommand
-  help text, Go `error` strings, PWA/Swagger/GraphQL/toast strings)
+  `{variable}` mechanism and are not in this catalog. The client binary uses
+  the shared catalog and must keep its output and help text covered by the same
+  key parity checks. API descriptions, GraphQL schema descriptions, browser
+  pages, and interactive feedback are also translation surfaces under PART 30.
 
 ---
 For complete details, see AI.md PART 28, 29, 30

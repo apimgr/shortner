@@ -50,8 +50,8 @@
   `This will delete ALL data, configs, and the system user. Continue? [y/N]`
   before anything destructive, and the prompt runs before even the
   init-system probe
-- Live init-system installs cannot be exercised in the build container —
-  see `TODO.AI.md` for exactly what is and is not covered by tests
+- Live init-system installs require a host with the corresponding init system;
+  review the service tests and test documentation for the exercised coverage
 
 ---
 For complete details, see AI.md PART 23, 24

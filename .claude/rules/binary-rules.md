@@ -41,8 +41,9 @@
   `--uninstall`/`--help`), and the positional `tor` / `i2p` subcommands
   (PART 31 — `tor status|validate|restart|regenerate|vanity start|vanity
   apply|import-keys <path>`, `i2p status|validate|regenerate`);
-  most `--maintenance` actions and `--daemon` are NOT yet implemented
-  (see `TODO.AI.md`)
+  `--daemon` is implemented on supported Unix platforms and warns on
+  Windows. `runMaintenance` currently dispatches backup, restore, PGP,
+  token, update, mode, setup, secret, security, data, and compliance actions.
 - PART 32 is implemented: `shortner-cli` lives in `src/client/`
   (`main.go` plus `cmd/`, `config/`, `paths/`, `api/`, `tui/`, `setup/`).
   It carries every universal flag (`--help`, `--version`, `--shell`,

@@ -120,12 +120,15 @@ cookie name and one-year lifetime are fixed.
 server:
   i18n:
     default_language: en
-    available_languages: [en, es, fr, de, it, ar]
+    available_languages: [en, es, fr, de, it, ar, ja, zh]
 ```
 
 Language selection follows `?lang=`, the explicit `lang` cookie,
 `Accept-Language`, then the configured default. A supported `?lang=` choice
-also writes the one-year cookie.
+and an explicit selection in `/server/preferences` write the one-year
+cookie; automatic detection does not. `/server/preferences/sync` can carry
+theme, language, and application preference cookies to another device, but
+never consent or credential cookies.
 
 ## Core Server Settings
 

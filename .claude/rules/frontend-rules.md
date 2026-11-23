@@ -50,9 +50,10 @@
   PART 16 footer-variable expansion (`{current_year}`, `{project_name}`,
   `{project_org}`, `{project_version}`, `{build_datetime}`,
   `{onion_address}`, `{i2p_address}`) applied BEFORE sanitizing
-  `web.footer.custom_html`. Deferred sub-items (PWA, sitemap.xml, favicon.ico,
-  announcements-banner rendering, Web-UI toast rendering, Swagger/GraphQL
-  docs) are tracked in `TODO.AI.md`.
+  `web.footer.custom_html`. Browser support also includes the installable PWA,
+  sitemap and favicon, announcement banner, Web-UI toast feedback, and
+  server-rendered Swagger/OpenAPI and GraphQL documentation pages. Keep this
+  summary synchronized with the registered routes and page templates.
 
 ---
 For complete details, see AI.md PART 16

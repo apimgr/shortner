@@ -97,8 +97,9 @@ contract, notification surfaces, and cache metrics. The server also
 publishes CLI update metadata and serves colocated client binaries. The PWA
 includes install and update prompts, offline status and fallback, a
 versioned cache, and its required icon assets.
-Background Sync and geolocation need product-specific behavior defined in
-the parent API template before they can be implemented safely. The optional
+Browser Background Sync and browser geolocation need product-specific behavior
+defined in the parent API template before implementation; these are distinct
+from preference sync at `/server/preferences/sync`. The optional
 native GUI uses the pure-Go `gogpu/ui` toolkit on Linux, macOS, and Windows;
 BSD uses the TUI. See the reference pages and project backlog for current
 behavior.

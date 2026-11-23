@@ -86,8 +86,9 @@ owner_token: shortner_owner_token_zgnygola
   or guess a resource owner token to hijack a link, scrape/enumerate short codes to
   discover all live links, deanonymize a visitor from click data.
 - Abuse cases & defenses:
-  - Spam/phishing redirect abuse → write-rate-limited anonymous creation (PART 9/11);
-    no proactive destination-URL blocklist/scanning is implemented (see below).
+  - Spam/phishing redirect abuse → write-rate-limited anonymous creation and the
+    built-in IP/operator-configured domain blocklists required by AI.md (PART 7/11/18).
+    There is no destination-URL malware scanning (see below).
   - Resource owner token brute-force/hijack → `own_` + 32 random base62 chars keyspace,
     SHA-256 hashed at rest, AES-256-GCM encrypted for owner recovery, and constant-time
     compare (PART 11).
@@ -103,10 +104,10 @@ owner_token: shortner_owner_token_zgnygola
 
 ### Security decisions & exceptions
 - Anonymous, unauthenticated link creation is an intentional design choice (no account
-  system, per "Product scope & non-goals"); the only abuse mitigation is rate limiting
-  plus operator-initiated takedown via `server.token` — there is no automated
-  destination-URL content/malware scanning. This is a deliberate scope exception, not an
-  oversight.
+  system, per "Product scope & non-goals"). Abuse mitigation includes rate limiting,
+  AI.md's built-in IP and operator-configured domain blocklists, plus operator-initiated
+  takedown via `server.token`. There is no automated destination-URL content or malware
+  scanning; blocklists match operator-supplied domain feeds only.
 - Resource owner tokens are recoverable bearer credentials. Owners can reveal their
   primary and linked tokens from `/server/preferences/tokens`; each token's encrypted
   copy is stored with its hash. The `adm_` operator token remains separate in
@@ -201,9 +202,8 @@ from the same Dracula colors the reference app used, so visually the
 result should be close — but the CSS variables and theme-toggle mechanism
 must be AI.md's own, not copied from the reference app.
 
-The layout parity described above has been implemented and verified against
-the reference app's markup (`reference/csjlol/`, since removed — see
-TODO.AI.md "PART 16" for the comparison record).
+The layout parity described above has been implemented. The temporary
+reference snapshot (`reference/csjlol/`) has since been removed.
 
 **Adapt, do not copy verbatim** — the reference app used Vue 2 loaded from
 `unpkg.com` CDN and Tailwind-generated `styles.css`. This project is a

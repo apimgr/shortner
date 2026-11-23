@@ -353,7 +353,9 @@ Stated explicitly so they are not assumed:
   `/server/help/mcp`.
 - **Cache scope.** Redis and Valkey provide shared atomic rate-limit
   counters. General page, API-response, GeoIP, and blocklist caching is
-  not yet wired into application request paths.
+  not implemented as a shared cache feature. IP and domain blocklist feeds
+  are loaded into the blocklist manager and checked by request middleware;
+  their feed files use independent atomic refresh and freshness handling.
 - **No third-party analytics and no telemetry**, by design and
   permanently.
 

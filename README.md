@@ -21,6 +21,8 @@ the originating IP anonymized for privacy-respecting analytics.
 - Owner tokens for managing links after creation
 - Linked tokens for integrations, with browser restore and management at
   `/server/preferences/tokens`
+- Cookie-only guest preferences with cross-device export/import at
+  `/server/preferences/sync`
 - Custom slugs and link expiration (expired links return `410 Gone`)
 - Click analytics with IP anonymization
 - Bot-exclusion for click analytics

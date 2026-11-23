@@ -92,13 +92,16 @@
     `src/scheduler/overlay.go` (`tor_health`, `i2p_health`),
     `src/overlay.go` + `src/main.go` (start/stop wiring, background
     bootstrap so Tor never delays the clearnet listener)
-  - Deferred under PART 31 is environment-only: this container has no
+  - Live-provider verification is environment-only: this container has no
     `tor`, no `i2pd`, and no SAM bridge, so live bootstrap, descriptor
     publication, a real circuit-ID PROXY header, and a real eepsite
-    tunnel are unexercised — see `TODO.AI.md`
-- Deferred under PART 11: GPG keypair management CLI, the maintainer
-  email carrying inline AES armor instead of a PGP MIME attachment, and
-  `/server/security/report/{tracking_id}` — see `TODO.AI.md`
+    tunnel are not exercised in this environment. The managers and their
+    lifecycle code are present; environment-specific manual verification is
+    still needed when those providers are available.
+- PART 11 PGP management is implemented by `src/pgp_cli.go`; the security
+  report status page is registered at
+  `/server/security/report/{tracking_id}` and uses the server-rendered
+  status template.
 
 ---
 For complete details, see AI.md PART 9, 10, 11, 31 (31.1 Tor, 31.2 I2P)

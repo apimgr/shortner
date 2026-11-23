@@ -38,7 +38,8 @@
 
 ## QUICK REFERENCE
 - API version prefix: `/api/{api_version}/...`
-- TLS/Let's Encrypt handling: PART 15 (not yet implemented — see TODO.AI.md)
+- TLS/Let's Encrypt handling: `src/certmgr/` with certificate providers and
+  the built-in `ssl_renewal` scheduler task (PART 15)
 
 ---
 For complete details, see AI.md PART 13, 14, 15

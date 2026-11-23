@@ -10,6 +10,18 @@ headers.
 The version prefix is `/api/{api_version}`, which is `/api/v1` by default
 and is configurable via `server.api_version`.
 
+Guest preferences are cookie-only and need no account. The web page at
+`/server/preferences` saves appearance, language, consent, and CCPA choices.
+`/server/preferences/sync` displays a shareable URL and short code and accepts
+an import by normal form POST; `/server/preferences/sync/import` applies a
+shared link. The API mirrors are `GET /api/{api_version}/server/preferences`
+and `POST /api/{api_version}/server/preferences` for snapshots and partial
+updates, plus `GET /api/{api_version}/server/preferences/sync` for export and
+`GET /api/{api_version}/server/preferences/sync/import` for import. Sync data
+contains only theme, language, and documented application preference
+cookies; consent, build stamps, and credentials are excluded. Imports are
+additive and never clear settings that are absent from the link.
+
 Interactive API pages are available at `/server/docs/swagger` and
 `/server/docs/graphql`. OpenAPI JSON is served directly from
 `/api/{api_version}/server/swagger` (also `/api/swagger`). The read-only
@@ -35,7 +47,7 @@ spec and return the REST response as a JSON value. For example:
 }
 ```
 
-The schema has no mutation fields. The preference-import GET route is
+The schema has no mutation fields. The preference-sync import GET route is
 excluded because it changes cookies. GraphQL requests are limited to 100
 field and fragment-spread nodes; use REST for create, update, and delete
 operations.
@@ -95,6 +107,21 @@ first found wins:
 7. `X-Token: {token}`
 8. `Token: {token}`
 9. `?token={token}` in the query string
+
+Token management is available in the browser at `/server/preferences/tokens`.
+When no owner token is present, `POST /server/preferences/token/create`
+issues a primary token and redirects back to the page; restore accepts a
+primary token through `POST /server/preferences/token/restore`. The page
+supports reveal, rotate, linked-token create/update/revoke, and primary revoke.
+Primary revoke deletes the owner, its linked tokens, and its resources.
+
+The API mirrors primary-token issue and revoke at
+`POST /api/{api_version}/server/preferences/tokens/primary` and
+`DELETE /api/{api_version}/server/preferences/tokens/primary`. Issuing is
+public and returns the raw `owner_token` once in the JSON response. Revoking
+requires the primary token and returns the counts of deleted tokens and
+resources. Neither route accepts cookies. Linked-token actions remain under
+`/api/{api_version}/server/preferences/tokens` and require the primary token.
 
 Tokens use a prefix plus 32 base62 characters and are looked up by SHA-256
 hash. An encrypted owner-token copy is retained for the owner's explicit
@@ -478,6 +505,7 @@ Server-rendered HTML. Every one of these works with JavaScript disabled.
 | `GET /api/{api_version}/server/contact` | Type-specific report field descriptors, offered types, CAPTCHA descriptor, form token, security URL, and abuse email |
 | `POST /api/{api_version}/server/contact` | Submit a type-specific report for review; repeat its fields with the review token and confirmation to deliver |
 | `GET /api/{api_version}/server/auth/check` | Validate a Bearer token and return its kind |
+| `GET /api/{api_version}/server/help` | Help content and registry-backed list of all registered help pages |
 | `GET /api/{api_version}/server/help/mcp` | MCP help sections and resolved endpoint |
 | `GET /api/{api_version}/server/about` | About content |
 | `GET /api/{api_version}/server/privacy` | Privacy content |

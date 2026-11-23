@@ -26,8 +26,8 @@
 ## QUICK REFERENCE
 - `docker/Dockerfile`, `docker/Dockerfile.dev`,
   `docker/rootfs/usr/local/bin/entrypoint.sh`, and all three compose files
-  already exist and follow this pattern; build verified inside Docker (see
-  `TODO.AI.md`/bootstrap report for the exact commands run)
+  already exist and follow this pattern; use the Docker validation commands in
+  `docs/development.md` when checking changes
 
 ---
 For complete details, see AI.md PART 26
