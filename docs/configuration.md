@@ -168,8 +168,9 @@ server:
 
 The primary owner token is issued when a new anonymous owner is created.
 Linked tokens can be named and given an expiry from the owner-token page.
-The primary-token cookie is HttpOnly, Secure, SameSite=Strict, and its
-configured lifetime slides forward on valid use. `idle_purge_days: 0`
+The primary-token cookie name is the fixed IDEA.md project variable
+`shortner_owner_token_zgnygola`. It is HttpOnly, Secure, SameSite=Strict,
+and its configured lifetime slides forward on valid use. `idle_purge_days: 0`
 disables idle purging; owners with links are never purged.
 
 ### Database
@@ -601,7 +602,7 @@ All thirteen built-in tasks required by AI.md are registered:
 | `backup_daily` | daily at 02:00 | Active |
 | `backup_hourly` | hourly | Disabled by default |
 | `update_check` | daily at 06:00 | Active |
-| `blocklist_update` | daily at 04:00 | Registered; skips until blocklist feed loading and enforcement are implemented |
+| `blocklist_update` | daily at 04:00 | Active — refreshes the built-in and configured IP/domain feeds; retries failures after one hour |
 | `cve_update` | daily at 05:00 | Active — downloads the NVD feed and optionally the Trivy OCI database |
 | `tor_health` | every 10 minutes | Active when Tor is installed |
 | `i2p_health` | every 10 minutes | Active when I2P is enabled |
@@ -712,6 +713,9 @@ server:
       retention_days: 365
     allowlist: []
     blocked_ips: []
+    blocklists:
+      enabled: true
+      extra_sources: []
     abuse_detection:
       enabled: true
       request_flood:
@@ -728,6 +732,17 @@ entries are retained. `allowlist` entries bypass blocking; `blocked_ips` are
 permanent, config-file-only blocks. Entries with an invalid or dangerously
 broad CIDR (an IPv4 prefix shorter than `/8`, or an IPv6 prefix shorter
 than `/16`) are dropped with a warning. See [Security](security.md).
+
+`blocklists` always includes the built-in `firehol_level1` IP feed. Add
+operator feeds under `extra_sources`; each requires a unique lowercase
+`id`, a `type` of `ip` or `domain`, an HTTPS `url`, and an optional
+`enabled` flag (default true). Files are stored under
+`{data_dir}/security/blocklists/`, validated before atomic replacement, and
+kept at their last good copy when an update fails, and the check reports
+degraded while serving that copy. Feeds older than 72 hours are also degraded
+in health output. IP feeds exclude private, trusted,
+loopback, link-local, and CGNAT ranges. Domain feeds match submitted URL and
+email hosts plus the request Origin (or Referer when Origin is absent).
 
 ## Notifications
 
@@ -886,6 +901,12 @@ web:
     policy: ""
     thanks: []
 ```
+
+Public key publishing uses the keyserver-specific upload protocol. Failed
+submissions retain per-server retry state in the data directory; the built-in
+`keyserver_retry` task retries temporary failures every 15 minutes with
+exponential backoff. Permanent client errors are kept for operator review
+instead of being retried indefinitely.
 
 The `/.well-known/` namespace is allowlist-only. Anything not explicitly
 enabled returns `404` — never a redirect and never a generic handler. See

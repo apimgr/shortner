@@ -258,7 +258,9 @@ server:
 
 Private ranges are always trusted; you only need to add public addresses.
 Without this, rate limiting, GeoIP, and click analytics all see the
-proxy's address instead of the visitor's.
+proxy's address instead of the visitor's. Configured hostnames are resolved
+again every five minutes, so proxy address changes take effect without a
+server restart.
 
 ### nginx
 

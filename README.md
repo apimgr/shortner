@@ -32,6 +32,8 @@ the originating IP anonymized for privacy-respecting analytics.
 - REST API for link creation, listing, management, analytics, and health,
   with OpenAPI, read-only GraphQL, and MCP tools using the same API tokens
 - Local GeoIP enrichment for click analytics and country-based controls
+- Built-in and configurable IP/domain threat feeds with scheduled refresh,
+  atomic last-good updates, and per-feed health checks
 - Tor v3 hidden service when a Tor binary is available; I2P is on by default
   in containers and opt-in on hosts
 - Single static server binary; overlay networking uses the bundled Tor and
@@ -41,6 +43,11 @@ the originating IP anonymized for privacy-respecting analytics.
 The server and client include eight complete translations: English, Spanish,
 Chinese, French, Arabic, German, Italian, and Japanese. See the
 [translation guide](docs/translating.md) to update or contribute a locale.
+
+Server-rendered pages work without JavaScript. Browsers receive HTML,
+interactive text browsers receive the same HTML, the companion CLI and API
+clients receive JSON, and non-interactive HTTP tools receive readable text
+unless they explicitly request another representation.
 
 ## Production
 

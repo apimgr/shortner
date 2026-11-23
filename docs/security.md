@@ -61,6 +61,12 @@ be inserted with the retired key while replacement is in progress. The
 retired private key remains sealed for 30 days and is then removed by the
 daily cleanup task.
 
+The public key is published to the configured keyservers using their
+supported upload protocol. Temporary network and server failures are saved
+with per-keyserver retry state and retried by the built-in scheduler with
+exponential backoff; permanent client errors remain visible for operator
+review.
+
 ## The Public Endpoint Safety Principle
 
 Anything reachable without authentication must be safe for anyone in the
@@ -95,6 +101,16 @@ Bearer credentials use `adm_`, `own_`, or `mtr_` plus 32 base62 characters.
 Tokens are looked up by **SHA-256 hash** and owner-token encrypted copies
 support the explicit reveal action. Raw values never appear in logs or token-list
 responses. The operator token comparison is constant-time.
+
+The browser owner credential uses the fixed cookie name
+`shortner_owner_token_zgnygola` from IDEA.md. For compatibility, the server
+reads the prior mixed-case `shortner_owner_token_Lu2YwQRQ` only when the new
+cookie is absent. A valid legacy token is upgraded by setting the new cookie
+and expiring the old one; an invalid legacy token is cleared. When both
+cookies are present, the new cookie takes precedence. Creation, restoration,
+and rotation issue only the new cookie name and clear the legacy cookie.
+Legacy fallback remains available without a cutoff so existing browser
+copies can continue to upgrade. API authentication ignores both cookies.
 
 Configuration and backup passwords use **Argon2id**, not bcrypt. The two
 uses are deliberately different: SHA-256 for high-entropy random tokens
@@ -295,14 +311,27 @@ authorized by context: freely into an empty database, with a confirmation
 as root, with the operator token as the service user, and denied
 otherwise.
 
+## IP and Domain Blocklists
+
+The built-in `firehol_level1` IP feed is always active. Operator feeds use
+`server.security.blocklists.extra_sources` and must use HTTPS. Updates run
+daily and on first startup. Each feed is parsed and checked before its file
+is atomically replaced; a failed or empty update leaves the last good data
+active. Private, loopback, link-local, carrier-grade NAT, and trusted proxy
+ranges are excluded from downloaded IP lists. Domain feeds match the
+Origin (or Referer), submitted email domains, and URL-valued request inputs;
+they do not inspect the server's Host header or perform reverse DNS.
+
+Each source has a health check named `blocklist_{id}`. A source that has
+never loaded reports `error`; a cached source older than 72 hours reports
+`degraded`. A failed refresh also reports `degraded` while its last good
+copy remains active. A degraded or unavailable feed does not make the service
+unhealthy, but it is visible in `/server/healthz`.
+
 ## Not Implemented
 
 State these plainly rather than assuming they are covered:
 
-- **Remote IP and domain blocklist feeds** (`blocklist_update`). The task is
-  registered but currently skips because feed loading is not implemented.
-  Configured permanent IP blocks and temporary abuse blocks are enforced;
-  remote domain-feed rules are not yet available.
 - **CVE feeds** are implemented by `cve_update`: NVD 2.0 records are
   paginated, stored atomically, and updated incrementally; the optional
   Trivy database is pulled from its OCI registry layer when enabled.

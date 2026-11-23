@@ -20,7 +20,7 @@ app_name:        Shortner
 official_site:   https://csj.lol
 maintainer_name: casjay
 maintainer_email: casjay@yahoo.com
-owner_token: <placeholder>
+owner_token: shortner_owner_token_zgnygola
 ## Business logic
 
 ### Product scope & non-goals

@@ -34771,7 +34771,7 @@ func (ws *windowsService) Execute(args []string, r <-chan svc.ChangeRequest, s c
 
 # PART 25: MAKEFILE
 
-**Six core targets. DO NOT ADD MORE.** The only other permitted target is `clean`, a housekeeping target that removes `binaries/` and `releases/` and builds nothing. There is no `all` target and none is required.
+**Six core targets. DO NOT ADD MORE.** The only other permitted targets are `clean`, a housekeeping target that removes `binaries/` and `releases/` and builds nothing, and `release-check`, an internal helper that is the first prerequisite of `release`, validates the version and builds nothing (it is never the entry point of a workflow). There is no `all` target and none is required.
 
 ## Targets
 
@@ -43036,7 +43036,7 @@ docker run --name "{project_name}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -
 - [Repository]({PLATFORM_REPO_URL})
 - [Live Demo]({official_site}) (if applicable)
 - [API Documentation](/server/docs/swagger) (Swagger UI)
-- [GraphQL Playground](/server/docs/graphql)
+- [GraphiQL](/server/docs/graphql)
 
 ## License
 
@@ -51767,7 +51767,7 @@ make docker
 - [ ] Web frontend uses theme
 - [ ] Error pages use theme (404, 500, 502, 503, etc.)
 - [ ] Swagger UI uses theme
-- [ ] GraphQL Playground uses theme
+- [ ] GraphiQL uses theme
 - [ ] ReadTheDocs uses theme
 - [ ] CLI TUI uses theme (if applicable)
 
