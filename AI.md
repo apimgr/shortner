@@ -8480,7 +8480,7 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 | `--maintenance mode` | Changes server behavior | `server.token` OR root |
 | `--maintenance pgp export private` / `import` / `delete` | Exposes, replaces, or destroys the security private key | `server.token` OR root + typed confirmation |
 | `--maintenance secret rotate installation_secret` / `encryption_key` | Rotates a root secret or the at-rest encryption key | `server.token` OR root + typed confirmation |
-| `--maintenance token revoke <prefix>` | Revokes one token, or a primary token's whole owner with its linked tokens | `server.token` OR root + typed confirmation (the operator types the prefix; `--yes` skips the prompt for scripts) |
+| `--maintenance token revoke <prefix>` | Revokes one linked token, or deletes a primary token's whole owner with its tokens and resources | `server.token` OR root + typed confirmation (a linked token: the operator types the prefix; a primary: the owner id; `--yes` skips the prompt for scripts) |
 
 **Setup authorization flow:**
 
@@ -12214,7 +12214,7 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     last_used_at  INTEGER,
     -- NULL = active
     revoked_at    INTEGER,
-    -- e.g., "tos_violation", "operator_action", "owner_revoked"
+    -- e.g., "tos_violation", "operator_action" (a linked token; revoking a primary deletes the whole owner)
     revoked_reason TEXT
 );
 
@@ -12289,8 +12289,8 @@ server:
 
 | Rule | Detail |
 |------|--------|
-| Ownership | Resources store `owner_id`. Tokens resolve to an `owner_id`. A resource is never bound to a token hash, so rotating or revoking a token never touches resource rows |
-| One primary per owner | Created with the owner; **never expires and never disappears** — not when resources expire or are deleted, not when the owner has none left. It ends only by owner rotation (replaced in place), operator revocation, or the optional idle purge below |
+| Ownership | Resources store `owner_id`. Tokens resolve to an `owner_id`. A resource is never bound to a token hash, so rotating a token, or revoking a linked token, never touches resource rows (revoking a primary deletes the whole owner: see "Revoking a primary token") |
+| One primary per owner | Created with the owner; **never expires and never disappears** — not when resources expire or are deleted, not when the owner has none left. Rotating it replaces its value in place (same row, same owner) and never ends it. It ends only when its owner is deleted: by revoking the primary (the owner on the tokens page or the API, or the operator on the CLI) or by the optional idle purge below |
 | Reuse | A caller presenting a valid token (Bearer header, or cookie on web forms) creates new resources under the same owner and receives no new token. The `owner_token` response field is present only when a NEW owner was issued |
 | Cookie | `{project_name}_owner_token_XXXXXX` holds the primary token (HttpOnly + Secure + SameSite=Strict + Path=/). Max-Age `server.tokens.cookie_max_age` (default `1y`), **sliding** — refreshed on every valid use. An invalid or revoked cookie is cleared on the next response |
 | Lost cookie / new device | Paste the primary token into "Use an existing token" on `/server/preferences/tokens` (restore). Valid → cookie set, identity restored. Linked tokens cannot restore an identity |
@@ -12342,21 +12342,21 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 | **Linked tokens** (list) | Name, masked token, created, last used, expires, status (active / expired / revoked) |
 | **Create linked token** | Name (required, 1–64 chars, unique per owner) and expiry: `never` (default), `7d`, `30d`, `90d`, `1y`, or a chosen date. Maximum `server.tokens.max_linked` (default `25`) active per owner. The new token is displayed and stays viewable |
 | **Per linked token** | Reveal, Copy, Rotate (in place, keeps name and expiry), Rename, Change expiry, Revoke (immediate, permanent) |
-| **Revoke primary** | Not offered — rotate instead. Only the operator can revoke a primary, which revokes the whole owner |
+| **Revoke primary** | Offered behind a typed confirmation: it DELETES the whole owner, meaning the primary, every linked token and every resource the owner has, including anything created with a linked token. It is a different action from **Rotate**: rotate swaps the token's value and keeps the owner, its linked tokens and its resources; revoke ends the owner and nothing of it remains (see "Revoking a primary token") |
 
 **Authority rules:**
 
 | Rule | Detail |
 |------|--------|
-| Management requires the primary | Token management (reveal, rotate, restore, create/rename/expiry/revoke linked) is allowed only with the primary token (owner cookie, or primary Bearer on the API mirror). A linked token on any of these returns `403` — a leaked automation token can never mint, read, or extend other tokens |
+| Management requires the primary | Token management (reveal, rotate, restore, create/rename/expiry/revoke linked, revoke the primary) is allowed only with the primary token (owner cookie, or primary Bearer on the API mirror). A linked token on any of these returns `403` — a leaked automation token can never mint, read, or extend other tokens |
 | Issue on request | `POST /server/preferences/token/create` (web) and `POST /api/{api_version}/server/preferences/tokens/primary` (API) need no token: they create a new owner and its primary token, return it as `owner_token` (`201`), set the owner cookie on the web route, use the `strict` limiter, write `token.created` with `details.source` set to `issue`, and answer `409 CONFLICT` when the caller already presents a valid token (one caller never gets a second primary) |
 | Independent rotation | Rotating the primary replaces only the primary token: linked tokens keep working with their own values. Rotating a linked token replaces only that token: the primary and the other linked tokens are untouched |
 | Linked = full owner access otherwise | A linked token can do everything the primary can to the owner's resources through the API and MCP, except token management |
 | Expiry | A linked token past `expires_at` is rejected like a revoked one; it stays listed (marked expired) until the owner revokes it or changes its expiry |
 | Never a preferences row | Tokens are credentials in `api_tokens`, not preferences. UI preferences stay cookie-only (see "Client-Side Preferences") |
 | Never in lists or logs | List/detail responses return prefix, name, dates, status — never the token. Only the reveal action decrypts, and it writes an audit event |
-| Audit | `token.created`, `token.rotated`, `token.revealed`, `token.revoked`, `token.restored`, each with owner id and token prefix — never the token |
-| Rate limiting | Reveal, rotate, restore and issue use the `strict` limiter (`server.rate_limit.strict`, PART 12); every attempt, valid or not, consumes it, and a restore with an invalid token also counts as a failed authentication |
+| Audit | `token.created`, `token.rotated`, `token.revealed`, `token.revoked`, `token.restored`, each with owner id and token prefix — never the token; a revoke of a primary, by the owner or by the operator, writes ONE `token.revoked` for the whole owner (see "Revoking a primary token") |
+| Rate limiting | Reveal, rotate, restore, issue and revoke-primary use the `strict` limiter (`server.rate_limit.strict`, PART 12); every attempt, valid or not, consumes it, and a restore with an invalid token also counts as a failed authentication |
 
 **Routes** (web forms are cookie-authenticated `POST`s with CSRF; the API mirror accepts the primary token's `Authorization` header only, except issuing a token, which needs none):
 
@@ -12365,6 +12365,7 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 | `GET /server/preferences/tokens` | `GET /api/{api_version}/server/preferences/tokens` | Tokens page / list (masked) |
 | `POST /server/preferences/token/reveal` | `POST /api/{api_version}/server/preferences/tokens/primary/reveal` | Reveal the primary token |
 | `POST /server/preferences/token/rotate` | `POST /api/{api_version}/server/preferences/tokens/primary/rotate` | Rotate the primary token in place |
+| `POST /server/preferences/token/revoke` | `DELETE /api/{api_version}/server/preferences/tokens/primary` | Revoke the primary token: deletes the owner, all its tokens and all its resources (see "Revoking a primary token") |
 | `POST /server/preferences/token/restore` | — | Restore an identity from a pasted primary token (sets the cookie; web only) |
 | `POST /server/preferences/token/create` | `POST /api/{api_version}/server/preferences/tokens/primary` | Issue a new owner and its primary token on request (no token required) |
 | `POST /server/preferences/token/forget` | — | Forget the token saved in THIS browser (web only): clears the owner cookie (`Max-Age=0`, same attributes) and sends `Clear-Site-Data: "storage"` for the localStorage copy, then `303` to the tokens page. The token stays valid and no resource is touched; restore it by pasting the primary token |
@@ -12388,6 +12389,7 @@ Token-management routes get no unversioned alias (they are data-shaped, see "Unv
 | 3 | **Linked tokens** | `<h2>` with the count. One list item per token (an `<li>` of a `<ul>`, not a nested card): name (`<h3>`), status badge (Active / Expired / Revoked), masked value, a `<dl>` with Created, Last used and Expires, and a footer toolbar: **Reveal**, **Rotate**, **Edit** (a `<details>` holding the rename + expiry form with one Save button), **Revoke** (danger, confirmation popover). Empty state: "No linked tokens yet" with the hint "Create one per app, for example your MCP client" |
 | 4 | **Create linked token** | **Name** (label, help "For example: MCP client") and **Expiry** (ONE `<select>`: Never, 7 days, 30 days, 90 days, 1 year, Custom date). When "Custom date" is chosen a labeled **Expires on** date input is used (rendered inside a `<details>` so it works without JavaScript). ONE primary button "Create token" |
 | 5 | **This browser** | "Saved in this browser" with a **Forget saved token** button (danger-ghost, confirmation popover) and the sentence that {resources} are not deleted |
+| 6 | **Revoke primary token** | `<h2>`, the sentence saying what will be deleted with the live counts ("{n} linked tokens and {m} {resources}, including anything created with a linked token"), and ONE `.btn-danger` "Revoke primary token and delete everything" that opens a confirmation popover holding the form: a field "Type the last 4 characters of your primary token ({last4}) to confirm" (the value comes from `token_last4`, nothing is decrypted) and the submit button. It is always the last card, never next to Reveal or Rotate. The wireframes below leave it out |
 
 **Layout by viewport:**
 
@@ -12425,7 +12427,7 @@ PHONE (<768)              TABLET (768-1023)             DESKTOP (>=1024)
 |----------|-------|
 | **Phone** | One column, cards full width, buttons full width and stacked, Revoke visually separate from Reveal/Rotate |
 | **Tablet** | One column up to `40rem` centered; linked-token items in a 2-column grid when there are two or more; Name and Expiry on one row |
-| **Desktop** | Two columns: left (Primary token, Create linked token, This browser), right (Linked tokens), both `minmax(0, 1fr)`; nothing pinned or sticky |
+| **Desktop** | Two columns: left (Primary token, Create linked token, This browser, Revoke primary token), right (Linked tokens), both `minmax(0, 1fr)`; nothing pinned or sticky |
 
 **Behavior rules:** each action is its own small `POST` form with its own CSRF token (above); after any action the `303` redirect returns to `#token-{id}` (or `#primary`) so the page does not jump; Reveal re-renders only that card with the full value in `.copy-value` plus a Copy button and the note "Shown once, on this page load"; a toast confirms Rotate, Create, Rename and Revoke; the masked value uses `.copy-value`, never wraps and never widens the page (see "Layout Integrity & Polish Contract").
 
@@ -12447,10 +12449,24 @@ server:
 ```
 # prefix, kind, owner, name, created, last used, status
 {project_name} --maintenance token list
-# revoke one token; a primary revokes its whole owner (linked tokens included)
+# revoke one linked token; a primary DELETES its whole owner (see "Revoking a primary token")
 {project_name} --maintenance token revoke <prefix>
 ```
-The CLI shows prefixes only — there is no operator path that prints a raw owner token. Both commands need `server.token` OR root ("Sensitive Operations"), and `revoke` asks the operator to type the prefix to confirm (`--yes` skips the prompt for scripts).
+The CLI shows prefixes only — there is no operator path that prints a raw owner token. Both commands need `server.token` OR root ("Sensitive Operations"). `revoke` of a linked token asks the operator to type the prefix; `revoke` of a primary asks for the owner id (below). `--yes` skips either prompt for scripts.
+
+**Revoking a primary token deletes the owner:**
+
+| Rule | Detail |
+|------|--------|
+| Revoke is not rotate | Rotate replaces the primary's value in place and changes nothing else. Revoke deletes the owner. They are separate actions with separate routes, buttons and audit events (`token.rotated`, `token.revoked`) |
+| Who | The owner, with the primary token only (web route or API mirror; a linked token gets `403`), or the operator on the CLI (`server.token` OR root) |
+| Effect | The same deletion as `--maintenance data delete --owner` (PART 11 → "Data Subject Commands"), including its rule for a kind that IDEA.md declares retained: in ONE transaction the owner's resources are deleted, then the owner row, and its tokens (primary and linked) go with it through `ON DELETE CASCADE`. That includes every resource created with a linked token: resources hang off the owner, not the token. On any error nothing changes |
+| Confirmation | The operator (CLI) sees the owner id, the number of tokens and the number of resources, and types the owner id (`--yes` skips the prompt). The owner (web or API) is shown the same counts and types the last 4 characters of the primary token, compared in constant time: the web form posts it as `confirm`, the API mirror takes `{"confirm": "<last4>"}` in the body. A missing or wrong value answers `400 VALIDATION_FAILED` and deletes nothing |
+| Owner's response | Web: `303` to `/server/preferences/tokens`, which now shows only New token and Restore; the owner cookie is cleared (`Max-Age=0`, same attributes) and `Clear-Site-Data: "storage"` removes the localStorage copy, as Forget does. API: `200` with the standard success body, `data` = `{"tokens": n, "resources": m}` (the counts deleted) |
+| The holder | The owner's tokens no longer exist, so every one gets the same response as a missing token (no existence hint, "Ownership check"), the owner cookie is cleared on the next response, and MCP callers get the same. There is no `TOKEN_REVOKED` for a deleted owner: that answer belongs to a revoked linked token |
+| Resources | Gone with the owner; their public links answer like any deleted resource. Backups keep them until their normal retention |
+| No re-issue | A deleted owner cannot be restored or re-created. "New token", or a creation without a token, starts a NEW owner with none of the old resources; only restoring an older backup brings the old owner back |
+| Audit | ONE `token.revoked` event: the owner id as it is (not anonymized: it is a random identifier and the event records a revocation, not an erasure request), `details.scope` = `owner`, the counts of tokens and resources deleted, and `details.source` = `cli`, `web` or `api`. No per-resource events |
 
 **Config Priority :**
 
