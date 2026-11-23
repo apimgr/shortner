@@ -953,7 +953,7 @@ The `release` job already has `contents: write` to push assets — this covers t
 --status                     # Show status and health (exit 0=healthy, 1=unhealthy)
 --service {start,restart,stop,reload,--install,--uninstall,--disable,--help}
 --daemon                     # Daemonize (detach from terminal)
---maintenance {backup,restore,update,mode,setup,pgp,secret,token,data,compliance,--help} [optional-file-or-setting-or-action]
+--maintenance {backup,restore,update,mode,setup,pgp,security,secret,token,data,compliance,--help} [optional-file-or-setting-or-action]
 --update [check|yes|branch {stable|beta|devel}]
 ```
 
@@ -10606,7 +10606,7 @@ NO_COLOR=1 {project_name} --status | grep -E '✅|❌|⚠️|🚀'
 --color {auto|yes|no}
 # Language for output (default: auto, from LANG env)
 --lang {code}
---maintenance {backup,restore,update,mode,setup,pgp,secret,token,data,compliance,--help} [optional-file-or-setting-or-action]
+--maintenance {backup,restore,update,mode,setup,pgp,security,secret,token,data,compliance,--help} [optional-file-or-setting-or-action]
 # Check/perform updates
 --update [check|yes|branch {stable|beta|devel}|--help]
 # Shell integration
@@ -10941,11 +10941,17 @@ PHASE 2: Handle service commands (NO startup)
 PHASE 3: Handle maintenance commands (NO startup)
 ─────────────────────────────────────────────────
 4. Handle --maintenance subcommands → execute and EXIT:
-   ├─ --maintenance backup  → backup data, exit
-   ├─ --maintenance restore → restore data, exit
-   ├─ --maintenance update  → update binary, exit
-   ├─ --maintenance mode    → set mode, exit
-   └─ --maintenance setup   → reset server configuration, exit
+   ├─ --maintenance backup     → backup data, exit
+   ├─ --maintenance restore    → restore data, exit
+   ├─ --maintenance update     → update binary, exit
+   ├─ --maintenance mode       → set mode, exit
+   ├─ --maintenance setup      → reset server configuration, exit
+   ├─ --maintenance pgp        → manage PGP keypair, exit
+   ├─ --maintenance security   → manage security reports, exit
+   ├─ --maintenance secret     → rotate a project secret, exit
+   ├─ --maintenance token      → manage API tokens, exit
+   ├─ --maintenance data       → data maintenance operations, exit
+   └─ --maintenance compliance → compliance report, exit
 
 PHASE 4: Handle update commands (NO startup)
 ────────────────────────────────────────────
@@ -15965,6 +15971,7 @@ server:
 | `security.report_received` | Security vulnerability report received | tracking_id, severity, sanitized affected-component |
 | `security.private_key_exported` | PGP private key exported | Operator IP, reason |
 | `security.csrf_failure` | CSRF token validation failed | IP, endpoint, reason |
+| `security.audit_chain_broken` | Audit log hash chain failed verification | File name, line number (never entry content) |
 
 ### Backup & System Events
 
@@ -16009,7 +16016,8 @@ server:
   "details": {
     "changed_keys": ["server.port"]
   },
-  "result": "success"
+  "result": "success",
+  "prev": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 }
 ```
 
@@ -16024,6 +16032,7 @@ server:
 | `severity` | String | `info`, `warn`, `error`, `critical` |
 | `actor` | Object | Who performed the action |
 | `result` | String | `success` or `failure` |
+| `prev` | String | Lowercase hex SHA-256 of the previous entry's line (hash chain, see "Audit Log Integrity") |
 
 **Optional Fields:**
 
@@ -16143,7 +16152,9 @@ server:
 | Append-only | Application can only append, never modify or delete entries |
 | No truncate | Application cannot truncate the log file |
 | Rotation only | Only log rotation can remove old entries |
-| Checksum | Optional: Include running checksum for tamper detection |
+| Hash chain | REQUIRED. Every entry has a `prev` field: the lowercase hex SHA-256 of the previous entry's exact line (without the newline). The first entry ever uses 64 zeros; the first entry of a rotated file carries the hash of the last line of the file it follows. One writer appends entries in order under a lock, so the chain never forks |
+| Verification | The server re-computes the chain of the current file at start and of the closed file at every rotation. A mismatch (an edited, removed or reordered entry) is reported once as `security.audit_chain_broken` (severity `critical`; file name and line number, never entry content); the server keeps running and keeps appending |
+| Limit | Tamper-evident, not tamper-proof: someone who can rewrite the whole file can recompute every hash. Forward the log to another host if that case matters |
 
 **File Permissions:**
 ```
@@ -16225,6 +16236,8 @@ server:
 | Session timeout | - | - | ✓ | ✓ | ✓ | - |
 | Vulnerability scanning | - | - | - | ✓ | ✓ | ✓ |
 
+**This project has no sessions** (PART 8 → "Owners and Owner Tokens"), so the Session timeout row has nothing to apply to: there is no idle timer and no setting. The Token policy row is the control for how long a credential lives.
+
 ### Overlap Resolution
 
 **When multiple compliance standards are enabled and conflict, the STRICTEST requirement wins.**
@@ -16235,7 +16248,7 @@ server:
 | **Encryption strength** | Use strongest | AES-256 over AES-128 |
 | **Breach notification** | Use shortest | GDPR (72hr) beats HIPAA (60days) |
 | **Token requirements** | Use strictest | Longest expiry, strongest entropy |
-| **Session timeout** | Use shortest | 15min beats 30min |
+| **Session timeout** | Not applicable here (no sessions) | |
 | **Right to erasure vs retention** | See below | |
 
 **Special Case: Right to Erasure vs Retention Requirements**
@@ -16271,7 +16284,7 @@ In this project `--maintenance data delete` (see "Data Subject Commands") applie
 | PHI encryption | All health data encrypted with per-record keys |
 | Audit trail | 6-year minimum retention, tamper-evident |
 | Access controls | Role-based with minimum necessary access |
-| Session timeout | 15 minutes maximum idle |
+| Session timeout | Not applicable: no sessions (see the note under the matrix) |
 | Token auth | Required for all API access |
 | BAA tracking | Business Associate Agreements logged |
 | Breach notification | 60-day notification system |
@@ -16294,7 +16307,7 @@ In this project `--maintenance data delete` (see "Data Subject Commands") applie
 | Cardholder data | Never stored (use tokenization) |
 | Network segmentation | Cardholder environment isolated |
 | Password policy | 12+ chars, complexity, 90-day rotation |
-| Session timeout | 15 minutes maximum |
+| Session timeout | Not applicable: no sessions (see the note under the matrix) |
 | Audit logging | All access to cardholder data logged |
 | Vulnerability scanning | Quarterly scans required |
 | Penetration testing | Annual requirement tracking |
@@ -16421,7 +16434,7 @@ In this project `--maintenance data delete` (see "Data Subject Commands") applie
 |---------|----------|
 | `--maintenance data export --owner <prefix> [--output FILE]` | Writes ONE JSON file (default `{project_name}-export-{owner_id}-{YYYYMMDD}.json` in the current directory, mode `0600`; `--output -` writes to stdout). Contents: `format: 1`, the owner id with its created and last-seen times, the metadata of its tokens (prefix, kind, name, created, last used, expires, status; NEVER a token value or hash), and every resource the owner owns in the same shape the API returns. Nothing about other owners, no audit or security log lines |
 | `--maintenance data delete --owner <prefix> [--yes]` | Deletes the owner record, all its tokens and its resources in ONE transaction, after the operator types the owner id to confirm (`--yes` skips the prompt for scripts). A retention standard (HIPAA/SOC2) never blocks the command: what it requires to keep is the audit log, and the log keeps only an anonymized owner id (a new random id; the original-id mapping is deleted in the same transaction, the rule above). The template default is that NO resource kind is retained, so every resource of the owner is deleted and the command is fully defined without IDEA.md. A project that must keep a kind for a legal or contractual reason declares it in IDEA.md (kind name and reason); such a kind is not deleted: its owner reference is replaced by the same anonymized id, so it stays for retention with no link back to the person. The command prints how many items were deleted and how many were anonymized, and `compliance.data_deletion_completed` records both counts. Backups are not rewritten: the data leaves them with their normal retention |
-| `--maintenance compliance report` | Prints a plain-text summary: the enabled standards with their effective settings, the retention periods, counts (owners, resources, active tokens, open security reports), the compliance events of the last 30 days, and the time of the last backup. It contains counts and settings only, never personal data |
+| `--maintenance compliance report` | Prints a plain-text summary: the enabled standards with their effective settings, the retention periods, counts (owners, resources, active tokens, open security reports), the compliance events of the last 30 days, the time of the last backup, and the audit log integrity result (`intact (N entries)`, or `broken at <file>:<line>`; see "Audit Log Integrity"). It contains counts and settings only, never personal data |
 
 In the audit events below, `User ID` means the owner id in this project (a random identifier, never an email address or a token).
 
@@ -17154,7 +17167,7 @@ Every outbound webhook POST includes these headers so the receiver can verify th
 
 | Header | Value |
 |--------|-------|
-| `X-Webhook-Signature` | `sha256=<hex_hmac>` where `hmac = HMAC-SHA256(per_webhook_secret, request_body_bytes)`. The `per_webhook_secret` is auto-generated when the webhook URL is first saved (random 32 bytes, persisted in `secrets.yml` next to the URL as `webhooks.<name>_secret`) and returned ONCE in the API response for the operator to configure on the receiving end. |
+| `X-Webhook-Signature` | `sha256=<hex_hmac>` where `hmac = HMAC-SHA256(per_webhook_secret, request_body_bytes)`. The `per_webhook_secret` is generated at start whenever the webhook URL is set and its secret is empty (random 32 bytes, persisted in `secrets.yml` as `webhooks.<name>_secret`). It is never returned by any API response and never printed: the operator reads it from `secrets.yml` (mode `0600`) to configure the receiving end, or writes a value of their own there before the first start. |
 | `X-Webhook-Timestamp` | Unix seconds — receiver SHOULD reject if delta exceeds `±5 min` to prevent replay |
 | `X-Webhook-ID` | UUID v7 (PART 11) — idempotency key the receiver can use to deduplicate retries |
 | `X-Webhook-Event` | The event type (e.g., `security.report_received`, `backup.failed`) |
@@ -32549,47 +32562,28 @@ server:
       # true if password was set
       enabled: true
       # The password itself is set with server.backup.encryption_password in secrets.yml (see below)
-  compliance:
-    # HIPAA, SOC2, etc.
-    enabled: false
-    # If true, backup.encryption.enabled MUST be true
 ```
+
+**Compliance mode has no setting of its own.** It is ON when ANY standard under `server.compliance` (see "Compliance Standards") is `true`, and OFF when all are `false` (the default). Every standard requires protecting personal data wherever it is stored, and a backup is a full copy of it, so the strictest rule applies as soon as one standard is on (see "Overlap Resolution"). The check runs at every backup.
 
 **Compliance Mode Enforcement:**
 
-When `server.compliance.enabled: true`:
+When compliance mode is on:
 - Backups will NOT run unless encryption password is set
-- WebUI shows mandatory password setup dialog
 - CLI shows error with instructions to set password
 - Scheduled backups skip with audit log warning
-
-```
-┌─────────────────────────────────────────┐
-│  ⚠️  Backup Password Required           │
-├─────────────────────────────────────────┤
-│  Compliance mode requires encrypted     │
-│  backups. Set a backup password.        │
-│                                         │
-│  Password:         [••••••••••••]       │
-│  Confirm Password: [••••••••••••]       │
-│  Hint (optional):  [______________]     │
-│                                         │
-│           [Cancel]  [Save & Enable]     │
-└─────────────────────────────────────────┘
-```
 
 **Setting/Changing Backup Password:**
 
 | Action | Location | Notes |
 |--------|----------|-------|
-| Set during initial config | `server.backup.encryption_password` in `secrets.yml` | Optional (unless compliance) |
+| Set during initial config | `server.backup.encryption_password` in `secrets.yml` | Optional (unless compliance mode is on) |
 | Set later | `server.backup.encryption_password` in config file | Hot-reloaded; no restart needed |
 | Change password | `server.backup.encryption_password` in config file | New backups use new password |
-| Remove encryption | Only if compliance disabled | Cannot remove if compliance enabled |
+| Remove encryption | Only while compliance mode is off | Cannot remove while compliance mode is on |
 
 **Important:**
 - Old backups encrypted with old password still need old password to restore
-- Password hint can be stored (optional): "Hint: First pet's name + year"
 - No password recovery - if lost, backups are unrecoverable
 - The Argon2id login-password hashing rule (PART 11) does not apply to this password: it is key material, and Argon2id is used here only to derive the encryption key
 
@@ -32605,7 +32599,7 @@ When `server.compliance.enabled: true`:
 # Prompts for password
 ```
 
-**Note:** A backup never prompts: it encrypts with the configured `server.backup.encryption_password` when one is set, and is unencrypted (with the warning below) when none is set; with compliance enabled and no password set the backup is refused with a message naming the setting. Only restore and `backup test` of an encrypted backup prompt for the password interactively. There is no password flag (passwords on the command line leak via shell history and process lists).
+**Note:** A backup never prompts: it encrypts with the configured `server.backup.encryption_password` when one is set, and is unencrypted (with the warning below) when none is set; with compliance mode on and no password set the backup is refused with a message naming the setting. Only restore and `backup test` of an encrypted backup prompt for the password interactively. There is no password flag (passwords on the command line leak via shell history and process lists).
 
 **Warning Shown if Encryption Not Enabled:**
 
@@ -32616,7 +32610,7 @@ When `server.compliance.enabled: true`:
 │  Your backups are NOT encrypted. If someone gains access to your    │
 │  backup files, they can read all data including server configuration.  │
 │                                                                      │
-│  [Set Encryption Password]  [Remind Me Later]  [Don't Show Again]   │
+│  Set server.backup.encryption_password in secrets.yml to fix this.  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -50811,8 +50805,8 @@ make docker
 **PART 21: Backup & Restore**
 - [ ] Automatic daily backups (backup_daily task at 02:00)
 - [ ] Optional hourly incremental (backup_hourly task, disabled by default)
-- [ ] Backup encryption (AES-256-GCM) - optional unless compliance enabled
-- [ ] If compliance enabled, encryption REQUIRED (backups blocked without password)
+- [ ] Backup encryption (AES-256-GCM) - optional unless compliance mode is on (any `server.compliance.<standard>` is true)
+- [ ] If compliance mode is on, encryption REQUIRED (backups blocked without password)
 - [ ] Configurable retention: max_backups (default: 1), keep_weekly/monthly/yearly (default: 0)
 - [ ] `--maintenance backup` works
 - [ ] `--maintenance restore {file}` works (prompts for password if encrypted)
@@ -51519,7 +51513,7 @@ make docker
 - [ ] All API error/status responses use translation keys
 - [ ] `<html lang="{{.Lang}}" dir="{{.Dir}}">` on all pages — never hardcoded `lang="en"`
 - [ ] WebUI serves `/locales/{lang}.json` from embedded files for JavaScript
-- [ ] Language selector present in WebUI header/footer
+- [ ] The language is changed only by the `<select name="lang">` in the Language section of `/server/preferences`; the footer shows the active language as a plain link to `/server/preferences#language`; there is NO language selector in the header
 
 ### CLI Translation
 
