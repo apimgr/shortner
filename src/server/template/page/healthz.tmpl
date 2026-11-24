@@ -1,39 +1,40 @@
-{{define "content"}}<article class="healthz-page">
-<header class="page-header"><h1>{{.Health.Project.Name}}</h1>{{if .Health.Project.Tagline}}<p class="tagline">{{.Health.Project.Tagline}}</p>{{end}}{{if .Health.Project.Description}}<p>{{.Health.Project.Description}}</p>{{end}}</header>
-<div class="status-banner status-{{if eq .Health.Status "healthy"}}ok{{else if eq .Health.Status "degraded"}}warning{{else}}error{{end}}" role="status">{{t .Base.Lang "health.status"}}: {{.Health.Status}}</div>
+{{define "content"}}<article>
+<header class="page-header"><h1 class="page-title">{{.Health.Project.Name}}</h1><p class="page-lead">{{if .Health.Project.Tagline}}{{.Health.Project.Tagline}}{{else}}{{.Health.Project.Description}}{{end}}</p></header>
+<div class="status-banner status-{{if eq .Health.Status "healthy"}}ok{{else if eq .Health.Status "degraded"}}warning{{else}}error{{end}}" role="status">{{tf .Base.Lang "health.status_value" "value" (t .Base.Lang (printf "health.%s" .Health.Status))}}</div>
 
-<section class="section-card"><h2>Version</h2><dl class="info-list">
+<section class="section-card" aria-labelledby="health-version"><h2 id="health-version">{{t .Base.Lang "health.version"}}</h2><dl class="info-list">
 <div class="info-row"><dt class="info-label">{{t .Base.Lang "health.version"}}</dt><dd class="info-value"><code>{{.Health.Version}}</code></dd></div>
-<div class="info-row"><dt class="info-label">Build</dt><dd class="info-value"><code>{{.Health.Build.Commit}}</code> ({{.BuildDateHuman}})</dd></div>
-<div class="info-row"><dt class="info-label">Go</dt><dd class="info-value"><code>{{.Health.GoVersion}}</code></dd></div>
+<div class="info-row"><dt class="info-label">{{t .Base.Lang "health.build"}}</dt><dd class="info-value"><code>{{.Health.Build.Commit}}</code> ({{.BuildDateHuman}})</dd></div>
+<div class="info-row"><dt class="info-label">{{t .Base.Lang "health.go_version"}}</dt><dd class="info-value"><code>{{.Health.GoVersion}}</code></dd></div>
 </dl></section>
 
-<section class="section-card"><h2>Runtime</h2><dl class="info-list">
+<section class="section-card" aria-labelledby="health-runtime"><h2 id="health-runtime">{{t .Base.Lang "health.runtime"}}</h2><dl class="info-list">
 <div class="info-row"><dt class="info-label">{{t .Base.Lang "health.uptime"}}</dt><dd class="info-value">{{.UptimeHuman}}</dd></div>
-<div class="info-row"><dt class="info-label">{{t .Base.Lang "health.mode"}}</dt><dd class="info-value"><span class="badge badge-{{.Health.Mode}}">{{.Health.Mode}}</span></dd></div>
-<div class="info-row"><dt class="info-label">Checked</dt><dd class="info-value"><time datetime="{{.Health.Timestamp.Format "2006-01-02T15:04:05Z07:00"}}">{{.TimestampHuman}}</time></dd></div>
+<div class="info-row"><dt class="info-label">{{t .Base.Lang "health.mode"}}</dt><dd class="info-value"><span class="badge badge-{{.Health.Mode}}">{{t .Base.Lang (printf "health.%s" .Health.Mode)}}</span></dd></div>
+<div class="info-row"><dt class="info-label">{{t .Base.Lang "health.last_checked"}}</dt><dd class="info-value"><time datetime="{{.Health.Timestamp.Format "2006-01-02T15:04:05Z07:00"}}">{{.TimestampHuman}}</time></dd></div>
 </dl></section>
 
-<section class="section-card"><h2>Cluster</h2><dl class="info-list"><div class="info-row"><dt class="info-label">Enabled</dt><dd class="info-value">{{if .Health.Cluster.Enabled}}enabled{{else}}disabled{{end}}</dd></div></dl></section>
+<section class="section-card" aria-labelledby="health-cluster"><h2 id="health-cluster">{{t .Base.Lang "health.cluster"}}</h2><dl class="info-list"><div class="info-row"><dt class="info-label">{{t .Base.Lang "common.enabled"}}</dt><dd class="info-value">{{if .Health.Cluster.Enabled}}{{t .Base.Lang "common.enabled"}}{{else}}{{t .Base.Lang "common.disabled"}}{{end}}</dd></div></dl></section>
 
-<section class="section-card"><h2>Features</h2><ul class="feature-list">
-<li class="feature-{{if .Health.Features.Tor.Enabled}}enabled{{else}}disabled{{end}}">Tor: {{.Health.Features.Tor.Status}}{{if .Health.Features.Tor.Hostname}} <code class="code-block">{{.Health.Features.Tor.Hostname}}</code><button type="button" class="copy-button" data-copy="{{.Health.Features.Tor.Hostname}}">Copy</button>{{end}}</li>
-<li class="feature-{{if .Health.Features.I2P.Enabled}}enabled{{else}}disabled{{end}}">I2P: {{.Health.Features.I2P.Status}}{{if .Health.Features.I2P.Hostname}} <code class="code-block">{{.Health.Features.I2P.Hostname}}</code><button type="button" class="copy-button" data-copy="{{.Health.Features.I2P.Hostname}}">Copy</button>{{end}}</li>
-<li class="feature-{{if .Health.Features.GeoIP}}enabled{{else}}disabled{{end}}">GeoIP: {{if .Health.Features.GeoIP}}enabled{{else}}disabled{{end}}</li>
+<section class="section-card" aria-labelledby="health-features"><h2 id="health-features">{{t .Base.Lang "health.features"}}</h2><ul class="feature-list">
+<li class="feature-{{if .Health.Features.Tor.Enabled}}enabled{{else}}disabled{{end}}">Tor: {{if eq .Health.Features.Tor.Status "disabled"}}{{t .Base.Lang "common.disabled"}}{{else}}{{t .Base.Lang (printf "health.%s" .Health.Features.Tor.Status)}}{{end}}{{if .Health.Features.Tor.Hostname}} <code class="copy-value">{{.Health.Features.Tor.Hostname}}</code><button type="button" class="copy-button" data-copy="{{.Health.Features.Tor.Hostname}}" aria-label="{{t .Base.Lang "common.copy"}}">{{t .Base.Lang "common.copy"}}</button>{{end}}</li>
+<li class="feature-{{if .Health.Features.I2P.Enabled}}enabled{{else}}disabled{{end}}">I2P: {{if eq .Health.Features.I2P.Status "disabled"}}{{t .Base.Lang "common.disabled"}}{{else}}{{t .Base.Lang (printf "health.%s" .Health.Features.I2P.Status)}}{{end}}{{if .Health.Features.I2P.Hostname}} <code class="copy-value">{{.Health.Features.I2P.Hostname}}</code><button type="button" class="copy-button" data-copy="{{.Health.Features.I2P.Hostname}}" aria-label="{{t .Base.Lang "common.copy"}}">{{t .Base.Lang "common.copy"}}</button>{{end}}</li>
+<li class="feature-{{if .Health.Features.GeoIP}}enabled{{else}}disabled{{end}}">{{t .Base.Lang "health.geoip"}}: {{if .Health.Features.GeoIP}}{{t .Base.Lang "common.enabled"}}{{else}}{{t .Base.Lang "common.disabled"}}{{end}}</li>
 </ul></section>
 
-<section class="section-card"><h2>Component Status</h2><div class="table-wrapper"><table class="data-table"><thead><tr><th>Component</th><th>Status</th></tr></thead><tbody>
-<tr><th>Database</th><td class="status status-{{.Health.Checks.Database}}">{{.Health.Checks.Database}}</td></tr>
-<tr><th>Cache</th><td class="status status-{{.Health.Checks.Cache}}">{{.Health.Checks.Cache}}</td></tr>
-<tr><th>Disk</th><td class="status status-{{.Health.Checks.Disk}}">{{.Health.Checks.Disk}}</td></tr>
-<tr><th>Scheduler</th><td class="status status-{{.Health.Checks.Scheduler}}">{{.Health.Checks.Scheduler}}</td></tr>
-{{if .Health.Checks.Tor}}<tr><th>Tor</th><td class="status status-{{.Health.Checks.Tor}}">{{.Health.Checks.Tor}}</td></tr>{{end}}
-{{if .Health.Checks.I2P}}<tr><th>I2P</th><td class="status status-{{.Health.Checks.I2P}}">{{.Health.Checks.I2P}}</td></tr>{{end}}
+<section class="section-card" aria-labelledby="health-components"><h2 id="health-components">{{t .Base.Lang "health.component_status"}}</h2><div class="table-wrapper"><table class="data-table"><thead><tr><th scope="col">{{t .Base.Lang "health.component"}}</th><th scope="col">{{t .Base.Lang "health.status"}}</th></tr></thead><tbody>
+<tr><th>{{t .Base.Lang "health.database"}}</th><td class="status status-{{.Health.Checks.Database}}">{{if eq .Health.Checks.Database "error"}}{{t .Base.Lang "health.error"}}{{else}}{{t .Base.Lang "health.ok"}}{{end}}</td></tr>
+<tr><th>{{t .Base.Lang "health.cache_component"}}</th><td class="status status-{{.Health.Checks.Cache}}">{{if eq .Health.Checks.Cache "error"}}{{t .Base.Lang "health.error"}}{{else}}{{t .Base.Lang "health.ok"}}{{end}}</td></tr>
+<tr><th>{{t .Base.Lang "health.disk"}}</th><td class="status status-{{.Health.Checks.Disk}}">{{if eq .Health.Checks.Disk "error"}}{{t .Base.Lang "health.error"}}{{else}}{{t .Base.Lang "health.ok"}}{{end}}</td></tr>
+<tr><th>{{t .Base.Lang "health.scheduler"}}</th><td class="status status-{{.Health.Checks.Scheduler}}">{{if eq .Health.Checks.Scheduler "error"}}{{t .Base.Lang "health.error"}}{{else}}{{t .Base.Lang "health.ok"}}{{end}}</td></tr>
+{{if .Health.Checks.Tor}}<tr><th>Tor</th><td class="status status-{{.Health.Checks.Tor}}">{{if eq .Health.Checks.Tor "degraded"}}{{t .Base.Lang "health.degraded"}}{{else}}{{t .Base.Lang "health.ok"}}{{end}}</td></tr>{{end}}
+{{if .Health.Checks.I2P}}<tr><th>I2P</th><td class="status status-{{.Health.Checks.I2P}}">{{if eq .Health.Checks.I2P "degraded"}}{{t .Base.Lang "health.degraded"}}{{else}}{{t .Base.Lang "health.ok"}}{{end}}</td></tr>{{end}}
+{{range .Health.Checks.Datasets}}<tr><th>{{healthLabel $.Base.Lang .Key}}</th><td class="status status-{{.Status}}">{{if eq .Status "error"}}{{t $.Base.Lang "health.error"}}{{else if eq .Status "degraded"}}{{t $.Base.Lang "health.degraded"}}{{else}}{{t $.Base.Lang "health.ok"}}{{end}}</td></tr>{{end}}
 </tbody></table></div></section>
 
-<section class="section-card"><h2>Server Statistics</h2><dl class="info-list">
-<div class="info-row"><dt class="info-label">Total requests</dt><dd class="info-value">{{.RequestsTotal}}</dd></div>
-<div class="info-row"><dt class="info-label">Requests (24 hours)</dt><dd class="info-value">{{.Requests24h}}</dd></div>
-<div class="info-row"><dt class="info-label">Active connections</dt><dd class="info-value">{{.ActiveConns}}</dd></div>
+<section class="section-card" aria-labelledby="health-statistics"><h2 id="health-statistics">{{t .Base.Lang "health.server_statistics"}}</h2><dl class="info-list">
+<div class="info-row"><dt class="info-label">{{t .Base.Lang "health.total_requests"}}</dt><dd class="info-value">{{.RequestsTotal}}</dd></div>
+<div class="info-row"><dt class="info-label">{{t .Base.Lang "health.requests_24h"}}</dt><dd class="info-value">{{.Requests24h}}</dd></div>
+<div class="info-row"><dt class="info-label">{{t .Base.Lang "health.active_connections"}}</dt><dd class="info-value">{{.ActiveConns}}</dd></div>
 </dl></section>
 </article>{{end}}

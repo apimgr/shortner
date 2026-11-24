@@ -1,0 +1,17 @@
+{{define "content"}}
+<nav class="breadcrumb" aria-label="{{t .Base.Lang "common.breadcrumb"}}"><a href="/server/preferences">← {{t .Base.Lang "common.preferences"}}</a></nav>
+<header class="page-header"><h1 class="page-title">{{t .Base.Lang "preferences.sync_title"}}</h1><p class="page-lead">{{t .Base.Lang "preferences.sync_description"}}</p></header>
+<section class="section-card" aria-labelledby="preferences-sync-export">
+<h2 id="preferences-sync-export">{{t .Base.Lang "preferences.sync_export"}}</h2>
+<div class="form-group"><p class="form-label">{{t .Base.Lang "preferences.sync_url"}}</p><p class="copy-value" id="preferences-sync-url" aria-live="polite">{{.ExportURL}}</p><button class="btn btn-secondary copy-btn" type="button" data-copy="{{.ExportURL}}">{{t .Base.Lang "common.copy"}}</button></div>
+<div class="form-group"><p class="form-label">{{t .Base.Lang "preferences.sync_code"}}</p><p class="copy-value" id="preferences-sync-code" aria-live="polite">{{.ExportCode}}</p><button class="btn btn-secondary copy-btn" type="button" data-copy="{{.ExportCode}}">{{t .Base.Lang "common.copy"}}</button></div>
+</section>
+<section class="section-card" aria-labelledby="preferences-sync-import">
+<h2 id="preferences-sync-import">{{t .Base.Lang "preferences.sync_import"}}</h2>
+<form method="post" action="/server/preferences/sync">
+<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+<div class="form-group"><label class="form-label" for="preferences-sync-code-input">{{t .Base.Lang "preferences.sync_paste_label"}}</label><textarea class="form-input" id="preferences-sync-code-input" name="code" maxlength="2048" rows="3"></textarea><p>{{t .Base.Lang "preferences.sync_paste_help"}}</p></div>
+<button class="btn btn-primary" type="submit">{{t .Base.Lang "preferences.sync_import"}}</button>
+</form>
+</section>
+{{end}}

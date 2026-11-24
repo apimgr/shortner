@@ -181,7 +181,7 @@ func (ld *linkDeps) createLinkHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	ownerID, ownerToken, err := ld.ownerForCreate(r, false)
+	ownerID, ownerToken, err := ld.ownerForCreate(w, r, false)
 	if err != nil {
 		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
 		return
@@ -447,48 +447,56 @@ func (ld *linkDeps) authorized(w http.ResponseWriter, r *http.Request, linkID in
 		return true
 	}
 	token := ExtractToken(r)
-	if token == "" && !strings.HasPrefix(r.URL.Path, "/api/") {
-		if cookie, err := r.Cookie(ownerTokenCookieName); err == nil {
-			token = cookie.Value
-		}
-	}
 	fromCookie := false
-	if token == "" {
-		return false
-	}
-	if !strings.HasPrefix(r.URL.Path, "/api/") {
-		if cookie, err := r.Cookie(ownerTokenCookieName); err == nil && cookie.Value == token {
+	if token == "" && !strings.HasPrefix(r.URL.Path, "/api/") {
+		if cookie, ok := ownerTokenCookie(r); ok {
+			token = cookie.Value
 			fromCookie = true
 		}
 	}
-	tok, err := db.LookupTokenByRaw(r.Context(), ld.sqlDB, token)
+	tok, err := db.LookupTokenByRaw(r.Context(), ld.sqlDB, token, ld.tokenKey)
 	if err != nil {
+		if fromCookie {
+			clearOwnerTokenCookie(w, r, ld.cfg, ld.resolver)
+		}
 		return false
 	}
 	if fromCookie {
 		if tok.Kind != "primary" {
+			clearOwnerTokenCookie(w, r, ld.cfg, ld.resolver)
 			return false
-		}
-		if ld.cfg != nil {
-			setOwnerTokenCookie(w, r, ld.cfg, ld.resolver, token)
 		}
 	}
 	link, err := db.GetLinkByID(r.Context(), ld.sqlDB, linkID)
-	return err == nil && tok.OwnerID == link.OwnerID
+	if err != nil || tok.OwnerID != link.OwnerID {
+		return false
+	}
+	if fromCookie && ld.cfg != nil {
+		setOwnerTokenCookie(w, r, ld.cfg, ld.resolver, token)
+	}
+	return true
 }
 
-func (ld *linkDeps) ownerForCreate(r *http.Request, web bool) (string, string, error) {
+func (ld *linkDeps) ownerForCreate(w http.ResponseWriter, r *http.Request, web bool) (string, string, error) {
 	token := ExtractToken(r)
+	fromCookie := false
 	if token == "" && web {
-		if cookie, err := r.Cookie(ownerTokenCookieName); err == nil {
+		if cookie, ok := ownerTokenCookie(r); ok {
 			token = cookie.Value
+			fromCookie = true
 		}
 	}
 	if token != "" {
-		if existing, err := db.LookupTokenByRaw(r.Context(), ld.sqlDB, token); err == nil {
+		if existing, err := db.LookupTokenByRaw(r.Context(), ld.sqlDB, token, ld.tokenKey); err == nil {
 			if !web || existing.Kind == "primary" {
+				if fromCookie && ld.cfg != nil {
+					setOwnerTokenCookie(w, r, ld.cfg, ld.resolver, token)
+				}
 				return existing.OwnerID, "", nil
 			}
+		}
+		if fromCookie {
+			clearOwnerTokenCookie(w, r, ld.cfg, ld.resolver)
 		}
 	}
 	ownerID, err := db.CreateOwner(r.Context(), ld.sqlDB)

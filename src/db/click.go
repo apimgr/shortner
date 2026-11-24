@@ -30,9 +30,8 @@ type Click struct {
 // depth per AI.md PART 11 "Defense-in-Depth Layers": even if a caller
 // forgets to anonymize, the raw IP is never persisted. Per IDEA.md
 // "Business rules": "Click tracking excludes known bot/crawler user
-// agents" — bot filtering is the caller's responsibility (it requires a
-// UA-classification list this project has not yet defined; tracked in
-// TODO.AI.md) since it decides whether to call RecordClick at all. country
+// agents" — the redirect handler filters those agents before calling
+// RecordClick. country
 // and region come from a GeoIP lookup the caller already performed on the
 // raw (pre-anonymization) IP, per AI.md PART 19 — pass "" for both when
 // GeoIP is disabled or the lookup found nothing.

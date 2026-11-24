@@ -18,6 +18,48 @@
   text-decoration: none;
 }
 
+.page-header {
+  display: grid;
+  gap: var(--space-2);
+  margin-block: var(--space-6) var(--space-4);
+}
+
+.page-title { margin: 0; }
+
+.page-lead {
+  max-width: 70ch;
+  color: var(--color-fg-muted);
+}
+
+.section-card {
+  margin-block: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.hub-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hub-link {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-fg);
+  text-decoration: none;
+}
+
+.hub-title { font-weight: 600; }
+.hub-desc { color: var(--color-fg-muted); }
+
 .btn-primary {
   background: var(--color-primary);
   color: var(--color-bg);
@@ -509,6 +551,7 @@
   border-radius: 0.25rem;
   background: var(--color-bg);
   white-space: nowrap;
+  user-select: all;
 }
 
 .token-actions {

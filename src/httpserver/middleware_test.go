@@ -332,9 +332,8 @@ func TestRateLimitMiddlewareBypassesAllowlisted(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "9.9.9.9:1234"
-	// allowlistMiddleware always sets false in this skeleton, so this
-	// exercises the wiring but cannot yet prove a true-allowlisted bypass —
-	// see TODO.AI.md for the real allowlist body.
+	// The test address is deliberately outside the configured allowlist, so
+	// this exercises ordinary rate limiting rather than the bypass case.
 	for i := 0; i < 1; i++ {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)

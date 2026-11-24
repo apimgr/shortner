@@ -1,9 +1,5 @@
-// Package httpserver implements the minimal chi-based HTTP server skeleton
-// that hosts the PART 12 middleware chain and the PART 13 health/versioning
-// endpoints. See AI.md PART 12 "Server Configuration" and PART 13 "Health &
-// Versioning". Full route surfaces (link creation, redirects, the frontend
-// template engine) are out of scope here — see PART 14/16, tracked in
-// TODO.AI.md.
+// Package httpserver implements the chi-based server, middleware, APIs, and
+// server-rendered frontend described by AI.md PARTS 12–16.
 package httpserver
 
 import (

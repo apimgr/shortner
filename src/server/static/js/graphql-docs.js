@@ -9,7 +9,7 @@
   if (!form || !query || !output || !status) return;
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    status.textContent = "Running query…";
+    status.textContent = form.dataset.statusRunning;
     try {
       const body = { query: query.value };
       if (operationName && operationName.value.trim()) body.operationName = operationName.value.trim();
@@ -31,11 +31,13 @@
       } catch {
         output.textContent = result;
       }
-      status.textContent = response.ok ? "Query complete." : `The query returned HTTP ${response.status}.`;
+      status.textContent = response.ok
+        ? form.dataset.statusComplete
+        : form.dataset.statusHttp.replace("{status}", response.status);
     } catch (error) {
       status.textContent = error instanceof SyntaxError
-        ? "Variables must contain valid JSON."
-        : "Unable to run the query. Submit the form without JavaScript.";
+        ? form.dataset.statusInvalidJson
+        : form.dataset.statusFailed;
     }
   });
 })();

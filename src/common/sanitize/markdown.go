@@ -48,6 +48,7 @@ func RenderMarkdown(source, requestHost string) template.HTML {
 		return template.HTML(template.HTMLEscapeString(source))
 	}
 	for _, fragment := range fragments {
+		demotePageHeadings(fragment)
 		addExternalLinkRel(fragment, requestHost)
 	}
 	var output bytes.Buffer
@@ -57,6 +58,19 @@ func RenderMarkdown(source, requestHost string) template.HTML {
 		}
 	}
 	return template.HTML(output.String())
+}
+
+// demotePageHeadings keeps operator-authored Markdown inside the page's
+// existing section hierarchy instead of introducing another page title or
+// an unlabelled section heading.
+func demotePageHeadings(node *html.Node) {
+	if node.Type == html.ElementNode && (node.Data == "h1" || node.Data == "h2") {
+		node.Data = "h3"
+		node.DataAtom = atom.H3
+	}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		demotePageHeadings(child)
+	}
 }
 
 func addExternalLinkRel(node *html.Node, requestHost string) {

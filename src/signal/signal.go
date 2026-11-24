@@ -2,14 +2,9 @@
 // hooks shared by the server binary. See AI.md PART 8 "Signal Handling &
 // Graceful Shutdown".
 //
-// The HTTP server, database, and Tor child process this package's
-// eventual callers manage don't exist yet (PART 9+ — see TODO.AI.md).
-// Register, RegisterLogReopen, and RegisterStatusDump let those
-// subsystems attach real shutdown/rotation/status logic once they exist,
-// without this package depending on any of them. Start installs the OS
-// signal handlers and returns immediately (non-blocking) — it does not
-// invent a "wait forever" main loop, since there is nothing yet that
-// needs one; that arrives with the HTTP server.
+// The server registers its graceful-shutdown, log-reopen, and status-dump
+// hooks without coupling this package to the server's subsystems. Start
+// installs the OS signal handlers and returns immediately.
 package signal
 
 import "sync"

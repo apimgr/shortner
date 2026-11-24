@@ -1,15 +1,15 @@
-{{define "content"}}<article class="about-page">
-<h1>{{tf .Base.Lang "about.title_named" "site" .Base.SiteName}}</h1>
-<p>{{t .Base.Lang "about.intro"}}</p>
+{{define "content"}}
+<header class="page-header"><h1 class="page-title">{{tf .Base.Lang "about.title_named" "site" .Base.SiteName}}</h1><p class="page-lead">{{t .Base.Lang "about.intro"}}</p></header>
 
-<h2>{{t .Base.Lang "about.who_title"}}</h2>
+<section class="section-card" aria-labelledby="about-who"><h2 id="about-who">{{t .Base.Lang "about.who_title"}}</h2>
 <ul>
 <li>{{t .Base.Lang "about.who_individuals"}}</li>
 <li>{{t .Base.Lang "about.who_developers"}}</li>
 <li>{{t .Base.Lang "about.who_sharers"}}</li>
 </ul>
+</section>
 
-<h2>{{t .Base.Lang "about.features"}}</h2>
+<section class="section-card" aria-labelledby="about-features"><h2 id="about-features">{{t .Base.Lang "about.features"}}</h2>
 <ul>
 <li><strong>{{t .Base.Lang "about.feature_shortening"}}</strong> &mdash; {{t .Base.Lang "about.feature_shortening_desc"}}</li>
 <li><strong>{{t .Base.Lang "about.feature_redirect"}}</strong> &mdash; {{t .Base.Lang "about.feature_redirect_desc"}}</li>
@@ -17,12 +17,13 @@
 <li><strong>{{t .Base.Lang "about.feature_management"}}</strong> &mdash; {{t .Base.Lang "about.feature_management_desc"}}</li>
 <li><strong>{{t .Base.Lang "about.feature_no_accounts"}}</strong> &mdash; {{t .Base.Lang "about.feature_no_accounts_desc"}}</li>
 </ul>
+</section>
 
 {{if .AboutContent}}<div class="about-extra">{{.AboutContent}}</div>{{end}}
 
-<h2>{{t .Base.Lang "about.geoip_title"}}</h2>
+<section class="section-card" aria-labelledby="about-geoip"><h2 id="about-geoip">{{t .Base.Lang "about.geoip_title"}}</h2>
 <p>{{t .Base.Lang "about.geoip_before"}}
 <a href="https://db-ip.com/">{{t .Base.Lang "about.geoip_link"}}</a>.
 {{t .Base.Lang "about.geoip_after"}}</p>
-</article>
+</section>
 {{end}}

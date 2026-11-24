@@ -429,7 +429,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/auth/check",
+              "description": "Check token authorization",
               "name": "checkAuthorization",
               "type": {
                 "kind": "SCALAR",
@@ -438,33 +438,8 @@
               }
             },
             {
-              "args": [
-                {
-                  "defaultValue": null,
-                  "description": "",
-                  "name": "api_version",
-                  "type": {
-                    "kind": "NON_NULL",
-                    "name": null,
-                    "ofType": {
-                      "kind": "SCALAR",
-                      "name": "String",
-                      "ofType": null
-                    }
-                  }
-                }
-              ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/preferences/export",
-              "name": "exportPreferences",
-              "type": {
-                "kind": "SCALAR",
-                "name": "JSON",
-                "ofType": null
-              }
-            },
-            {
               "args": [],
-              "description": "Read-only REST operation: GET /api/metrics/grafana",
+              "description": "Read service metrics",
               "name": "getAPIGrafanaMetrics",
               "type": {
                 "kind": "SCALAR",
@@ -474,7 +449,7 @@
             },
             {
               "args": [],
-              "description": "Read-only REST operation: GET /api/healthz",
+              "description": "Check service health",
               "name": "getAPIHealth",
               "type": {
                 "kind": "SCALAR",
@@ -484,7 +459,7 @@
             },
             {
               "args": [],
-              "description": "Read-only REST operation: GET /api/metrics/loki",
+              "description": "Read service metrics",
               "name": "getAPILokiMetrics",
               "type": {
                 "kind": "SCALAR",
@@ -494,7 +469,7 @@
             },
             {
               "args": [],
-              "description": "Read-only REST operation: GET /api/metrics",
+              "description": "Read service metrics",
               "name": "getAPIMetrics",
               "type": {
                 "kind": "SCALAR",
@@ -504,7 +479,7 @@
             },
             {
               "args": [],
-              "description": "Read-only REST operation: GET /api/metrics/prometheus",
+              "description": "Read service metrics",
               "name": "getAPIPrometheusMetrics",
               "type": {
                 "kind": "SCALAR",
@@ -529,7 +504,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/about",
+              "description": "Read about this service",
               "name": "getAboutPage",
               "type": {
                 "kind": "SCALAR",
@@ -539,7 +514,7 @@
             },
             {
               "args": [],
-              "description": "Read-only REST operation: GET /api/autodiscover",
+              "description": "Discover compatible CLI versions",
               "name": "getCLIAutodiscover",
               "type": {
                 "kind": "SCALAR",
@@ -564,7 +539,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/contact",
+              "description": "Read contact form information",
               "name": "getContactForm",
               "type": {
                 "kind": "SCALAR",
@@ -589,7 +564,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/dpo",
+              "description": "Read data protection contact information",
               "name": "getDPO",
               "type": {
                 "kind": "SCALAR",
@@ -614,7 +589,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/metrics/grafana",
+              "description": "Read service metrics",
               "name": "getGrafanaMetrics",
               "type": {
                 "kind": "SCALAR",
@@ -639,7 +614,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/healthz",
+              "description": "Check service health",
               "name": "getHealth",
               "type": {
                 "kind": "SCALAR",
@@ -664,7 +639,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/help",
+              "description": "Read help content",
               "name": "getHelpPage",
               "type": {
                 "kind": "SCALAR",
@@ -703,7 +678,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/links/{slug}",
+              "description": "Read a shortened link",
               "name": "getLink",
               "type": {
                 "kind": "SCALAR",
@@ -742,7 +717,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/links/{slug}/stats",
+              "description": "Get link statistics",
               "name": "getLinkStats",
               "type": {
                 "kind": "SCALAR",
@@ -767,7 +742,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /{slug}/stats",
+              "description": "Read link statistics",
               "name": "getLinkStatsPage",
               "type": {
                 "kind": "SCALAR",
@@ -792,7 +767,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/metrics/loki",
+              "description": "Read service metrics",
               "name": "getLokiMetrics",
               "type": {
                 "kind": "SCALAR",
@@ -817,7 +792,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/help/mcp",
+              "description": "Read MCP setup help",
               "name": "getMCPHelp",
               "type": {
                 "kind": "SCALAR",
@@ -842,7 +817,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/metrics",
+              "description": "Read service metrics",
               "name": "getMetrics",
               "type": {
                 "kind": "SCALAR",
@@ -867,7 +842,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/swagger",
+              "description": "Read the OpenAPI specification",
               "name": "getOpenAPI",
               "type": {
                 "kind": "SCALAR",
@@ -877,7 +852,7 @@
             },
             {
               "args": [],
-              "description": "Read-only REST operation: GET /api/swagger",
+              "description": "Read the OpenAPI specification",
               "name": "getOpenAPIAlias",
               "type": {
                 "kind": "SCALAR",
@@ -902,7 +877,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/preferences",
+              "description": "Read preferences",
               "name": "getPreferences",
               "type": {
                 "kind": "SCALAR",
@@ -927,7 +902,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/privacy",
+              "description": "Read privacy information",
               "name": "getPrivacyPage",
               "type": {
                 "kind": "SCALAR",
@@ -952,7 +927,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/metrics/prometheus",
+              "description": "Read service metrics",
               "name": "getPrometheusMetrics",
               "type": {
                 "kind": "SCALAR",
@@ -962,7 +937,7 @@
             },
             {
               "args": [],
-              "description": "Read-only REST operation: GET /metrics/grafana",
+              "description": "Read service metrics",
               "name": "getRootGrafanaMetrics",
               "type": {
                 "kind": "SCALAR",
@@ -972,7 +947,7 @@
             },
             {
               "args": [],
-              "description": "Read-only REST operation: GET /healthz",
+              "description": "Check service health",
               "name": "getRootHealth",
               "type": {
                 "kind": "SCALAR",
@@ -982,7 +957,7 @@
             },
             {
               "args": [],
-              "description": "Read-only REST operation: GET /metrics/loki",
+              "description": "Read service metrics",
               "name": "getRootLokiMetrics",
               "type": {
                 "kind": "SCALAR",
@@ -992,7 +967,7 @@
             },
             {
               "args": [],
-              "description": "Read-only REST operation: GET /metrics",
+              "description": "Read service metrics",
               "name": "getRootMetrics",
               "type": {
                 "kind": "SCALAR",
@@ -1002,7 +977,7 @@
             },
             {
               "args": [],
-              "description": "Read-only REST operation: GET /metrics/prometheus",
+              "description": "Read service metrics",
               "name": "getRootPrometheusMetrics",
               "type": {
                 "kind": "SCALAR",
@@ -1027,7 +1002,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/security",
+              "description": "Read security information",
               "name": "getSecurityInfo",
               "type": {
                 "kind": "SCALAR",
@@ -1052,7 +1027,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/security/policy",
+              "description": "Read the security policy",
               "name": "getSecurityPolicy",
               "type": {
                 "kind": "SCALAR",
@@ -1077,7 +1052,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/security/thanks",
+              "description": "Read security information",
               "name": "getSecurityThanks",
               "type": {
                 "kind": "SCALAR",
@@ -1087,7 +1062,7 @@
             },
             {
               "args": [],
-              "description": "Read-only REST operation: GET /server/metrics/grafana",
+              "description": "Read service metrics",
               "name": "getServerGrafanaMetrics",
               "type": {
                 "kind": "SCALAR",
@@ -1097,7 +1072,7 @@
             },
             {
               "args": [],
-              "description": "Read-only REST operation: GET /server/metrics/loki",
+              "description": "Read service metrics",
               "name": "getServerLokiMetrics",
               "type": {
                 "kind": "SCALAR",
@@ -1107,7 +1082,7 @@
             },
             {
               "args": [],
-              "description": "Read-only REST operation: GET /server/metrics",
+              "description": "Read service metrics",
               "name": "getServerMetrics",
               "type": {
                 "kind": "SCALAR",
@@ -1117,7 +1092,7 @@
             },
             {
               "args": [],
-              "description": "Read-only REST operation: GET /server/metrics/prometheus",
+              "description": "Read service metrics",
               "name": "getServerPrometheusMetrics",
               "type": {
                 "kind": "SCALAR",
@@ -1142,7 +1117,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/terms",
+              "description": "Read the terms of service",
               "name": "getTermsPage",
               "type": {
                 "kind": "SCALAR",
@@ -1223,7 +1198,7 @@
                   }
                 }
               ],
-              "description": "List links ordered by the REST API's default ordering.",
+              "description": "List links ordered by the REST API default ordering.",
               "name": "links",
               "type": {
                 "kind": "LIST",
@@ -1256,7 +1231,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/links",
+              "description": "List shortened links",
               "name": "listLinks",
               "type": {
                 "kind": "SCALAR",
@@ -1281,7 +1256,7 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /api/{api_version}/server/preferences/tokens",
+              "description": "List API tokens",
               "name": "listTokens",
               "type": {
                 "kind": "SCALAR",
@@ -1306,8 +1281,33 @@
                   }
                 }
               ],
-              "description": "Read-only REST operation: GET /{slug}",
+              "description": "Read service metrics",
               "name": "redirectShortLink",
+              "type": {
+                "kind": "SCALAR",
+                "name": "JSON",
+                "ofType": null
+              }
+            },
+            {
+              "args": [
+                {
+                  "defaultValue": null,
+                  "description": "",
+                  "name": "api_version",
+                  "type": {
+                    "kind": "NON_NULL",
+                    "name": null,
+                    "ofType": {
+                      "kind": "SCALAR",
+                      "name": "String",
+                      "ofType": null
+                    }
+                  }
+                }
+              ],
+              "description": "Export preferences for cross-device sync",
+              "name": "syncPreferences",
               "type": {
                 "kind": "SCALAR",
                 "name": "JSON",

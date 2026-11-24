@@ -232,8 +232,7 @@ func windowsPaths(home string) Paths {
 }
 
 // IsAdministrator reports whether the process has Windows Administrator
-// privileges. On non-Windows platforms it always returns false. Windows
-// admin-token detection is tracked in TODO.AI.md (PART 4).
+// privileges. On non-Windows platforms it always returns false.
 func IsAdministrator() bool {
 	return runtime.GOOS == "windows" && windowsIsAdministrator()
 }

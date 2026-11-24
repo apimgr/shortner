@@ -345,6 +345,23 @@ func (d *deps) blocklistMiddleware(next http.Handler) http.Handler {
 		}
 
 		ip := d.resolver.ResolveClientIP(r)
+		if d.blocklists != nil {
+			if source := d.blocklists.MatchIP(ip); source != "" {
+				d.blocklists.RecordMatch(source)
+				sendError(w, r, apperr.New(apperr.CodeForbidden))
+				return
+			}
+			source, err := d.blocklists.MatchRequest(r)
+			if err != nil {
+				sendError(w, r, apperr.New(apperr.CodeBadRequest))
+				return
+			}
+			if source != "" {
+				d.blocklists.RecordMatch(source)
+				sendError(w, r, apperr.New(apperr.CodeForbidden))
+				return
+			}
+		}
 		now := time.Now()
 		if _, blocked := d.blocks.Blocked(ip, now); blocked {
 			// The response deliberately does not say the IP is blocked or

@@ -112,6 +112,14 @@ owner_token: shortner_owner_token_zgnygola
   primary and linked tokens from `/server/preferences/tokens`; each token's encrypted
   copy is stored with its hash. The `adm_` operator token remains separate in
   `secrets.yml` and can revoke owner tokens.
+- Existing hash-only token rows retain their token hash, prefix, owner identity, and
+  authentication validity; they are never auto-rotated, deleted, or guessed. Startup
+  backfills the last four characters only from a decryptable encrypted copy that matches
+  the stored hash and prefix. Unrecoverable rows remain valid for authentication but have
+  no suffix or reveal value. A raw token that passes normal hash, revocation, and ownership
+  checks lazily restores the suffix and, when the encryption key is available, its
+  encrypted reveal copy. Startup warnings are aggregate-only and omit row identifiers,
+  prefixes, and secrets.
 - Single fixed domain, no per-tenant custom domains — there is no user/owner entity to
   scope a custom domain to, so custom domains are out of scope entirely, not merely
   deferred.

@@ -1,9 +1,14 @@
 package httpserver
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/apimgr/shortner/src/blocklist"
 	"github.com/apimgr/shortner/src/config"
 )
 
@@ -33,6 +38,46 @@ func TestAllowlistLookupContains(t *testing.T) {
 	var nilLookup *AllowlistLookup
 	if nilLookup.Contains("10.1.2.3") {
 		t.Error("expected a nil *AllowlistLookup to match nothing")
+	}
+}
+
+func TestBlocklistMiddlewareRejectsDownloadedIPAndDomain(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "firehol_level1.txt"), []byte("203.0.113.55\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "domains.txt"), []byte("blocked.example\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := blocklist.Open(dir, config.Blocklists{Enabled: true, ExtraSources: []config.BlocklistSource{{ID: "domains", Type: "domain", URL: "https://example.test/feed"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := testDeps(t)
+	d.blocklists = manager
+	d.resolver = NewProxyResolver(nil)
+	h := d.allowlistMiddleware(d.blocklistMiddleware(okHandler()))
+	tests := []struct {
+		name, remote, origin string
+		want                 int
+	}{
+		{name: "IP source", remote: "203.0.113.55:1234", want: http.StatusForbidden},
+		{name: "domain source", remote: "9.9.9.9:1234", origin: "https://blocked.example", want: http.StatusForbidden},
+		{name: "unlisted", remote: "9.9.9.9:1234", origin: "https://ok.example", want: http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = tt.remote
+			if tt.origin != "" {
+				req.Header.Set("Origin", tt.origin)
+			}
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != tt.want {
+				t.Errorf("status = %d, want %d", rec.Code, tt.want)
+			}
+		})
 	}
 }
 

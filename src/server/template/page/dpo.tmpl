@@ -1,9 +1,7 @@
-{{define "content"}}{{$lang := .Base.Lang}}<article class="dpo-page">
-<h1>{{t $lang "dpo.title"}}</h1>
+{{define "content"}}{{$lang := .Base.Lang}}
+<header class="page-header"><h1 class="page-title">{{t $lang "dpo.title"}}</h1><p class="page-lead">{{tf $lang "dpo.intro" "site" .Base.SiteName}}</p></header>
 
-<p>{{tf $lang "dpo.intro" "site" .Base.SiteName}}</p>
-
-<dl class="dpo-details">
+<section class="section-card" aria-labelledby="dpo-details-title"><h2 id="dpo-details-title">{{t $lang "dpo.contact_details"}}</h2><dl class="dpo-details">
 {{if .Name}}<dt>{{t $lang "dpo.name"}}</dt><dd>{{.Name}}</dd>{{end}}
 {{if .Email}}<dt>{{t $lang "dpo.email"}}</dt><dd><a href="mailto:{{.Email}}">{{.Email}}</a></dd>{{end}}
 {{if .Address}}<dt>{{t $lang "dpo.postal_address"}}</dt><dd>{{.Address}}</dd>{{end}}
@@ -13,5 +11,5 @@
 <a href="/server/privacy">{{t $lang "dpo.privacy_policy_link"}}</a>
 {{t $lang "dpo.see_privacy_after"}}</p>
 {{if not .Email}}<p>{{t $lang "dpo.contact_fallback"}} <a href="/server/security">{{t $lang "dpo.contact_security_link"}}</a>.</p>{{end}}
-</article>
+</section>
 {{end}}

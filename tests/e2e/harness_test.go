@@ -77,19 +77,22 @@ func setup() error {
 		return err
 	}
 	artifactDir = dir
+	if err := os.Chmod(artifactDir, 0o711); err != nil {
+		return err
+	}
 
 	cfgDir := filepath.Join(artifactDir, "config")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return err
 	}
 
-	logFile, err := os.Create(filepath.Join(artifactDir, "server.log"))
+	logFile, err := os.OpenFile(filepath.Join(artifactDir, "server.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
 
 	serverCmd = exec.Command(bin,
-		"--config", filepath.Join(cfgDir, "server.yml"),
+		"--config", cfgDir,
 		"--address", "0.0.0.0",
 		"--port", port,
 	)
@@ -169,6 +172,9 @@ func browserContext(t *testing.T) (context.Context, *consoleErrors) {
 	})
 	if err := chromedp.Run(timeoutCtx, network.Enable()); err != nil {
 		errs.add("enable network monitoring: " + err.Error())
+	}
+	if err := chromedp.Run(timeoutCtx, network.SetCookie("cookie_consent", "e2e").WithDomain(envOr("E2E_SELF_HOST", "127.0.0.1")).WithPath("/")); err != nil {
+		errs.add("set test consent cookie: " + err.Error())
 	}
 	return timeoutCtx, errs
 }

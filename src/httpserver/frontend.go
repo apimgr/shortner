@@ -55,7 +55,7 @@ func (fd *frontendDeps) registerFrontendRoutes(r chi.Router, hd *healthDeps, ld 
 	r.Get("/server/about", fd.aboutHandler)
 	r.Get("/server/privacy", fd.privacyHandler)
 	r.Get("/server/help", fd.helpHandler)
-	r.Get("/server/help/mcp", fd.mcpHelpPage)
+	registerHelpPages(r, fd, fd.cfg)
 	r.Get("/server/docs/swagger", fd.swaggerPage)
 	r.Get("/server/docs/graphql", fd.graphqlPage)
 	r.Get("/server/terms", fd.termsHandler)
@@ -199,7 +199,7 @@ func (fd *frontendDeps) homePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	ownerID, ownerToken, err := fd.ld.ownerForCreate(r, true)
+	ownerID, ownerToken, err := fd.ld.ownerForCreate(w, r, true)
 	if err != nil {
 		fd.homeError(w, r, t(r, "errors.link_create_failed"), destInput, slugInput, http.StatusInternalServerError)
 		return
@@ -230,8 +230,6 @@ func (fd *frontendDeps) homePost(w http.ResponseWriter, r *http.Request) {
 
 	if ownerToken != "" {
 		setOwnerTokenCookie(w, r, fd.cfg, fd.resolver, ownerToken)
-	} else if cookie, err := r.Cookie(ownerTokenCookieName); err == nil {
-		setOwnerTokenCookie(w, r, fd.cfg, fd.resolver, cookie.Value)
 	}
 
 	shortURL := fd.ld.resolver.BuildURL(r, "/"+link.ShortCode)
@@ -273,12 +271,14 @@ func (fd *frontendDeps) aboutHandler(w http.ResponseWriter, r *http.Request) {
 type helpPageData struct {
 	Base        PageData
 	HelpContent template.HTML
+	HelpPages   []preferenceHubEntry
 }
 
 func (fd *frontendDeps) helpHandler(w http.ResponseWriter, r *http.Request) {
 	data := helpPageData{
 		Base:        fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "help.title"), fd.cfg.Server.Branding.Description),
 		HelpContent: sanitize.RenderMarkdown(fd.cfg.Server.Pages.Help.Content, r.Host),
+		HelpPages:   registeredHelpPages(fd.cfg, langFromContext(r)),
 	}
 	_ = renderPage(w, http.StatusOK, "help", data)
 }

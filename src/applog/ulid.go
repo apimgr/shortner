@@ -3,11 +3,8 @@
 // formats (apache/nginx/json/logfmt/syslog/fail2ban/cef/text), raw-text-only
 // log files, and an append-only, tamper-evident JSON-Lines audit log.
 //
-// Time-based log rotation/retention scheduling (AI.md PART 11 "Log
-// Rotation" / "Audit Log Retention") depends on the scheduler that AI.md
-// PART 18 defines and is not built yet; this package appends to open files
-// and exposes rotation as a manual, callable operation (see Logger.Rotate)
-// rather than a background scheduled job. Tracked in TODO.AI.md.
+// Log rotation and retention are performed by the built-in scheduler (AI.md
+// PART 18) through Logger.RotateIfDue.
 package applog
 
 import (

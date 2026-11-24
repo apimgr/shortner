@@ -1,6 +1,69 @@
 /* Page-specific layout, per AI.md PART 16 "CSS Structure" -> public.css.
    Mobile-first. */
 
+.site-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.header-actions,
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.header-actions {
+  margin-inline-start: auto;
+}
+
+.nav-links a {
+  color: var(--color-fg);
+  text-decoration: none;
+}
+
+.nav-links a.active {
+  font-weight: 700;
+}
+
+.nav-checkbox {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	clip-path: inset(50%);
+}
+
+.nav-toggle {
+  display: none;
+}
+
+.theme-toggle-form {
+  margin: 0;
+}
+
+.theme-toggle {
+  padding: 0.5rem 0.75rem;
+}
+
+.header-link {
+  color: var(--color-fg);
+  text-decoration: none;
+}
+
+.site-header .operator-header-content {
+  flex-basis: 100%;
+}
+
 .site-header-inner,
 .site-nav-inner {
   display: flex;
@@ -30,32 +93,8 @@ main.container {
   min-height: 60vh;
 }
 
-.home-hero {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  text-align: center;
-  padding: 2rem 0;
-}
-
-.home-logo {
-  border-radius: 0.75rem;
-}
-
 .tagline {
   color: var(--color-fg-muted);
-}
-
-.create-link-card,
-.success-card {
-  width: 100%;
-  max-width: 32rem;
-  text-align: start;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 0.75rem;
-  padding: 1.5rem;
 }
 
 .result-row {
@@ -76,10 +115,7 @@ main.container {
   margin-bottom: 0.25rem;
 }
 
-article {
-  max-width: 42rem;
-  margin: 0 auto;
-}
+article { margin: 0; }
 
 article h1 {
   font-size: 1.75rem;
@@ -125,20 +161,6 @@ article pre {
   max-width: 32rem;
 }
 
-.contact-review {
-  position: fixed;
-  z-index: var(--z-modal);
-  inset: 50% auto auto 50%;
-  width: min(90vw, 36rem);
-  max-height: 85vh;
-  overflow: auto;
-  transform: translate(-50%, -50%);
-  padding: 1.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.75rem;
-  background: var(--color-bg);
-  box-shadow: 0 0 0 100vmax rgb(0 0 0 / 55%);
-}
 
 .contact-honeypot {
 	position: absolute;
@@ -149,11 +171,6 @@ article pre {
 	overflow: hidden;
 }
 
-.contact-info {
-  margin-top: 2rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--color-border);
-}
 
 /* Footer rows, per AI.md PART 16 "Default Application Footer": consecutive
    <p> rows with no <br> spacers and a deliberately tight vertical rhythm;
@@ -233,6 +250,33 @@ article pre {
 }
 
 @media (max-width: 40rem) {
+  .site-header {
+    padding-inline-end: 4rem;
+  }
+
+  .nav-toggle {
+    display: inline-flex;
+    position: absolute;
+    inset-block-start: 0.5rem;
+    inset-inline-end: 0.5rem;
+  }
+
+  #nav-toggle:focus-visible ~ .site-header .nav-toggle {
+	outline: 2px solid var(--color-primary);
+	outline-offset: 2px;
+  }
+
+  .site-header .nav-links {
+    display: none;
+    flex-basis: 100%;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  #nav-toggle:checked ~ .site-header .nav-links {
+    display: flex;
+  }
+
   .offline-indicator,
   .pwa-banner {
     margin: 0.5rem;
@@ -244,11 +288,6 @@ article pre {
   }
 }
 
-@media (min-width: 768px) {
-  article {
-    max-width: 48rem;
-  }
-}
 .mcp-endpoint {
   display: flex;
   align-items: center;

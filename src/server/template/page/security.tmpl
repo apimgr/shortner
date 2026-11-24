@@ -1,9 +1,6 @@
-{{define "content"}}{{$lang := .Base.Lang}}<article class="security-page">
-<h1>{{t $lang "security.title"}}</h1>
-
-<p>{{tf $lang "security.intro" "site" .Base.SiteName}}</p>
-
-<h2>{{t $lang "security.how_to_report"}}</h2>
+{{define "content"}}{{$lang := .Base.Lang}}
+<header class="page-header"><h1 class="page-title">{{t $lang "security.title"}}</h1><p class="page-lead">{{tf $lang "security.intro" "site" .Base.SiteName}}</p></header>
+<section class="section-card" aria-labelledby="security-report-options"><h2 id="security-report-options">{{t $lang "security.how_to_report"}}</h2>
 <ol class="security-contacts">
 {{if .ReportURL}}<li><strong>{{t $lang "security.private_report"}}</strong>
 <a href="{{.ReportURL}}" rel="noopener">{{.ReportURL}}</a></li>{{end}}
@@ -11,31 +8,33 @@
 <a href="{{.ContactFormURL}}">{{t $lang "security.report_form_link"}}</a></li>{{end}}
 {{if .ContactEmail}}<li><strong>{{t $lang "security.email"}}</strong>
 <a href="mailto:{{.ContactEmail}}">{{.ContactEmail}}</a></li>{{end}}
-</ol>
+</ol></section>
 
 {{if .ReportFormURL}}
-<h2>{{t $lang "security.other_reports"}}</h2>
+<section class="section-card" aria-labelledby="security-other-reports"><h2 id="security-other-reports">{{t $lang "security.other_reports"}}</h2>
 <p>{{t $lang "security.other_reports_intro"}}
 <a href="{{.ReportFormURL}}">{{t $lang "security.other_reports_link"}}</a>.</p>
-{{end}}
+</section>{{end}}
 
-<h2>{{t $lang "security.what_to_include"}}</h2>
+<section class="section-card" aria-labelledby="security-include"><h2 id="security-include">{{t $lang "security.what_to_include"}}</h2>
 <p>{{t $lang "security.what_to_include_body"}}</p>
+</section>
 
 {{if .HasPGPKey}}
-<h2>{{t $lang "security.encryption"}}</h2>
+<section class="section-card" aria-labelledby="security-encryption"><h2 id="security-encryption">{{t $lang "security.encryption"}}</h2>
 <p>{{t $lang "security.encryption_body"}}
 <a href="{{.PGPKeyURL}}">{{.PGPKeyURL}}</a>{{if .Keyservers}}, {{t $lang "security.also_published"}}
 {{range $i, $k := .Keyservers}}{{if $i}}, {{end}}<a href="{{$k}}" rel="noopener">{{$k}}</a>{{end}}{{end}}.</p>
-{{end}}
+</section>{{end}}
 
-<h2>{{t $lang "security.policy_heading"}}</h2>
+<section class="section-card" aria-labelledby="security-policy"><h2 id="security-policy">{{t $lang "security.policy_heading"}}</h2>
 <p>{{t $lang "security.policy_before"}} <a href="{{.PolicyURL}}">{{t $lang "security.policy_link"}}</a>
 {{t $lang "security.policy_after"}} {{t $lang "security.thanks_before"}}
 <a href="{{.ThanksURL}}">{{t $lang "security.thanks_link"}}</a>.</p>
+</section>
 
-<h2>{{t $lang "security.machine_readable"}}</h2>
+<section class="section-card" aria-labelledby="security-machine-readable"><h2 id="security-machine-readable">{{t $lang "security.machine_readable"}}</h2>
 <p>{{t $lang "security.mirrors"}} <a href="{{.SecurityTxtURL}}">{{.SecurityTxtURL}}</a>
 {{tf $lang "security.rfc_note" "expires" .Expires}}</p>
-</article>
+</section>
 {{end}}

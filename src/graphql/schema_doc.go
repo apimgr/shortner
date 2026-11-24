@@ -71,8 +71,8 @@ type schemaIntrospection struct {
 }
 
 // IntrospectionDocument generates a deterministic JSON schema from the executable API.
-func IntrospectionDocument() ([]byte, error) {
-	schema, err := Schema()
+func IntrospectionDocument(languages ...string) ([]byte, error) {
+	schema, err := Schema(languages...)
 	if err != nil {
 		return nil, err
 	}
@@ -96,14 +96,27 @@ func IntrospectionDocument() ([]byte, error) {
 }
 
 // SchemaDocument returns the build-generated GraphQL introspection document embedded in the binary.
-func SchemaDocument() []byte {
+func SchemaDocument(languages ...string) []byte {
+	if len(languages) > 0 && languages[0] != "en" {
+		if document, err := IntrospectionDocument(languages[0]); err == nil {
+			return document
+		}
+	}
 	return append([]byte(nil), embeddedSchemaDocument...)
 }
 
 // DocumentQueries reads the query inventory from the embedded schema document.
-func DocumentQueries() ([]QueryDocumentation, error) {
+func DocumentQueries(languages ...string) ([]QueryDocumentation, error) {
+	data := embeddedSchemaDocument
+	if len(languages) > 0 && languages[0] != "en" {
+		var err error
+		data, err = IntrospectionDocument(languages[0])
+		if err != nil {
+			return nil, err
+		}
+	}
 	var document schemaIntrospection
-	if err := json.Unmarshal(embeddedSchemaDocument, &document); err != nil {
+	if err := json.Unmarshal(data, &document); err != nil {
 		return nil, fmt.Errorf("decode embedded GraphQL schema: %w", err)
 	}
 	queryType := document.Data.Schema.QueryType.Name

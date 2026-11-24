@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apimgr/shortner/src/blocklist"
+	"github.com/apimgr/shortner/src/config"
 	_ "modernc.org/sqlite"
 )
 
@@ -116,6 +118,30 @@ func TestBuildHealthResponseHealthy(t *testing.T) {
 	}
 	if resp.Project.Name != "Shortner" {
 		t.Errorf("Project.Name = %q, want Shortner", resp.Project.Name)
+	}
+}
+
+func TestHealthIncludesOrderedBlocklistChecks(t *testing.T) {
+	h := testHealthDeps(t, openTestDB(t))
+	manager, err := blocklist.Open(t.TempDir(), config.DefaultSecurity().Blocklists)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.blocklists = manager
+	resp := h.buildHealthResponse(context.Background())
+	if resp.Status != "degraded" {
+		t.Fatalf("Status = %q, want degraded for a never-loaded feed", resp.Status)
+	}
+	if len(resp.Checks.Datasets) != 1 || resp.Checks.Datasets[0].Key != "blocklist_firehol_level1" || resp.Checks.Datasets[0].Status != "error" {
+		t.Fatalf("dataset checks = %+v", resp.Checks.Datasets)
+	}
+	encoded, err := json.Marshal(resp.Checks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(encoded)
+	if !strings.Contains(text, `"scheduler":"ok","blocklist_firehol_level1":"error"`) {
+		t.Fatalf("checks JSON did not preserve dataset order: %s", text)
 	}
 }
 

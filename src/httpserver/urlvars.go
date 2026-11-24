@@ -1,7 +1,5 @@
 // URL & FQDN detection and the trusted-proxies trust gate, per AI.md
-// PART 12 "Trusted Proxies" and PART 8 "URL Detection". The periodic
-// (5-minute) DNS refresh for hostname entries in
-// `trusted_proxies.additional` is deferred — see TODO.AI.md.
+// PART 12 "Trusted Proxies" and PART 8 "URL Detection".
 package httpserver
 
 import (
@@ -9,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 // alwaysTrustedCIDRs are the private/loopback/link-local ranges trusted
@@ -26,13 +25,16 @@ var alwaysTrustedCIDRs = []string{
 
 // ProxyResolver evaluates the trusted_proxies gate and resolves
 // {proto}/{fqdn}/{port} and the client IP from reverse-proxy headers, per
-// AI.md PART 12 "Trusted Proxies" and PART 8 "URL Detection". Resolved once
-// at construction from server.yml — the spec's "refreshed every 5 minutes"
-// DNS re-resolution for hostname entries in `additional` is deferred (see
-// TODO.AI.md).
+// AI.md PART 12 "Trusted Proxies" and PART 8 "URL Detection". Hostname
+// entries in `additional` are refreshed every five minutes.
 type ProxyResolver struct {
-	nets []*net.IPNet
-	ips  map[string]bool
+	nets           []*net.IPNet
+	additional     []string
+	additionalNets []*net.IPNet
+	trustMu        sync.RWMutex
+	refreshMu      sync.Mutex
+	ips            map[string]bool
+	lastDNSUpdate  time.Time
 	// overlayMu guards overlayHosts, which holds the live `.onion` and
 	// `.b32.i2p` addresses (AI.md PART 31). They are only known once the
 	// provider has published them, and change on every regeneration, so
@@ -42,41 +44,62 @@ type ProxyResolver struct {
 }
 
 // NewProxyResolver builds a resolver trusting the always-trusted private
-// ranges plus every IP/CIDR/hostname in additional. Hostnames are resolved
-// once at startup; a lookup failure simply omits that entry rather than
-// failing startup, per the Config Validation Rule.
+// ranges plus every IP/CIDR/hostname in additional. Hostnames are refreshed
+// every five minutes; a lookup failure omits that entry rather than failing
+// startup, per the Config Validation Rule.
 func NewProxyResolver(additional []string) *ProxyResolver {
-	r := &ProxyResolver{ips: make(map[string]bool)}
+	r := &ProxyResolver{ips: make(map[string]bool), additional: append([]string(nil), additional...)}
 	for _, cidr := range alwaysTrustedCIDRs {
 		if _, n, err := net.ParseCIDR(cidr); err == nil {
 			r.nets = append(r.nets, n)
 		}
 	}
-	for _, entry := range additional {
+	r.refreshAdditional(true)
+	return r
+}
+
+// refreshAdditional refreshes configured address and DNS entries at startup
+// and every five minutes thereafter.
+func (r *ProxyResolver) refreshAdditional(force bool) {
+	r.refreshMu.Lock()
+	defer r.refreshMu.Unlock()
+	if !force && time.Since(r.lastDNSUpdate) < 5*time.Minute {
+		return
+	}
+	r.lastDNSUpdate = time.Now()
+	resolved := make(map[string]bool)
+	additionalNets := make([]*net.IPNet, 0)
+	for _, entry := range r.additional {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
 			continue
 		}
-		if _, n, err := net.ParseCIDR(entry); err == nil {
-			r.nets = append(r.nets, n)
+		if _, network, err := net.ParseCIDR(entry); err == nil {
+			additionalNets = append(additionalNets, network)
 			continue
 		}
 		if ip := net.ParseIP(entry); ip != nil {
-			r.ips[ip.String()] = true
+			resolved[ip.String()] = true
 			continue
 		}
 		if addrs, err := net.LookupHost(entry); err == nil {
 			for _, a := range addrs {
-				r.ips[a] = true
+				if ip := net.ParseIP(a); ip != nil {
+					resolved[ip.String()] = true
+				}
 			}
 		}
 	}
-	return r
+	r.trustMu.Lock()
+	r.ips = resolved
+	r.additionalNets = additionalNets
+	r.trustMu.Unlock()
 }
 
 // IsTrustedPeer reports whether remoteAddr (an "IP:port" or bare IP, as
 // found in http.Request.RemoteAddr) is a trusted reverse proxy.
 func (r *ProxyResolver) IsTrustedPeer(remoteAddr string) bool {
+	r.refreshAdditional(false)
 	host := remoteAddr
 	if h, _, err := net.SplitHostPort(remoteAddr); err == nil {
 		host = h
@@ -85,7 +108,18 @@ func (r *ProxyResolver) IsTrustedPeer(remoteAddr string) bool {
 	if ip == nil {
 		return false
 	}
-	if r.ips[ip.String()] {
+	r.trustMu.RLock()
+	trusted := r.ips[ip.String()]
+	if !trusted {
+		for _, n := range r.additionalNets {
+			if n.Contains(ip) {
+				trusted = true
+				break
+			}
+		}
+	}
+	r.trustMu.RUnlock()
+	if trusted {
 		return true
 	}
 	for _, n := range r.nets {
@@ -146,8 +180,7 @@ func stripPort(addr string) string {
 }
 
 // GetURLVars resolves {proto}, {fqdn}, {port} for req, per AI.md PART 8
-// "URL Detection". Proxy headers are only honored from a trusted peer; the
-// domain-learning/live-reload layer is deferred (see TODO.AI.md).
+// "URL Detection". Proxy headers are only honored from a trusted peer.
 //
 // AI.md PART 12 "Tor Request Detection" makes overlay detection priority 0:
 // it is evaluated before any reverse-proxy header, is always trusted with no

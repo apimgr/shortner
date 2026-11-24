@@ -1,4 +1,3 @@
-// Package server will implement the HTTP server, routing, and handlers.
-// See AI.md PART 6 (Application Modes), PART 9-16 (server, DB, security,
-// API, SSL, web frontend) and TODO.AI.md for the implementation plan.
+// Package server embeds application templates and static assets used by the
+// HTTP server. See AI.md PART 7 "Embedded Assets" and PART 16 "Web Frontend".
 package server

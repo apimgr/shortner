@@ -2,16 +2,18 @@
 <html lang="{{.Base.Lang}}" dir="{{.Base.Dir}}" class="theme-{{.Base.Theme}}">
 {{template "head" .}}
 <body>
+<a href="#main-content" class="skip-link">{{t .Base.Lang "a11y.skip_to_content"}}</a>
+<a href="#navigation" class="skip-link">{{t .Base.Lang "a11y.skip_to_navigation"}}</a>
 {{template "cookie-consent" .}}
 {{template "announcements" .}}
 {{template "pwa" .}}
 <p id="offline-indicator" class="offline-indicator" aria-live="polite" hidden>{{t .Base.Lang "pwa.offline"}}</p>
-<a href="#main-content" class="skip-link">{{t .Base.Lang "a11y.skip_to_content"}}</a>
-<a href="#navigation" class="skip-link">{{t .Base.Lang "a11y.skip_to_navigation"}}</a>
+<input type="checkbox" id="nav-toggle" class="nav-checkbox">
 {{template "header" .}}
-{{template "nav" .}}
-<main id="main-content" class="container" tabindex="-1">
+<main id="main-content" tabindex="-1">
+<div class="container {{containerModifier .Base.CurrentPath}}">
 {{template "content" .}}
+</div>
 </main>
 {{template "footer" .}}
 {{template "consent-preferences-dialog" .}}

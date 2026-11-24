@@ -60,7 +60,7 @@ func get(t *testing.T, client *http.Client, path string) (*http.Response, string
 func TestTier1ServerSideRendering(t *testing.T) {
 	client := newClient(t)
 
-	for _, path := range []string{"/", "/server/about", "/server/healthz", "/list", "/server/docs/swagger", "/server/docs/graphql"} {
+	for _, path := range []string{"/", "/server/about", "/server/healthz", "/list", "/server/preferences/sync", "/server/docs/swagger", "/server/docs/graphql"} {
 		resp, body := get(t, client, path)
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("GET %s = %d, want 200", path, resp.StatusCode)

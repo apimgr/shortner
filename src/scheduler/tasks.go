@@ -12,6 +12,7 @@ import (
 	"github.com/shirou/gopsutil/v3/disk"
 
 	"github.com/apimgr/shortner/src/applog"
+	"github.com/apimgr/shortner/src/blocklist"
 	"github.com/apimgr/shortner/src/certmgr"
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/cve"
@@ -21,23 +22,7 @@ import (
 	"github.com/apimgr/shortner/src/pgp"
 )
 
-// builtinDef is the static (id, name) pair and honest-skip explanation for
-// each AI.md PART 18 "Built-in Tasks (Required)" entry that depends on a
-// subsystem this project has not built yet.
-type builtinDef struct {
-	id, name, skipReason string
-}
-
-// pendingBuiltins lists the required tasks whose real work depends on a
-// subsystem tracked as not-yet-implemented in TODO.AI.md. Registering them
-// (rather than omitting them) keeps every required task visible via
-// `--scheduler list` per AI.md PART 18, while `skipReason` makes every run
-// an honest, logged skip instead of a fabricated success or a crash.
-var pendingBuiltins = []builtinDef{
-	{"blocklist_update", "Blocklist Update", "IP/domain blocklists (AI.md PART 9/11) are not implemented yet"},
-}
-
-// Deps are the runtime dependencies real (non-pending) built-in tasks need.
+// Deps are the runtime dependencies built-in tasks need.
 type Deps struct {
 	DB     db.Handle
 	Tokens config.Tokens
@@ -59,10 +44,12 @@ type Deps struct {
 	CVEOptions                  cve.Options
 	SecurityReportRetentionDays int
 	PGPStore                    *pgp.Store
+	Keyservers                  []string
 	// GeoIP feeds geoip_update (AI.md PART 19). Nil when GeoIP is disabled
 	// — the task then honestly skips instead of downloading unused files.
-	GeoIP    *geoip.Manager
-	GeoIPCfg config.GeoIP
+	GeoIP      *geoip.Manager
+	GeoIPCfg   config.GeoIP
+	Blocklists *blocklist.Manager
 	// Backup feeds backup_daily/backup_hourly (AI.md PART 21). A zero
 	// value leaves both tasks registered but inert.
 	Backup BackupDeps
@@ -83,14 +70,8 @@ type Deps struct {
 	I2P OverlayHealth
 }
 
-// BuiltinTasks returns every AI.md PART 18 "Built-in Tasks (Required)"
-// TaskDef, with schedule/enabled taken from cfg (falling back to the
-// hardcoded spec default if an id is missing from cfg.Tasks). Real work is
-// implemented for token_cleanup, log_rotation, healthcheck_self,
-// ssl_renewal, geoip_update, security_cleanup, backup_daily, backup_hourly, update_check,
-// tor_health, and i2p_health; the remaining required tasks are registered
-// via pendingBuiltins so they stay visible and honestly skip until their
-// subsystem lands.
+// BuiltinTasks returns every AI.md PART 18 required TaskDef, with schedule
+// and enabled values from cfg (falling back to the spec defaults).
 func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
 	defaults := config.Default("").Server.Scheduler.Tasks
 	get := func(id string) config.SchedulerTaskYAML {
@@ -112,6 +93,8 @@ func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
 		{ID: "backup_daily", Name: "Daily Backup", Run: backupDailyTask(deps)},
 		{ID: "backup_hourly", Name: "Hourly Backup", Run: backupHourlyTask(deps)},
 		{ID: "update_check", Name: "Update Check", Run: updateCheckTask(deps)},
+		{ID: "keyserver_retry", Name: "PGP Keyserver Retry", Run: keyserverRetryTask(deps)},
+		{ID: "blocklist_update", Name: "Blocklist Update", Run: blocklistUpdateTask(deps.Blocklists)},
 	}
 	if deps.Tor != nil && deps.Tor.Enabled() {
 		tasks = append(tasks, TaskDef{ID: "tor_health", Name: "Tor Health Check", Run: torHealthTask(deps)})
@@ -119,10 +102,6 @@ func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
 	if deps.I2P != nil && deps.I2P.Enabled() {
 		tasks = append(tasks, TaskDef{ID: "i2p_health", Name: "I2P Health Check", Run: i2pHealthTask(deps)})
 	}
-	for _, p := range pendingBuiltins {
-		tasks = append(tasks, TaskDef{ID: p.id, Name: p.name, Run: pendingTask(p.skipReason)})
-	}
-
 	for i := range tasks {
 		s := get(tasks[i].ID)
 		tasks[i].Schedule = s.Schedule
@@ -144,13 +123,74 @@ func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
 	return tasks
 }
 
-// pendingTask fails explicitly when an enabled built-in task cannot run
-// because a required upstream contract is missing from AI.md. This keeps
-// the scheduler's status and warning logs honest instead of recording a
-// successful no-op.
-func pendingTask(reason string) TaskFunc {
+func blocklistUpdateTask(manager *blocklist.Manager) TaskFunc {
 	return func(ctx context.Context) error {
-		return fmt.Errorf("scheduled task unavailable: %s", reason)
+		if manager == nil {
+			return fmt.Errorf("blocklist_update: manager unavailable")
+		}
+		return manager.Update(ctx)
+	}
+}
+
+// keyserverRetryTask resumes persisted PGP submissions whose backoff has
+// elapsed, per AI.md PART 11 and PART 18.
+func keyserverRetryTask(deps Deps) TaskFunc {
+	return func(ctx context.Context) error {
+		if deps.PGPStore == nil || len(deps.Keyservers) == 0 || !deps.PGPStore.HasKeypair() {
+			return nil
+		}
+		fingerprint, due, err := deps.PGPStore.DueKeyservers(time.Now().UTC())
+		if err != nil {
+			return fmt.Errorf("keyserver_retry: read retry state: %w", err)
+		}
+		configured := make(map[string]bool, len(deps.Keyservers))
+		for _, keyserver := range deps.Keyservers {
+			configured[keyserver] = true
+		}
+		pending := due[:0]
+		for _, keyserver := range due {
+			if configured[keyserver] {
+				pending = append(pending, keyserver)
+			}
+		}
+		if len(pending) == 0 {
+			return nil
+		}
+		armored, err := deps.PGPStore.ReadPublicKey()
+		if err != nil {
+			return fmt.Errorf("keyserver_retry: read public key: %w", err)
+		}
+		results := pgp.Publish(ctx, nil, pending, armored, time.Now)
+		if err := deps.PGPStore.SaveKeyserverState(fingerprint, results); err != nil {
+			return fmt.Errorf("keyserver_retry: save retry state: %w", err)
+		}
+		var firstErr error
+		published := map[string]time.Time{}
+		for _, result := range results {
+			if result.OK() {
+				published[result.Keyserver] = result.At.UTC()
+			} else if firstErr == nil {
+				firstErr = fmt.Errorf("%s: %s", result.Keyserver, result.Err)
+			}
+		}
+		if len(published) > 0 && deps.DB != nil {
+			record, err := db.GetPGPKey(ctx, deps.DB, fingerprint)
+			if err != nil {
+				return fmt.Errorf("keyserver_retry: load key record: %w", err)
+			}
+			if record != nil {
+				if record.KeyserversPublished == nil {
+					record.KeyserversPublished = map[string]time.Time{}
+				}
+				for server, at := range published {
+					record.KeyserversPublished[server] = at
+				}
+				if err := db.UpsertPGPKey(ctx, deps.DB, *record); err != nil {
+					return fmt.Errorf("keyserver_retry: save key record: %w", err)
+				}
+			}
+		}
+		return firstErr
 	}
 }
 

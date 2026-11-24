@@ -45,6 +45,16 @@ func TestDocumentQueriesUsesEmbeddedSchema(t *testing.T) {
 	}
 }
 
+func TestLocalizedSchemaDescriptions(t *testing.T) {
+	generated, err := IntrospectionDocument("es")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(generated, []byte("Consultas de solo lectura")) || !bytes.Contains(generated, []byte("Listar enlaces")) {
+		t.Fatalf("localized GraphQL descriptions missing: %s", generated[:min(len(generated), 500)])
+	}
+}
+
 type testResolver struct {
 	readPath string
 }
@@ -68,7 +78,7 @@ func TestSchemaMirrorsDocumentedReadRoutesOnly(t *testing.T) {
 			t.Errorf("GraphQL query field %q is missing", name)
 		}
 	}
-	for _, name := range []string{"createLink", "updateLink", "deleteLink", "importPreferences", "downloadCLIBinary"} {
+	for _, name := range []string{"createLink", "updateLink", "deleteLink", "importSyncedPreferences", "downloadCLIBinary"} {
 		if fields[name] != nil {
 			t.Errorf("GraphQL query field %q must not be exposed", name)
 		}

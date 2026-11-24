@@ -19,6 +19,7 @@ import (
 
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/backup"
+	"github.com/apimgr/shortner/src/blocklist"
 	"github.com/apimgr/shortner/src/cache"
 	"github.com/apimgr/shortner/src/certmgr"
 	"github.com/apimgr/shortner/src/common/banner"
@@ -481,6 +482,17 @@ func run(args []string) int {
 		return 1
 	}
 	defer sqlDB.Close()
+	tokenKey, err := config.DecodeEncryptionKey(cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": token encryption key is invalid")
+		return 1
+	}
+	if skipped, err := db.BackfillTokenLast4(context.Background(), sqlDB, tokenKey); err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": token metadata migration failed: "+err.Error())
+		return 1
+	} else if skipped > 0 {
+		fmt.Fprintf(os.Stderr, "%s: warning: %d legacy token suffixes cannot be recovered until those tokens are presented\n", binaryName, skipped)
+	}
 	legacyAppSecrets, err := config.ReadLegacyAppSecrets(p.ConfigFile)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
@@ -643,6 +655,22 @@ func run(args []string) int {
 			geoManager.Reload()
 		}()
 	}
+	blocklistManager, err := blocklist.Open(filepath.Join(p.Data, "security", "blocklists"), cfg.Server.Security.Blocklists, cfg.Server.TrustedProxies.Additional...)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
+	blocklistCtx, cancelBlocklistUpdate := context.WithCancel(context.Background())
+	blocklistDone := make(chan struct{})
+	defer func() { cancelBlocklistUpdate(); <-blocklistDone }()
+	go func() {
+		defer close(blocklistDone)
+		ctx, cancel := context.WithTimeout(blocklistCtx, 5*time.Minute)
+		defer cancel()
+		if err := blocklistManager.Update(ctx); err != nil {
+			_ = accessLog.WriteLine(applog.LevelWarn, "blocklist: initial update incomplete: "+err.Error()+"\n")
+		}
+	}()
 
 	fqdnHost := fqdn.GetFQDN(internalName)
 
@@ -682,7 +710,7 @@ func run(args []string) int {
 		appMetrics.StartTorCollector(context.Background(), torManager)
 	}
 
-	sched, err := newBuiltinScheduler(cfg, sqlDB, schedulerLog, accessLog, p, fqdnHost, geoManager, auditLog, notifier, torManager, i2pManager, tlsConfig)
+	sched, err := newBuiltinScheduler(cfg, sqlDB, schedulerLog, accessLog, p, fqdnHost, geoManager, blocklistManager, auditLog, notifier, torManager, i2pManager, tlsConfig)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
@@ -714,6 +742,7 @@ func run(args []string) int {
 		BoundListeners:       privilegedListeners,
 		HTTPChallengeHandler: httpChallengeHandler,
 		GeoIP:                geoManager,
+		Blocklists:           blocklistManager,
 		Metrics:              appMetrics,
 
 		ConfigDir:             p.Config,
@@ -1043,7 +1072,7 @@ func portIncludes(setting string, wanted int) bool {
 // newBuiltinScheduler builds a scheduler.Scheduler with every AI.md
 // PART 18 "Built-in Tasks (Required)" registered, using cfg's per-task
 // schedule/enabled overrides. It does not start the scheduler.
-func newBuiltinScheduler(cfg *config.Config, sqlDB db.Handle, schedulerLog, accessLog *applog.Logger, p paths.Paths, host string, geoManager *geoip.Manager, auditLog backup.Auditor, notifier *notify.Notifier, torManager *tor.Manager, i2pManager *i2p.Manager, tlsConfig *tls.Config) (*scheduler.Scheduler, error) {
+func newBuiltinScheduler(cfg *config.Config, sqlDB db.Handle, schedulerLog, accessLog *applog.Logger, p paths.Paths, host string, geoManager *geoip.Manager, blocklistManager *blocklist.Manager, auditLog backup.Auditor, notifier *notify.Notifier, torManager *tor.Manager, i2pManager *i2p.Manager, tlsConfig *tls.Config) (*scheduler.Scheduler, error) {
 	sched, err := scheduler.New(sqlDB, schedulerLog, cfg.Server.Scheduler.Timezone, cfg.Server.Scheduler.CatchUpWindow)
 	if err != nil {
 		return nil, err
@@ -1070,8 +1099,10 @@ func newBuiltinScheduler(cfg *config.Config, sqlDB db.Handle, schedulerLog, acce
 		CVEOptions:                  cve.Options{SecurityDir: cfg.Data.SecurityDir, NVDSource: cfg.Data.CVE.Source, APIKey: cfg.Data.CVE.APIKey, TrivyEnabled: cfg.Data.Trivy.Enabled, TrivySource: cfg.Data.Trivy.Source},
 		SecurityReportRetentionDays: cfg.Server.Security.Reports.RetentionDays,
 		PGPStore:                    pgp.NewStore(p.Config),
+		Keyservers:                  cfg.Web.Security.Keyservers,
 		GeoIP:                       geoManager,
 		GeoIPCfg:                    cfg.Server.GeoIP,
+		Blocklists:                  blocklistManager,
 		// AI.md PART 21: the backup directory is the one resolved at
 		// startup and cached here — never re-resolved per run.
 		Backup: scheduler.BackupDeps{

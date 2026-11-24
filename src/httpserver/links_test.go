@@ -78,6 +78,42 @@ func TestCreateLinkHandler_AutoCode(t *testing.T) {
 	}
 }
 
+func TestAPILinkCreateIgnoresCurrentAndLegacyOwnerCookies(t *testing.T) {
+	ld, sqlDB := testLinkDeps(t)
+	ownerID, err := db.CreateOwner(context.Background(), sqlDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentRaw, _, err := db.CreatePrimaryToken(context.Background(), sqlDB, ownerID, ld.tokenKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The current and legacy names represent the same existing owner's browser
+	// state; neither cookie may attach an API-created resource to that owner.
+	req := newChiRequest(http.MethodPost, "/api/v1/links", []byte(`{"url":"https://example.com/new"}`), "")
+	req.Header.Set("Accept", "application/json")
+	req.AddCookie(&http.Cookie{Name: ownerTokenCookieName, Value: currentRaw})
+	req.AddCookie(&http.Cookie{Name: legacyOwnerTokenCookieName, Value: currentRaw})
+	rec := httptest.NewRecorder()
+	ld.createLinkHandler(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("API create status/body = %d, %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Data CreateLinkResponse `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	created, err := db.LookupTokenByRaw(context.Background(), sqlDB, resp.Data.OwnerToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.OwnerID == ownerID {
+		t.Fatal("API link creation used browser owner cookies")
+	}
+}
+
 func TestCreateLinkHandler_CustomSlug(t *testing.T) {
 	ld, _ := testLinkDeps(t)
 	body := []byte(`{"url":"https://example.com","slug":"mylink"}`)
@@ -332,10 +368,12 @@ func TestUpdateLinkHandler_WithOwnerToken(t *testing.T) {
 
 func TestUpdateLinkHandler_Unauthorized(t *testing.T) {
 	ld, _ := testLinkDeps(t)
-	slug, _ := createTestLink(t, ld)
+	slug, ownerToken := createTestLink(t, ld)
 
 	body := []byte(`{"url":"https://example.com/updated"}`)
 	req := newChiRequest(http.MethodPatch, "/api/v1/links/"+slug, body, slug)
+	req.AddCookie(&http.Cookie{Name: ownerTokenCookieName, Value: ownerToken})
+	req.AddCookie(&http.Cookie{Name: legacyOwnerTokenCookieName, Value: ownerToken})
 	rec := httptest.NewRecorder()
 
 	ld.updateLinkHandler(rec, req)
@@ -414,9 +452,11 @@ func TestDeleteLinkHandler(t *testing.T) {
 
 func TestDeleteLinkHandler_Unauthorized(t *testing.T) {
 	ld, _ := testLinkDeps(t)
-	slug, _ := createTestLink(t, ld)
+	slug, ownerToken := createTestLink(t, ld)
 
 	req := newChiRequest(http.MethodDelete, "/api/v1/links/"+slug, nil, slug)
+	req.AddCookie(&http.Cookie{Name: ownerTokenCookieName, Value: ownerToken})
+	req.AddCookie(&http.Cookie{Name: legacyOwnerTokenCookieName, Value: ownerToken})
 	rec := httptest.NewRecorder()
 	ld.deleteLinkHandler(rec, req)
 

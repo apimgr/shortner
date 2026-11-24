@@ -33,7 +33,23 @@ type Security struct {
 	// are created at runtime by abuse detection and are never persisted
 	// here, per AI.md PART 11 "IP Block Management" -> "Block Types".
 	BlockedIPs     []BlockedIPEntry `yaml:"blocked_ips"`
+	Blocklists     Blocklists       `yaml:"blocklists"`
 	AbuseDetection AbuseDetection   `yaml:"abuse_detection"`
+}
+
+// Blocklists configures remote IP and domain threat feeds, per AI.md PART 7
+// "Update Contract and Sources".
+type Blocklists struct {
+	Enabled      bool              `yaml:"enabled"`
+	ExtraSources []BlocklistSource `yaml:"extra_sources"`
+}
+
+// BlocklistSource is one operator-configured HTTPS feed.
+type BlocklistSource struct {
+	ID      string `yaml:"id"`
+	Type    string `yaml:"type"`
+	URL     string `yaml:"url"`
+	Enabled *bool  `yaml:"enabled"`
 }
 
 // SecurityReports holds retention policy for coordinated-disclosure
@@ -422,6 +438,7 @@ func DefaultSecurity() Security {
 	return Security{
 		Allowlist:  []AllowlistEntry{},
 		BlockedIPs: []BlockedIPEntry{},
+		Blocklists: Blocklists{Enabled: true, ExtraSources: []BlocklistSource{}},
 		Reports:    SecurityReports{RetentionDays: 365},
 		AbuseDetection: AbuseDetection{
 			Enabled: true,

@@ -493,7 +493,8 @@
 
     // After a successful link creation (server-rendered success card),
     // offer a one-click copy of the new short URL.
-    var successCopy = document.querySelector(".success-card [data-copy]");
+    var successTitle = document.getElementById("home-success-title");
+    var successCopy = successTitle ? successTitle.closest(".section-card").querySelector("[data-copy]") : null;
     if (successCopy) {
       successCopy.focus({ preventScroll: true });
     }

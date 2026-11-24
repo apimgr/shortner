@@ -58,6 +58,8 @@
 <link rel="stylesheet" href="{{asset "/static/css/common.css" .Base.AssetStamp}}">
 <link rel="stylesheet" href="{{asset "/static/css/components.css" .Base.AssetStamp}}">
 <link rel="stylesheet" href="{{asset "/static/css/public.css" .Base.AssetStamp}}">
+{{if eq .Base.CurrentPath "/server/docs/swagger"}}<link rel="stylesheet" href="{{asset "/static/css/swagger-docs.css" .Base.AssetStamp}}">{{end}}
+{{if eq .Base.CurrentPath "/server/docs/graphql"}}<link rel="stylesheet" href="{{asset "/static/css/graphql-docs.css" .Base.AssetStamp}}">{{end}}
 {{if .Base.AccentEnabled}}<link rel="stylesheet" href="{{asset "/static/css/accent.css" .Base.AssetStamp}}">{{end}}
 </head>
 {{end}}

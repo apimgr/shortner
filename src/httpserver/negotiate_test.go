@@ -64,6 +64,8 @@ func TestWantsText(t *testing.T) {
 		{"txt suffix", "/server/healthz.txt", "", "Mozilla/5.0", true},
 		{"accept text/plain", "/server/healthz", "text/plain", "Mozilla/5.0", true},
 		{"accept json wins over text/plain mix", "/server/healthz", "text/plain, application/json", "Mozilla/5.0", false},
+		{"accept html wins over curl", "/server/healthz", "text/html", "curl/8.0", false},
+		{"companion CLI defaults to JSON", "/server/healthz", "", "shortner-cli/1.0", false},
 		{"curl user agent", "/server/healthz", "", "curl/8.0", true},
 		{"empty user agent", "/server/healthz", "", "", true},
 		{"browser gets json", "/server/healthz", "", "Mozilla/5.0 (Macintosh)", false},
@@ -92,6 +94,8 @@ func TestIsHTTPTool(t *testing.T) {
 		{"python-requests/2.31", true},
 		{"Go-http-client/1.1", true},
 		{"HTTPie/3.2", true},
+		{"shortner-cli/1.0", false},
+		{"Lynx/2.9", false},
 		{"", true},
 		{"Mozilla/5.0 (X11; Linux x86_64)", false},
 	}
@@ -101,6 +105,33 @@ func TestIsHTTPTool(t *testing.T) {
 			req.Header.Set("User-Agent", tt.ua)
 			if got := isHTTPTool(req); got != tt.want {
 				t.Errorf("isHTTPTool(%q) = %v, want %v", tt.ua, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDetectClientType(t *testing.T) {
+	tests := []struct {
+		name, accept, userAgent string
+		want                    clientType
+	}{
+		{name: "explicit JSON", accept: "application/json", userAgent: "Mozilla/5.0", want: clientJSON},
+		{name: "explicit HTML overrides tool", accept: "text/html", userAgent: "curl/8.0", want: clientHTML},
+		{name: "explicit text", accept: "text/plain", userAgent: "Mozilla/5.0", want: clientText},
+		{name: "companion CLI is JSON", userAgent: "shortner-cli/1.0", want: clientJSON},
+		{name: "text browser is HTML", userAgent: "Lynx/2.9", want: clientHTML},
+		{name: "curl is text", userAgent: "curl/8.0", want: clientText},
+		{name: "browser is HTML", userAgent: "Mozilla/5.0", want: clientHTML},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.Header.Set("User-Agent", tt.userAgent)
+			if tt.accept != "" {
+				req.Header.Set("Accept", tt.accept)
+			}
+			if got := detectClientType(req); got != tt.want {
+				t.Errorf("detectClientType() = %v, want %v", got, tt.want)
 			}
 		})
 	}

@@ -628,6 +628,20 @@ func TestOwnerTokenLifecycle(t *testing.T) {
 	if raw == "" || tok.ID == 0 {
 		t.Fatalf("CreatePrimaryToken() returned empty raw or token")
 	}
+	if tok.TokenLast4 != raw[len(raw)-4:] || !strings.HasSuffix(MaskAPIToken(tok), tok.TokenLast4) {
+		t.Fatalf("created token last4/mask = %q / %q, raw suffix %q", tok.TokenLast4, MaskAPIToken(tok), raw[len(raw)-4:])
+	}
+	if _, err := sqlDB.ExecContext(ctx, `UPDATE api_tokens SET token_last4='' WHERE id=?`, tok.ID); err != nil {
+		t.Fatal(err)
+	}
+	skipped, err := BackfillTokenLast4(ctx, sqlDB, key)
+	if err != nil || skipped != 0 {
+		t.Fatalf("BackfillTokenLast4() = skipped %d, err %v", skipped, err)
+	}
+	backfilled, err := GetTokenByID(ctx, sqlDB, tok.ID)
+	if err != nil || backfilled.TokenLast4 != raw[len(raw)-4:] {
+		t.Fatalf("backfilled last4 = %q, err %v", backfilled.TokenLast4, err)
+	}
 	if !tok.IsActive() {
 		t.Errorf("freshly created token IsActive() = false")
 	}
@@ -679,6 +693,119 @@ func TestOwnerTokenLifecycle(t *testing.T) {
 	}
 	if len(active) != 0 {
 		t.Errorf("len(active) after revoke = %d, want 0", len(active))
+	}
+}
+
+func TestLegacyHashOnlyTokenPreservesAuthenticationAndRecoversOnUse(t *testing.T) {
+	ctx := context.Background()
+	sqlDB := openTestDB(t)
+	ownerID, err := CreateOwner(ctx, sqlDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := make([]byte, 32)
+	raw, created, err := CreatePrimaryToken(ctx, sqlDB, ownerID, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalHash, originalPrefix := created.TokenHash, created.TokenPrefix
+	if _, err := sqlDB.ExecContext(ctx, `UPDATE api_tokens SET token_enc='',token_last4='' WHERE id=?`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	skipped, err := BackfillTokenLast4(ctx, sqlDB, key)
+	if err != nil || skipped != 1 {
+		t.Fatalf("BackfillTokenLast4() = skipped %d, err %v; want one unrecoverable row", skipped, err)
+	}
+	dormant, err := GetTokenByID(ctx, sqlDB, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dormant.TokenLast4 != "" || dormant.TokenEnc != "" {
+		t.Fatalf("backfill fabricated legacy metadata: last4=%q enc=%q", dormant.TokenLast4, dormant.TokenEnc)
+	}
+	if _, err := RevealToken(dormant, key); err == nil {
+		t.Fatal("hash-only legacy row was revealable before raw-token recovery")
+	}
+
+	withoutKey, err := LookupTokenByRaw(ctx, sqlDB, raw)
+	if err != nil {
+		t.Fatalf("hash-only credential stopped authenticating: %v", err)
+	}
+	if withoutKey.OwnerID != ownerID || withoutKey.TokenHash != originalHash || withoutKey.TokenPrefix != originalPrefix {
+		t.Fatalf("legacy token identity changed during authentication: %+v", withoutKey)
+	}
+	if withoutKey.TokenLast4 != raw[len(raw)-4:] || withoutKey.TokenEnc != "" {
+		t.Fatalf("no-key lazy metadata = last4 %q, enc %q", withoutKey.TokenLast4, withoutKey.TokenEnc)
+	}
+	if _, err := RevealToken(withoutKey, key); err == nil {
+		t.Fatal("legacy row without ciphertext revealed a value")
+	}
+
+	withKey, err := LookupTokenByRaw(ctx, sqlDB, raw, key)
+	if err != nil {
+		t.Fatalf("token did not authenticate during encrypted recovery: %v", err)
+	}
+	if withKey.OwnerID != ownerID || withKey.TokenHash != originalHash || withKey.TokenPrefix != originalPrefix || withKey.TokenLast4 != raw[len(raw)-4:] || withKey.TokenEnc == "" {
+		t.Fatalf("recovered token metadata = %+v", withKey)
+	}
+	revealed, err := RevealToken(withKey, key)
+	if err != nil || revealed != raw {
+		t.Fatalf("recovered token reveal = %q, err %v", revealed, err)
+	}
+}
+
+func TestTokenMetadataBackfillRejectsCiphertextThatDoesNotMatchHash(t *testing.T) {
+	ctx := context.Background()
+	sqlDB := openTestDB(t)
+	key := make([]byte, 32)
+	ownerA, err := CreateOwner(ctx, sqlDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawA, tokenA, err := CreatePrimaryToken(ctx, sqlDB, ownerA, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerB, err := CreateOwner(ctx, sqlDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawB, tokenB, err := CreatePrimaryToken(ctx, sqlDB, ownerB, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlDB.ExecContext(ctx, `UPDATE api_tokens SET token_enc=?,token_last4='' WHERE id=?`, tokenB.TokenEnc, tokenA.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	skipped, err := BackfillTokenLast4(ctx, sqlDB, key)
+	if err != nil || skipped != 1 {
+		t.Fatalf("BackfillTokenLast4() = skipped %d, err %v; want one unrecoverable mismatch", skipped, err)
+	}
+	stale, err := GetTokenByID(ctx, sqlDB, tokenA.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale.TokenLast4 != "" {
+		t.Fatalf("mismatched ciphertext produced last4 %q", stale.TokenLast4)
+	}
+	if _, err := RevealToken(stale, key); err == nil {
+		t.Fatal("mismatched ciphertext was revealed")
+	}
+
+	recovered, err := LookupTokenByRaw(ctx, sqlDB, rawA, key)
+	if err != nil {
+		t.Fatalf("owner A token stopped authenticating: %v", err)
+	}
+	if recovered.OwnerID != ownerA || recovered.TokenHash != tokenA.TokenHash || recovered.TokenPrefix != tokenA.TokenPrefix || recovered.TokenLast4 != rawA[len(rawA)-4:] {
+		t.Fatalf("owner A recovery changed credential identity or failed suffix recovery: %+v", recovered)
+	}
+	revealed, err := RevealToken(recovered, key)
+	if err != nil || revealed != rawA {
+		t.Fatalf("owner A recovered reveal = %q, err %v", revealed, err)
+	}
+	if _, err := LookupTokenByRaw(ctx, sqlDB, rawB, key); err != nil {
+		t.Fatalf("owner B was blocked by owner A metadata: %v", err)
 	}
 }
 

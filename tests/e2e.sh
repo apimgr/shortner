@@ -69,6 +69,9 @@ __pass "server binary built: $bin_dir/$project_name"
 
 __section "Browser: $browser_image"
 temp_dir="$(__make_temp_dir)"
+# The server drops to its dedicated uid, so it must traverse the bind mount
+# root to reach its private per-run directory beneath it.
+chmod 0711 "$temp_dir"
 docker network create "$network_name" >/dev/null
 docker run -d --rm \
   --name "$browser_name" \
@@ -105,6 +108,7 @@ e2e_status=0
 docker run --rm \
   --name "$runner_name" \
   --network "$network_name" \
+  --user 0:0 \
   --memory="${DOCKER_MEM:-4g}" --cpus="${DOCKER_CPUS:-2}" \
   -v "$project_dir:/app" \
   -v "$bin_dir:/e2e-binaries" \

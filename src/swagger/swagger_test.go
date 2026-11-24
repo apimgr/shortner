@@ -160,6 +160,23 @@ func TestDocumentIncludesRegisteredAliasesAndContractDetails(t *testing.T) {
 	}
 }
 
+func TestLocalizedDocumentDescriptions(t *testing.T) {
+	body, err := Document("https://shortner.example", "es")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Paths map[string]map[string]map[string]any `json:"paths"`
+	}
+	if err := json.Unmarshal(body, &document); err != nil {
+		t.Fatal(err)
+	}
+	operation := document.Paths["/api/{api_version}/links"]["get"]
+	if operation["summary"] != "Listar enlaces cortos" || operation["description"] != "Operación de API documentada." || operation["x-description"] != "Operación de API documentada." {
+		t.Fatalf("localized OpenAPI operation = %+v", operation)
+	}
+}
+
 func checkSchemaReferences(body []byte) error {
 	var root any
 	if err := json.Unmarshal(body, &root); err != nil {

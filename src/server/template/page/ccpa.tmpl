@@ -1,10 +1,9 @@
-{{define "content"}}{{$lang := .Base.Lang}}<article class="ccpa-page">
-<h1>{{t $lang "ccpa.do_not_sell"}}</h1>
-
-<p>{{tf $lang "ccpa.intro_before" "site" .Base.SiteName}}
+{{define "content"}}{{$lang := .Base.Lang}}
+<header class="page-header"><h1 class="page-title">{{t $lang "ccpa.do_not_sell"}}</h1><p class="page-lead">{{tf $lang "ccpa.intro_before" "site" .Base.SiteName}}
 <a href="/server/privacy">{{t $lang "ccpa.privacy_policy_link"}}</a>.
-{{t $lang "ccpa.intro_after"}}</p>
+{{t $lang "ccpa.intro_after"}}</p></header>
 
+<section class="section-card" aria-labelledby="ccpa-choice"><h2 id="ccpa-choice">{{t $lang "ccpa.do_not_sell"}}</h2>
 <form method="POST" action="/server/consent" class="ccpa-form" data-action="ccpa-form">
 <input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
 <input type="hidden" name="decision" value="custom">
@@ -16,5 +15,5 @@
 </form>
 
 <p>{{t $lang "ccpa.cookie_note"}}</p>
-</article>
+</section>
 {{end}}

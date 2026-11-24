@@ -1,5 +1,5 @@
-{{define "content"}}{{$lang := .Base.Lang}}<article class="contact-page security-report-page">
-<h1>{{t $lang "security_report.title"}}</h1>
+{{define "content"}}{{$lang := .Base.Lang}}
+<header class="page-header"><h1 class="page-title">{{t $lang "security_report.title"}}</h1><p class="page-lead">{{.Base.Description}}</p></header>
 
 {{if .Submitted}}
 <p class="form-success" role="status">{{t $lang "security_report.received"}}</p>
@@ -8,7 +8,7 @@
 <p>{{t $lang "security_report.encrypted_before"}}
 <a href="/server/security/policy">{{t $lang "security_report.policy_link"}}</a>.</p>
 {{else if .Review}}
-<section class="contact-review" role="dialog" aria-labelledby="security-review-title">
+<section class="section-card" aria-labelledby="security-review-title">
 <h2 id="security-review-title">{{t $lang "contact.review_title"}}</h2>
 <p>{{t $lang "contact.review_description"}}</p>
 {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}

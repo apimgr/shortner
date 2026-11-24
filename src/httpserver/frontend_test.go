@@ -398,7 +398,7 @@ func TestContactHandler_POSTSuccess(t *testing.T) {
 		}
 		t.Fatalf("status = %d", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "contact-review") {
+	if !strings.Contains(rec.Body.String(), "Review your report") {
 		t.Errorf("expected review step, got: %s", rec.Body.String())
 	}
 }

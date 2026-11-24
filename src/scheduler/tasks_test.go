@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -15,11 +14,11 @@ import (
 func TestBuiltinTasksOmitsModeBoundTasksWhenDisabled(t *testing.T) {
 	cfg := config.Default("").Server.Scheduler
 	tasks := BuiltinTasks(cfg, Deps{})
-	if len(tasks) != 12 {
-		t.Fatalf("len(BuiltinTasks()) = %d, want 12 with overlay features disabled", len(tasks))
+	if len(tasks) != 13 {
+		t.Fatalf("len(BuiltinTasks()) = %d, want 13 with overlay features disabled", len(tasks))
 	}
 	want := map[string]bool{
-		"ssl_renewal": true, "geoip_update": true, "blocklist_update": true,
+		"ssl_renewal": true, "geoip_update": true, "blocklist_update": true, "keyserver_retry": true,
 		"cve_update": true, "update_check": true, "token_cleanup": true,
 		"log_rotation": true, "disk_check": true, "backup_daily": true, "backup_hourly": true,
 		"healthcheck_self": true, "security_cleanup": true,
@@ -79,12 +78,6 @@ func TestBuiltinTasksRegistersEnabledOverlayTasks(t *testing.T) {
 	}
 	if !found["tor_health"] || !found["i2p_health"] {
 		t.Fatalf("enabled overlay tasks missing: %#v", found)
-	}
-}
-
-func TestPendingTaskReportsUnavailableWork(t *testing.T) {
-	if err := pendingTask("upstream source is unspecified")(context.Background()); err == nil || !strings.Contains(err.Error(), "upstream source is unspecified") {
-		t.Errorf("pendingTask() error = %v, want explicit unavailable error", err)
 	}
 }
 

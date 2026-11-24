@@ -111,14 +111,16 @@ valid for authentication but has no displayed suffix and cannot be revealed;
 the server never guesses, rotates, or deletes it. A valid raw-token
 presentation that matches the stored hash and prefix can populate the missing
 suffix lazily and, when the encryption key is available, store an encrypted
-reveal copy. Startup logs only an aggregate warning for unrecoverable records.
+reveal copy. Startup logs only an aggregate warning for unrecoverable records; it contains
+no row IDs, token prefixes, or secret values.
 
 The browser owner credential uses the fixed cookie name
 `shortner_owner_token_zgnygola` from IDEA.md. For compatibility, the server
 reads the prior mixed-case `shortner_owner_token_Lu2YwQRQ` only when the new
 cookie is absent. A valid legacy token is upgraded by setting the new cookie
 and expiring the old one; an invalid legacy token is cleared. When both
-cookies are present, the new cookie takes precedence. Creation, restoration,
+cookies are present, the new cookie takes precedence. If it is invalid, both
+cookies are cleared and the legacy value is never tried. Creation, restoration,
 and rotation issue only the new cookie name and clear the legacy cookie.
 Legacy fallback remains available without a cutoff so existing browser
 copies can continue to upgrade. API authentication ignores both cookies.

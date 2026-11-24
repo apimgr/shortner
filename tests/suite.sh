@@ -353,7 +353,7 @@ __test_frontend_pages() {
   __request "$base_url/server" -H 'Accept: text/html' -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64)'
   __assert_status "GET /server redirects to the about page" 301
   __assert_contains "/server redirect targets /server/about" "/server/about" "$last_headers"
-  for page in / /server/about /server/privacy /server/terms /server/help /server/docs/swagger /server/docs/graphql /server/contact /server/security /server/security/policy /server/security/thanks /server/dpo /server/ccpa /server/preferences /server/preferences/tokens /list; do
+  for page in / /server/about /server/privacy /server/terms /server/help /server/docs/swagger /server/docs/graphql /server/contact /server/security /server/security/policy /server/security/thanks /server/dpo /server/ccpa /server/preferences /server/preferences/tokens /server/preferences/sync /list; do
     __request "$base_url$page" -H 'Accept: text/html' -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64)'
     if [ "$last_status" = "200" ]; then
       __assert_contains "GET $page renders HTML" "<!DOCTYPE" "$last_body"

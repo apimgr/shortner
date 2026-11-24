@@ -1,8 +1,8 @@
-{{define "content"}}{{$lang := .Base.Lang}}<article class="help-page">
-<h1>{{t $lang "help.title"}}</h1>
+{{define "content"}}{{$lang := .Base.Lang}}
+<header class="page-header"><h1 class="page-title">{{t $lang "help.title"}}</h1><p class="page-lead">{{t $lang "help.getting_started_intro"}}</p></header>
 
-<section id="getting-started">
-<h2>{{t $lang "help.getting_started"}}</h2>
+<section class="section-card" id="getting-started" aria-labelledby="help-start-title">
+<h2 id="help-start-title">{{t $lang "help.getting_started"}}</h2>
 <p>{{t $lang "help.getting_started_intro"}}</p>
 <pre><code>curl -X POST {{.Base.SiteName}}/api/v1/links \
   -H "Content-Type: application/json" \
@@ -18,8 +18,8 @@
 <p>{{t $lang "help.owner_token_note"}}</p>
 </section>
 
-<section id="features">
-<h2>{{t $lang "help.features"}}</h2>
+<section class="section-card" id="features" aria-labelledby="help-features-title">
+<h2 id="help-features-title">{{t $lang "help.features"}}</h2>
 
 <h3>{{t $lang "help.custom_slugs"}}</h3>
 <p>{{t $lang "help.custom_slugs_intro"}}</p>
@@ -43,21 +43,20 @@ curl -X DELETE {{.Base.SiteName}}/api/v1/links/my-link \
 <p>{{t $lang "help.analytics_note"}}</p>
 </section>
 
-<div class="api-docs">
-<h3>{{t $lang "help.api_documentation"}}</h3>
+<section class="section-card" aria-labelledby="help-api-title">
+<h2 id="help-api-title">{{t $lang "help.api_documentation"}}</h2>
 <p>{{t $lang "help.api_docs_body"}}</p>
 <ul>
 <li><a href="/server/docs/swagger">Swagger UI</a></li>
 <li><a href="/server/docs/graphql">GraphiQL</a></li>
-<li><a href="/server/help/mcp">MCP server</a> - Use this application from an AI assistant</li>
 </ul>
-</div>
+</section>
 
 {{if .Base.TorOnionAddress}}
-<section id="tor-access" class="tor-access">
-<h3>{{t $lang "help.tor_access"}}</h3>
+<section class="section-card" id="tor-access" aria-labelledby="help-tor-title">
+<h2 id="help-tor-title">{{t $lang "help.tor_access"}}</h2>
 <p>{{t $lang "help.tor_intro"}}</p>
-<h4>{{t $lang "help.onion_address"}}</h4>
+<h3>{{t $lang "help.onion_address"}}</h3>
 <div class="code-block">
 <code class="code-content">{{.Base.TorOnionAddress}}</code>
 <button type="button" class="copy-btn" data-copy="{{.Base.TorOnionAddress}}" aria-label="{{t $lang "footer.copy_onion_address"}}">
@@ -65,7 +64,7 @@ curl -X DELETE {{.Base.SiteName}}/api/v1/links/my-link \
 <span class="copy-text">{{t $lang "common.copy"}}</span>
 </button>
 </div>
-<h4>{{t $lang "help.how_to_connect"}}</h4>
+<h3>{{t $lang "help.how_to_connect"}}</h3>
 <ol>
 <li><a href="https://www.torproject.org/download/" target="_blank" rel="noopener">{{t $lang "help.download_tor"}}</a><span class="sr-only"> ({{t $lang "a11y.external_link"}})</span></li>
 <li>{{t $lang "help.open_tor"}}</li>
@@ -76,10 +75,10 @@ curl -X DELETE {{.Base.SiteName}}/api/v1/links/my-link \
 {{end}}
 
 {{if .Base.I2PAddress}}
-<section id="i2p-access" class="i2p-access">
-<h3>{{t $lang "help.i2p_access"}}</h3>
+<section class="section-card" id="i2p-access" aria-labelledby="help-i2p-title">
+<h2 id="help-i2p-title">{{t $lang "help.i2p_access"}}</h2>
 <p>{{t $lang "help.i2p_intro"}}</p>
-<h4>{{t $lang "help.i2p_address"}}</h4>
+<h3>{{t $lang "help.i2p_address"}}</h3>
 <div class="code-block">
 <code class="code-content">{{.Base.I2PAddress}}</code>
 <button type="button" class="copy-btn" data-copy="{{.Base.I2PAddress}}" aria-label="{{t $lang "footer.copy_i2p_address"}}">
@@ -87,7 +86,7 @@ curl -X DELETE {{.Base.SiteName}}/api/v1/links/my-link \
 <span class="copy-text">{{t $lang "common.copy"}}</span>
 </button>
 </div>
-<h4>{{t $lang "help.how_to_connect"}}</h4>
+<h3>{{t $lang "help.how_to_connect"}}</h3>
 <ol>
 <li><a href="https://geti2p.net/en/download" target="_blank" rel="noopener">{{t $lang "help.download_i2p"}}</a><span class="sr-only"> ({{t $lang "a11y.external_link"}})</span></li>
 <li>{{t $lang "help.open_i2p"}}</li>
@@ -97,8 +96,8 @@ curl -X DELETE {{.Base.SiteName}}/api/v1/links/my-link \
 </section>
 {{end}}
 
-<section id="faq">
-<h2>{{t $lang "help.faq"}}</h2>
+<section class="section-card" id="faq" aria-labelledby="help-faq-title">
+<h2 id="help-faq-title">{{t $lang "help.faq"}}</h2>
 <h3>{{t $lang "help.faq_account_q"}}</h3>
 <p>{{t $lang "help.faq_account_a"}}</p>
 <h3>{{t $lang "help.faq_rate_q"}}</h3>
@@ -107,8 +106,8 @@ curl -X DELETE {{.Base.SiteName}}/api/v1/links/my-link \
 <p>{{t $lang "help.faq_expired_a"}}</p>
 </section>
 
-<section id="troubleshooting">
-<h2>{{t $lang "help.troubleshooting"}}</h2>
+<section class="section-card" id="troubleshooting" aria-labelledby="help-troubleshooting-title">
+<h2 id="help-troubleshooting-title">{{t $lang "help.troubleshooting"}}</h2>
 <h3>{{t $lang "help.ts_404_q"}}</h3>
 <p>{{t $lang "help.ts_404_a"}}</p>
 <h3>{{t $lang "help.ts_410_q"}}</h3>
@@ -117,5 +116,11 @@ curl -X DELETE {{.Base.SiteName}}/api/v1/links/my-link \
 <p>{{t $lang "help.ts_409_a"}}</p>
 </section>
 {{if .HelpContent}}<div class="help-extra">{{.HelpContent}}</div>{{end}}
+<section class="section-card" aria-labelledby="more-help">
+<h2 id="more-help">{{t $lang "help.more_help"}}</h2>
+<ul class="hub-list">
+{{range .HelpPages}}<li class="hub-item"><a class="hub-link" href="{{.Path}}"><span class="hub-title">{{.Title}}</span><span class="hub-desc">{{.Description}}</span></a></li>{{end}}
+</ul>
+</section>
 </article>
 {{end}}

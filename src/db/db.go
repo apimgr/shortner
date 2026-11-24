@@ -197,6 +197,7 @@ var createStatements = []string{
 		name TEXT,
 		token_hash TEXT NOT NULL UNIQUE,
 		token_prefix TEXT NOT NULL,
+		token_last4 TEXT NOT NULL DEFAULT '',
 		token_enc TEXT NOT NULL,
 		created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
 		rotated_at INTEGER,
@@ -342,6 +343,7 @@ var schemaUpdates = []string{
 	`UPDATE security_reports SET researcher_comment = comments WHERE researcher_comment = '' AND comments <> ''`,
 	`UPDATE security_reports SET disclosure_date = date(disclosure_at, 'unixepoch') WHERE disclosure_date IS NULL AND disclosure_at > 0`,
 	`UPDATE security_reports SET token_last_used = date(last_viewed_at, 'unixepoch') WHERE token_last_used IS NULL AND last_viewed_at > 0`,
+	`ALTER TABLE api_tokens ADD COLUMN token_last4 TEXT NOT NULL DEFAULT ''`,
 }
 
 // EnsureSchema creates tables and applies schema updates. Safe to run on
@@ -470,6 +472,7 @@ func migrateLegacyTokenSchema(ctx context.Context, tx *sql.Tx) error {
 		name TEXT,
 		token_hash TEXT NOT NULL UNIQUE,
 		token_prefix TEXT NOT NULL,
+		token_last4 TEXT NOT NULL DEFAULT '',
 		token_enc TEXT NOT NULL,
 		created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
 		rotated_at INTEGER,

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -23,7 +22,7 @@ var preferenceKeyPattern = regexp.MustCompile(`^shortner_pref_[a-z][a-z0-9_]{0,6
 type preferenceSnapshot struct {
 	Theme         string            `json:"theme"`
 	Lang          string            `json:"lang"`
-	LangAutomatic bool              `json:"lang_automatic"`
+	LangAutomatic bool              `json:"-"`
 	LangName      string            `json:"-"`
 	Prefs         map[string]string `json:"prefs"`
 	URL           string            `json:"url,omitempty"`
@@ -33,13 +32,12 @@ type preferenceSnapshot struct {
 type preferencePageData struct {
 	Base        PageData
 	State       preferenceSnapshot
-	ExportURL   string
-	ExportCode  string
 	Preferences bool
 	Analytics   bool
 	CCPA        bool
 	ShowCCPA    bool
 	CancelURL   string
+	MorePages   []preferenceHubEntry
 }
 
 type preferenceApplyResult struct {
@@ -53,13 +51,6 @@ func (fd *frontendDeps) preferencesHandler(w http.ResponseWriter, r *http.Reques
 		fd.savePreferences(w, r)
 		return
 	}
-	if detectClientType(r) == clientText || r.URL.Query().Get("format") == "text" || strings.Contains(r.Header.Get("Accept"), "text/plain") {
-		fullURL, code := fd.preferenceExport(r, readPreferences(r))
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-store")
-		_, _ = fmt.Fprintf(w, "URL: %s\nCode: %s\n", fullURL, code)
-		return
-	}
 	fd.renderPreferences(w, r, http.StatusOK)
 }
 
@@ -69,14 +60,14 @@ func (fd *frontendDeps) renderPreferences(w http.ResponseWriter, r *http.Request
 		state.Lang = lang
 		state.LangName = i18n.MetaFor(lang).NativeName
 	}
-	fullURL, code := fd.preferenceExport(r, state)
 	consent := readConsent(r)
 	data := preferencePageData{
-		Base:  fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "common.preferences"), fd.cfg.Server.Branding.Description),
-		State: state, ExportURL: fullURL, ExportCode: code,
+		Base:        fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "common.preferences"), fd.cfg.Server.Branding.Description),
+		State:       state,
 		Preferences: consent.Preferences, Analytics: consent.Analytics,
 		CCPA: hasCCPAOptOut(r), ShowCCPA: fd.cfg.Server.Privacy.Data.Sold,
-		CancelURL: safePreferenceRedirect(r.URL.Query().Get("redirect"), r.Referer()),
+		CancelURL: preferenceRedirectTarget(r.URL.Query().Get("redirect"), r.Referer(), r),
+		MorePages: registeredPreferencePages(fd.cfg, langFromContext(r)),
 	}
 	if err := renderPage(w, status, "preferences", data); err != nil {
 		sendError(w, r, apperr.New(apperr.CodeServerError))
@@ -85,22 +76,17 @@ func (fd *frontendDeps) renderPreferences(w http.ResponseWriter, r *http.Request
 
 func (fd *frontendDeps) savePreferences(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Redirect(w, r, "/server/preferences", http.StatusSeeOther)
+		http.Redirect(w, r, preferenceRedirectTarget("", r.Referer(), r), http.StatusSeeOther)
 		return
 	}
 	if r.FormValue("action") == "reset" {
 		resetPreferenceCookies(w, preferenceRequest(r, fd.resolver))
 		w.Header().Set("Clear-Site-Data", `"storage"`)
 		w.Header().Set("Cache-Control", "no-store")
-		http.Redirect(w, r, "/server/preferences", http.StatusSeeOther)
+		http.Redirect(w, r, preferenceRedirectTarget(r.FormValue("redirect"), r.Referer(), r), http.StatusSeeOther)
 		return
 	}
 	values := cloneValues(r.Form)
-	if code := strings.TrimSpace(r.FormValue("code")); code != "" {
-		for key, entries := range decodePreferenceCode(code) {
-			values[key] = entries
-		}
-	}
 	secureRequest := preferenceRequest(r, fd.resolver)
 	if !isThemeOnlyPost(values) {
 		applyPreferences(w, secureRequest, values)
@@ -111,57 +97,13 @@ func (fd *frontendDeps) savePreferences(w http.ResponseWriter, r *http.Request) 
 		setPreferenceCookie(w, secureRequest, "theme", theme)
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	http.Redirect(w, r, safePreferenceRedirect(r.FormValue("redirect"), r.Referer()), http.StatusSeeOther)
-}
-
-func (fd *frontendDeps) preferenceExportHandler(w http.ResponseWriter, r *http.Request) {
-	state := readPreferences(r)
-	fullURL, code := fd.preferenceExport(r, state)
-	if strings.Contains(r.Header.Get("Accept"), "text/plain") || r.URL.Query().Get("format") == "text" {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-store")
-		_, _ = fmt.Fprintf(w, "URL: %s\nCode: %s\n", fullURL, code)
-		return
-	}
-	if strings.Contains(r.Header.Get("Accept"), "text/html") {
-		fd.renderPreferences(w, r, http.StatusOK)
-		return
-	}
-	state.URL, state.Code = fullURL, code
-	w.Header().Set("Cache-Control", "no-store")
-	apperr.SendOK(w, state)
+	http.Redirect(w, r, preferenceRedirectTarget(r.FormValue("redirect"), r.Referer(), r), http.StatusSeeOther)
 }
 
 func (fd *frontendDeps) preferenceAPISnapshotHandler(w http.ResponseWriter, r *http.Request) {
 	state := readPreferences(r)
 	w.Header().Set("Cache-Control", "no-store")
 	apperr.SendOK(w, state)
-}
-
-func (fd *frontendDeps) preferenceImportHandler(w http.ResponseWriter, r *http.Request) {
-	values := cloneValues(r.URL.Query())
-	if code := values.Get("code"); code != "" {
-		for key, entries := range decodePreferenceCode(code) {
-			if _, exists := values[key]; !exists {
-				values[key] = entries
-			}
-		}
-	}
-	result := applyPreferences(w, preferenceRequest(r, fd.resolver), values)
-	if strings.Contains(r.Header.Get("Accept"), "text/html") && !strings.Contains(r.Header.Get("Accept"), "application/json") {
-		w.Header().Set("Cache-Control", "no-store")
-		http.Redirect(w, r, safePreferenceRedirect(r.URL.Query().Get("redirect"), r.Referer()), http.StatusSeeOther)
-		return
-	}
-	response := struct {
-		Theme   string            `json:"theme"`
-		Lang    string            `json:"lang"`
-		Prefs   map[string]string `json:"prefs"`
-		Applied []string          `json:"applied"`
-		Ignored []string          `json:"ignored"`
-	}{result.State.Theme, result.State.Lang, result.State.Prefs, result.Applied, result.Ignored}
-	w.Header().Set("Cache-Control", "no-store")
-	apperr.SendOK(w, response)
 }
 
 func (fd *frontendDeps) preferenceAPISaveHandler(w http.ResponseWriter, r *http.Request) {
@@ -201,7 +143,7 @@ func (fd *frontendDeps) preferenceAPISaveHandler(w http.ResponseWriter, r *http.
 func (fd *frontendDeps) preferenceExport(r *http.Request, state preferenceSnapshot) (string, string) {
 	query := canonicalPreferenceQuery(state)
 	code := base64.RawURLEncoding.EncodeToString([]byte(query))
-	path := "/server/preferences/import?" + query
+	path := "/server/preferences/sync/import?" + query
 	if fd.resolver != nil {
 		return fd.resolver.BuildURL(r, path), code
 	}
@@ -342,11 +284,7 @@ func expirePreferenceCookie(w http.ResponseWriter, r *http.Request, name string)
 func canonicalPreferenceQuery(state preferenceSnapshot) string {
 	values := url.Values{}
 	values.Set("theme", state.Theme)
-	if state.LangAutomatic {
-		values.Set("lang", "auto")
-	} else {
-		values.Set("lang", state.Lang)
-	}
+	values.Set("lang", state.Lang)
 	for key, value := range state.Prefs {
 		if preferenceKeyPattern.MatchString("shortner_pref_"+key) && validPreferenceValue(value) {
 			values.Set("shortner_pref_"+key, value)
@@ -363,21 +301,18 @@ func decodePreferenceCode(code string) url.Values {
 	if i := strings.Index(code, "?"); i >= 0 {
 		code = code[i+1:]
 	}
-	if strings.HasSuffix(code, "=") || !strings.Contains(code, "=") {
-		decoded, err := base64.StdEncoding.DecodeString(code)
+	if strings.Contains(strings.TrimRight(code, "="), "=") {
+		values, err := url.ParseQuery(code)
 		if err != nil {
-			decoded, err = base64.URLEncoding.DecodeString(code)
-		}
-		if err != nil {
-			decoded, err = base64.RawURLEncoding.DecodeString(code)
-		}
-		if err == nil {
-			code = string(decoded)
-		} else if !strings.Contains(code, "=") {
 			return url.Values{}
 		}
+		return values
 	}
-	values, err := url.ParseQuery(code)
+	decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(code, "="))
+	if err != nil {
+		return url.Values{}
+	}
+	values, err := url.ParseQuery(string(decoded))
 	if err != nil {
 		return url.Values{}
 	}
@@ -389,7 +324,7 @@ func safePreferenceRedirect(redirect, referer string) string {
 		if candidate == "" || strings.ContainsAny(candidate, "\r\n") {
 			continue
 		}
-		if !isSafeLocalRedirect(candidate) || strings.HasPrefix(candidate, "/server/preferences/import") || strings.HasPrefix(candidate, "/server/preferences/export") || candidate == "/server/preferences" {
+		if !isSafeLocalRedirect(candidate) || strings.HasPrefix(candidate, "/server/preferences/sync/import") || candidate == "/server/preferences/sync" || candidate == "/server/preferences" {
 			continue
 		}
 		return candidate

@@ -1,15 +1,14 @@
-{{define "content"}}{{$lang := .Base.Lang}}<article class="stats-page">
-<h1>{{tf $lang "stats.title_named" "code" .Stats.ShortCode}}</h1>
+{{define "content"}}{{$lang := .Base.Lang}}
+<header class="page-header"><h1 class="page-title">{{tf $lang "stats.title_named" "code" .Stats.ShortCode}}</h1><p class="page-lead">{{t $lang "stats.total_clicks"}}</p></header>
 
 <div class="info-list">
 <div class="info-row"><span class="info-label">{{t $lang "stats.total_clicks"}}</span><span class="info-value">{{.Stats.TotalClicks}}</span></div>
 </div>
 
-<section>
-<h2>{{t $lang "stats.clicks_by_day"}}</h2>
+<section class="section-card" aria-labelledby="stats-by-day"><h2 id="stats-by-day">{{t $lang "stats.clicks_by_day"}}</h2>
 {{if .Stats.TimeSeries}}
 <div class="table-wrapper">
-<table>
+<table class="data-table">
 <thead><tr><th>{{t $lang "stats.column_date"}}</th><th>{{t $lang "stats.column_clicks"}}</th></tr></thead>
 <tbody>
 {{range .Stats.TimeSeries}}<tr><td>{{.Date}}</td><td>{{.Count}}</td></tr>{{end}}
@@ -19,11 +18,10 @@
 {{else}}<p>{{t $lang "stats.no_clicks"}}</p>{{end}}
 </section>
 
-<section>
-<h2>{{t $lang "stats.top_referrers"}}</h2>
+<section class="section-card" aria-labelledby="stats-referrers"><h2 id="stats-referrers">{{t $lang "stats.top_referrers"}}</h2>
 {{if .Stats.Referrers}}
 <div class="table-wrapper">
-<table>
+<table class="data-table">
 <thead><tr><th>{{t $lang "stats.column_referrer"}}</th><th>{{t $lang "stats.column_clicks"}}</th></tr></thead>
 <tbody>
 {{range $ref, $count := .Stats.Referrers}}<tr><td class="long-string">{{$ref}}</td><td>{{$count}}</td></tr>{{end}}
@@ -33,11 +31,10 @@
 {{else}}<p>{{t $lang "stats.no_referrers"}}</p>{{end}}
 </section>
 
-<section>
-<h2>{{t $lang "stats.recent_clicks"}}</h2>
+<section class="section-card" aria-labelledby="stats-recent"><h2 id="stats-recent">{{t $lang "stats.recent_clicks"}}</h2>
 {{if .Stats.Recent}}
 <div class="table-wrapper">
-<table>
+<table class="data-table">
 <thead><tr><th>{{t $lang "stats.column_time"}}</th><th>{{t $lang "stats.column_ip"}}</th><th>{{t $lang "stats.column_location"}}</th><th>{{t $lang "stats.column_referrer"}}</th></tr></thead>
 <tbody>
 {{range .Stats.Recent}}
@@ -53,5 +50,4 @@
 </div>
 {{else}}<p>{{t $lang "stats.no_clicks"}}</p>{{end}}
 </section>
-</article>
 {{end}}

@@ -1,10 +1,12 @@
 package httpserver
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -42,7 +44,7 @@ func TestGraphQLAPIReadUsesDocumentedReadRoute(t *testing.T) {
 func TestGraphQLAPIReadRejectsUnsafePaths(t *testing.T) {
 	for _, path := range []string{
 		"https://evil.example/api/v1/server/healthz",
-		"/api/v1/server/preferences/import?theme=dark",
+		"/api/v1/server/preferences/sync/import?theme=dark",
 		"/api/graphql",
 		"/cli/binaries/shortner-cli-linux-amd64",
 	} {
@@ -118,6 +120,27 @@ func TestHelpPageAlwaysLinksToMCP(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), `href="/server/help/mcp"`) {
 		t.Fatal("help page does not include the unconditional MCP help link")
+	}
+}
+
+func TestHelpJSONIncludesRegisteredPageRegistry(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	recorder := httptest.NewRecorder()
+	fd.pageContentAPIHandler("help")(recorder, htmlRequest(http.MethodGet, "/api/v1/server/help", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", recorder.Code, recorder.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Pages []preferenceHubEntry `json:"pages"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode help response: %v", err)
+	}
+	want := registeredHelpPages(fd.cfg, "en")
+	if !reflect.DeepEqual(envelope.Data.Pages, want) {
+		t.Errorf("help JSON pages = %+v, want registry %+v", envelope.Data.Pages, want)
 	}
 }
 

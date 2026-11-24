@@ -38,7 +38,11 @@ func (fd *frontendDeps) pageContentAPIHandler(page string) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		apperr.SendOK(w, map[string]string{"title": title, "content": content, "format": format})
+		response := map[string]any{"title": title, "content": content, "format": format}
+		if page == "help" {
+			response["pages"] = registeredHelpPages(fd.cfg, langFromContext(r))
+		}
+		apperr.SendOK(w, response)
 	}
 }
 

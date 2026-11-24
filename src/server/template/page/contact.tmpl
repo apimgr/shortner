@@ -1,5 +1,5 @@
-{{define "content"}}{{$lang := .Base.Lang}}<article class="contact-page">
-<h1>{{t $lang "contact.title"}}</h1>
+{{define "content"}}{{$lang := .Base.Lang}}
+<header class="page-header"><h1 class="page-title">{{t $lang "contact.title"}}</h1><p class="page-lead">{{.Base.Description}}</p></header>
 
 {{if not .Enabled}}
 <p>{{t $lang "contact.disabled"}} {{if .AbuseEmail}}{{tf $lang "contact.urgent_email" "email" .AbuseEmail}}{{end}}</p>
@@ -11,7 +11,7 @@
 {{range .Types}}<li><a href="/server/contact?type={{.}}">{{t $lang (printf "contact.type_%s" .)}}</a></li>{{end}}
 </ul></nav>
 {{else if .Review}}
-<section class="contact-review" role="dialog" aria-labelledby="contact-review-title">
+<section class="section-card" aria-labelledby="contact-review-title">
 <h2 id="contact-review-title">{{t $lang "contact.review_title"}}</h2>
 <p>{{t $lang "contact.review_description"}}</p>
 {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
@@ -34,8 +34,9 @@
 </section>
 {{else}}
 <p>{{t $lang "contact.purpose_notice"}}</p>
-<h2>{{t $lang (printf "contact.type_%s" .Type)}}</h2>
-<form method="POST" action="/server/contact" class="contact-form" data-action="contact-form" novalidate>
+<section class="section-card" aria-labelledby="contact-type-title">
+<h2 id="contact-type-title">{{t $lang (printf "contact.type_%s" .Type)}}</h2>
+<form method="POST" action="/server/contact" data-action="contact-form" novalidate>
 <input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
 <input type="hidden" name="form_token" value="{{.FormToken}}">
 <input type="hidden" name="type" value="{{.Type}}">
@@ -112,22 +113,20 @@
 {{end}}
 </div>
 <button type="submit" class="btn btn-primary">{{t $lang "contact.send"}}</button>
-</form>
+</form></section>
 {{end}}
 
 {{if .Chooser}}
-<section class="contact-info">
-<h2>{{t $lang "contact.security_title"}}</h2>
+<section class="section-card" aria-labelledby="contact-security"><h2 id="contact-security">{{t $lang "contact.security_title"}}</h2>
 <p>{{t $lang "contact.security_body_before"}}
 <a href="/server/security">/server/security</a>.</p>
 </section>
 
-<section class="contact-info">
-<h2>{{t $lang "contact.abuse_title"}}</h2>
+<section class="section-card" aria-labelledby="contact-abuse"><h2 id="contact-abuse">{{t $lang "contact.abuse_title"}}</h2>
 <p>{{t $lang "contact.abuse_body"}}{{if .AbuseEmail}} {{tf $lang "contact.abuse_or_email" "email" .AbuseEmail}}{{end}}</p>
 </section>
 {{else}}
-<section class="contact-info"><p>{{t $lang "contact.security_body_before"}} <a href="/server/security">/server/security</a>.</p></section>
+<section class="section-card" aria-labelledby="contact-security"><h2 id="contact-security">{{t $lang "contact.security_title"}}</h2><p>{{t $lang "contact.security_body_before"}} <a href="/server/security">/server/security</a>.</p></section>
 {{end}}
 </article>
 {{end}}

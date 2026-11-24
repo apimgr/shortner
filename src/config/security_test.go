@@ -126,6 +126,24 @@ func TestValidateSecurityDropsInvalidAllowlistAndBlockedEntries(t *testing.T) {
 	}
 }
 
+func TestValidateBlocklistSources(t *testing.T) {
+	cfg := Default("/db")
+	cfg.Server.Security.Blocklists.ExtraSources = []BlocklistSource{
+		{ID: "malicious_ips", Type: "ip", URL: "https://feeds.example/list.txt"},
+		{ID: "firehol_level1", Type: "ip", URL: "https://feeds.example/duplicate.txt"},
+		{ID: "bad-source", Type: "ip", URL: "https://feeds.example/list.txt"},
+		{ID: "plain_http", Type: "domain", URL: "http://feeds.example/list.txt"},
+		{ID: "wrong_type", Type: "ua", URL: "https://feeds.example/list.txt"},
+	}
+	warnings := Validate(cfg)
+	if len(warnings) == 0 {
+		t.Fatal("Validate() returned no warnings for invalid blocklist sources")
+	}
+	if len(cfg.Server.Security.Blocklists.ExtraSources) != 1 || cfg.Server.Security.Blocklists.ExtraSources[0].ID != "malicious_ips" {
+		t.Fatalf("ExtraSources = %+v, want only valid malicious_ips source", cfg.Server.Security.Blocklists.ExtraSources)
+	}
+}
+
 func TestValidateSecurityAbuseDetectionDefaults(t *testing.T) {
 	cfg := Default("/db")
 	cfg.Server.Security.AbuseDetection.RequestFlood.Multiplier = 1

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/apimgr/shortner/src/common/i18n"
 )
 
@@ -15,7 +17,7 @@ func TestPreferenceCodeAcceptsQueryURLAndBase64(t *testing.T) {
 	query := "lang=fr&theme=light"
 	for _, code := range []string{
 		query,
-		"https://example.test/server/preferences/import?" + query,
+		"https://example.test/server/preferences/sync/import?" + query,
 		base64.RawURLEncoding.EncodeToString([]byte(query)),
 		base64.URLEncoding.EncodeToString([]byte(query)),
 	} {
@@ -23,6 +25,120 @@ func TestPreferenceCodeAcceptsQueryURLAndBase64(t *testing.T) {
 		if values.Get("lang") != "fr" || values.Get("theme") != "light" {
 			t.Errorf("decodePreferenceCode(%q) = %v", code, values)
 		}
+	}
+}
+
+func TestPreferencePageRegistryHasRoutableHubEntries(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	router := chi.NewRouter()
+	registerPreferencePages(router, fd, fd.cfg)
+	entries := registeredPreferencePages(fd.cfg, "en")
+	if len(entries) != 2 {
+		t.Fatalf("registered preference pages = %d, want tokens and sync", len(entries))
+	}
+	for _, entry := range entries {
+		ctx := chi.NewRouteContext()
+		if !router.Match(ctx, http.MethodGet, entry.Path) {
+			t.Errorf("registered page %q has no GET route", entry.Path)
+		}
+		if entry.Title == "" || entry.Description == "" {
+			t.Errorf("registered page %q has untranslated hub text: %+v", entry.Path, entry)
+		}
+	}
+	if entries[0].Path != "/server/preferences/tokens" || entries[1].Path != "/server/preferences/sync" {
+		t.Fatalf("registered preference page order = %+v", entries)
+	}
+}
+
+func TestRemovedPreferenceImportAndExportRoutesAreNotRegistered(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	router := chi.NewRouter()
+	router.Get("/server/preferences", fd.preferencesHandler)
+	registerPreferencePages(router, fd, fd.cfg)
+	for _, path := range []string{"/server/preferences/export", "/server/preferences/import"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("legacy preference route %q status = %d, want 404", path, rec.Code)
+		}
+	}
+}
+
+func TestHelpPageRegistryHasRoutableHubEntries(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	router := chi.NewRouter()
+	registerHelpPages(router, fd, fd.cfg)
+	entries := registeredHelpPages(fd.cfg, "en")
+	if len(entries) != 1 || entries[0].Path != "/server/help/mcp" {
+		t.Fatalf("registered help pages = %+v, want MCP help", entries)
+	}
+	for _, entry := range entries {
+		ctx := chi.NewRouteContext()
+		if !router.Match(ctx, http.MethodGet, entry.Path) {
+			t.Errorf("registered help page %q has no GET route", entry.Path)
+		}
+		if entry.Title == "" || entry.Description == "" {
+			t.Errorf("registered help page %q has untranslated hub text: %+v", entry.Path, entry)
+		}
+	}
+}
+
+func TestPreferenceSyncRedirectRejectsExternalAndSaveRoutes(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/server/preferences/sync", nil)
+	for _, unsafe := range []string{"//evil.example", "/\\evil", "https://evil.example", "/server/preferences", "/server/preferences/sync", "/server/preferences/sync/import?theme=light"} {
+		if got := preferenceRedirectTarget(unsafe, "", req); got != "/" {
+			t.Errorf("preferenceRedirectTarget(%q) = %q", unsafe, got)
+		}
+	}
+	req.Host = "example.test"
+	if got := preferenceRedirectTarget("", "https://example.test/server/help?q=ok", req); got != "/server/help?q=ok" {
+		t.Errorf("same-origin referer redirect = %q", got)
+	}
+	if got := preferenceRedirectTarget("", "https://evil.test/server/help", req); got != "/" {
+		t.Errorf("external referer redirect = %q", got)
+	}
+}
+
+func TestPreferenceSyncPostAppliesCodeAndDirectValuesWin(t *testing.T) {
+	fd := &frontendDeps{resolver: NewProxyResolver(nil)}
+	form := url.Values{
+		"code":     {"theme=dark&lang=fr"},
+		"theme":    {"light"},
+		"redirect": {"/"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/server/preferences/sync", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	fd.preferenceSyncPost(rec, req)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/server/preferences/sync" {
+		t.Fatalf("sync POST response = %d location %q", rec.Code, rec.Header().Get("Location"))
+	}
+	values := map[string]string{}
+	for _, cookie := range rec.Result().Cookies() {
+		values[cookie.Name] = cookie.Value
+	}
+	if values["theme"] != "light" || values["lang"] != "fr" {
+		t.Fatalf("sync POST cookies = %#v", values)
+	}
+}
+
+func TestPreferenceSyncImportDirectParametersOverrideCode(t *testing.T) {
+	fd := &frontendDeps{resolver: NewProxyResolver(nil)}
+	code := base64.RawURLEncoding.EncodeToString([]byte("theme=dark&lang=fr"))
+	req := httptest.NewRequest(http.MethodGet, "/server/preferences/sync/import?code="+url.QueryEscape(code)+"&theme=light", nil)
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	fd.preferenceSyncImportHandler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sync import status = %d, want 200", rec.Code)
+	}
+	values := map[string]string{}
+	for _, cookie := range rec.Result().Cookies() {
+		values[cookie.Name] = cookie.Value
+	}
+	if values["theme"] != "light" || values["lang"] != "fr" {
+		t.Fatalf("sync import cookies = %#v", values)
 	}
 }
 

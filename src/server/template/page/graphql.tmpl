@@ -1,28 +1,35 @@
-{{define "content"}}<article class="graphql-docs">
-<link rel="stylesheet" href="{{asset "/static/css/graphql-docs.css" .Base.AssetStamp}}">
-<h1>GraphQL explorer</h1>
-<p>Endpoint: <code>{{.Endpoint}}</code>. Queries are read-only.</p>
-<form method="post" action="{{.Endpoint}}" aria-label="GraphQL query" data-graphql-url="{{.Endpoint}}">
-<label for="graphql-query">Query</label>
+{{define "content"}}
+<header class="page-header"><h1 class="page-title">{{t .Base.Lang "api_docs.graphql_title"}}</h1><p class="page-lead">{{t .Base.Lang "api_docs.endpoint"}}: <code>{{.Endpoint}}</code>. {{t .Base.Lang "api_docs.read_only"}}</p></header>
+<noscript><section class="section-card" aria-labelledby="graphql-noscript-title"><h2 id="graphql-noscript-title">{{t .Base.Lang "api_docs.html_form_note"}}</h2><p><a href="{{.Endpoint}}">{{t .Base.Lang "api_docs.endpoint"}}</a></p></section></noscript>
+<section class="section-card" aria-labelledby="graphql-query-title"><h2 id="graphql-query-title">{{t .Base.Lang "api_docs.query"}}</h2>
+<form method="post" action="{{.Endpoint}}" aria-label="{{t .Base.Lang "api_docs.query"}}" data-graphql-url="{{.Endpoint}}"
+  data-status-running="{{t .Base.Lang "api_docs.running_query"}}"
+  data-status-complete="{{t .Base.Lang "api_docs.query_complete"}}"
+  data-status-http="{{tf .Base.Lang "api_docs.query_http" "status" "{status}"}}"
+  data-status-invalid-json="{{t .Base.Lang "api_docs.invalid_variables"}}"
+  data-status-failed="{{t .Base.Lang "api_docs.query_failed"}}">
+<input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
+<label for="graphql-query">{{t .Base.Lang "api_docs.query"}}</label>
 <textarea id="graphql-query" name="query" rows="10" required>{{printf "{ links(limit: 10) { shortCode shortURL destinationURL createdAt clickCount } getAPIHealth }"}}</textarea>
-<label for="graphql-operation-name">Operation name (optional)</label>
+<label for="graphql-operation-name">{{t .Base.Lang "api_docs.operation_name"}}</label>
 <input id="graphql-operation-name" name="operationName" autocomplete="off">
-<label for="graphql-variables">Variables (JSON, optional)</label>
+<label for="graphql-variables">{{t .Base.Lang "api_docs.variables"}}</label>
 <textarea id="graphql-variables" name="variables" rows="4">{}</textarea>
-<label for="graphql-token">API token (optional)</label>
+<label for="graphql-token">{{t .Base.Lang "api_docs.api_token"}}</label>
 <input id="graphql-token" type="password" autocomplete="off" spellcheck="false">
-<button type="submit">Run query</button>
+<button type="submit">{{t .Base.Lang "api_docs.run_query"}}</button>
 </form>
-<p id="graphql-status" role="status" aria-live="polite">Queries can also be submitted as a standard HTML form.</p>
-<pre id="graphql-result" tabindex="0" aria-label="GraphQL response"></pre>
-<h2>Available queries</h2>
+<p id="graphql-status" role="status" aria-live="polite">{{t .Base.Lang "api_docs.html_form_note"}}</p>
+<pre id="graphql-result" tabindex="0" aria-label="{{t .Base.Lang "api_docs.graphql_response"}}"></pre>
+ </section>
+<section class="section-card" aria-labelledby="graphql-queries-title"><h2 id="graphql-queries-title">{{t .Base.Lang "api_docs.available_queries"}}</h2>
 <ul>
 {{range .Queries}}<li><code>{{.Name}}{{if .Args}}({{range $index, $arg := .Args}}{{if $index}}, {{end}}{{$arg}}{{end}}){{end}}</code> — {{.Summary}}</li>
 {{end}}</ul>
-<p>The REST-backed fields return JSON scalar values; the direct link fields support GraphQL field selection.</p>
-<details>
-<summary>View generated GraphQL introspection schema</summary>
-<pre id="graphql-schema" tabindex="0" aria-label="GraphQL schema JSON">{{.GraphQLSchema}}</pre>
-</details>
+<p>{{t .Base.Lang "api_docs.rest_graphql_note"}}</p></section>
+<section class="section-card" aria-labelledby="graphql-schema-title"><h2 id="graphql-schema-title">{{t .Base.Lang "api_docs.schema_summary"}}</h2><details>
+<summary>{{t .Base.Lang "api_docs.schema_summary"}}</summary>
+<pre id="graphql-schema" tabindex="0" aria-label="{{t .Base.Lang "api_docs.graphql_schema_json"}}">{{.GraphQLSchema}}</pre>
+</details></section>
 <script src="{{asset "/static/js/graphql-docs.js" .Base.AssetStamp}}" defer></script>
-</article>{{end}}
+{{end}}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/apimgr/shortner/src/common/i18n"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/graphql-go/graphql/language/parser"
@@ -82,8 +83,9 @@ const maxQueryFields = 100
 // Handler accepts standard GraphQL JSON POST requests and returns GraphQL's
 // data/errors response shape. Mutations are rejected by the query-only schema.
 func Handler(resolve ResolverFactory) http.Handler {
-	schema, err := Schema()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lang := i18n.LangFromRequest(r, i18n.CookieName, i18n.DefaultLanguage)
+		schema, err := Schema(lang)
 		if err != nil {
 			http.Error(w, "GraphQL schema unavailable", http.StatusInternalServerError)
 			return

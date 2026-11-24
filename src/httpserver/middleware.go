@@ -3,11 +3,8 @@
 // PathSecurity(3) -> SecurityHeaders(4) -> Allowlist(5) -> Blocklist(6) ->
 // RateLimit(7) -> GeoIP(8) -> Auth(9) -> Logging(10).
 //
-// Allowlist, Blocklist, and GeoIP are real, wired, pass-through stages:
-// their backing data (PART 11 allowlist/blocklist config, PART 19 GeoIP
-// database) doesn't exist yet, so they perform no filtering but still run
-// and set the request context flags their eventual bodies will need — see
-// TODO.AI.md.
+// Allowlist, configured and downloaded IP/domain blocks, temporary abuse
+// blocks, and GeoIP country rules are active middleware stages.
 package httpserver
 
 import (
@@ -28,6 +25,7 @@ import (
 
 	"github.com/apimgr/shortner/src/apperr"
 	"github.com/apimgr/shortner/src/applog"
+	"github.com/apimgr/shortner/src/blocklist"
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/geoip"
@@ -47,6 +45,7 @@ type deps struct {
 	access          *applog.Logger
 	accessLogFormat string
 	operatorTok     string
+	tokenKey        []byte
 	cors            config.CORS
 	csrf            config.CSRF
 	geo             *geoip.Manager
@@ -63,6 +62,7 @@ type deps struct {
 	privacy    *privacyDeps
 	allowlist  *AllowlistLookup
 	blocks     *BlockStore
+	blocklists *blocklist.Manager
 	abuse      *AbuseDetector
 
 	// notifier raises the AI.md PART 17 `security_alert` email event when
@@ -446,9 +446,6 @@ func (d *deps) rateLimitMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// geoIPMiddleware would block requests by country (execution position 8).
-// Real, wired pass-through — the GeoIP database doesn't exist yet (see
-// TODO.AI.md, AI.md PART 19).
 // geoIPMiddleware evaluates country-blocking rules (execution position 8),
 // per AI.md PART 19 "Configuration" — "Country blocking behavior". Per the
 // NON-NEGOTIABLE risk-signal rule (AI.md PART 19 "GeoIP Is a Risk Signal —
@@ -493,7 +490,7 @@ func (d *deps) authMiddleware(next http.Handler) http.Handler {
 		isOperator := strings.HasPrefix(token, "adm_") && security.CompareServerToken(token, d.operatorTok)
 		var ownerToken *db.APIToken
 		if token != "" && !isOperator && d.sqlDB != nil {
-			ownerToken, _ = db.LookupTokenByRaw(r.Context(), d.sqlDB, token)
+			ownerToken, _ = db.LookupTokenByRaw(r.Context(), d.sqlDB, token, d.tokenKey)
 		}
 		if d.metrics != nil && token != "" {
 			status := "failed"

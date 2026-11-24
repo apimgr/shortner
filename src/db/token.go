@@ -17,6 +17,7 @@ type APIToken struct {
 	Name          string
 	TokenHash     string
 	TokenPrefix   string
+	TokenLast4    string
 	TokenEnc      string
 	CreatedAt     time.Time
 	RotatedAt     *time.Time
@@ -47,11 +48,7 @@ func MaskAPIToken(t *APIToken) string {
 	if t == nil {
 		return ""
 	}
-	tail := t.TokenPrefix
-	if len(tail) > 4 {
-		tail = tail[len(tail)-4:]
-	}
-	return "own_••••••••••••••••••••••••" + tail
+	return "own_••••••••••••••••••••••••" + t.TokenLast4
 }
 
 func CreateOwner(ctx context.Context, sqlDB Handle) (string, error) {
@@ -134,7 +131,7 @@ func createToken(ctx context.Context, sqlDB Handle, ownerID, kind, name string, 
 				return err
 			}
 		}
-		res, err := tx.ExecContext(ctx, `INSERT INTO api_tokens(owner_id,kind,name,token_hash,token_prefix,token_enc,expires_at) VALUES (?,?,?,?,?,?,?)`, ownerID, kind, dbName, security.HashToken(raw), security.TokenPrefix(raw), sealed, expires)
+		res, err := tx.ExecContext(ctx, `INSERT INTO api_tokens(owner_id,kind,name,token_hash,token_prefix,token_last4,token_enc,expires_at) VALUES (?,?,?,?,?,?,?,?)`, ownerID, kind, dbName, security.HashToken(raw), security.TokenPrefix(raw), tokenLast4(raw), sealed, expires)
 		if err != nil {
 			return HandleQueryError(err)
 		}
@@ -148,7 +145,7 @@ func createToken(ctx context.Context, sqlDB Handle, ownerID, kind, name string, 
 	return raw, tok, err
 }
 
-func LookupTokenByRaw(ctx context.Context, sqlDB Handle, raw string) (*APIToken, error) {
+func LookupTokenByRaw(ctx context.Context, sqlDB Handle, raw string, encryptionKeys ...[]byte) (*APIToken, error) {
 	if !strings.HasPrefix(raw, "own_") {
 		return nil, ErrNotFound
 	}
@@ -159,8 +156,87 @@ func LookupTokenByRaw(ctx context.Context, sqlDB Handle, raw string) (*APIToken,
 	if !tok.IsActive() {
 		return nil, ErrNotFound
 	}
+	keyAvailable := len(encryptionKeys) > 0 && len(encryptionKeys[0]) == 32
+	needsEncryption := tok.TokenEnc == ""
+	if tok.TokenEnc != "" && keyAvailable {
+		decrypted, openErr := security.Open(encryptionKeys[0], tok.TokenEnc)
+		needsEncryption = openErr != nil || string(decrypted) != raw
+	}
+	verifiedLast4 := tokenLast4(raw)
+	if tok.TokenLast4 != verifiedLast4 || (needsEncryption && keyAvailable) {
+		tok.TokenLast4 = tokenLast4(raw)
+		sealed := tok.TokenEnc
+		replaceEncrypted := false
+		if needsEncryption && keyAvailable {
+			if encrypted, sealErr := security.Seal(encryptionKeys[0], []byte(raw)); sealErr == nil {
+				sealed = encrypted
+				replaceEncrypted = true
+			}
+		}
+		if replaceEncrypted {
+			_, _ = sqlDB.ExecContext(ctx, `UPDATE api_tokens SET token_last4=?, token_enc=? WHERE id=? AND token_hash=? AND token_prefix=?`, tok.TokenLast4, sealed, tok.ID, tok.TokenHash, tok.TokenPrefix)
+			tok.TokenEnc = sealed
+		} else {
+			_, _ = sqlDB.ExecContext(ctx, `UPDATE api_tokens SET token_last4=? WHERE id=? AND token_hash=? AND token_prefix=?`, tok.TokenLast4, tok.ID, tok.TokenHash, tok.TokenPrefix)
+		}
+	}
 	_ = TouchTokenLastUsed(ctx, sqlDB, tok.ID, tok.OwnerID)
 	return tok, nil
+}
+
+// BackfillTokenLast4 fills the display suffix for rows whose encrypted token
+// copy is available. Older hash-only rows cannot be reconstructed and are
+// completed the next time their raw token is successfully presented.
+func BackfillTokenLast4(ctx context.Context, sqlDB Handle, key []byte) (int, error) {
+	if len(key) != 32 {
+		return 0, security.ErrSealKeySize
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	rows, err := sqlDB.QueryContext(ctx, `SELECT id,token_hash,token_prefix,token_enc FROM api_tokens WHERE token_last4=''`)
+	if err != nil {
+		return 0, HandleQueryError(err)
+	}
+	type pending struct {
+		id                int64
+		hash, prefix, enc string
+	}
+	var items []pending
+	for rows.Next() {
+		var item pending
+		if err := rows.Scan(&item.id, &item.hash, &item.prefix, &item.enc); err != nil {
+			rows.Close()
+			return 0, HandleQueryError(err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, HandleQueryError(err)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, HandleQueryError(err)
+	}
+	skipped := 0
+	for _, item := range items {
+		if item.enc == "" {
+			skipped++
+			continue
+		}
+		raw, err := security.Open(key, item.enc)
+		if err != nil {
+			skipped++
+			continue
+		}
+		if security.HashToken(string(raw)) != item.hash || security.TokenPrefix(string(raw)) != item.prefix {
+			skipped++
+			continue
+		}
+		if _, err := sqlDB.ExecContext(ctx, `UPDATE api_tokens SET token_last4=? WHERE id=? AND token_hash=? AND token_prefix=? AND token_last4=''`, tokenLast4(string(raw)), item.id, item.hash, item.prefix); err != nil {
+			return skipped, HandleQueryError(err)
+		}
+	}
+	return skipped, nil
 }
 
 func TouchTokenLastUsed(ctx context.Context, sqlDB Handle, id int64, ownerID string) error {
@@ -192,7 +268,7 @@ func ListAllTokens(ctx context.Context, sqlDB Handle) ([]APIToken, error) {
 	return listTokens(ctx, sqlDB, tokenSelect+` ORDER BY created_at DESC,id DESC`)
 }
 
-const tokenSelect = `SELECT id,owner_id,kind,name,token_hash,token_prefix,token_enc,created_at,rotated_at,expires_at,last_used_at,revoked_at,revoked_reason FROM api_tokens`
+const tokenSelect = `SELECT id,owner_id,kind,name,token_hash,token_prefix,token_last4,token_enc,created_at,rotated_at,expires_at,last_used_at,revoked_at,revoked_reason FROM api_tokens`
 
 func tokenByHash(ctx context.Context, sqlDB Handle, prefix, hash string) (*APIToken, error) {
 	return scanToken(sqlDB.QueryRowContext(ctx, tokenSelect+` WHERE token_prefix=? AND token_hash=?`, prefix, hash))
@@ -202,7 +278,7 @@ func scanToken(row tokenRowScanner) (*APIToken, error) {
 	var created int64
 	var rotated, expiry, last, revoked sql.NullInt64
 	var name, reason sql.NullString
-	if err := row.Scan(&t.ID, &t.OwnerID, &t.Kind, &name, &t.TokenHash, &t.TokenPrefix, &t.TokenEnc, &created, &rotated, &expiry, &last, &revoked, &reason); err != nil {
+	if err := row.Scan(&t.ID, &t.OwnerID, &t.Kind, &name, &t.TokenHash, &t.TokenPrefix, &t.TokenLast4, &t.TokenEnc, &created, &rotated, &expiry, &last, &revoked, &reason); err != nil {
 		return nil, HandleQueryError(err)
 	}
 	t.Name = name.String
@@ -249,7 +325,14 @@ func RevealToken(t *APIToken, key []byte) (string, error) {
 		return "", errors.New("token ciphertext unavailable")
 	}
 	value, err := security.Open(key, t.TokenEnc)
-	return string(value), err
+	if err != nil {
+		return "", err
+	}
+	raw := string(value)
+	if security.HashToken(raw) != t.TokenHash || security.TokenPrefix(raw) != t.TokenPrefix {
+		return "", errors.New("token ciphertext does not match stored credential")
+	}
+	return raw, nil
 }
 func RotateToken(ctx context.Context, db Handle, id int64, owner, kind string, key []byte) (string, *APIToken, error) {
 	if len(key) != 32 {
@@ -270,12 +353,19 @@ func RotateToken(ctx context.Context, db Handle, id int64, owner, kind string, k
 	if err != nil {
 		return "", nil, err
 	}
-	_, err = db.ExecContext(ctx, `UPDATE api_tokens SET token_hash=?,token_prefix=?,token_enc=?,rotated_at=strftime('%s','now') WHERE id=? AND owner_id=? AND revoked_at IS NULL`, security.HashToken(raw), security.TokenPrefix(raw), sealed, id, owner)
+	_, err = db.ExecContext(ctx, `UPDATE api_tokens SET token_hash=?,token_prefix=?,token_last4=?,token_enc=?,rotated_at=strftime('%s','now') WHERE id=? AND owner_id=? AND revoked_at IS NULL`, security.HashToken(raw), security.TokenPrefix(raw), tokenLast4(raw), sealed, id, owner)
 	if err != nil {
 		return "", nil, HandleQueryError(err)
 	}
 	tok, err := GetTokenByID(ctx, db, id)
 	return raw, tok, err
+}
+
+func tokenLast4(raw string) string {
+	if len(raw) < 4 {
+		return ""
+	}
+	return raw[len(raw)-4:]
 }
 
 func UpdateLinkedToken(ctx context.Context, db Handle, owner string, id int64, name string, expiry *time.Time, clearExpiry bool) error {
@@ -302,6 +392,36 @@ func RevokeLinkedToken(ctx context.Context, db Handle, owner string, id int64) e
 	res, err := db.ExecContext(ctx, `UPDATE api_tokens SET revoked_at=strftime('%s','now'),revoked_reason='owner_revoked' WHERE id=? AND owner_id=? AND kind='linked' AND revoked_at IS NULL`, id, owner)
 	return checkRowsAffected(res, err)
 }
+
+// DeleteOwner removes the owner, all tokens, linked resources, and their
+// click events in one transaction, as required for primary-token revocation.
+func DeleteOwner(ctx context.Context, db Handle, owner string) (int, int, error) {
+	var links, tokens int
+	err := WithTransaction(ctx, db, func(tx *sql.Tx) error {
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM links WHERE owner_id=?`, owner).Scan(&links); err != nil {
+			return HandleQueryError(err)
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM api_tokens WHERE owner_id=?`, owner).Scan(&tokens); err != nil {
+			return HandleQueryError(err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM clicks WHERE link_id IN (SELECT id FROM links WHERE owner_id=?)`, owner); err != nil {
+			return HandleQueryError(err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM links WHERE owner_id=?`, owner); err != nil {
+			return HandleQueryError(err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM api_tokens WHERE owner_id=?`, owner); err != nil {
+			return HandleQueryError(err)
+		}
+		res, err := tx.ExecContext(ctx, `DELETE FROM owners WHERE id=?`, owner)
+		return checkRowsAffected(res, err)
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	return links, tokens, nil
+}
+
 func RevokeToken(ctx context.Context, db Handle, prefix, reason string) error {
 	tok, err := tokenByPrefix(ctx, db, prefix)
 	if err != nil {

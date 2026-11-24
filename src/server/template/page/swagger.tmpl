@@ -1,23 +1,36 @@
-{{define "content"}}<article class="swagger-docs">
-<link rel="stylesheet" href="{{asset "/static/css/swagger-docs.css" .Base.AssetStamp}}">
-<h1>REST API documentation</h1>
-<p>OpenAPI JSON: <a href="{{.Endpoint}}">{{.Endpoint}}</a></p>
-<label for="openapi-token">API token (optional)</label>
+{{define "content"}}
+<header class="page-header"><h1 class="page-title">{{t .Base.Lang "api_docs.swagger_title"}}</h1><p class="page-lead">{{t .Base.Lang "api_docs.openapi_json"}}: <a href="{{.Endpoint}}">{{.Endpoint}}</a></p></header>
+<noscript><section class="section-card" aria-labelledby="openapi-noscript-title"><h2 id="openapi-noscript-title">{{t .Base.Lang "api_docs.operation_js_note"}}</h2><p><a href="{{.Endpoint}}">{{t .Base.Lang "api_docs.openapi_json"}}</a></p></section></noscript>
+<section class="section-card" aria-labelledby="openapi-title">
+<label for="openapi-token">{{t .Base.Lang "api_docs.api_token"}}</label>
 <input id="openapi-token" type="password" autocomplete="off" spellcheck="false" aria-describedby="openapi-token-help">
-<p id="openapi-token-help">The token is kept in this page and sent only with requests you run.</p>
-<section aria-labelledby="openapi-title" data-openapi-url="{{.Endpoint}}" data-api-version="{{.APIVersion}}">
-<h2 id="openapi-title">Generated OpenAPI document</h2>
-<p id="openapi-status" role="status" aria-live="polite">The operation list below works without JavaScript. Enable JavaScript to load request controls.</p>
+<p id="openapi-token-help">{{t .Base.Lang "api_docs.token_page_note"}}</p>
+<div data-openapi-url="{{.Endpoint}}" data-api-version="{{.APIVersion}}"
+  data-status-sending="{{t .Base.Lang "api_docs.sending_request"}}"
+  data-status-metadata="{{t .Base.Lang "api_docs.response_metadata"}}"
+  data-status-binary="{{t .Base.Lang "api_docs.binary_ready"}}"
+  data-status-http="{{tf .Base.Lang "api_docs.http_status" "status" "{status}"}}"
+  data-status-failed="{{t .Base.Lang "api_docs.request_failed"}}"
+  data-status-loaded="{{t .Base.Lang "api_docs.document_loaded"}}"
+  data-status-unavailable="{{t .Base.Lang "api_docs.document_unavailable"}}"
+  data-status-load-failed="{{t .Base.Lang "api_docs.document_load_failed"}}"
+  data-label-download="{{t .Base.Lang "api_docs.download"}}"
+  data-label-body="{{t .Base.Lang "api_docs.json_request_body"}}"
+  data-label-try="{{t .Base.Lang "api_docs.try_operation"}}"
+  data-label-required="{{t .Base.Lang "api_docs.required"}}"
+  data-label-response="{{t .Base.Lang "api_docs.response"}}">
+<h2 id="openapi-title">{{t .Base.Lang "api_docs.generated_openapi"}}</h2>
+<p id="openapi-status" role="status" aria-live="polite">{{t .Base.Lang "api_docs.operation_js_note"}}</p>
 <div id="openapi-operations" class="openapi-operations">
 <ul>
 {{range .Operations}}<li><code>{{.Method}} {{.Path}}</code> — {{.Summary}}</li>
 {{end}}</ul>
 </div>
 <details>
-<summary>View generated OpenAPI JSON</summary>
-<pre id="openapi-document" tabindex="0" aria-label="OpenAPI JSON"></pre>
+<summary>{{t .Base.Lang "api_docs.view_openapi"}}</summary>
+<pre id="openapi-document" tabindex="0" aria-label="{{t .Base.Lang "api_docs.openapi_json"}}"></pre>
 </details>
-</section>
-<p>Use the JSON specification with your preferred OpenAPI client or SDK generator.</p>
+</div></section>
+<p>{{t .Base.Lang "api_docs.openapi_client_note"}}</p>
 <script src="{{asset "/static/js/swagger-docs.js" .Base.AssetStamp}}" defer></script>
-</article>{{end}}
+{{end}}

@@ -1,7 +1,14 @@
 package pgp
 
 import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -270,6 +277,7 @@ func TestUploadURL(t *testing.T) {
 	}{
 		{name: "bare host", in: "keys.openpgp.org", want: "https://keys.openpgp.org/vks/v1/upload"},
 		{name: "https host", in: "https://keys.openpgp.org", want: "https://keys.openpgp.org/vks/v1/upload"},
+		{name: "other host uses HKP", in: "keyserver.ubuntu.com", want: "https://keyserver.ubuntu.com/pks/add"},
 		{name: "explicit path", in: "https://example.com/submit", want: "https://example.com/submit"},
 		{name: "http rejected", in: "http://keys.openpgp.org", wantErr: true},
 		{name: "empty rejected", in: "   ", wantErr: true},
@@ -290,5 +298,73 @@ func TestUploadURL(t *testing.T) {
 				t.Errorf("UploadURL(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSubmitUsesHKPFormBody(t *testing.T) {
+	var gotType string
+	var gotForm url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotType = r.Header.Get("Content-Type")
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("ReadAll() error = %v", err)
+			return
+		}
+		gotForm, err = url.ParseQuery(string(body))
+		if err != nil {
+			t.Errorf("ParseQuery() error = %v", err)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	key := "-----BEGIN PGP PUBLIC KEY BLOCK-----\nkey+text\n-----END PGP PUBLIC KEY BLOCK-----"
+	payload, err := json.Marshal(map[string]string{"keytext": key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := submit(context.Background(), server.Client(), server.URL+"/pks/add", payload); err != nil {
+		t.Fatalf("submit() error = %v", err)
+	}
+	if gotType != "application/x-www-form-urlencoded" {
+		t.Errorf("Content-Type = %q, want form encoding", gotType)
+	}
+	if got := gotForm.Get("keytext"); got != key {
+		t.Errorf("keytext = %q, want armored public key", got)
+	}
+}
+
+func TestKeyserverRetryStatePersistsAndSchedulesBackoff(t *testing.T) {
+	store := &Store{Dir: t.TempDir()}
+	fingerprint := strings.Repeat("A", 40)
+	firstAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	if err := store.SaveKeyserverState(fingerprint, []PublishResult{{Keyserver: "one.example", At: firstAt, Err: "network", Retryable: true}}); err != nil {
+		t.Fatalf("SaveKeyserverState(first) error = %v", err)
+	}
+	gotFingerprint, due, err := store.DueKeyservers(firstAt.Add(publishInitialBackoff))
+	if err != nil {
+		t.Fatalf("DueKeyservers() error = %v", err)
+	}
+	if gotFingerprint != fingerprint || !reflect.DeepEqual(due, []string{"one.example"}) {
+		t.Fatalf("DueKeyservers() = %q, %v; want fingerprint and due server", gotFingerprint, due)
+	}
+	secondAt := firstAt.Add(publishInitialBackoff)
+	if err := store.SaveKeyserverState(fingerprint, []PublishResult{{Keyserver: "one.example", At: secondAt, Err: "HTTP 503", Retryable: true}}); err != nil {
+		t.Fatalf("SaveKeyserverState(second) error = %v", err)
+	}
+	gotFingerprint, due, err = store.DueKeyservers(secondAt.Add(2 * publishInitialBackoff))
+	if err != nil {
+		t.Fatalf("DueKeyservers(second) error = %v", err)
+	}
+	if gotFingerprint != fingerprint || !reflect.DeepEqual(due, []string{"one.example"}) {
+		t.Fatalf("DueKeyservers(second) = %q, %v; want server due after doubled backoff", gotFingerprint, due)
+	}
+	if got := retryDelay(publishMaxAttempts); got != 128*time.Minute {
+		t.Errorf("retryDelay(max attempts) = %s, want 128m", got)
+	}
+	if got := retryDelay(16); got != publishMaxBackoff {
+		t.Errorf("retryDelay(16) = %s, want cap %s", got, publishMaxBackoff)
 	}
 }

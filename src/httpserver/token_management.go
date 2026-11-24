@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,17 +17,24 @@ import (
 	"github.com/apimgr/shortner/src/db"
 )
 
-const ownerTokenCookieName = "shortner_owner_token_Lu2YwQRQ"
+const (
+	ownerTokenCookieName       = "shortner_owner_token_zgnygola"
+	legacyOwnerTokenCookieName = "shortner_owner_token_Lu2YwQRQ"
+	tokenViewCookieName        = "shortner_token_view"
+)
 
 type tokenCard struct {
-	ID       int64  `json:"id"`
-	Name     string `json:"name"`
-	Masked   string `json:"masked"`
-	Created  string `json:"created"`
-	LastUsed string `json:"last_used"`
-	Expires  string `json:"expires"`
-	Status   string `json:"status"`
-	Revealed string `json:"revealed,omitempty"`
+	ID              int64  `json:"id"`
+	Name            string `json:"name"`
+	Masked          string `json:"masked"`
+	Created         string `json:"created"`
+	LastUsed        string `json:"last_used"`
+	Expires         string `json:"expires"`
+	Status          string `json:"status"`
+	Revealed        string `json:"revealed,omitempty"`
+	Last4           string `json:"-"`
+	Last4Available  bool   `json:"last4_available"`
+	RevealAvailable bool   `json:"reveal_available"`
 }
 
 type tokenPageData struct {
@@ -38,15 +46,25 @@ type tokenPageData struct {
 	Notice        string
 	ResourceLabel string
 	OwnerID       string
+	ResourceCount int
 }
 
 func (fd *frontendDeps) tokenPageHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	owner, primary, ok := fd.webPrimaryOwner(w, r)
 	data := tokenPageData{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "token_page.title"), fd.cfg.Server.Branding.Description), Restore: !ok, ResourceLabel: "items"}
+	view, cookieErr := r.Cookie(tokenViewCookieName)
+	hasView := cookieErr == nil
+	if hasView {
+		clearTokenViewCookie(w)
+	}
 	if ok {
 		data.OwnerID = owner.ID
-		data.Primary = tokenCardFor(primary, "")
+		data.Primary = tokenCardFor(primary, "", fd.ld.tokenKey)
+		if err := fd.ld.sqlDB.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM links WHERE owner_id=?`, owner.ID).Scan(&data.ResourceCount); err != nil {
+			sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
+			return
+		}
 		items, err := db.ListOwnerTokens(r.Context(), fd.ld.sqlDB, owner.ID)
 		if err != nil {
 			sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
@@ -54,10 +72,27 @@ func (fd *frontendDeps) tokenPageHandler(w http.ResponseWriter, r *http.Request)
 		}
 		for _, item := range items {
 			if item.Kind == "linked" {
-				data.Linked = append(data.Linked, tokenCardFor(&item, ""))
+				data.Linked = append(data.Linked, tokenCardFor(&item, "", fd.ld.tokenKey))
 			}
 		}
-		setOwnerTokenCookie(w, r, fd.cfg, fd.resolver, rCookieValue(r, ownerTokenCookieName))
+		if hasView {
+			if view.Value == "primary" {
+				if raw, err := db.RevealToken(primary, fd.ld.tokenKey); err == nil {
+					data.Primary.Revealed = raw
+				}
+			} else if id, err := strconv.ParseInt(view.Value, 10, 64); err == nil && id > 0 {
+				if token, err := db.GetTokenByID(r.Context(), fd.ld.sqlDB, id); err == nil && token.OwnerID == owner.ID && token.Kind == "linked" {
+					if raw, err := db.RevealToken(token, fd.ld.tokenKey); err == nil {
+						for i := range data.Linked {
+							if data.Linked[i].ID == id {
+								data.Linked[i].Revealed = raw
+								break
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 	if err := renderPage(w, http.StatusOK, "tokens", data); err != nil {
 		sendError(w, r, apperr.New(apperr.CodeServerError))
@@ -70,7 +105,7 @@ func (fd *frontendDeps) tokenRestoreHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	raw := strings.TrimSpace(r.FormValue("token"))
-	tok, err := db.LookupTokenByRaw(r.Context(), fd.ld.sqlDB, raw)
+	tok, err := db.LookupTokenByRaw(r.Context(), fd.ld.sqlDB, raw, fd.ld.tokenKey)
 	if err != nil || tok.Kind != "primary" {
 		fd.auditToken(r, "token.restored", "", "", applog.ResultFailure)
 		fd.renderTokensNotice(w, r, "token_page.restore_failed", http.StatusOK)
@@ -81,7 +116,49 @@ func (fd *frontendDeps) tokenRestoreHandler(w http.ResponseWriter, r *http.Reque
 	fd.tokenRedirect(w, r, "/server/preferences/tokens#primary")
 }
 
+func (fd *frontendDeps) tokenIssueHandler(w http.ResponseWriter, r *http.Request) {
+	if _, _, ok := fd.webPrimaryOwner(w, r); ok {
+		sendError(w, r, apperr.New(apperr.CodeConflict))
+		return
+	}
+	ownerID, err := db.CreateOwner(r.Context(), fd.ld.sqlDB)
+	if err != nil {
+		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
+		return
+	}
+	raw, token, err := db.CreatePrimaryToken(r.Context(), fd.ld.sqlDB, ownerID, fd.ld.tokenKey)
+	if err != nil {
+		_, _ = fd.ld.sqlDB.ExecContext(r.Context(), `DELETE FROM owners WHERE id=?`, ownerID)
+		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
+		return
+	}
+	setOwnerTokenCookie(w, r, fd.cfg, fd.resolver, raw)
+	setTokenViewCookie(w, "primary")
+	fd.auditToken(r, "token.created", ownerID, token.TokenPrefix, applog.ResultSuccess, "issue")
+	fd.tokenRedirect(w, r, "/server/preferences/tokens#primary")
+}
+
 func (fd *frontendDeps) tokenForgetHandler(w http.ResponseWriter, r *http.Request) {
+	clearOwnerTokenCookie(w, r, fd.cfg, fd.resolver)
+	fd.tokenRedirect(w, r, "/server/preferences/tokens")
+}
+
+func (fd *frontendDeps) tokenPrimaryRevokeHandler(w http.ResponseWriter, r *http.Request) {
+	owner, primary, ok := fd.webPrimaryOwner(w, r)
+	if !ok {
+		fd.tokenRedirect(w, r, "/server/preferences/tokens")
+		return
+	}
+	confirmation := r.FormValue("confirm")
+	if len(confirmation) != 4 || len(primary.TokenLast4) != 4 || subtle.ConstantTimeCompare([]byte(confirmation), []byte(primary.TokenLast4)) != 1 {
+		fd.tokenRedirect(w, r, "/server/preferences/tokens#revoke-primary")
+		return
+	}
+	if _, _, err := db.DeleteOwner(r.Context(), fd.ld.sqlDB, owner.ID); err != nil {
+		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
+		return
+	}
+	fd.auditToken(r, "token.revoked", owner.ID, primary.TokenPrefix, applog.ResultSuccess)
 	clearOwnerTokenCookie(w, r, fd.cfg, fd.resolver)
 	fd.tokenRedirect(w, r, "/server/preferences/tokens")
 }
@@ -92,13 +169,14 @@ func (fd *frontendDeps) tokenPrimaryRevealHandler(w http.ResponseWriter, r *http
 		fd.tokenRedirect(w, r, "/server/preferences/tokens")
 		return
 	}
-	raw, err := db.RevealToken(tok, fd.ld.tokenKey)
+	_, err := db.RevealToken(tok, fd.ld.tokenKey)
 	if err != nil {
 		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
 		return
 	}
 	fd.auditToken(r, "token.revealed", owner.ID, tok.TokenPrefix, applog.ResultSuccess)
-	fd.renderTokenPageWithReveal(w, r, owner, tok, 0, raw)
+	setTokenViewCookie(w, "primary")
+	fd.tokenRedirect(w, r, "/server/preferences/tokens#primary")
 }
 
 func (fd *frontendDeps) tokenPrimaryRotateHandler(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +196,8 @@ func (fd *frontendDeps) tokenPrimaryRotateHandler(w http.ResponseWriter, r *http
 	}
 	setOwnerTokenCookie(w, r, fd.cfg, fd.resolver, raw)
 	fd.auditToken(r, "token.rotated", owner.ID, next.TokenPrefix, applog.ResultSuccess)
-	fd.renderTokenPageWithReveal(w, r, owner, next, 0, raw)
+	setTokenViewCookie(w, "primary")
+	fd.tokenRedirect(w, r, "/server/preferences/tokens#primary")
 }
 
 func (fd *frontendDeps) tokenCreateHandler(w http.ResponseWriter, r *http.Request) {
@@ -141,13 +220,14 @@ func (fd *frontendDeps) tokenCreateHandler(w http.ResponseWriter, r *http.Reques
 	if maximum <= 0 {
 		maximum = 25
 	}
-	raw, tok, err := db.CreateLinkedToken(r.Context(), fd.ld.sqlDB, owner.ID, name, expiry, maximum, fd.ld.tokenKey)
+	_, tok, err := db.CreateLinkedToken(r.Context(), fd.ld.sqlDB, owner.ID, name, expiry, maximum, fd.ld.tokenKey)
 	if err != nil {
 		fd.renderTokensNotice(w, r, "token_page.create_failed", http.StatusOK)
 		return
 	}
 	fd.auditToken(r, "token.created", owner.ID, tok.TokenPrefix, applog.ResultSuccess)
-	fd.renderTokenPageWithReveal(w, r, owner, nil, tok.ID, raw)
+	setTokenViewCookie(w, strconv.FormatInt(tok.ID, 10))
+	fd.tokenRedirect(w, r, "/server/preferences/tokens#token-"+strconv.FormatInt(tok.ID, 10))
 }
 
 func (fd *frontendDeps) tokenLinkedRevealHandler(w http.ResponseWriter, r *http.Request) {
@@ -162,13 +242,14 @@ func (fd *frontendDeps) tokenLinkedRevealHandler(w http.ResponseWriter, r *http.
 		sendError(w, r, apperr.New(apperr.CodeNotFound))
 		return
 	}
-	raw, err := db.RevealToken(tok, fd.ld.tokenKey)
+	_, err = db.RevealToken(tok, fd.ld.tokenKey)
 	if err != nil {
 		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
 		return
 	}
 	fd.auditToken(r, "token.revealed", owner.ID, tok.TokenPrefix, applog.ResultSuccess)
-	fd.renderTokenPageWithReveal(w, r, owner, nil, id, raw)
+	setTokenViewCookie(w, strconv.FormatInt(id, 10))
+	fd.tokenRedirect(w, r, "/server/preferences/tokens#token-"+strconv.FormatInt(id, 10))
 }
 
 func (fd *frontendDeps) tokenLinkedRotateHandler(w http.ResponseWriter, r *http.Request) {
@@ -182,13 +263,14 @@ func (fd *frontendDeps) tokenLinkedRotateHandler(w http.ResponseWriter, r *http.
 		return
 	}
 	id := tokenRouteID(r)
-	raw, tok, err := db.RotateToken(r.Context(), fd.ld.sqlDB, id, owner.ID, "linked", fd.ld.tokenKey)
+	_, tok, err := db.RotateToken(r.Context(), fd.ld.sqlDB, id, owner.ID, "linked", fd.ld.tokenKey)
 	if err != nil {
 		sendError(w, r, apperr.New(apperr.CodeNotFound))
 		return
 	}
 	fd.auditToken(r, "token.rotated", owner.ID, tok.TokenPrefix, applog.ResultSuccess)
-	fd.renderTokenPageWithReveal(w, r, owner, nil, id, raw)
+	setTokenViewCookie(w, strconv.FormatInt(id, 10))
+	fd.tokenRedirect(w, r, "/server/preferences/tokens#token-"+strconv.FormatInt(id, 10))
 }
 
 func (fd *frontendDeps) tokenLinkedUpdateHandler(w http.ResponseWriter, r *http.Request) {
@@ -250,7 +332,7 @@ func (fd *frontendDeps) tokenAPISnapshotHandler(w http.ResponseWriter, r *http.R
 	}
 	data := make([]tokenCard, 0, len(tokens))
 	for i := range tokens {
-		data = append(data, tokenCardFor(&tokens[i], ""))
+		data = append(data, tokenCardFor(&tokens[i], "", fd.ld.tokenKey))
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	apperr.SendOK(w, map[string]any{"tokens": data})
@@ -286,12 +368,59 @@ func (fd *frontendDeps) tokenAPICreateHandler(w http.ResponseWriter, r *http.Req
 	}
 	fd.auditToken(r, "token.created", owner.ID, tok.TokenPrefix, applog.ResultSuccess)
 	w.Header().Set("Cache-Control", "no-store")
-	apperr.SendOK(w, map[string]any{"token": raw, "data": tokenCardFor(tok, "")})
+	apperr.SendOK(w, map[string]any{"token": raw, "data": tokenCardFor(tok, "", fd.ld.tokenKey)})
+}
+
+func (fd *frontendDeps) tokenAPIIssueHandler(w http.ResponseWriter, r *http.Request) {
+	if raw := bearerToken(r); raw != "" {
+		if _, err := db.LookupTokenByRaw(r.Context(), fd.ld.sqlDB, raw, fd.ld.tokenKey); err == nil {
+			sendError(w, r, apperr.New(apperr.CodeConflict))
+			return
+		}
+	}
+	ownerID, err := db.CreateOwner(r.Context(), fd.ld.sqlDB)
+	if err != nil {
+		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
+		return
+	}
+	raw, token, err := db.CreatePrimaryToken(r.Context(), fd.ld.sqlDB, ownerID, fd.ld.tokenKey)
+	if err != nil {
+		_, _ = fd.ld.sqlDB.ExecContext(r.Context(), `DELETE FROM owners WHERE id=?`, ownerID)
+		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
+		return
+	}
+	fd.auditToken(r, "token.created", ownerID, token.TokenPrefix, applog.ResultSuccess, "issue")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	apperr.WriteJSON(w, apperr.APIResponse{OK: true, Data: map[string]any{"owner_token": raw, "token": tokenCardFor(token, "", fd.ld.tokenKey)}})
 }
 
 func (fd *frontendDeps) tokenAPIActionHandler(w http.ResponseWriter, r *http.Request) {
 	owner, _, ok := fd.apiPrimaryOwner(w, r)
 	if !ok {
+		return
+	}
+	if r.Method == http.MethodDelete && strings.HasSuffix(r.URL.Path, "/primary") {
+		tok, err := db.GetPrimaryToken(r.Context(), fd.ld.sqlDB, owner.ID)
+		if err != nil {
+			sendError(w, r, apperr.New(apperr.CodeNotFound))
+			return
+		}
+		var input struct {
+			Confirm string `json:"confirm"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&input); err != nil || len(input.Confirm) != 4 || len(tok.TokenLast4) != 4 || subtle.ConstantTimeCompare([]byte(input.Confirm), []byte(tok.TokenLast4)) != 1 {
+			sendError(w, r, apperr.New(apperr.CodeValidationFailed))
+			return
+		}
+		links, tokens, err := db.DeleteOwner(r.Context(), fd.ld.sqlDB, owner.ID)
+		if err != nil {
+			sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
+			return
+		}
+		fd.auditToken(r, "token.revoked", owner.ID, tok.TokenPrefix, applog.ResultSuccess)
+		apperr.SendOK(w, map[string]any{"tokens": tokens, "resources": links})
 		return
 	}
 	id := tokenRouteID(r)
@@ -377,7 +506,7 @@ func (fd *frontendDeps) apiPrimaryOwner(w http.ResponseWriter, r *http.Request) 
 		sendError(w, r, apperr.New(apperr.CodeUnauthorized))
 		return nil, nil, false
 	}
-	tok, err := db.LookupTokenByRaw(r.Context(), fd.ld.sqlDB, raw)
+	tok, err := db.LookupTokenByRaw(r.Context(), fd.ld.sqlDB, raw, fd.ld.tokenKey)
 	if err != nil {
 		sendError(w, r, apperr.New(apperr.CodeUnauthorized))
 		return nil, nil, false
@@ -395,11 +524,11 @@ func (fd *frontendDeps) apiPrimaryOwner(w http.ResponseWriter, r *http.Request) 
 }
 
 func (fd *frontendDeps) webPrimaryOwner(w http.ResponseWriter, r *http.Request) (*db.Owner, *db.APIToken, bool) {
-	cookie, err := r.Cookie(ownerTokenCookieName)
-	if err != nil {
+	cookie, ok := ownerTokenCookie(r)
+	if !ok {
 		return nil, nil, false
 	}
-	tok, err := db.LookupTokenByRaw(r.Context(), fd.ld.sqlDB, cookie.Value)
+	tok, err := db.LookupTokenByRaw(r.Context(), fd.ld.sqlDB, cookie.Value, fd.ld.tokenKey)
 	if err != nil || tok.Kind != "primary" {
 		clearOwnerTokenCookie(w, r, fd.cfg, fd.resolver)
 		return nil, nil, false
@@ -413,37 +542,13 @@ func (fd *frontendDeps) webPrimaryOwner(w http.ResponseWriter, r *http.Request) 
 	return owner, tok, true
 }
 
-func (fd *frontendDeps) renderTokenPageWithReveal(w http.ResponseWriter, r *http.Request, owner *db.Owner, primary *db.APIToken, revealID int64, revealed string) {
-	w.Header().Set("Cache-Control", "no-store")
-	if primary == nil {
-		primary, _ = db.GetPrimaryToken(r.Context(), fd.ld.sqlDB, owner.ID)
-	}
-	items, _ := db.ListOwnerTokens(r.Context(), fd.ld.sqlDB, owner.ID)
-	data := tokenPageData{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "token_page.title"), fd.cfg.Server.Branding.Description), ResourceLabel: "items", OwnerID: owner.ID, Primary: tokenCardFor(primary, "")}
-	if primary != nil && revealID == 0 {
-		data.Primary.Revealed = revealed
-	}
-	for i := range items {
-		if items[i].Kind != "linked" {
-			continue
-		}
-		card := tokenCardFor(&items[i], "")
-		if items[i].ID == revealID {
-			card.Revealed = revealed
-		}
-		data.Linked = append(data.Linked, card)
-	}
-	if err := renderPage(w, http.StatusOK, "tokens", data); err != nil {
-		sendError(w, r, apperr.New(apperr.CodeServerError))
-	}
-}
-
 func (fd *frontendDeps) renderTokensNotice(w http.ResponseWriter, r *http.Request, key string, status int) {
 	owner, primary, ok := fd.webPrimaryOwner(w, r)
 	data := tokenPageData{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "token_page.title"), fd.cfg.Server.Branding.Description), Restore: !ok, ResourceLabel: "items", Notice: t(r, key)}
 	if ok {
 		data.OwnerID = owner.ID
-		data.Primary = tokenCardFor(primary, "")
+		data.Primary = tokenCardFor(primary, "", fd.ld.tokenKey)
+		_ = fd.ld.sqlDB.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM links WHERE owner_id=?`, owner.ID).Scan(&data.ResourceCount)
 		items, err := db.ListOwnerTokens(r.Context(), fd.ld.sqlDB, owner.ID)
 		if err != nil {
 			sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
@@ -451,7 +556,7 @@ func (fd *frontendDeps) renderTokensNotice(w http.ResponseWriter, r *http.Reques
 		}
 		for i := range items {
 			if items[i].Kind == "linked" {
-				data.Linked = append(data.Linked, tokenCardFor(&items[i], ""))
+				data.Linked = append(data.Linked, tokenCardFor(&items[i], "", fd.ld.tokenKey))
 			}
 		}
 	}
@@ -459,11 +564,16 @@ func (fd *frontendDeps) renderTokensNotice(w http.ResponseWriter, r *http.Reques
 	_ = renderPage(w, status, "tokens", data)
 }
 
-func tokenCardFor(t *db.APIToken, revealed string) tokenCard {
+func tokenCardFor(t *db.APIToken, revealed string, encryptionKey []byte) tokenCard {
 	if t == nil {
 		return tokenCard{}
 	}
-	return tokenCard{ID: t.ID, Name: t.Name, Masked: db.MaskAPIToken(t), Created: t.CreatedAt.Format(time.RFC3339), LastUsed: formatOptionalTime(t.LastUsedAt), Expires: formatOptionalTime(t.ExpiresAt), Status: t.Status(), Revealed: revealed}
+	revealAvailable := false
+	if t.TokenEnc != "" {
+		_, err := db.RevealToken(t, encryptionKey)
+		revealAvailable = err == nil
+	}
+	return tokenCard{ID: t.ID, Name: t.Name, Masked: db.MaskAPIToken(t), Created: t.CreatedAt.Format(time.RFC3339), LastUsed: formatOptionalTime(t.LastUsedAt), Expires: formatOptionalTime(t.ExpiresAt), Status: t.Status(), Revealed: revealed, Last4: t.TokenLast4, Last4Available: t.TokenLast4 != "", RevealAvailable: revealAvailable}
 }
 func formatOptionalTime(t *time.Time) string {
 	if t == nil {
@@ -483,19 +593,43 @@ func bearerToken(r *http.Request) string {
 	}
 	return strings.TrimSpace(token)
 }
-func rCookieValue(r *http.Request, name string) string {
-	c, err := r.Cookie(name)
-	if err != nil {
-		return ""
+
+// ownerTokenCookie gives the current cookie strict precedence. The legacy
+// cookie is read only when the current cookie is absent, so an invalid new
+// value can never fall back to a different credential.
+func ownerTokenCookie(r *http.Request) (*http.Cookie, bool) {
+	if cookie, err := r.Cookie(ownerTokenCookieName); err == nil {
+		return cookie, true
 	}
-	return c.Value
+	cookie, err := r.Cookie(legacyOwnerTokenCookieName)
+	return cookie, err == nil
 }
+
+func ownerTokenCookiePresent(r *http.Request) bool {
+	_, ok := ownerTokenCookie(r)
+	return ok
+}
+
 func setOwnerTokenCookie(w http.ResponseWriter, r *http.Request, cfg *config.Config, resolver *ProxyResolver, raw string) {
 	maxAge := cfg.Server.Tokens.CookieMaxAgeSeconds()
 	w.Header().Add("Set-Cookie", (&http.Cookie{Name: ownerTokenCookieName, Value: raw, Path: "/", MaxAge: maxAge, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode}).String())
+	clearLegacyOwnerTokenCookie(w)
 }
 func clearOwnerTokenCookie(w http.ResponseWriter, r *http.Request, cfg *config.Config, resolver *ProxyResolver) {
 	w.Header().Add("Set-Cookie", (&http.Cookie{Name: ownerTokenCookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode}).String())
+	clearLegacyOwnerTokenCookie(w)
+}
+
+func clearLegacyOwnerTokenCookie(w http.ResponseWriter) {
+	w.Header().Add("Set-Cookie", (&http.Cookie{Name: legacyOwnerTokenCookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode}).String())
+}
+
+func setTokenViewCookie(w http.ResponseWriter, card string) {
+	w.Header().Add("Set-Cookie", (&http.Cookie{Name: tokenViewCookieName, Value: card, Path: "/server/preferences/tokens", MaxAge: 60, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode}).String())
+}
+
+func clearTokenViewCookie(w http.ResponseWriter) {
+	w.Header().Add("Set-Cookie", (&http.Cookie{Name: tokenViewCookieName, Value: "", Path: "/server/preferences/tokens", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode}).String())
 }
 func parseTokenExpiry(value, date string) (*time.Time, error) {
 	switch value {
@@ -528,7 +662,7 @@ func (fd *frontendDeps) tokenRedirect(w http.ResponseWriter, r *http.Request, ta
 	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }
-func (fd *frontendDeps) auditToken(r *http.Request, event, owner, prefix string, result applog.Result) {
+func (fd *frontendDeps) auditToken(r *http.Request, event, owner, prefix string, result applog.Result, source ...string) {
 	if fd.audit == nil {
 		return
 	}
@@ -536,5 +670,9 @@ func (fd *frontendDeps) auditToken(r *http.Request, event, owner, prefix string,
 	if fd.resolver != nil {
 		ip = fd.resolver.ResolveClientIP(r)
 	}
-	_ = fd.audit.Write(applog.Entry{Event: event, Category: "token", Severity: applog.SeverityInfo, Actor: applog.Actor{IP: ip, UserID: owner}, Target: &applog.Target{Type: "api_token", ID: prefix}, Details: map[string]any{"owner_id": owner, "token_prefix": prefix}, Result: result})
+	details := map[string]any{"owner_id": owner, "token_prefix": prefix}
+	if len(source) > 0 && source[0] != "" {
+		details["source"] = source[0]
+	}
+	_ = fd.audit.Write(applog.Entry{Event: event, Category: "token", Severity: applog.SeverityInfo, Actor: applog.Actor{IP: ip, UserID: owner}, Target: &applog.Target{Type: "api_token", ID: prefix}, Details: details, Result: result})
 }

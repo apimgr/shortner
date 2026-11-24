@@ -1,11 +1,13 @@
-{{define "content"}}<section class="home-hero">
-<img src="{{if .Base.LogoURL}}{{.Base.LogoURL}}{{else if .Base.FaviconURL}}{{.Base.FaviconURL}}{{else}}/favicon.ico{{end}}"{{if .Base.LogoURL}} srcset="{{.Base.LogoURL}}?width=50 50w, {{.Base.LogoURL}}?width=200 200w" sizes="96px"{{end}} alt="" class="home-logo" width="96" height="96">
-<h1>{{.Base.SiteName}}</h1>
-<p class="tagline">{{.Base.Tagline}}</p>
+{{define "content"}}<div>
+<header class="page-header">
+<img src="{{if .Base.LogoURL}}{{.Base.LogoURL}}{{else if .Base.FaviconURL}}{{.Base.FaviconURL}}{{else}}/favicon.ico{{end}}"{{if .Base.LogoURL}} srcset="{{.Base.LogoURL}}?width=50 50w, {{.Base.LogoURL}}?width=200 200w" sizes="96px"{{end}} alt="{{.Base.SiteName}}" class="home-logo" width="96" height="96">
+<h1 class="page-title">{{.Base.SiteName}}</h1>
+</header>
+<p class="page-lead">{{if .Base.Tagline}}{{.Base.Tagline}}{{else}}{{.Base.Description}}{{end}}</p>
 
 {{if .Link}}
-<div class="create-link-card success-card">
-<h2 class="text-success">{{t .Base.Lang "home.success"}}</h2>
+<section class="section-card" aria-labelledby="home-success-title">
+<h2 id="home-success-title">{{t .Base.Lang "home.success"}}</h2>
 <div class="result-row">
 <span class="result-label">{{t .Base.Lang "home.your_short_url"}}</span>
 <div class="long-string monospace-data">
@@ -22,9 +24,9 @@
 </div>
 {{end}}
 <a href="/" class="btn btn-secondary">{{t .Base.Lang "home.create_another"}}</a>
-</div>
+ </section>
 {{else}}
-<form method="POST" action="/" class="create-link-card" data-action="create-link-form" novalidate>
+<section class="section-card" aria-labelledby="home-create-title"><h2 id="home-create-title">{{t .Base.Lang "home.submit"}}</h2><form method="POST" action="/" data-action="create-link-form" novalidate>
 <input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
 {{if .Error}}<p class="form-error" role="alert">{{.Error}}</p>{{end}}
 <div class="form-group">
@@ -38,7 +40,7 @@
 <p id="slug-help" class="field-help">{{t .Base.Lang "home.slug_hint"}}</p>
 </div>
 <button type="submit" class="btn btn-primary">{{t .Base.Lang "home.submit"}}</button>
-</form>
+</form></section>
 {{end}}
-</section>
+</div>
 {{end}}

@@ -1,6 +1,5 @@
-{{define "content"}}{{$lang := .Base.Lang}}<article class="list-page">
-<h1>{{t .Base.Lang "list.title"}}</h1>
-<p>{{tf .Base.Lang "list.intro" "site" .Base.SiteName}}</p>
+{{define "content"}}{{$lang := .Base.Lang}}
+<header class="page-header"><h1 class="page-title">{{t .Base.Lang "list.title"}}</h1><p class="page-lead">{{tf .Base.Lang "list.intro" "site" .Base.SiteName}}</p></header>
 
 {{if .Links}}
 <div class="table-wrapper">
@@ -25,5 +24,4 @@
 <span>{{tf $lang "common.page_x_of_y" "current" .Pagination.Page "total" .Pagination.Pages}}</span>
 {{if .HasNext}}<a class="btn btn-secondary" href="/list?page={{.NextPage}}">{{t $lang "common.next"}} &raquo;</a>{{end}}
 </nav>
-</article>
 {{end}}

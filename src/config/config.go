@@ -843,9 +843,7 @@ func boolPtr(value bool) *bool {
 }
 
 // CacheConfig holds `server.cache`, per AI.md PART 12 "Cache
-// Configuration". Only the "memory" (in-process, default) driver is
-// implemented — "valkey"/"redis" depend on a client dependency not yet
-// added (tracked in TODO.AI.md).
+// Configuration".
 type CacheConfig struct {
 	Type             string `yaml:"type"`
 	URL              string `yaml:"url"`
@@ -980,7 +978,8 @@ func Default(dbPath string) *Config {
 				Tasks: map[string]SchedulerTaskYAML{
 					"ssl_renewal":      {Schedule: "0 3 * * *", Enabled: true},
 					"geoip_update":     {Schedule: "0 3 * * 0", Enabled: true},
-					"blocklist_update": {Schedule: "0 4 * * *", Enabled: true},
+					"blocklist_update": {Schedule: "0 4 * * *", Enabled: true, RetryOnFail: true, RetryDelay: "1h"},
+					"keyserver_retry":  {Schedule: "@every 15m", Enabled: true},
 					"cve_update":       {Schedule: "0 5 * * *", Enabled: true},
 					"update_check":     {Schedule: "0 6 * * *", Enabled: true},
 					"token_cleanup":    {Schedule: "@every 15m", Enabled: true},

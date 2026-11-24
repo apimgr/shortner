@@ -625,6 +625,26 @@ func validateSecurity(cfg *Config, defaults *Config) []string {
 	}
 	sec.BlockedIPs = keptBlock
 
+	seenSources := map[string]bool{"firehol_level1": true}
+	keptSources := sec.Blocklists.ExtraSources[:0]
+	for _, source := range sec.Blocklists.ExtraSources {
+		validID := source.ID != ""
+		for _, r := range source.ID {
+			if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' {
+				validID = false
+			}
+		}
+		parsedURL, urlErr := url.Parse(source.URL)
+		validURL := urlErr == nil && parsedURL.Scheme == "https" && parsedURL.Host != "" && parsedURL.User == nil
+		if !validID || seenSources[source.ID] || (source.Type != "ip" && source.Type != "domain") || !validURL {
+			warnings = append(warnings, fmt.Sprintf("invalid server.security.blocklists.extra_sources entry %q: id must be unique a-z0-9_, type must be ip or domain, and url must be HTTPS; entry ignored", source.ID))
+			continue
+		}
+		seenSources[source.ID] = true
+		keptSources = append(keptSources, source)
+	}
+	sec.Blocklists.ExtraSources = keptSources
+
 	ad := &sec.AbuseDetection
 	dad := defaults.Server.Security.AbuseDetection
 	if ad.RequestFlood.Multiplier < 2 {

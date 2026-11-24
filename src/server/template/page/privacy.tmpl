@@ -1,23 +1,20 @@
-{{define "content"}}{{$lang := .Base.Lang}}<article class="privacy-page">
-<h1>{{t $lang "privacy.title"}}</h1>
+{{define "content"}}{{$lang := .Base.Lang}}
+<header class="page-header"><h1 class="page-title">{{t $lang "privacy.title"}}</h1><p class="page-lead">{{t $lang "privacy.default_data_collection"}}</p></header>
 
-<section>
-<h2>{{t $lang "privacy.data_we_collect"}}</h2>
+<section class="section-card" aria-labelledby="privacy-data"><h2 id="privacy-data">{{t $lang "privacy.data_we_collect"}}</h2>
 <p>{{if .DataCollection}}{{.DataCollection}}{{else}}{{t $lang "privacy.default_data_collection"}}{{end}}</p>
 </section>
 
-<section>
-<h2>{{t $lang "privacy.how_we_use"}}</h2>
+<section class="section-card" aria-labelledby="privacy-use"><h2 id="privacy-use">{{t $lang "privacy.how_we_use"}}</h2>
 <p>{{.DataUsage}}</p>
 </section>
 
-<section>
-<h2>{{t $lang "privacy.data_security"}}</h2>
+<section class="section-card" aria-labelledby="privacy-security"><h2 id="privacy-security">{{t $lang "privacy.data_security"}}</h2>
 <p>{{if .DataSecurity}}{{.DataSecurity}}{{else}}{{t $lang "privacy.default_data_security"}}{{end}}</p>
 </section>
 
-<section id="cookies">
-<h2>{{t $lang "privacy.cookie_policy"}}</h2>
+<section class="section-card" id="cookies" aria-labelledby="privacy-cookies">
+<h2 id="privacy-cookies">{{t $lang "privacy.cookie_policy"}}</h2>
 <ul>
 {{if .CookieEssentialEnabled}}<li><strong>{{t $lang "cookie_consent.essential"}}</strong> &mdash; {{.CookieEssentialDescription}}</li>{{end}}
 {{if .CookiePreferencesEnabled}}<li><strong>{{t $lang "cookie_consent.preferences"}}</strong> &mdash; {{.CookiePreferencesDescription}}</li>{{end}}
@@ -38,35 +35,31 @@
 </section>
 
 {{if .Sold}}
-<section>
-<h2>{{t $lang "privacy.data_sale_title"}}</h2>
+<section class="section-card" aria-labelledby="privacy-sale"><h2 id="privacy-sale">{{t $lang "privacy.data_sale_title"}}</h2>
 <p>{{t $lang "privacy.data_sale_body"}}</p>
 </section>
 {{end}}
 
 {{if .ThirdPartyServices}}
-<section>
-<h2>{{t $lang "privacy.third_party_services"}}</h2>
-<table class="table-wrapper">
+<section class="section-card" aria-labelledby="privacy-third-party"><h2 id="privacy-third-party">{{t $lang "privacy.third_party_services"}}</h2>
+<div class="table-wrapper"><table class="data-table">
 <thead><tr><th>{{t $lang "privacy.service"}}</th><th>{{t $lang "privacy.purpose"}}</th><th>{{t $lang "privacy.data_sent"}}</th></tr></thead>
 <tbody>
 {{range .ThirdPartyServices}}
 <tr><td>{{.Name}}</td><td>{{.Purpose}}</td><td>{{.DataSent}}</td></tr>
 {{end}}
 </tbody>
-</table>
+</table></div>
 </section>
 {{end}}
 
-<section>
-<h2>{{t $lang "privacy.data_retention"}}</h2>
+<section class="section-card" aria-labelledby="privacy-retention"><h2 id="privacy-retention">{{t $lang "privacy.data_retention"}}</h2>
 <p>{{.RetentionPeriod}}</p>
 </section>
 
-{{if .Extension}}<section id="operator-extension">{{.Extension}}</section>{{end}}
+{{if .Extension}}<section class="section-card" id="operator-extension" aria-labelledby="privacy-extension-title"><h2 id="privacy-extension-title">{{t $lang "privacy.operator_extension"}}</h2>{{.Extension}}</section>{{end}}
 
-<section id="contact">
-<h2>{{t $lang "privacy.contact_title"}}</h2>
+<section class="section-card" id="contact" aria-labelledby="privacy-contact"><h2 id="privacy-contact">{{t $lang "privacy.contact_title"}}</h2>
 {{if .ContactEmail}}<p><a href="mailto:{{.ContactEmail}}">{{.ContactEmail}}</a></p>{{else}}<p>{{t $lang "privacy.contact_fallback"}} <a href="/server/security">{{t $lang "privacy.contact_security_link"}}</a>.</p>{{end}}
 </section>
 </article>

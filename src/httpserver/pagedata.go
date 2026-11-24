@@ -275,7 +275,7 @@ func (fd *frontendDeps) newPageData(r *http.Request, csrfToken, title, descripti
 		CurrentPath:            currentPath,
 		CSRFToken:              csrfToken,
 		CSRFCookieName:         cookieName,
-		OwnerTokenCookieExists: rCookieValue(r, ownerTokenCookieName) != "",
+		OwnerTokenCookieExists: ownerTokenCookiePresent(r),
 		ToastPosition:          cfg.Server.Notifications.WebUI.Position,
 		ToastDuration:          cfg.Server.Notifications.WebUI.Duration,
 

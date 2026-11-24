@@ -62,6 +62,14 @@ input, button, textarea, select {
   --z-toast: 500;
   --z-tooltip: 600;
 
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+
   color-scheme: dark;
 }
 
@@ -136,6 +144,10 @@ textarea:focus-visible,
   margin: 0 auto;
   padding: 0 1rem;
 }
+
+.container-sm { max-width: 40rem; }
+.container-md { max-width: 56rem; }
+.container-lg { max-width: 72rem; }
 
 @media (min-width: 768px) {
   .container {

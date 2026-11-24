@@ -51,7 +51,7 @@
       event.preventDefault();
       const result = details.querySelector(".api-operation-result");
       const resultStatus = details.querySelector(".api-operation-status");
-      resultStatus.textContent = "Sending request…";
+      resultStatus.textContent = root.dataset.statusSending;
       try {
         let requestPath = path.replace(/\{([^}]+)\}/g, (_, name) => {
           const field = form.elements.namedItem(`path:${name}`);
@@ -81,16 +81,16 @@
         if (contentType.toLowerCase().includes("application/octet-stream") || /attachment/i.test(disposition)) {
           if (method.toUpperCase() === "HEAD") {
             result.textContent = [...response.headers.entries()].map(([name, value]) => `${name}: ${value}`).join("\n") || "No response body (HEAD).";
-            resultStatus.textContent = `HTTP ${response.status} ${response.statusText} — response metadata`;
+            resultStatus.textContent = root.dataset.statusMetadata.replace("{status}", `${response.status} ${response.statusText}`);
             return;
           }
           const objectURL = URL.createObjectURL(await response.blob());
           const download = document.createElement("a");
           download.href = objectURL;
           download.download = attachmentFilename(disposition);
-          download.textContent = `Download ${download.download}`;
+          download.textContent = root.dataset.labelDownload.replace("{filename}", download.download);
           result.replaceChildren(download);
-          resultStatus.textContent = `HTTP ${response.status} ${response.statusText} — binary response ready`;
+          resultStatus.textContent = root.dataset.statusBinary.replace("{status}", `${response.status} ${response.statusText}`);
           window.setTimeout(() => URL.revokeObjectURL(objectURL), 60_000);
           return;
         }
@@ -102,9 +102,9 @@
           // Preserve text and binary response messages as received.
         }
         result.textContent = display;
-        resultStatus.textContent = `HTTP ${response.status} ${response.statusText}`;
+        resultStatus.textContent = root.dataset.statusHttp.replace("{status}", `${response.status} ${response.statusText}`);
       } catch (error) {
-        resultStatus.textContent = error.message || "Request failed.";
+        resultStatus.textContent = error.message || root.dataset.statusFailed;
       }
     });
 
@@ -119,7 +119,7 @@
       } else {
         continue;
       }
-      addLabel(form, `${parameter.name}${parameter.required ? " (required)" : ""}`, input);
+      addLabel(form, `${parameter.name}${parameter.required ? ` (${root.dataset.labelRequired})` : ""}`, input);
       if (parameter.description) {
         const description = document.createElement("p");
         description.textContent = parameter.description;
@@ -135,12 +135,12 @@
       textarea.spellcheck = false;
       const media = operation.requestBody.content && operation.requestBody.content["application/json"];
       textarea.value = JSON.stringify((media && (media.example || media.examples && Object.values(media.examples)[0]?.value)) || {}, null, 2);
-      addLabel(form, "JSON request body", textarea);
+      addLabel(form, root.dataset.labelBody, textarea);
     }
 
     const submit = document.createElement("button");
     submit.type = "submit";
-    submit.textContent = "Try this operation";
+    submit.textContent = root.dataset.labelTry;
     form.append(submit);
     const resultStatus = document.createElement("p");
     resultStatus.className = "api-operation-status";
@@ -149,14 +149,14 @@
     const result = document.createElement("pre");
     result.className = "api-operation-result";
     result.tabIndex = 0;
-    result.setAttribute("aria-label", `${operation.operationId} response`);
+    result.setAttribute("aria-label", `${operation.operationId} ${root.dataset.labelResponse}`);
     details.append(form, resultStatus, result);
     return details;
   };
 
   fetch(root.dataset.openapiUrl, { headers: { Accept: "application/json" } })
     .then((response) => {
-      if (!response.ok) throw new Error("OpenAPI document unavailable");
+      if (!response.ok) throw new Error(root.dataset.statusUnavailable);
       return response.json();
     })
     .then((documentData) => {
@@ -169,9 +169,9 @@
         }
       }
       operations.replaceChildren(rendered);
-      status.textContent = "OpenAPI document loaded. Choose an operation to inspect or run it.";
+      status.textContent = root.dataset.statusLoaded;
     })
     .catch(() => {
-      status.textContent = "Unable to load the document. Use the JSON link above.";
+      status.textContent = root.dataset.statusLoadFailed;
     });
 })();

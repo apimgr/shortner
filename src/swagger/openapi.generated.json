@@ -464,6 +464,76 @@
         ],
         "type": "object"
       },
+      "HelpPage": {
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/HelpPageEntry"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "content",
+          "format",
+          "pages"
+        ],
+        "type": "object"
+      },
+      "HelpPageEntry": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "order": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "title",
+          "description",
+          "order"
+        ],
+        "type": "object"
+      },
+      "HelpPageResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/HelpPage"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "type": "object"
+      },
       "Link": {
         "properties": {
           "click_count": {
@@ -864,6 +934,74 @@
         },
         "type": "object"
       },
+      "PrimaryTokenIssueResponse": {
+        "properties": {
+          "data": {
+            "properties": {
+              "owner_token": {
+                "type": "string"
+              },
+              "token": {
+                "$ref": "#/components/schemas/TokenCard"
+              }
+            },
+            "required": [
+              "owner_token",
+              "token"
+            ],
+            "type": "object"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "type": "object"
+      },
+      "PrimaryTokenRevocationResponse": {
+        "properties": {
+          "data": {
+            "properties": {
+              "deleted_resources": {
+                "type": "integer"
+              },
+              "deleted_tokens": {
+                "type": "integer"
+              },
+              "revoked": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "revoked",
+              "deleted_tokens",
+              "deleted_resources"
+            ],
+            "type": "object"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "type": "object"
+      },
       "ReportPayload": {
         "oneOf": [
           {
@@ -1237,7 +1375,9 @@
   "paths": {
     "/api/autodiscover": {
       "get": {
-        "summary": "Discover compatible CLI binaries and minimum version",
+        "summary": "Discover compatible CLI versions",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getCLIAutodiscover",
         "tags": [
           "CLI Updates"
@@ -1306,7 +1446,9 @@
         }
       },
       "head": {
-        "summary": "Check CLI autodiscovery metadata",
+        "summary": "Discover compatible CLI versions",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "headCLIAutodiscover",
         "tags": [
           "CLI Updates"
@@ -1370,7 +1512,9 @@
     },
     "/api/graphql": {
       "post": {
-        "summary": "Execute a read-only GraphQL query (current-version alias)",
+        "summary": "Run a read-only GraphQL query",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "executeGraphQLAlias",
         "tags": [
           "Server"
@@ -1454,7 +1598,9 @@
     },
     "/api/healthz": {
       "get": {
-        "summary": "Health status",
+        "summary": "Check service health",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getAPIHealth",
         "tags": [
           "Server"
@@ -1525,7 +1671,9 @@
     },
     "/api/mcp": {
       "post": {
-        "summary": "MCP Streamable HTTP endpoint alias",
+        "summary": "Use the MCP endpoint",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "handleMCPAlias",
         "tags": [
           "Server"
@@ -1596,7 +1744,9 @@
     },
     "/api/metrics": {
       "get": {
-        "summary": "Get Prometheus metrics",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getAPIMetrics",
         "tags": [
           "Metrics"
@@ -1663,7 +1813,9 @@
     },
     "/api/metrics/grafana": {
       "get": {
-        "summary": "Get Grafana metrics",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getAPIGrafanaMetrics",
         "tags": [
           "Metrics"
@@ -1730,7 +1882,9 @@
     },
     "/api/metrics/loki": {
       "get": {
-        "summary": "Get Loki metrics",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getAPILokiMetrics",
         "tags": [
           "Metrics"
@@ -1797,7 +1951,9 @@
     },
     "/api/metrics/prometheus": {
       "get": {
-        "summary": "Get Prometheus metrics",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getAPIPrometheusMetrics",
         "tags": [
           "Metrics"
@@ -1864,7 +2020,9 @@
     },
     "/api/swagger": {
       "get": {
-        "summary": "OpenAPI specification (current-version alias)",
+        "summary": "Read the OpenAPI specification",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getOpenAPIAlias",
         "tags": [
           "Server"
@@ -1935,7 +2093,9 @@
     },
     "/api/{api_version}/links": {
       "get": {
-        "summary": "List links",
+        "summary": "List shortened links",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "listLinks",
         "tags": [
           "Links"
@@ -2035,7 +2195,9 @@
         }
       },
       "post": {
-        "summary": "Create a link",
+        "summary": "Create a shortened link",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "createLink",
         "tags": [
           "Links"
@@ -2130,7 +2292,9 @@
     },
     "/api/{api_version}/links/{slug}": {
       "delete": {
-        "summary": "Delete a link",
+        "summary": "Delete a shortened link",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "deleteLink",
         "tags": [
           "Links"
@@ -2225,7 +2389,9 @@
         }
       },
       "get": {
-        "summary": "Get a link",
+        "summary": "Read a shortened link",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getLink",
         "tags": [
           "Links"
@@ -2312,7 +2478,9 @@
         }
       },
       "patch": {
-        "summary": "Update a link",
+        "summary": "Update a shortened link",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "updateLink",
         "tags": [
           "Links"
@@ -2423,6 +2591,8 @@
     "/api/{api_version}/links/{slug}/stats": {
       "get": {
         "summary": "Get link statistics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getLinkStats",
         "tags": [
           "Links"
@@ -2511,7 +2681,9 @@
     },
     "/api/{api_version}/server/about": {
       "get": {
-        "summary": "About page content",
+        "summary": "Read about this service",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getAboutPage",
         "tags": [
           "Server"
@@ -2592,7 +2764,9 @@
     },
     "/api/{api_version}/server/auth/check": {
       "get": {
-        "summary": "Check API token authorization",
+        "summary": "Check token authorization",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "checkAuthorization",
         "tags": [
           "Server"
@@ -2681,7 +2855,9 @@
     },
     "/api/{api_version}/server/contact": {
       "get": {
-        "summary": "Describe the private report form",
+        "summary": "Read contact form information",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getContactForm",
         "tags": [
           "Server"
@@ -2761,6 +2937,8 @@
       },
       "post": {
         "summary": "Submit or confirm a report",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "submitContactForm",
         "tags": [
           "Server"
@@ -2841,7 +3019,9 @@
     },
     "/api/{api_version}/server/dpo": {
       "get": {
-        "summary": "Get data protection contact",
+        "summary": "Read data protection contact information",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getDPO",
         "tags": [
           "Server"
@@ -2922,7 +3102,9 @@
     },
     "/api/{api_version}/server/graphql": {
       "post": {
-        "summary": "Execute a read-only GraphQL query",
+        "summary": "Run a read-only GraphQL query",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "executeGraphQL",
         "tags": [
           "Server"
@@ -3016,7 +3198,9 @@
     },
     "/api/{api_version}/server/healthz": {
       "get": {
-        "summary": "Health status",
+        "summary": "Check service health",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getHealth",
         "tags": [
           "Server"
@@ -3097,7 +3281,9 @@
     },
     "/api/{api_version}/server/help": {
       "get": {
-        "summary": "Help page content",
+        "summary": "Read help content",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getHelpPage",
         "tags": [
           "Server"
@@ -3117,7 +3303,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope"
+                  "$ref": "#/components/schemas/HelpPageResponse"
                 }
               }
             },
@@ -3178,7 +3364,9 @@
     },
     "/api/{api_version}/server/help/mcp": {
       "get": {
-        "summary": "MCP help sections",
+        "summary": "Read MCP setup help",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getMCPHelp",
         "tags": [
           "Server"
@@ -3259,7 +3447,9 @@
     },
     "/api/{api_version}/server/mcp": {
       "post": {
-        "summary": "MCP Streamable HTTP endpoint",
+        "summary": "Use the MCP endpoint",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "handleMCP",
         "tags": [
           "Server"
@@ -3340,7 +3530,9 @@
     },
     "/api/{api_version}/server/metrics": {
       "get": {
-        "summary": "Get Prometheus metrics",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getMetrics",
         "tags": [
           "Metrics"
@@ -3417,7 +3609,9 @@
     },
     "/api/{api_version}/server/metrics/grafana": {
       "get": {
-        "summary": "Get Grafana metrics",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getGrafanaMetrics",
         "tags": [
           "Metrics"
@@ -3494,7 +3688,9 @@
     },
     "/api/{api_version}/server/metrics/loki": {
       "get": {
-        "summary": "Get Loki metrics",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getLokiMetrics",
         "tags": [
           "Metrics"
@@ -3571,7 +3767,9 @@
     },
     "/api/{api_version}/server/metrics/prometheus": {
       "get": {
-        "summary": "Get Prometheus metrics",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getPrometheusMetrics",
         "tags": [
           "Metrics"
@@ -3649,6 +3847,8 @@
     "/api/{api_version}/server/preferences": {
       "get": {
         "summary": "Read preferences",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getPreferences",
         "tags": [
           "Preferences"
@@ -3728,6 +3928,8 @@
       },
       "post": {
         "summary": "Update preferences",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "updatePreferences",
         "tags": [
           "Preferences"
@@ -3820,10 +4022,12 @@
         }
       }
     },
-    "/api/{api_version}/server/preferences/export": {
+    "/api/{api_version}/server/preferences/sync": {
       "get": {
-        "summary": "Export preferences",
-        "operationId": "exportPreferences",
+        "summary": "Export preferences for cross-device sync",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
+        "operationId": "syncPreferences",
         "tags": [
           "Preferences"
         ],
@@ -3901,10 +4105,12 @@
         }
       }
     },
-    "/api/{api_version}/server/preferences/import": {
+    "/api/{api_version}/server/preferences/sync/import": {
       "get": {
-        "summary": "Import preferences",
-        "operationId": "importPreferences",
+        "summary": "Import shared preferences",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
+        "operationId": "importSyncedPreferences",
         "tags": [
           "Preferences"
         ],
@@ -4010,6 +4216,8 @@
     "/api/{api_version}/server/preferences/tokens": {
       "get": {
         "summary": "List API tokens",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "listTokens",
         "tags": [
           "Tokens"
@@ -4096,7 +4304,9 @@
         }
       },
       "post": {
-        "summary": "Create API token",
+        "summary": "Create an API token",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "createToken",
         "tags": [
           "Tokens"
@@ -4196,9 +4406,183 @@
         }
       }
     },
+    "/api/{api_version}/server/preferences/tokens/primary": {
+      "delete": {
+        "summary": "Revoke an API token",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
+        "operationId": "revokePrimaryToken",
+        "tags": [
+          "Tokens"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "api_version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "APIKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrimaryTokenRevocationResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request failed"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request failed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request failed"
+          }
+        }
+      },
+      "post": {
+        "summary": "Issue a primary owner token",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
+        "operationId": "issuePrimaryToken",
+        "tags": [
+          "Tokens"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "api_version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrimaryTokenIssueResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request failed"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request failed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request failed"
+          }
+        }
+      }
+    },
     "/api/{api_version}/server/preferences/tokens/primary/reveal": {
       "post": {
-        "summary": "Reveal primary token",
+        "summary": "Reveal an API token",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "revealPrimaryToken",
         "tags": [
           "Tokens"
@@ -4287,7 +4671,9 @@
     },
     "/api/{api_version}/server/preferences/tokens/primary/rotate": {
       "post": {
-        "summary": "Rotate primary token",
+        "summary": "Rotate an API token",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "rotatePrimaryToken",
         "tags": [
           "Tokens"
@@ -4376,7 +4762,9 @@
     },
     "/api/{api_version}/server/preferences/tokens/{id}": {
       "delete": {
-        "summary": "Revoke API token",
+        "summary": "Revoke an API token",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "revokeToken",
         "tags": [
           "Tokens"
@@ -4471,7 +4859,9 @@
         }
       },
       "patch": {
-        "summary": "Update API token",
+        "summary": "Update an API token",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "updateToken",
         "tags": [
           "Tokens"
@@ -4582,7 +4972,9 @@
     },
     "/api/{api_version}/server/preferences/tokens/{id}/reveal": {
       "post": {
-        "summary": "Reveal linked token",
+        "summary": "Reveal an API token",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "revealLinkedToken",
         "tags": [
           "Tokens"
@@ -4679,7 +5071,9 @@
     },
     "/api/{api_version}/server/preferences/tokens/{id}/rotate": {
       "post": {
-        "summary": "Rotate linked token",
+        "summary": "Rotate an API token",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "rotateLinkedToken",
         "tags": [
           "Tokens"
@@ -4776,7 +5170,9 @@
     },
     "/api/{api_version}/server/privacy": {
       "get": {
-        "summary": "Privacy page content",
+        "summary": "Read privacy information",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getPrivacyPage",
         "tags": [
           "Server"
@@ -4857,7 +5253,9 @@
     },
     "/api/{api_version}/server/reports/csp": {
       "post": {
-        "summary": "Receive CSP reports",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "reportCSP",
         "tags": [
           "Security Reports"
@@ -4911,7 +5309,9 @@
     },
     "/api/{api_version}/server/reports/default": {
       "post": {
-        "summary": "Receive security reports",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "reportDefault",
         "tags": [
           "Security Reports"
@@ -4959,7 +5359,9 @@
     },
     "/api/{api_version}/server/reports/nel": {
       "post": {
-        "summary": "Receive NEL reports",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "reportNEL",
         "tags": [
           "Security Reports"
@@ -5007,7 +5409,9 @@
     },
     "/api/{api_version}/server/security": {
       "get": {
-        "summary": "Security disclosure information",
+        "summary": "Read security information",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getSecurityInfo",
         "tags": [
           "Server"
@@ -5088,7 +5492,9 @@
     },
     "/api/{api_version}/server/security/policy": {
       "get": {
-        "summary": "Get security policy",
+        "summary": "Read the security policy",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getSecurityPolicy",
         "tags": [
           "Server"
@@ -5169,7 +5575,9 @@
     },
     "/api/{api_version}/server/security/thanks": {
       "get": {
-        "summary": "Security acknowledgments",
+        "summary": "Read security information",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getSecurityThanks",
         "tags": [
           "Server"
@@ -5250,7 +5658,9 @@
     },
     "/api/{api_version}/server/swagger": {
       "get": {
-        "summary": "OpenAPI specification",
+        "summary": "Read the OpenAPI specification",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getOpenAPI",
         "tags": [
           "Server"
@@ -5331,7 +5741,9 @@
     },
     "/api/{api_version}/server/terms": {
       "get": {
-        "summary": "Terms page content",
+        "summary": "Read the terms of service",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getTermsPage",
         "tags": [
           "Server"
@@ -5413,6 +5825,8 @@
     "/cli/binaries/{name}": {
       "get": {
         "summary": "Download a CLI binary",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "downloadCLIBinary",
         "tags": [
           "CLI Updates"
@@ -5487,7 +5901,9 @@
         }
       },
       "head": {
-        "summary": "Check CLI binary metadata",
+        "summary": "Download a CLI binary",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "headCLIBinary",
         "tags": [
           "CLI Updates"
@@ -5561,7 +5977,9 @@
     },
     "/healthz": {
       "get": {
-        "summary": "Health status",
+        "summary": "Check service health",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getRootHealth",
         "tags": [
           "Server"
@@ -5632,7 +6050,9 @@
     },
     "/mcp": {
       "post": {
-        "summary": "MCP Streamable HTTP endpoint alias",
+        "summary": "Use the MCP endpoint",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "handleRootMCP",
         "tags": [
           "Server"
@@ -5703,7 +6123,9 @@
     },
     "/metrics": {
       "get": {
-        "summary": "Get Prometheus metrics",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getRootMetrics",
         "tags": [
           "Metrics"
@@ -5770,7 +6192,9 @@
     },
     "/metrics/grafana": {
       "get": {
-        "summary": "Get Grafana metrics",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getRootGrafanaMetrics",
         "tags": [
           "Metrics"
@@ -5837,7 +6261,9 @@
     },
     "/metrics/loki": {
       "get": {
-        "summary": "Get Loki metrics",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getRootLokiMetrics",
         "tags": [
           "Metrics"
@@ -5904,7 +6330,9 @@
     },
     "/metrics/prometheus": {
       "get": {
-        "summary": "Get Prometheus metrics",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getRootPrometheusMetrics",
         "tags": [
           "Metrics"
@@ -5971,7 +6399,9 @@
     },
     "/server/metrics": {
       "get": {
-        "summary": "Get Prometheus metrics",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getServerMetrics",
         "tags": [
           "Metrics"
@@ -6038,7 +6468,9 @@
     },
     "/server/metrics/grafana": {
       "get": {
-        "summary": "Get Grafana metrics",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getServerGrafanaMetrics",
         "tags": [
           "Metrics"
@@ -6105,7 +6537,9 @@
     },
     "/server/metrics/loki": {
       "get": {
-        "summary": "Get Loki metrics",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getServerLokiMetrics",
         "tags": [
           "Metrics"
@@ -6172,7 +6606,9 @@
     },
     "/server/metrics/prometheus": {
       "get": {
-        "summary": "Get Prometheus metrics",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getServerPrometheusMetrics",
         "tags": [
           "Metrics"
@@ -6239,7 +6675,9 @@
     },
     "/{slug}": {
       "get": {
-        "summary": "Redirect to a short link",
+        "summary": "Read service metrics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "redirectShortLink",
         "tags": [
           "Server"
@@ -6321,6 +6759,8 @@
     "/{slug}/stats": {
       "get": {
         "summary": "Read link statistics",
+        "description": "Documented API operation.",
+        "x-description": "Documented API operation.",
         "operationId": "getLinkStatsPage",
         "tags": [
           "Server"

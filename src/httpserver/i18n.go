@@ -98,6 +98,26 @@ func tf(r *http.Request, key string, args map[string]string) string {
 // AI.md PART 30 "Template Usage": {{t .Base.Lang "key"}},
 // {{tf .Base.Lang "key" "token" value}}, and {{tp .Base.Lang "key" count}}.
 var templateFuncs = map[string]any{
+	"nextTheme": func(current string) string {
+		switch current {
+		case "dark":
+			return "light"
+		case "light":
+			return "auto"
+		default:
+			return "dark"
+		}
+	},
+	"containerModifier": func(path string) string {
+		switch {
+		case path == "/list" || path == "/server/healthz" || strings.HasSuffix(path, "/stats"):
+			return "container-lg"
+		case path == "/" || path == "/server/contact" || path == "/server/ccpa" || path == "/server/preferences" || path == "/server/preferences/tokens" || path == "/server/preferences/sync" || strings.HasPrefix(path, "/server/preferences/"):
+			return "container-sm"
+		default:
+			return "container-md"
+		}
+	},
 	"asset": func(path, stamp string) string {
 		separator := "?"
 		if strings.Contains(path, "?") {
@@ -117,6 +137,17 @@ var templateFuncs = map[string]any{
 	},
 	"tp": func(lang, key string, count int) string {
 		return i18n.TranslatePlural(lang, key, count)
+	},
+	"healthLabel": func(lang, key string) string {
+		translationKey := "health.check." + key
+		if i18n.Has(lang, translationKey) {
+			return i18n.Translate(lang, translationKey)
+		}
+		words := strings.ReplaceAll(strings.TrimPrefix(key, "blocklist_"), "_", " ")
+		if strings.HasPrefix(key, "blocklist_") {
+			return "Blocklist: " + words
+		}
+		return strings.ReplaceAll(key, "_", " ")
 	},
 }
 
@@ -142,15 +173,20 @@ func localesHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
-// sendError writes an API error envelope whose message is translated into
-// the request's language, per AI.md PART 30 "API Response Translation".
-// The machine-readable `error` code never changes — only the human-facing
-// `message` does.
+// sendError renders translated HTML for browser requests to frontend routes
+// and a machine-readable API error envelope for API and non-browser clients.
+// The error code remains stable while the human-facing message is localized.
 func sendError(w http.ResponseWriter, r *http.Request, err *apperr.AppError) {
+	if err == nil {
+		err = apperr.New(apperr.CodeServerError)
+	}
 	lang := langFromContext(r)
 	key := err.TranslationKey()
 	if i18n.Has(lang, key) {
 		err = err.WithMessage(i18n.Translate(lang, key))
+	}
+	if renderFrontendError(w, r, err) {
+		return
 	}
 	apperr.SendError(w, err)
 }

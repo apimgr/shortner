@@ -22,6 +22,7 @@ import (
 
 	"github.com/apimgr/shortner/src/apperr"
 	"github.com/apimgr/shortner/src/applog"
+	"github.com/apimgr/shortner/src/blocklist"
 	"github.com/apimgr/shortner/src/cache"
 	"github.com/apimgr/shortner/src/common/netutil"
 	"github.com/apimgr/shortner/src/config"
@@ -87,7 +88,8 @@ type Options struct {
 	// geoIPMiddleware) and click-analytics country/region enrichment (PART
 	// 19). May be nil (e.g. server.geoip.enabled: false), in which case both
 	// consumers fail open per AI.md PART 19's risk-signal rule.
-	GeoIP *geoip.Manager
+	GeoIP      *geoip.Manager
+	Blocklists *blocklist.Manager
 	// Metrics is nil when server.metrics.enabled is false (AI.md PART 20).
 	// When set, RegisterMetricsRoutes mounts /server/metrics and its
 	// aliases and the middleware chain records HTTP/rate-limit/auth
@@ -152,6 +154,7 @@ func New(opts Options) *Server {
 		privacy:         &privacyDeps{cfg: cfg, resolver: resolver, audit: opts.AuditLog},
 		allowlist:       allowlist,
 		blocks:          blocks,
+		blocklists:      opts.Blocklists,
 		abuse:           NewAbuseDetector(cfg.Server.Security.AbuseDetection, cfg.Server.RateLimit.Read.Requests),
 		notifier:        opts.Notifier,
 		i18n:            cfg.Server.I18N,
@@ -159,10 +162,6 @@ func New(opts Options) *Server {
 
 	r := chi.NewRouter()
 	r.MethodNotAllowed(http.HandlerFunc(mcpMethodNotAllowed))
-	apiHandler := d.setupMiddleware(r)
-	if cfg.Server.Compression.Enabled {
-		r.Use(chimw.Compress(cfg.Server.Compression.Level, cfg.Server.Compression.Types...))
-	}
 	brandState := newBrandingStateStore(cfg)
 
 	hd := &healthDeps{
@@ -176,6 +175,7 @@ func New(opts Options) *Server {
 		commit:      opts.CommitID,
 		buildDate:   opts.BuildDate,
 		geoip:       cfg.Server.GeoIP.Enabled,
+		blocklists:  opts.Blocklists,
 		tor:         opts.Tor,
 		i2p:         opts.I2P,
 		branding:    brandState,
@@ -192,6 +192,7 @@ func New(opts Options) *Server {
 	ld := &linkDeps{sqlDB: opts.DB, resolver: resolver, cfg: cfg, log: opts.AccessLog, geo: opts.GeoIP}
 	if tokenKey, err := config.DecodeEncryptionKey(cfg); err == nil {
 		ld.tokenKey = tokenKey
+		d.tokenKey = tokenKey
 	}
 
 	d.headers.branding = brandState
@@ -214,6 +215,10 @@ func New(opts Options) *Server {
 		branding:              brandState,
 	}
 	fd.setContactAntispam(cfg.Server.Contact.Antispam)
+	apiHandler := d.setupMiddleware(r)
+	if cfg.Server.Compression.Enabled {
+		r.Use(chimw.Compress(cfg.Server.Compression.Level, cfg.Server.Compression.Types...))
+	}
 
 	r.Route("/api", func(api chi.Router) {
 		api.Use(apiResponseFormatMiddleware)
@@ -235,14 +240,16 @@ func New(opts Options) *Server {
 			v.Get("/server/security/thanks", fd.securityThanksAPIHandler)
 			v.Get("/server/help/mcp", fd.mcpHelpAPIHandler)
 			v.Get("/server/preferences", fd.preferenceAPISnapshotHandler)
+			v.Get("/server/preferences/sync", fd.preferenceSyncHandler)
+			v.Get("/server/preferences/sync/import", fd.preferenceSyncImportHandler)
 			v.Get("/server/auth/check", authCheckHandler)
 			v.Post("/server/preferences", fd.preferenceAPISaveHandler)
-			v.Get("/server/preferences/export", fd.preferenceExportHandler)
-			v.Get("/server/preferences/import", fd.preferenceImportHandler)
 			v.Get("/server/preferences/tokens", fd.tokenAPISnapshotHandler)
 			v.Post("/server/preferences/tokens", fd.tokenAPICreateHandler)
+			v.Post("/server/preferences/tokens/primary", fd.tokenAPIIssueHandler)
 			v.Post("/server/preferences/tokens/primary/reveal", fd.tokenAPIActionHandler)
 			v.Post("/server/preferences/tokens/primary/rotate", fd.tokenAPIActionHandler)
+			v.Delete("/server/preferences/tokens/primary", fd.tokenAPIActionHandler)
 			v.Post("/server/preferences/tokens/{id}/reveal", fd.tokenAPIActionHandler)
 			v.Post("/server/preferences/tokens/{id}/rotate", fd.tokenAPIActionHandler)
 			v.Patch("/server/preferences/tokens/{id}", fd.tokenAPIActionHandler)
@@ -277,12 +284,12 @@ func New(opts Options) *Server {
 	fd.registerFrontendRoutes(r, hd, ld)
 	r.Get("/server/preferences", fd.preferencesHandler)
 	r.Post("/server/preferences", fd.preferencesHandler)
-	r.Get("/server/preferences/export", fd.preferenceExportHandler)
-	r.Get("/server/preferences/import", fd.preferenceImportHandler)
-	r.Get("/server/preferences/tokens", fd.tokenPageHandler)
+	registerPreferencePages(r, fd, cfg)
 	r.Post("/server/preferences/token/restore", fd.tokenRestoreHandler)
+	r.Post("/server/preferences/token/create", fd.tokenIssueHandler)
 	r.Post("/server/preferences/token/reveal", fd.tokenPrimaryRevealHandler)
 	r.Post("/server/preferences/token/rotate", fd.tokenPrimaryRotateHandler)
+	r.Post("/server/preferences/token/revoke", fd.tokenPrimaryRevokeHandler)
 	r.Post("/server/preferences/token/forget", fd.tokenForgetHandler)
 	r.Post("/server/preferences/tokens", fd.tokenCreateHandler)
 	r.Post("/server/preferences/tokens/{id}/reveal", fd.tokenLinkedRevealHandler)
@@ -315,7 +322,7 @@ func New(opts Options) *Server {
 		sendError(w, req, apperr.New(apperr.CodeNotFound))
 	})
 
-	handler := apiHandler
+	handler := frontendErrorContextMiddleware(fd)(apiHandler)
 
 	readTimeout, _ := config.ParseDuration(cfg.Server.Limits.ReadTimeout, 30*time.Second)
 	writeTimeout, _ := config.ParseDuration(cfg.Server.Limits.WriteTimeout, 30*time.Second)
@@ -326,9 +333,10 @@ func New(opts Options) *Server {
 		req.Body = http.MaxBytesReader(w, req.Body, maxBodySize)
 		handler.ServeHTTP(w, req)
 	})
+	frontendHandler := frontendTextMiddleware(limitedHandler)
 
 	ports, portErr := parsePortSetting(cfg.Server.Port)
-	httpHandler := http.Handler(buildStampMiddleware(assetStamp(opts.Version, opts.CommitID), limitedHandler))
+	httpHandler := http.Handler(buildStampMiddleware(assetStamp(opts.Version, opts.CommitID), frontendHandler))
 	if opts.HTTPChallengeHandler != nil {
 		httpHandler = opts.HTTPChallengeHandler(httpHandler)
 	}
@@ -354,7 +362,7 @@ func New(opts Options) *Server {
 		brandingState: brandState,
 		runtimeDeps:   d,
 	}
-	appHandler := http.Handler(buildStampMiddleware(assetStamp(opts.Version, opts.CommitID), limitedHandler))
+	appHandler := http.Handler(buildStampMiddleware(assetStamp(opts.Version, opts.CommitID), frontendHandler))
 	switch {
 	case portErr != nil:
 		s.httpServer = newHTTPServer("0", appHandler, nil)

@@ -38,7 +38,7 @@ func TestTier3FullBrowser(t *testing.T) {
 	if err == nil {
 		stage = "wait for server-rendered success card"
 		waitCtx, cancelWait := context.WithTimeout(ctx, 10*time.Second)
-		err = chromedp.Run(waitCtx, chromedp.WaitVisible(`.success-card`, chromedp.ByQuery))
+		err = chromedp.Run(waitCtx, chromedp.WaitVisible(`#home-success-title`, chromedp.ByQuery))
 		cancelWait()
 	}
 	if err != nil {
@@ -238,6 +238,7 @@ func TestTier3APIDocsInteractions(t *testing.T) {
 		t.Error("Swagger offered a download for a HEAD response")
 	}
 
+	var graphQLStatus string
 	err = chromedp.Run(ctx,
 		chromedp.Navigate(browserBaseURL+"/server/docs/graphql"),
 		chromedp.WaitVisible("#graphql-query", chromedp.ByQuery),
@@ -246,7 +247,11 @@ func TestTier3APIDocsInteractions(t *testing.T) {
 		chromedp.Text("#graphql-result", &result, chromedp.ByQuery),
 	)
 	if err != nil {
-		t.Fatalf("running GraphQL query from the docs page: %v", err)
+		_ = chromedp.Run(ctx,
+			chromedp.Text("#graphql-status", &graphQLStatus, chromedp.ByQuery),
+			chromedp.Text("#graphql-result", &result, chromedp.ByQuery),
+		)
+		t.Fatalf("running GraphQL query from the docs page: %v; status %q; response %q; browser errors %q", err, graphQLStatus, result, browserErrs.list())
 	}
 	if !strings.Contains(result, `"getAPIHealth"`) || !strings.Contains(result, `"links"`) {
 		t.Errorf("GraphQL docs response = %q, want link and health results", result)

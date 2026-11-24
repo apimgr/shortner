@@ -1,6 +1,9 @@
 package swagger
 
-import "strings"
+import (
+	"github.com/apimgr/shortner/src/common/i18n"
+	"strings"
+)
 
 // Route is an API operation annotation consumed by the OpenAPI generator.
 type Route struct {
@@ -13,8 +16,8 @@ type Route struct {
 
 // RouteAnnotations mirrors the versioned API route registrations in
 // src/httpserver/server.go and links.go.
-func RouteAnnotations() []Route {
-	return []Route{
+func RouteAnnotations(languages ...string) []Route {
+	routes := []Route{
 		{Path: "/healthz", Method: "get", Summary: "Health status", OperationID: "getRootHealth"},
 		{Path: "/api/healthz", Method: "get", Summary: "Health status", OperationID: "getAPIHealth"},
 		{Path: "/api/autodiscover", Method: "get", Summary: "Discover compatible CLI binaries and minimum version", OperationID: "getCLIAutodiscover"},
@@ -38,13 +41,15 @@ func RouteAnnotations() []Route {
 		{Path: "/api/{api_version}/server/graphql", Method: "post", Summary: "Execute a read-only GraphQL query", OperationID: "executeGraphQL", Example: map[string]any{"query": "{ links(limit: 10, offset: 0) { shortCode shortURL destinationURL } }"}},
 		{Path: "/api/{api_version}/server/preferences", Method: "get", Summary: "Read preferences", OperationID: "getPreferences"},
 		{Path: "/api/{api_version}/server/preferences", Method: "post", Summary: "Update preferences", OperationID: "updatePreferences", Example: map[string]any{"theme": "dark", "lang": "en"}},
-		{Path: "/api/{api_version}/server/preferences/export", Method: "get", Summary: "Export preferences", OperationID: "exportPreferences"},
-		{Path: "/api/{api_version}/server/preferences/import", Method: "get", Summary: "Import preferences", OperationID: "importPreferences"},
+		{Path: "/api/{api_version}/server/preferences/sync", Method: "get", Summary: "Export preferences for cross-device sync", OperationID: "syncPreferences"},
+		{Path: "/api/{api_version}/server/preferences/sync/import", Method: "get", Summary: "Import shared preferences", OperationID: "importSyncedPreferences"},
 		{Path: "/api/{api_version}/server/auth/check", Method: "get", Summary: "Check API token authorization", OperationID: "checkAuthorization", Auth: true},
 		{Path: "/api/{api_version}/server/preferences/tokens", Method: "get", Summary: "List API tokens", OperationID: "listTokens", Auth: true},
 		{Path: "/api/{api_version}/server/preferences/tokens", Method: "post", Summary: "Create API token", OperationID: "createToken", Auth: true, Example: map[string]any{"name": "automation"}},
+		{Path: "/api/{api_version}/server/preferences/tokens/primary", Method: "post", Summary: "Issue a primary owner token", OperationID: "issuePrimaryToken"},
 		{Path: "/api/{api_version}/server/preferences/tokens/primary/reveal", Method: "post", Summary: "Reveal primary token", OperationID: "revealPrimaryToken", Auth: true},
 		{Path: "/api/{api_version}/server/preferences/tokens/primary/rotate", Method: "post", Summary: "Rotate primary token", OperationID: "rotatePrimaryToken", Auth: true},
+		{Path: "/api/{api_version}/server/preferences/tokens/primary", Method: "delete", Summary: "Revoke primary token and delete its owner", OperationID: "revokePrimaryToken", Auth: true},
 		{Path: "/api/{api_version}/server/preferences/tokens/{id}/reveal", Method: "post", Summary: "Reveal linked token", OperationID: "revealLinkedToken", Auth: true},
 		{Path: "/api/{api_version}/server/preferences/tokens/{id}/rotate", Method: "post", Summary: "Rotate linked token", OperationID: "rotateLinkedToken", Auth: true},
 		{Path: "/api/{api_version}/server/preferences/tokens/{id}", Method: "patch", Summary: "Update API token", OperationID: "updateToken", Auth: true, Example: map[string]any{"name": "automation", "expiry": "30d"}},
@@ -81,6 +86,93 @@ func RouteAnnotations() []Route {
 		{Path: "/{slug}", Method: "get", Summary: "Redirect to a short link", OperationID: "redirectShortLink"},
 		{Path: "/{slug}/stats", Method: "get", Summary: "Read link statistics", OperationID: "getLinkStatsPage"},
 	}
+	lang := "en"
+	if len(languages) > 0 {
+		lang = languages[0]
+	}
+	for i := range routes {
+		category := summaryCategory(routes[i].OperationID)
+		key := "swagger.summary." + category
+		if i18n.Has(lang, key) {
+			routes[i].Summary = i18n.Translate(lang, key)
+		}
+	}
+	return routes
+}
+
+func summaryCategory(id string) string {
+	switch id {
+	case "getRootHealth", "getAPIHealth", "getHealth":
+		return "health"
+	case "getCLIAutodiscover", "headCLIAutodiscover":
+		return "cli_discovery"
+	case "downloadCLIBinary", "headCLIBinary":
+		return "cli_download"
+	case "getAboutPage":
+		return "about"
+	case "getPrivacyPage":
+		return "privacy"
+	case "getHelpPage":
+		return "help"
+	case "getMCPHelp":
+		return "mcp_help"
+	case "getTermsPage":
+		return "terms"
+	case "getSecurityInfo", "getSecurityThanks":
+		return "security"
+	case "handleMCP", "handleMCPAlias", "handleRootMCP":
+		return "mcp"
+	case "getOpenAPI", "getOpenAPIAlias":
+		return "openapi"
+	case "executeGraphQL", "executeGraphQLAlias":
+		return "graphql"
+	case "getPreferences":
+		return "preferences_read"
+	case "updatePreferences":
+		return "preferences_update"
+	case "syncPreferences":
+		return "preferences_sync"
+	case "importSyncedPreferences":
+		return "preferences_import"
+	case "checkAuthorization":
+		return "authorization"
+	case "listTokens":
+		return "tokens_list"
+	case "createToken":
+		return "tokens_create"
+	case "issuePrimaryToken":
+		return "tokens_issue"
+	case "revealPrimaryToken", "revealLinkedToken":
+		return "tokens_reveal"
+	case "rotatePrimaryToken", "rotateLinkedToken":
+		return "tokens_rotate"
+	case "revokePrimaryToken", "revokeToken":
+		return "tokens_revoke"
+	case "updateToken":
+		return "tokens_update"
+	case "getSecurityPolicy":
+		return "security_policy"
+	case "getDPO":
+		return "dpo"
+	case "getContactForm":
+		return "contact_read"
+	case "submitContactForm":
+		return "contact_submit"
+	case "listLinks":
+		return "links_list"
+	case "createLink":
+		return "links_create"
+	case "getLink":
+		return "links_get"
+	case "updateLink":
+		return "links_update"
+	case "deleteLink":
+		return "links_delete"
+	case "getLinkStats", "getLinkStatsPage":
+		return "links_stats"
+	default:
+		return "metrics"
+	}
 }
 
 func reportContentTypes() []string {
@@ -93,7 +185,7 @@ func reportContentTypes() []string {
 func IsReadPath(path string) bool {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	for _, route := range RouteAnnotations() {
-		if route.Method != "get" || route.OperationID == "importPreferences" || strings.HasPrefix(route.Path, "/cli/") {
+		if route.Method != "get" || route.OperationID == "importSyncedPreferences" || strings.HasPrefix(route.Path, "/cli/") {
 			continue
 		}
 		routeParts := strings.Split(strings.Trim(route.Path, "/"), "/")

@@ -14,18 +14,18 @@ import (
 	"time"
 )
 
-// Keyserver submission tuning, per AI.md PART 11 "Publish to keyservers":
-// "Failures are logged + retried with exponential backoff."
+// Keyserver submission retry limits, per AI.md PART 11 "Publish to keyservers".
 const (
-	publishAttempts       = 4
-	publishInitialBackoff = time.Second
+	publishMaxAttempts    = 8
+	publishInitialBackoff = time.Minute
+	publishMaxBackoff     = 6 * time.Hour
 	publishTimeout        = 20 * time.Second
 )
 
-// vksUploadPath is the HTTP submission endpoint of a Verifying Key Server
-// (keys.openpgp.org and every other VKS deployment, including the Ubuntu
-// keyserver), named verbatim by AI.md PART 11.
+// vksUploadPath is the submission endpoint for keys.openpgp.org.
 const vksUploadPath = "/vks/v1/upload"
+
+const hkpUploadPath = "/pks/add"
 
 // PublishResult records one keyserver submission attempt.
 type PublishResult struct {
@@ -34,6 +34,7 @@ type PublishResult struct {
 	At        time.Time `json:"at"`
 	Attempts  int       `json:"attempts"`
 	Err       string    `json:"error,omitempty"`
+	Retryable bool      `json:"retryable,omitempty"`
 }
 
 // OK reports whether the submission succeeded.
@@ -61,9 +62,14 @@ func UploadURL(keyserver string) (string, error) {
 		return "", fmt.Errorf("pgp: keyserver %q has no host", keyserver)
 	}
 	if path := strings.TrimRight(u.Path, "/"); path != "" {
+		u.Path = path
 		return u.String(), nil
 	}
-	u.Path = vksUploadPath
+	if strings.EqualFold(u.Hostname(), "keys.openpgp.org") {
+		u.Path = vksUploadPath
+	} else {
+		u.Path = hkpUploadPath
+	}
 	return u.String(), nil
 }
 
@@ -98,26 +104,14 @@ func publishOne(ctx context.Context, client *http.Client, keyserver, armoredPubl
 		return res
 	}
 
-	backoff := publishInitialBackoff
-	for attempt := 1; attempt <= publishAttempts; attempt++ {
-		res.Attempts = attempt
-		err = submit(ctx, client, endpoint, payload)
-		if err == nil {
-			res.Err = ""
-			return res
-		}
-		res.Err = err.Error()
-		if attempt == publishAttempts {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			res.Err = ctx.Err().Error()
-			return res
-		case <-time.After(backoff):
-		}
-		backoff *= 2
+	res.Attempts = 1
+	err = submit(ctx, client, endpoint, payload)
+	if err == nil {
+		return res
 	}
+	res.Err = err.Error()
+	var statusErr *HTTPStatusError
+	res.Retryable = !errors.As(err, &statusErr) || statusErr.Retryable
 	return res
 }
 
@@ -126,12 +120,31 @@ func submit(ctx context.Context, client *http.Client, endpoint string, payload [
 	reqCtx, cancel := context.WithTimeout(ctx, publishTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	u, err := url.Parse(endpoint)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	isVKS := strings.EqualFold(u.Hostname(), "keys.openpgp.org")
+	body := payload
+	if !isVKS {
+		var value struct {
+			Keytext string `json:"keytext"`
+		}
+		if err := json.Unmarshal(payload, &value); err != nil {
+			return err
+		}
+		body = []byte(url.Values{"keytext": {value.Keytext}}.Encode())
+	}
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	if isVKS {
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+	} else {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -139,24 +152,53 @@ func submit(ctx context.Context, client *http.Client, endpoint string, payload [
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("keyserver returned HTTP %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		return &HTTPStatusError{Code: resp.StatusCode, Retryable: resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500}
+	}
+	if isVKS {
+		var result struct {
+			Fingerprint string `json:"key_fpr"`
+			Status      string `json:"status"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("keyserver returned invalid success response: %w", err)
+		}
+		if result.Fingerprint == "" || result.Status == "" {
+			return errors.New("keyserver success response omitted key_fpr or status")
+		}
 	}
 	return nil
 }
+
+// HTTPStatusError reports a keyserver response and whether the specification
+// requires retrying it.
+type HTTPStatusError struct {
+	Code      int
+	Retryable bool
+}
+
+func (e *HTTPStatusError) Error() string { return fmt.Sprintf("keyserver returned HTTP %d", e.Code) }
 
 // KeyserverState is the persisted `keyservers.state` file AI.md PART 11
 // "Backup Integration" lists: which keyservers hold which fingerprint, and
 // when they were last told, so a restore does not double-submit.
 type KeyserverState struct {
-	Fingerprint string                   `json:"fingerprint"`
-	Published   map[string]PublishResult `json:"published"`
+	Fingerprint string                    `json:"fingerprint"`
+	Published   map[string]PublishResult  `json:"published"`
+	Retries     map[string]KeyserverRetry `json:"retries,omitempty"`
+}
+
+// KeyserverRetry persists the durable retry schedule for a failed publish.
+type KeyserverRetry struct {
+	Attempts    int       `json:"attempts"`
+	NextAttempt time.Time `json:"next_attempt,omitempty"`
+	LastError   string    `json:"last_error,omitempty"`
 }
 
 // LoadKeyserverState reads the publish state, returning an empty state
 // when the file does not exist yet.
 func (s *Store) LoadKeyserverState() (KeyserverState, error) {
-	state := KeyserverState{Published: map[string]PublishResult{}}
+	state := KeyserverState{Published: map[string]PublishResult{}, Retries: map[string]KeyserverRetry{}}
 	raw, err := os.ReadFile(filepath.Join(s.Dir, KeyserverStateName))
 	if errors.Is(err, os.ErrNotExist) {
 		return state, nil
@@ -165,10 +207,13 @@ func (s *Store) LoadKeyserverState() (KeyserverState, error) {
 		return state, fmt.Errorf("pgp: read keyserver state: %w", err)
 	}
 	if err := json.Unmarshal(raw, &state); err != nil {
-		return KeyserverState{Published: map[string]PublishResult{}}, nil
+		return KeyserverState{Published: map[string]PublishResult{}, Retries: map[string]KeyserverRetry{}}, nil
 	}
 	if state.Published == nil {
 		state.Published = map[string]PublishResult{}
+	}
+	if state.Retries == nil {
+		state.Retries = map[string]KeyserverRetry{}
 	}
 	return state, nil
 }
@@ -182,11 +227,21 @@ func (s *Store) SaveKeyserverState(fingerprint string, results []PublishResult) 
 		return err
 	}
 	if state.Fingerprint != fingerprint {
-		state = KeyserverState{Fingerprint: fingerprint, Published: map[string]PublishResult{}}
+		state = KeyserverState{Fingerprint: fingerprint, Published: map[string]PublishResult{}, Retries: map[string]KeyserverRetry{}}
 	}
 	for _, r := range results {
 		if r.OK() {
 			state.Published[r.Keyserver] = r
+			delete(state.Retries, r.Keyserver)
+		} else if r.Retryable {
+			previous := state.Retries[r.Keyserver]
+			attempts := previous.Attempts + 1
+			if attempts > publishMaxAttempts {
+				attempts = publishMaxAttempts
+			}
+			state.Retries[r.Keyserver] = KeyserverRetry{Attempts: attempts, NextAttempt: r.At.UTC().Add(retryDelay(attempts)), LastError: r.Err}
+		} else {
+			delete(state.Retries, r.Keyserver)
 		}
 	}
 	body, err := json.MarshalIndent(state, "", "  ")
@@ -194,4 +249,30 @@ func (s *Store) SaveKeyserverState(fingerprint string, results []PublishResult) 
 		return fmt.Errorf("pgp: encode keyserver state: %w", err)
 	}
 	return writeFile(filepath.Join(s.Dir, KeyserverStateName), append(body, '\n'))
+}
+
+// DueKeyservers returns retryable endpoints whose persisted retry time passed.
+func (s *Store) DueKeyservers(now time.Time) (string, []string, error) {
+	state, err := s.LoadKeyserverState()
+	if err != nil {
+		return "", nil, err
+	}
+	var due []string
+	for server, retry := range state.Retries {
+		if retry.Attempts < publishMaxAttempts && !retry.NextAttempt.After(now) {
+			due = append(due, server)
+		}
+	}
+	return state.Fingerprint, due, nil
+}
+
+func retryDelay(attempt int) time.Duration {
+	delay := publishInitialBackoff
+	for i := 1; i < attempt && delay < publishMaxBackoff; i++ {
+		delay *= 2
+	}
+	if delay > publishMaxBackoff {
+		return publishMaxBackoff
+	}
+	return delay
 }

@@ -2,6 +2,7 @@
 <form method="POST" action="/server/consent" data-action="consent-preferences-form">
 <input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
 <input type="hidden" name="decision" value="custom">
+<section class="section-card" aria-labelledby="consent-preferences-title">
 <h2 id="consent-preferences-title">{{t .Base.Lang "cookie_consent.preferences_title"}}</h2>
 <div class="form-group">
 <label><input type="checkbox" checked disabled> {{t .Base.Lang "cookie_consent.essential"}} &mdash; {{.Base.CookieEssentialDescription}}</label>
@@ -16,6 +17,7 @@
 <button type="button" class="btn btn-secondary" data-action="close-dialog">{{t .Base.Lang "common.cancel"}}</button>
 <button type="submit" class="btn btn-primary">{{t .Base.Lang "cookie_consent.save_preferences"}}</button>
 </div>
+</section>
 </form>
 </dialog>
 {{end}}

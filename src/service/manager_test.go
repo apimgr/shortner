@@ -7,10 +7,8 @@ import (
 	"testing"
 )
 
-// recorder captures the commands a manager would run, so every verb can
-// be asserted without a live init system. AI.md PART 24's install and
-// enable steps genuinely cannot be exercised end to end here — that is
-// noted in TODO.AI.md — but the exact command lines can.
+// recorder captures manager commands so each operation can be asserted
+// without invoking a live init system.
 type recorder struct {
 	commands []string
 	// output is consulted by runOutput, keyed by the command line.

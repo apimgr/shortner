@@ -5,6 +5,7 @@ package httpserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/apimgr/shortner/src/apperr"
+	"github.com/apimgr/shortner/src/blocklist"
 	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/mode"
 )
@@ -47,9 +49,8 @@ type ClusterInfo struct {
 	Enabled bool `json:"enabled"`
 }
 
-// ProjectInfo identifies the running application, per AI.md PART 13. The
-// branding config (AI.md PART 16) doesn't exist yet, so these are static
-// values sourced from IDEA.md — see TODO.AI.md.
+// ProjectInfo identifies the running application, per AI.md PART 13. These
+// canonical project values are sourced from IDEA.md.
 type ProjectInfo struct {
 	Name        string `json:"name"`
 	Tagline     string `json:"tagline"`
@@ -90,16 +91,53 @@ type I2PInfo struct {
 	Provider string `json:"provider"`
 }
 
-// ChecksInfo reports component health as "ok"/"error" only, per AI.md
-// PART 13 "Security: Public Info Only". checks.tor and checks.i2p are
-// omitted entirely unless that overlay network is enabled (AI.md PART 31).
+// ChecksInfo reports public-safe component health. Dataset checks follow
+// core and overlay checks in registration order, per AI.md PART 13.
 type ChecksInfo struct {
-	Database  string `json:"database"`
-	Cache     string `json:"cache"`
-	Disk      string `json:"disk"`
-	Scheduler string `json:"scheduler"`
-	Tor       string `json:"tor,omitempty"`
-	I2P       string `json:"i2p,omitempty"`
+	Database  string         `json:"database"`
+	Cache     string         `json:"cache"`
+	Disk      string         `json:"disk"`
+	Scheduler string         `json:"scheduler"`
+	Tor       string         `json:"tor,omitempty"`
+	I2P       string         `json:"i2p,omitempty"`
+	Datasets  []DatasetCheck `json:"-"`
+}
+
+// DatasetCheck is one dynamically registered dataset health result.
+type DatasetCheck struct{ Key, Status string }
+
+// MarshalJSON preserves core/overlay/dataset order required by PART 13.
+func (c ChecksInfo) MarshalJSON() ([]byte, error) {
+	fields := []struct{ key, value string }{{"database", c.Database}, {"cache", c.Cache}, {"disk", c.Disk}, {"scheduler", c.Scheduler}}
+	if c.Tor != "" {
+		fields = append(fields, struct{ key, value string }{"tor", c.Tor})
+	}
+	if c.I2P != "" {
+		fields = append(fields, struct{ key, value string }{"i2p", c.I2P})
+	}
+	for _, dataset := range c.Datasets {
+		fields = append(fields, struct{ key, value string }{dataset.Key, dataset.Status})
+	}
+	encoded := make([]byte, 0, 128)
+	encoded = append(encoded, '{')
+	for i, field := range fields {
+		if i > 0 {
+			encoded = append(encoded, ',')
+		}
+		key, err := json.Marshal(field.key)
+		if err != nil {
+			return nil, err
+		}
+		value, err := json.Marshal(field.value)
+		if err != nil {
+			return nil, err
+		}
+		encoded = append(encoded, key...)
+		encoded = append(encoded, ':')
+		encoded = append(encoded, value...)
+	}
+	encoded = append(encoded, '}')
+	return encoded, nil
 }
 
 // StatsInfo carries public-safe aggregate request statistics, per AI.md
@@ -160,7 +198,8 @@ type healthDeps struct {
 	commit      string
 	buildDate   string
 	// geoip is true when a GeoIP database is loaded (AI.md PART 19).
-	geoip bool
+	geoip      bool
+	blocklists *blocklist.Manager
 	// tor and i2p are nil when that overlay network is not configured at
 	// all, which reads as disabled everywhere in the response.
 	tor       TorReporter
@@ -250,11 +289,17 @@ func (h *healthDeps) buildHealthResponse(ctx context.Context) HealthResponse {
 	diskStatus := checkDisk(h.dataDir)
 	torInfo, torCheck := h.torInfo()
 	i2pInfo, i2pCheck := h.i2pInfo()
+	var datasetChecks []DatasetCheck
+	if h.blocklists != nil {
+		for _, check := range h.blocklists.OrderedStatus() {
+			datasetChecks = append(datasetChecks, DatasetCheck{Key: "blocklist_" + check.ID, Status: check.Status})
+		}
+	}
 
 	status := "healthy"
 	if dbStatus != "ok" || diskStatus != "ok" {
 		status = "unhealthy"
-	} else if torCheck == "degraded" || i2pCheck == "degraded" || h.schedulerHealth() != "ok" {
+	} else if torCheck == "degraded" || i2pCheck == "degraded" || h.schedulerHealth() != "ok" || hasUnhealthyDataset(datasetChecks) {
 		status = "degraded"
 	}
 
@@ -297,6 +342,7 @@ func (h *healthDeps) buildHealthResponse(ctx context.Context) HealthResponse {
 			Scheduler: h.schedulerHealth(),
 			Tor:       torCheck,
 			I2P:       i2pCheck,
+			Datasets:  datasetChecks,
 		},
 		Stats: StatsInfo{
 			RequestsTotal: total,
@@ -304,6 +350,15 @@ func (h *healthDeps) buildHealthResponse(ctx context.Context) HealthResponse {
 			ActiveConns:   active,
 		},
 	}
+}
+
+func hasUnhealthyDataset(checks []DatasetCheck) bool {
+	for _, check := range checks {
+		if check.Status != "ok" {
+			return true
+		}
+	}
+	return false
 }
 
 func healthCheckStatus(status string) string {
@@ -369,10 +424,9 @@ func formatUptime(d time.Duration) string {
 	return strings.Join(parts, " ")
 }
 
-// healthHandler serves the canonical health response with simplified
-// content negotiation (JSON default, text for .txt/Accept:text-plain/
-// non-interactive clients). Full PART 16 HTML rendering is deferred — see
-// TODO.AI.md.
+// healthHandler serves the machine-readable health response with JSON
+// default and text for .txt, Accept:text/plain, or non-interactive clients.
+// Browser requests are rendered by the frontend health page.
 func (h *healthDeps) healthHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		resp := h.buildHealthResponse(r.Context())

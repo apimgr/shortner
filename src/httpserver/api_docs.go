@@ -28,7 +28,7 @@ func (fd *frontendDeps) swaggerPage(w http.ResponseWriter, r *http.Request) {
 		Base:       fd.newPageData(r, "", "API documentation", "Explore the Shortner REST API."),
 		Endpoint:   fd.resolver.BuildURL(r, "/api/swagger"),
 		APIVersion: fd.cfg.Server.APIVersion,
-		Operations: swagger.RouteAnnotations(),
+		Operations: swagger.RouteAnnotations(langFromContext(r)),
 	}
 	for i := range data.Operations {
 		data.Operations[i].Method = strings.ToUpper(data.Operations[i].Method)
@@ -39,7 +39,8 @@ func (fd *frontendDeps) swaggerPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (fd *frontendDeps) graphqlPage(w http.ResponseWriter, r *http.Request) {
-	queries, err := apiGraphql.DocumentQueries()
+	lang := langFromContext(r)
+	queries, err := apiGraphql.DocumentQueries(lang)
 	if err != nil {
 		http.Error(w, "GraphQL schema unavailable", http.StatusInternalServerError)
 		return
@@ -47,7 +48,7 @@ func (fd *frontendDeps) graphqlPage(w http.ResponseWriter, r *http.Request) {
 	data := apiDocsPageData{
 		Base:          fd.newPageData(r, "", "GraphQL documentation", "Explore read-only Shortner GraphQL queries."),
 		Endpoint:      fd.resolver.BuildURL(r, "/api/graphql"),
-		GraphQLSchema: string(apiGraphql.SchemaDocument()),
+		GraphQLSchema: string(apiGraphql.SchemaDocument(lang)),
 		Queries:       queries,
 	}
 	if err := renderPage(w, http.StatusOK, "graphql", data); err != nil {

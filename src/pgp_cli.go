@@ -323,6 +323,24 @@ func publishStored(env *pgpEnv, fingerprint string) bool {
 		fmt.Fprintln(os.Stderr, "publish: "+err.Error())
 		return false
 	}
+	state, err := env.store.LoadKeyserverState()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "publish: "+err.Error())
+		return false
+	}
+	if state.Fingerprint == fingerprint {
+		pending := make([]string, 0, len(servers))
+		for _, server := range servers {
+			if _, done := state.Published[server]; !done {
+				pending = append(pending, server)
+			}
+		}
+		servers = pending
+	}
+	if len(servers) == 0 {
+		fmt.Println("All configured keyservers already have this fingerprint; skipping publication.")
+		return true
+	}
 
 	fmt.Printf("Publishing %s to %d keyserver(s)...\n", fingerprint, len(servers))
 	results := pgp.Publish(context.Background(), nil, servers, armored, time.Now)
