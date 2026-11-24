@@ -24473,6 +24473,7 @@ self.addEventListener('activate', event => {
     caches.keys()
       .then(keys => Promise.all(
         keys
+          // Only the versioned page and asset caches are removed; the strings cache survives updates
           .filter(key => key.startsWith('{app_name}-cache-') && key !== CACHE_NAME)
           .map(key => caches.delete(key))
       ))
@@ -24529,7 +24530,7 @@ self.addEventListener('fetch', event => {
         .catch(async () =>
           (await caches.match(request))
             || (await caches.match('/offline.html'))
-            || offlineFallbackResponse()
+            || (await offlineFallbackResponse())
         )
     );
     return;
@@ -24563,19 +24564,42 @@ self.addEventListener('fetch', event => {
 });
 
 // GUARANTEED last-resort page - synthesized in the worker so it needs no
-// cache hit and can never itself miss
-function offlineFallbackResponse() {
+// cache hit and can never itself miss. The words come from the strings the
+// page stored in the separate strings cache (translated, resolved language
+// and direction); the English text below is used ONLY before any page has
+// stored them, and it is the one hardcoded string the worker may hold
+const STRINGS_CACHE = '{app_name}-offline-strings';
+const DEFAULT_STRINGS = {
+  lang: 'en', dir: 'ltr', title: 'Offline', heading: 'You are offline',
+  message: 'This page could not be loaded and no cached copy is available. Check your connection and try again.'
+};
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+async function offlineFallbackResponse() {
+  let s = DEFAULT_STRINGS;
+  try {
+    const stored = await (await caches.open(STRINGS_CACHE)).match('/offline-strings.json');
+    if (stored) s = Object.assign({}, DEFAULT_STRINGS, await stored.json());
+  } catch (e) {
+    s = DEFAULT_STRINGS;
+  }
   return new Response(
-    '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+    '<!doctype html><html lang="' + escapeHtml(s.lang) + '" dir="' + escapeHtml(s.dir) + '"><head><meta charset="utf-8">'
       + '<meta name="viewport" content="width=device-width,initial-scale=1">'
-      + '<title>Offline</title></head><body><main>'
-      + '<h1>You are offline</h1><p>This page could not be loaded and no '
-      + 'cached copy is available. Check your connection and try again.</p>'
+      + '<title>' + escapeHtml(s.title) + '</title></head><body><main>'
+      + '<h1>' + escapeHtml(s.heading) + '</h1><p>' + escapeHtml(s.message) + '</p>'
       + '</main></body></html>',
     { status: 503, statusText: 'Service Unavailable',
       headers: { 'Content-Type': 'text/html; charset=utf-8' } }
   );
 }
+
+// PAGE SIDE (app.js, on every load): store the strings for the worker. The values are
+// rendered by the server from the translation keys offline.title, offline.heading and
+// offline.message in the visitor's resolved language (lang and dir are the page's own)
+// caches.open('{app_name}-offline-strings').then(c => c.put('/offline-strings.json',
+//   new Response(JSON.stringify(window.OFFLINE_STRINGS), { headers: { 'Content-Type': 'application/json' } })))
 ```
 
 ### Cache Versioning & Updates
@@ -30049,7 +30073,7 @@ server:
 | `startup` | Application started (`events.startup`) | ✗ |
 | `shutdown` | Application stopped (`events.shutdown`) | ✗ |
 | `disk_low` | Disk space low (PART 17 → "Disk Space Low") | ✗ |
-| `database_error` | Database connection problem | ✗ |
+| `database_error` | Database connection problem (PART 17 → "Database Connection Problem") | ✗ |
 | `update_available` | New eligible release detected (`update_check` task) | ✗ |
 | `update_installed` | Self-update completed (`auto_install: true`) | ✗ |
 | `update_failed` | A staged update could not be installed (bad checksum or replace failure) | ✗ |
@@ -30257,7 +30281,7 @@ Next run: {next_run}
 | `{version}` | Running version |
 | `{mode}` | Application mode |
 | `{timestamp}` | When the event happened |
-| `{reason}` | Why the server stopped: `signal`, `service stop` or `update restart` (shutdown only) |
+| `{reason}` | Why the server stopped: `signal` (a SIGTERM or SIGINT, whoever sent it: an operator, `--service stop` or a service manager all deliver the same signal and the server cannot tell them apart) or `update restart` (the server's own restart after an update) (shutdown only) |
 
 ### disk_low
 | Variable | Description |
@@ -30434,9 +30458,30 @@ Every row of this table is a BLOCKING error: the template is not loaded (the emb
 | `shutdown` | Once when a graceful shutdown (`SIGTERM`, `SIGINT`, `--service stop`, or the restart after an update) has finished draining connections | Crashes and `SIGKILL`, because nothing can send mail then |
 
 - **Defaults:** both switches default to off (`server.notifications.email.events.startup` and `shutdown`). Every occurrence is always logged at INFO whatever the switches say.
-- **Templates:** the built-in `startup` and `shutdown` templates use `{app_name}`, `{fqdn}`, `{hostname}`, `{version}`, `{mode}` and `{timestamp}`; `shutdown` adds `{reason}` (`signal`, `service stop` or `update restart`).
+- **Templates:** the built-in `startup` and `shutdown` templates use `{app_name}`, `{fqdn}`, `{hostname}`, `{version}`, `{mode}` and `{timestamp}`; `shutdown` adds `{reason}` (`signal` or `update restart`; the origin of a signal is not available to the process, so it is never guessed).
 - **Delivery:** the recipient is the admin role (PART 12 → "Contact Configuration"). The shutdown email is best effort with a 5-second send timeout and never delays process exit beyond that.
 - **Language:** operator email, so `server.i18n.default_language` applies (see "Email Language Selection", priority 3).
+
+### Database Connection Problem (notification trigger)
+
+| Aspect | Rule |
+|--------|------|
+| Measured | The same probe as `checks.database` in `/server/healthz` (PART 13): a trivial query on the write handle and on the read handle, each under a 5-second deadline |
+| Trigger | `server.notifications.database_error.failures` (default `3`) consecutive failed probes; `{since}` is the time of the FIRST failure of that run, `{error}` the last error with any credentials removed |
+| Cadence | Built-in scheduler task `database_check` every `server.notifications.database_error.check_interval` (default `1m`); no external cron |
+| Deduplication | One WARN and email when the trigger is first met; repeated at most once per `server.notifications.database_error.repeat` (default `24h`) while probes keep failing |
+| Recovery | The first successful probe logs INFO `Database connection recovered` (log only, no email) and resets the failure count and the deduplication state |
+| Remote database | A remote libSQL/Turso outage is a failed probe like any other; the cache fallback of PART 10 does not stop the probe from failing |
+
+```yaml
+server:
+  notifications:
+    database_error:
+      enabled: true
+      failures: 3
+      check_interval: 1m
+      repeat: 24h
+```
 
 ### Disk Space Low (notification trigger)
 
@@ -30666,6 +30711,7 @@ Every project MUST include these scheduled tasks:
 | `backup_daily` | Daily at 02:00 | Full backup + daily incremental (2 files per run and 3 on disk; the first run has no previous full, so it creates only the full backup, "Incremental Backup Contract") | Yes |
 | `backup_hourly` | Hourly | Hourly incremental (disabled by default) | Yes |
 | `disk_check` | Every 5 minutes | Disk space low check (PART 17 → "Disk Space Low") | Yes |
+| `database_check` | Every minute | Database connection probe for the `database_error` notification (PART 17 → "Database Connection Problem") | Yes |
 | `healthcheck_self` | Every 5 minutes | Self-health verification | No |
 | `tor_health` | Every 10 minutes | Check Tor connectivity, restart if needed | No (when Tor installed) |
 | `i2p_health` | Every 10 minutes | Check I2P provider, restart if needed | No (only when I2P is enabled: the resolved `server.i2p.enabled`) |
@@ -43296,9 +43342,9 @@ chmod +x {project_name}-linux-amd64
 
 ```bash
 sudo ./{project_name} --service --install
-# operator action on target host — not an AI-executed command during development
+# operator action on the target machine — not an AI-executed command during development
 sudo systemctl start {project_name}
-# operator action on target host — not an AI-executed command during development
+# operator action on the target machine — not an AI-executed command during development
 sudo systemctl enable {project_name}
 ```
 
