@@ -592,7 +592,8 @@ and the timezone is any IANA name. A task whose scheduled run was missed
 while the process was down is executed on startup if the miss falls inside
 `catch_up_window`.
 
-All thirteen built-in tasks required by AI.md are registered:
+All fourteen core built-in tasks required by AI.md are registered; Tor and
+I2P health tasks are added when those networks are enabled:
 
 | Task | Default schedule | Status |
 |------|------------------|--------|
@@ -600,6 +601,7 @@ All thirteen built-in tasks required by AI.md are registered:
 | `log_rotation` | daily at 00:00 | Active |
 | `healthcheck_self` | every 5 minutes | Active |
 | `disk_check` | every 5 minutes | Active |
+| `database_check` | every minute | Active — probes both database handles and triggers the database outage notification |
 | `ssl_renewal` | daily at 03:00 | Active — checks the renewal window and sends alerts |
 | `geoip_update` | weekly, Sunday at 03:00 | Active |
 | `backup_daily` | daily at 02:00 | Active |
@@ -610,7 +612,9 @@ All thirteen built-in tasks required by AI.md are registered:
 | `tor_health` | every 10 minutes | Active when Tor is installed |
 | `i2p_health` | every 10 minutes | Active when I2P is enabled |
 
-Tasks that cannot do real work skip with a logged reason rather than
+If the process exits while a task is running, its stored state becomes
+`interrupted`; the next start retries it immediately without counting a
+failure or changing the previous error. Tasks that cannot do real work skip with a logged reason rather than
 pretending to succeed. NVD data is stored under `data.security_dir/cve/`;
 `data.cve.api_key` is kept in `secrets.yml`, and Trivy updates are opt-in via
 `data.trivy.enabled`. See [CLI Reference](cli.md#scheduler) for management
@@ -797,12 +801,23 @@ server:
       threshold_percent: 85
       check_interval: 5m
       repeat: 24h
+    database_error:
+      enabled: true
+      failures: 3
+      check_interval: 1m
+      repeat: 24h
 ```
 
 `disk_low` checks the filesystems containing the data, log, and backup
 directories every five minutes. It logs and emails when a volume first
 crosses the threshold, repeats at most once per configured interval, and
 logs recovery after usage falls five percentage points below the threshold.
+
+`database_error` probes both read and write handles every minute. Three
+consecutive failures produce a warning and an email when SMTP is available;
+the alert repeats at most once per 24 hours while the outage continues.
+Recovery is logged and resets the failure and repeat state. Probe errors are
+redacted before logging or emailing.
 
 `email.enabled` is set automatically from whether a working SMTP server
 was found — it is not a manual toggle. With `host` empty, the server

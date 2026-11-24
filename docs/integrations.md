@@ -199,11 +199,13 @@ it needs.
 
 ### Events and templates
 
-Twelve events are supported, each independently switchable under
+Thirteen email events are supported. The operator event switches are under
 `server.notifications.email.events`: `startup`, `shutdown`,
 `backup_complete`, `backup_failed`, `ssl_expiring`, `ssl_renewed`,
 `ssl_renewal_failed`, `security_alert`, `scheduler_error`,
 `update_available`, `update_installed`, and the operator-triggered `test`.
+The `database_error` notification has its own enable, failure threshold,
+check interval, and repeat settings under `server.notifications.database_error`.
 
 Defaults are conservative — failures notify, successes mostly do not.
 

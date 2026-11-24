@@ -169,10 +169,11 @@ Custom templates live in `{config_dir}/template/email/{event}.tmpl` and
 take precedence over the embedded defaults. They are picked up live —
 deleting one is how you reset it, which is exactly what `reset` does.
 
-The twelve events are `startup`, `shutdown`, `backup_complete`,
+The events are `startup`, `shutdown`, `backup_complete`,
 `backup_failed`, `ssl_expiring`, `ssl_renewed`, `ssl_renewal_failed`,
 `security_alert`, `scheduler_error`, `update_available`,
-`update_installed`, and `test`.
+`update_installed`, `database_error`, and `test`. Database outage alert
+cadence is controlled by `server.notifications.database_error`.
 
 If no SMTP server is configured or auto-detected, email is off — nothing
 is queued and nothing is retried. See
