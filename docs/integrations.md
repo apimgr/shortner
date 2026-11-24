@@ -358,7 +358,8 @@ Every request carries an HMAC-SHA256 `X-Webhook-Signature`, an
 project/version user agent. Configure each generated per-endpoint signing
 secret from `secrets.yml` at the receiver. Failed deliveries retry after
 1 minute, 5 minutes, 15 minutes, 1 hour, 6 hours, and 24 hours, then log a
-redacted failure without exposing endpoint URLs or payload contents.
+redacted failure without exposing endpoint URLs or payload contents. Failure
+logs are limited to one line per role and transport per minute.
 
 Pushover priorities are 0 for info/warning and 1 for critical. Gotify uses 2,
 5, and 8 for info, warning, and critical. Security report webhooks contain
