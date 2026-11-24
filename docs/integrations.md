@@ -40,6 +40,10 @@ with identical handlers mirrored at `/api/metrics[/{service}]`,
 `server.metrics.root.enabled` is on — bare `/metrics`. None of the aliases
 is a redirect.
 
+The importable Grafana dashboard includes HTTP, database, cache, system,
+scheduler run/duration/health, and shortener business panels for total links,
+links created in 24 hours, and clicks in 24 hours.
+
 ### Authentication
 
 Each service has its own bearer token, configured separately:
