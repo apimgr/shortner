@@ -28,6 +28,24 @@ behaves correctly if you rename it.
 | `--daemon` | Run in the background (ignored inside containers) |
 | `--shell {value}` | Shell integration: `completions`, `init`, `help` |
 
+## Tor maintenance
+
+Tor operations use the authenticated maintenance namespace. Run
+`shortner --maintenance tor --help` for the command list. Mutating actions
+require root/Administrator or the configured operator token; identity-changing
+actions require the documented typed confirmation.
+
+The CLI sends Tor operations to loopback-only internal `/server/tor/*`
+endpoints so only the server process controls its embedded Tor instance.
+`tor status` and `tor validate` can inspect local state when the server is
+stopped; restart, regenerate, vanity start/stop/apply, and key import require a
+running server. Vanity searches run in the server as background jobs and can
+be cancelled with `shortner --maintenance tor vanity stop`.
+`tor import-keys <path>` takes a directory containing Tor's
+`hs_ed25519_secret_key` file.
+Destructive Tor operations prompt before changing identity; add `--yes` to
+the maintenance command to confirm non-interactively.
+
 `--color no` and the conventional `NO_COLOR` environment variable both
 disable color.
 
@@ -167,7 +185,12 @@ shortner --maintenance backup [file]
 shortner --maintenance backup list
 shortner --maintenance backup delete {filename}
 shortner --maintenance restore {file}
+shortner --maintenance security export TRACKING_ID [--output FILE]
 ```
+
+Security report export writes the encrypted report message to
+`{tracking_id}.asc` with mode `0600` by default. `--output -` writes the
+ciphertext to standard output; the report body is never printed in clear.
 
 | Flag | Effect |
 |------|--------|
@@ -409,11 +432,14 @@ without UTF-8 get an ASCII symbol set automatically.
     full GUI parity and native screen-reader support are not currently
     available; use the CLI or TUI for those controls.
 
-The server publishes `/api/autodiscover` and serves colocated client
-binaries from `/cli/binaries/{project}-cli-{os}-{arch}`. The discovery
-response advertises only binaries present beside the server executable;
-an empty list means there is no downloadable client build for that
-platform.
+The server publishes `/api/autodiscover` and serves operator-provisioned
+client binaries from `{data_dir}/cli/` by default. Set
+`cli.binary_download.dir` in `yaml.d/maintenance.yml` to use another
+directory, or `cli.binary_download.require_auth: true` to require the
+operator bearer token for downloads. Place release binaries together with
+`version.txt` and `sha256.txt` there; the server recomputes each checksum
+and advertises only verified binaries. An empty list means there is no
+downloadable client build for that platform.
 
 ### Client Exit Codes
 

@@ -31,6 +31,13 @@ are always a courtesy copy, never the primary channel: if email is
 unavailable or the send fails, the submission still succeeds and the
 tracking ID is still issued.
 
+When SMTP is unavailable, maintainers can export the same encrypted report
+message with `shortner --maintenance security export TRACKING_ID`. The
+default `{tracking_id}.asc` file is created with mode `0600`; pass
+`--output -` to write ciphertext to standard output. The report body is
+never decrypted by the export command, and the audit log records only the
+tracking ID.
+
 !!! note
     Researchers can view report state at
     `/server/security/report/{tracking_id}` using the one-shot status token

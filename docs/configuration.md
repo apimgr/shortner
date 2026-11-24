@@ -706,6 +706,19 @@ days; an explicit `shortner --update` bypasses the defer window.
 `cli_min_version` is returned by `/api/autodiscover` and is empty by
 default, so no minimum CLI version is enforced.
 
+Client binary publishing options live in `yaml.d/maintenance.yml`:
+
+```yaml
+cli:
+  binary_download:
+    dir: "{data_dir}/cli"
+    require_auth: false
+```
+
+The default directory is `{data_dir}/cli`. The files in it are operator
+provisioned; the server verifies their SHA-256 values before advertising
+them. Downloads are public unless `require_auth` is enabled.
+
 ## Security
 
 ```yaml
@@ -882,6 +895,7 @@ web:
     enabled: true
     include_endpoints: true
     include_schemas: false
+    custom_sections: []
   well_known:
     webfinger:
       enabled: false
@@ -895,7 +909,6 @@ web:
       enabled: false
   security:
     report_url: "https://github.com/apimgr/shortner/security/advisories/new"
-    contact: ""
     expires: ""
     keyservers:
       - "https://keys.openpgp.org"
@@ -904,6 +917,10 @@ web:
     policy: ""
     thanks: []
 ```
+
+Each `custom_sections` item has `title` and `content` fields. Titles are
+1–80 characters, content is Markdown up to 4096 characters, and links may
+use HTTPS or relative paths. HTML is escaped; invalid entries are skipped.
 
 Public key publishing uses the keyserver-specific upload protocol. Failed
 submissions retain per-server retry state in the data directory; the built-in

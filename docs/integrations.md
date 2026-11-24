@@ -312,7 +312,10 @@ sampling; both are tunable under `web.headers.nel`.
 | `/llms.txt`, `/.well-known/llms.txt` | on | AI-agent-oriented description of the service |
 
 `llms.txt` content is controlled by `web.llms.include_endpoints` and
-`web.llms.include_schemas`, plus any `custom_sections`.
+`web.llms.include_schemas`, plus up to ten `custom_sections` entries in
+`{title, content}` form. Titles are 1–80 characters and content is Markdown
+up to 4096 characters. HTML is escaped; links may target HTTPS or relative
+paths. Invalid entries are skipped with one warning.
 
 ## Optional Well-Known Endpoints
 
@@ -377,6 +380,17 @@ Tor support is enabled automatically when a Tor executable is available.
 The server manages a v3 hidden service and serves it over HTTP on the
 dedicated `.onion` address. Install Tor separately; the built-in manager
 does not turn the service into a Tor relay or exit node.
+
+The maintenance CLI controls Tor through loopback-only internal endpoints.
+These endpoints are absent from the public API and feature listings. Mutating
+operations require the server to be running; vanity searches run as
+background jobs in the server and can be cancelled or inspected through the
+CLI.
+
+Publishing either overlay address through `/api/autodiscover` is disabled
+by default. Set `server.tor.expose: true` or `server.i2p.expose: true` to
+advertise the corresponding address; enabling the overlay alone does not
+publish it.
 
 I2P support is off by default on bare metal and VMs, and on by default in
 containers. The binary computes that default; the Docker image does not set

@@ -527,7 +527,7 @@ Server-rendered HTML. Every one of these works with JavaScript disabled.
 | `GET /feed.xml` | Atom 1.0 feed of recent public links |
 | `GET /rss.xml` | RSS 2.0 feed of the same links |
 | `GET /api/autodiscover` | Server and available CLI update metadata |
-| `GET /cli/binaries/{project}-cli-{os}-{arch}` | Download a colocated CLI build |
+| `GET /cli/binaries/{project}-cli-{os}-{arch}` | Download a verified CLI build from `{data_dir}/cli/` (public unless `cli.binary_download.require_auth` is enabled) |
 
 Two routes are conditional: `/server/ccpa` exists only when
 `server.privacy.data.sold` is true, and `/server/dpo` only when compliance
