@@ -18167,8 +18167,11 @@ type ConsentState struct {
     Timestamp   int64 `json:"timestamp"`
 }
 
-// Stored in the cookie_consent cookie as JSON (server-readable per request):
-// cookie_consent = {"essential":true,"preferences":true,"analytics":false,"timestamp":1704067200}
+// Stored in the cookie_consent cookie as PERCENT-ENCODED compact JSON (server-readable per request). Raw JSON is not a legal
+// cookie value (quotes, commas), so the server encodes with url.PathEscape and decodes with url.PathUnescape before json.Unmarshal
+// (never QueryEscape, which turns a space into +); JS uses encodeURIComponent and decodeURIComponent. Decoded value:
+// {"essential":true,"preferences":true,"analytics":false,"timestamp":1704067200}
+// Wire value: %7B%22essential%22:true,...%7D. A value that does not decode or parse is treated as no consent cookie (banner shown, categories off)
 ```
 
 ### Granular Consent UI (Manage Preferences)
@@ -24979,7 +24982,7 @@ async function revokeLocalToken() {
 |--------|--------|---------|
 | `theme` | `dark` \| `light` \| `auto` | `dark` |
 | `lang` | BCP 47 tag: `en`, `es`, `fr`, … — written only when the visitor picks a language or applies a sync import | automatic: best `Accept-Language` match, else `en` (see "Language Selection") |
-| `cookie_consent` | JSON: granular categories + timestamp | unset (banner shown) |
+| `cookie_consent` | Percent-encoded compact JSON: granular categories + timestamp (see "Consent Logic") | unset (banner shown) |
 | `ccpa_opt_out` | `true` | unset |
 | `{project_name}_build` | running build stamp `{project_version}-{short_commit}` | set on first HTML response — drives the PART 9 version-change purge |
 
@@ -28470,7 +28473,7 @@ message := cfg.Privacy.GetConsentMessage()
 | Step | Behavior |
 |------|----------|
 | **Render** | The server renders the banner only when the request has no valid `cookie_consent` cookie — no `display: none`, no reveal script |
-| **POST `/server/consent`** | Reads `choice` (`accept` / `decline` / `save` from the Manage Preferences dialog — the banner's own route; the `/server/preferences` page saves consent through `POST /server/preferences`, rule 17), sets the `cookie_consent` cookie (JSON: granular categories + timestamp), redirects back to the originating page |
+| **POST `/server/consent`** | Reads `choice` (`accept` / `decline` / `save` from the Manage Preferences dialog — the banner's own route; the `/server/preferences` page saves consent through `POST /server/preferences`, rule 17), sets the `cookie_consent` cookie (percent-encoded compact JSON: granular categories + timestamp), redirects back to the originating page |
 | **Later requests** | Server reads `cookie_consent` to skip the banner and to decide tracking injection (`CheckTrackingAllowed`) |
 | **CCPA** | POST `/server/ccpa` (the privacy page's own opt-out form; `/server/preferences` saves the same cookie through `POST /server/preferences`, rule 17) sets/clears the `ccpa_opt_out` cookie with the rule 8 attributes and redirects back (`303`). Web-only: no API mirror, never exported |
 
@@ -28717,7 +28720,7 @@ initCCPA();
 
 ### Consent Logic (Granular)
 
-**Consent stored as JSON in the `cookie_consent` cookie (server-readable):** `{"essential":true,"preferences":true,"analytics":false,"timestamp":1704067200}`
+**Consent stored as percent-encoded compact JSON in the `cookie_consent` cookie (server-readable):** decoded value `{"essential":true,"preferences":true,"analytics":false,"timestamp":1704067200}`. The server writes it with `url.PathEscape` and reads it with `url.PathUnescape` before parsing (the JS side uses `encodeURIComponent` and `decodeURIComponent`), because raw JSON punctuation is not a legal cookie value and Go's `Set-Cookie` handling would quote or sanitize it so the browser would return text that cannot be parsed. A value that does not decode or parse counts as no consent cookie: the banner shows and every non-essential category is off
 
 | Condition | Show Banner | Essential | Preferences | Analytics |
 |-----------|-------------|-----------|-------------|-----------|
