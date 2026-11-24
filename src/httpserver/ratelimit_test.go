@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/metrics"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func testRateLimitConfig() config.RateLimit {
@@ -12,6 +14,23 @@ func testRateLimitConfig() config.RateLimit {
 		Write:       config.RateLimitClass{Requests: 1, Window: 60},
 		Health:      config.RateLimitClass{Requests: 5, Window: 60},
 		GlobalBurst: 10,
+	}
+}
+
+func TestRateLimiterPublishesCacheMetrics(t *testing.T) {
+	m := metrics.New(config.Metrics{Enabled: true})
+	rl := NewRateLimiter(testRateLimitConfig())
+	rl.SetMetrics(m)
+	rl.Allow("192.0.2.10", rlRead)
+	rl.Allow("192.0.2.10", rlRead)
+	if got := testutil.ToFloat64(m.CacheMissesTotal.WithLabelValues("rate_limit")); got != 1 {
+		t.Errorf("misses = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(m.CacheHitsTotal.WithLabelValues("rate_limit")); got != 1 {
+		t.Errorf("hits = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(m.CacheSize.WithLabelValues("rate_limit")); got != 2 {
+		t.Errorf("size = %v, want 2", got)
 	}
 }
 

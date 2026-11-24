@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/apimgr/shortner/src/common/i18n"
@@ -80,8 +81,9 @@ type request struct {
 
 const maxQueryFields = 100
 
-// Handler accepts standard GraphQL JSON POST requests and returns GraphQL's
-// data/errors response shape. Mutations are rejected by the query-only schema.
+// Handler accepts GraphQL JSON or form POST requests and query-string GET
+// requests, returning GraphQL's data/errors response shape. Mutations are
+// rejected by the query-only schema.
 func Handler(resolve ResolverFactory) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lang := i18n.LangFromRequest(r, i18n.CookieName, i18n.DefaultLanguage)
@@ -90,32 +92,53 @@ func Handler(resolve ResolverFactory) http.Handler {
 			http.Error(w, "GraphQL schema unavailable", http.StatusInternalServerError)
 			return
 		}
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", http.MethodPost)
+		if r.Method != http.MethodPost && r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET, POST")
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		defer r.Body.Close()
 		var req request
-		if strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") {
-			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-			if err := r.ParseForm(); err != nil {
-				http.Error(w, "invalid GraphQL request", http.StatusBadRequest)
+		if r.Method == http.MethodGet {
+			values, err := url.ParseQuery(r.URL.RawQuery)
+			if err != nil {
+				http.Error(w, "invalid GraphQL query parameters", http.StatusBadRequest)
 				return
 			}
-			req.Query = r.FormValue("query")
-			req.OperationName = r.FormValue("operationName")
-			if variables := r.FormValue("variables"); variables != "" {
+			req.Query = values.Get("query")
+			req.OperationName = values.Get("operationName")
+			if variables := values.Get("variables"); variables != "" {
 				if err := json.Unmarshal([]byte(variables), &req.Variables); err != nil {
 					http.Error(w, "invalid GraphQL variables", http.StatusBadRequest)
 					return
 				}
 			}
-		} else {
-			decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-			if err := decoder.Decode(&req); err != nil {
-				http.Error(w, "invalid GraphQL request", http.StatusBadRequest)
+			if req.Query == "" {
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				_, _ = fmt.Fprintln(w, "Read-only GraphQL endpoint. Supply query and optionally variables and operationName.")
 				return
+			}
+		} else {
+			defer r.Body.Close()
+			if strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") {
+				r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+				if err := r.ParseForm(); err != nil {
+					http.Error(w, "invalid GraphQL request", http.StatusBadRequest)
+					return
+				}
+				req.Query = r.FormValue("query")
+				req.OperationName = r.FormValue("operationName")
+				if variables := r.FormValue("variables"); variables != "" {
+					if err := json.Unmarshal([]byte(variables), &req.Variables); err != nil {
+						http.Error(w, "invalid GraphQL variables", http.StatusBadRequest)
+						return
+					}
+				}
+			} else {
+				decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+				if err := decoder.Decode(&req); err != nil {
+					http.Error(w, "invalid GraphQL request", http.StatusBadRequest)
+					return
+				}
 			}
 		}
 		if req.Query == "" {

@@ -128,6 +128,23 @@ func grafanaDashboardHandler() http.HandlerFunc {
 			{"title": "Uptime", "type": "stat", "targets": []map[string]string{
 				{"expr": p + "_app_uptime_seconds"},
 			}},
+			{"title": "Scheduler Task Runs", "type": "graph", "targets": []map[string]string{
+				{"expr": fmt.Sprintf("sum by (task, status) (rate(%s_scheduler_tasks_total[5m]))", p), "legendFormat": "{{task}} {{status}}"},
+			}},
+			{"title": "Scheduler Task Duration (p95)", "type": "graph", "targets": []map[string]string{
+				{"expr": fmt.Sprintf("histogram_quantile(0.95, sum by (task, le) (rate(%s_scheduler_task_duration_seconds_bucket[1h])))", p), "legendFormat": "{{task}}"},
+			}},
+			{"title": "Scheduler Tasks Running", "type": "stat", "targets": []map[string]string{
+				{"expr": fmt.Sprintf("sum(%s_scheduler_tasks_running)", p)},
+			}},
+			{"title": "Seconds Since Last Task Run", "type": "graph", "targets": []map[string]string{
+				{"expr": fmt.Sprintf("time() - %s_scheduler_last_run_timestamp", p), "legendFormat": "{{task}}"},
+			}},
+			{"title": "Links and Click Analytics", "type": "graph", "targets": []map[string]string{
+				{"expr": p + "_links_total", "legendFormat": "total links"},
+				{"expr": p + "_links_created_24h", "legendFormat": "links created (24h)"},
+				{"expr": p + "_links_clicked_24h", "legendFormat": "clicks (24h)"},
+			}},
 		},
 	}
 	return func(w http.ResponseWriter, r *http.Request) {

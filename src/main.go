@@ -410,6 +410,11 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
+	webhookSecretsGenerated, err := config.EnsureWebhookSecrets(cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
 	dnsCredentialsChanged, err := config.SealDNSCredentials(cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
@@ -440,7 +445,7 @@ func run(args []string) int {
 	if migrationErr := errors.Join(secretMigrationErr, areaMigrationErr); migrationErr != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": warning: configuration migration skipped; using the merged configuration: "+migrationErr.Error())
 	}
-	if generated || keyGenerated || keyVersionWasMissing || metricsTokensGenerated || portWasGenerated || dnsCredentialsChanged || config.HasSeededConnection(cfg) {
+	if generated || keyGenerated || keyVersionWasMissing || metricsTokensGenerated || len(webhookSecretsGenerated) > 0 || portWasGenerated || dnsCredentialsChanged || config.HasSeededConnection(cfg) {
 		if err := config.Save(p.ConfigFile, cfg); err != nil {
 			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 			return 1
@@ -516,8 +521,10 @@ func run(args []string) int {
 	}
 
 	stopMetrics := func() {}
+	var metricsCtx context.Context
+	var cancelMetrics context.CancelFunc
 	if appMetrics != nil {
-		metricsCtx, cancelMetrics := context.WithCancel(context.Background())
+		metricsCtx, cancelMetrics = context.WithCancel(context.Background())
 		stopMetrics = cancelMetrics
 		appMetrics.StartCollector(metricsCtx, p.Data, sqlDB.Read(metricsCtx), cfg.Server.Metrics.IncludeSystem, cfg.Server.Metrics.IncludeRuntime)
 	}
@@ -590,6 +597,16 @@ func run(args []string) int {
 	case "none":
 		appCache = nil
 	}
+	_, redisCacheMetrics := appCache.(*cache.Redis)
+	if appMetrics != nil && redisCacheMetrics {
+		if metricsCtx == nil {
+			var cancelCacheMetrics context.CancelFunc
+			metricsCtx, cancelCacheMetrics = context.WithCancel(context.Background())
+			previousStopMetrics := stopMetrics
+			stopMetrics = func() { cancelCacheMetrics(); previousStopMetrics() }
+		}
+		appMetrics.StartCacheCollector(metricsCtx, appCache, "rate_limit")
+	}
 
 	// Audit log (AI.md PART 11 "Audit Log Format"), consumed by the PART 21
 	// backup events.
@@ -609,6 +626,9 @@ func run(args []string) int {
 		if wasGenerated {
 			_ = auditLog.Write(applog.Entry{Event: "config.secret_generated", Category: "config", Severity: applog.SeverityInfo, Details: map[string]any{"key": key}, Result: applog.ResultSuccess})
 		}
+	}
+	for _, key := range webhookSecretsGenerated {
+		_ = auditLog.Write(applog.Entry{Event: "config.secret_generated", Category: "config", Severity: applog.SeverityInfo, Details: map[string]any{"key": key}, Result: applog.ResultSuccess})
 	}
 
 	// installation_secret (AI.md PART 11 "Cryptographic Keys") backs the
@@ -1072,9 +1092,12 @@ func newBuiltinScheduler(cfg *config.Config, sqlDB db.Handle, schedulerLog, acce
 	if err != nil {
 		return nil, err
 	}
+	dbProbe, _ := sqlDB.(interface{ Probe(context.Context) error })
 
 	deps := scheduler.Deps{
 		DB:                      sqlDB,
+		DBProbe:                 dbProbe,
+		DatabaseError:           cfg.Server.Notifications.DatabaseError,
 		Tokens:                  cfg.Server.Tokens,
 		Logs:                    []*applog.Logger{schedulerLog, accessLog},
 		DiskPaths:               []string{p.Data, p.Logs, p.Backup},

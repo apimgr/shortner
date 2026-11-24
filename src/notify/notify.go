@@ -16,8 +16,9 @@ import (
 // AI.md PART 17 "SMTP Requirement" requires the SMTP status be checked
 // "once at startup and on config change", never per send.
 type Options struct {
-	Email config.EmailNotifications
-	Store *Store
+	Email   config.EmailNotifications
+	Store   *Store
+	Contact config.Contact
 
 	// AppName, AppURL and FQDN back the global template variables of the
 	// same name.
@@ -33,8 +34,9 @@ type Options struct {
 	// Recipients are the operator addresses every event email goes to.
 	Recipients []string
 	// Version and Mode back the startup/shutdown templates.
-	Version string
-	Mode    string
+	Version     string
+	Mode        string
+	ProjectName string
 	// Log receives one ERROR line per failed delivery. Nil disables it.
 	Log *applog.Logger
 }
@@ -43,9 +45,10 @@ type Options struct {
 // *Notifier is valid and inert: every method reports "not enabled" and
 // sends nothing, so callers never need a nil check of their own.
 type Notifier struct {
-	mu    sync.RWMutex
-	opts  Options
-	ready bool
+	mu       sync.RWMutex
+	opts     Options
+	ready    bool
+	webhooks *webhookSender
 }
 
 // New builds a Notifier in the disabled state. Email stays off until
@@ -56,7 +59,7 @@ func New(opts Options) *Notifier {
 	if opts.Store == nil {
 		opts.Store = &Store{}
 	}
-	return &Notifier{opts: opts}
+	return &Notifier{opts: opts, webhooks: newWebhookSender(opts.Contact, opts.ProjectName, opts.AppName, opts.Version, opts.AppURL, opts.Log)}
 }
 
 // StartupResult describes what the startup SMTP check did, so main can
@@ -158,7 +161,7 @@ var ErrDisabled = errors.New("notify: email disabled (no working SMTP)")
 // gates: SMTP configured, then the per-event switch. A disabled event or
 // disabled SMTP returns ErrDisabled without touching the network.
 func (n *Notifier) Send(event string, vars map[string]string) error {
-	if !n.Enabled() {
+	if n == nil {
 		return ErrDisabled
 	}
 	n.mu.RLock()
@@ -166,13 +169,62 @@ func (n *Notifier) Send(event string, vars map[string]string) error {
 	recipients := append([]string(nil), n.opts.Recipients...)
 	n.mu.RUnlock()
 
+	if event != EventTest {
+		if subject, body, err := n.renderEvent(event, vars); err == nil {
+			n.DispatchWebhook("admin", strings.ReplaceAll(event, "_", "."), subject, body, eventSeverity(event), "")
+		}
+	}
 	if !EventEnabled(events, event) {
+		return ErrDisabled
+	}
+	if !n.Enabled() {
 		return ErrDisabled
 	}
 	if len(recipients) == 0 {
 		return ErrDisabled
 	}
 	return n.SendTo(event, recipients, vars)
+}
+
+// DispatchWebhook sends a signed role-targeted webhook independently of
+// SMTP availability. No payload is written to application logs.
+func (n *Notifier) DispatchWebhook(role, event, subject, body, severity, trackingID string) {
+	if n == nil || n.webhooks == nil {
+		return
+	}
+	n.webhooks.dispatch(role, event, subject, body, severity, trackingID)
+}
+
+// HasWebhook reports whether a role or its configured fallback has at least
+// one endpoint. It exposes no endpoint URLs or signing secrets.
+func (n *Notifier) HasWebhook(role string) bool {
+	if n == nil || n.webhooks == nil {
+		return false
+	}
+	urls, _ := n.webhooks.resolve(role)
+	return len(urls) > 0
+}
+
+func (n *Notifier) renderEvent(event string, vars map[string]string) (string, string, error) {
+	template, err := n.opts.Store.Load(event)
+	if err != nil && template.Name == "" {
+		return "", "", err
+	}
+	subject, body := template.Render(n.variables(vars))
+	return subject, body, nil
+}
+
+func eventSeverity(event string) string {
+	switch event {
+	case EventBackupFailed, EventSSLRenewalFailed, EventSecurityAlert, EventSchedulerError, EventDatabaseError:
+		return "critical"
+	case EventSSLExpiring, EventDiskLow:
+		return "warning"
+	case EventStartup, EventShutdown, EventBackupComplete, EventSSLRenewed, EventUpdateInstalled, EventUpdateAvailable:
+		return "info"
+	default:
+		return "warning"
+	}
 }
 
 // SendTo renders event's template and delivers it to explicit recipients,
@@ -366,6 +418,7 @@ func SampleVariables(event string) map[string]string {
 var sampleValues = map[string]string{
 	"event":            "Rate limit exceeded",
 	"details":          "42 requests in 60 seconds from a single address",
+	"since":            "2026-11-24T09:00:00Z",
 	"filename":         "backup-full-20260101-020000.tar.gz",
 	"size":             "12.4 MB",
 	"error":            "connection refused",

@@ -2,6 +2,7 @@
 <html lang="{{.Base.Lang}}" dir="{{.Base.Dir}}" class="theme-{{.Base.Theme}}">
 {{template "head" .}}
 <body>
+<div id="offline-strings" hidden data-lang="{{.Base.Lang}}" data-dir="{{.Base.Dir}}" data-title="{{t .Base.Lang "offline.title"}}" data-heading="{{t .Base.Lang "offline.heading"}}" data-message="{{t .Base.Lang "offline.message"}}"></div>
 <a href="#main-content" class="skip-link">{{t .Base.Lang "a11y.skip_to_content"}}</a>
 <a href="#navigation" class="skip-link">{{t .Base.Lang "a11y.skip_to_navigation"}}</a>
 {{template "cookie-consent" .}}

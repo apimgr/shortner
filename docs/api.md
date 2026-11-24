@@ -81,7 +81,10 @@ inspect parameters, send requests, and view responses; JavaScript enhances
 the page while the server-rendered inventory and JSON link remain available
 without it. The GraphQL page lists fields from the generated schema and
 accepts query, operation name, and JSON variables in either its enhanced
-form or a standard form submission. The enhanced form can send an optional
+form or a standard form submission. The versioned GraphQL endpoint also
+accepts GET requests with `query` and optional JSON `variables` and
+`operationName` parameters; omitting `query` returns a short usage message
+for the no-JavaScript endpoint link. The enhanced form can send an optional
 API token in the `Authorization` header; tokens are not persisted by the
 page. Inspect the live generated document for the operations currently
 available on a server.

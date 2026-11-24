@@ -29,7 +29,6 @@ import (
 	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/geoip"
 	"github.com/apimgr/shortner/src/metrics"
-	"github.com/apimgr/shortner/src/mode"
 	"github.com/apimgr/shortner/src/notify"
 	"github.com/apimgr/shortner/src/tor"
 )
@@ -141,7 +140,7 @@ func New(opts Options) *Server {
 	d := &deps{
 		sqlDB:           opts.DB,
 		resolver:        resolver,
-		rateLimiter:     newRateLimiter(cfg.Server.RateLimit, opts.Cache),
+		rateLimiter:     newRateLimiter(cfg.Server.RateLimit, opts.Cache, opts.Metrics),
 		stats:           stats,
 		access:          opts.AccessLog,
 		accessLogFormat: cfg.Server.Logs.Access.Format,
@@ -221,14 +220,11 @@ func New(opts Options) *Server {
 	}
 	fd.setContactAntispam(cfg.Server.Contact.Antispam)
 	apiHandler := d.setupMiddleware(r)
+	apiHandler = d.debugAuthMiddleware(apiHandler)
 	if cfg.Server.Compression.Enabled {
 		r.Use(chimw.Compress(cfg.Server.Compression.Level, cfg.Server.Compression.Types...))
 	}
-	if mode.IsDebugEnabled() {
-		r.Get("/debug/error500", func(w http.ResponseWriter, r *http.Request) {
-			sendError(w, r, apperr.New(apperr.CodeServerError))
-		})
-	}
+	registerDebugRoutes(r, d, opts.Scheduler, cfg.Server.Cache.Type, opts.Cache)
 	if manager, ok := opts.Tor.(torController); ok {
 		registerTorControlRoutes(r, manager, cfg.Server.Tor, tor.Dirs{Config: opts.ConfigDir, Data: opts.DataDir})
 	}
@@ -244,6 +240,7 @@ func New(opts Options) *Server {
 			v.Get("/server/healthz", hd.healthHandler())
 			v.Method(http.MethodGet, "/server/swagger", openAPIHandler(fd))
 			v.Method(http.MethodPost, "/server/graphql", graphQLHandler(ld, r))
+			v.Method(http.MethodGet, "/server/graphql", graphQLHandler(ld, r))
 			v.Method(http.MethodPost, "/server/mcp", mcpHandler(fd, apiHandler))
 			v.Get("/server/about", fd.pageContentAPIHandler("about"))
 			v.Get("/server/privacy", fd.privacyAPIHandler)
@@ -413,11 +410,20 @@ func New(opts Options) *Server {
 	return s
 }
 
-func newRateLimiter(cfg config.RateLimit, backend cache.Cache) *RateLimiter {
-	if counter, ok := backend.(rateCounter); ok {
-		return NewRateLimiter(cfg, counter)
+func newRateLimiter(cfg config.RateLimit, backend cache.Cache, m *metrics.Metrics) *RateLimiter {
+	if observer, ok := backend.(interface {
+		SetLookupObserver(cache.CacheLookupObserver)
+	}); ok {
+		observer.SetLookupObserver(m)
 	}
-	return NewRateLimiter(cfg)
+	if counter, ok := backend.(rateCounter); ok {
+		rl := NewRateLimiter(cfg, counter)
+		rl.SetMetrics(m)
+		return rl
+	}
+	rl := NewRateLimiter(cfg)
+	rl.SetMetrics(m)
+	return rl
 }
 
 type registeredAPIRoute struct {

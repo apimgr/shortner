@@ -2,6 +2,8 @@ package scheduler
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,17 +13,61 @@ import (
 	"github.com/apimgr/shortner/src/geoip"
 )
 
+type sequenceDBProbe struct {
+	results []error
+	calls   int
+}
+
+func (p *sequenceDBProbe) Probe(context.Context) error {
+	if p.calls >= len(p.results) {
+		p.calls++
+		return nil
+	}
+	err := p.results[p.calls]
+	p.calls++
+	return err
+}
+
+func TestDatabaseCheckUsesBothHandleProbeAndRecovers(t *testing.T) {
+	probe := &sequenceDBProbe{results: []error{errors.New("secret=hidden"), errors.New("failed"), nil}}
+	task := databaseCheckTask(Deps{
+		DBProbe:       probe,
+		DatabaseError: config.DatabaseErrorNotification{Enabled: true, Failures: 2, Repeat: "24h"},
+	})
+	for i := 0; i < 3; i++ {
+		if err := task(context.Background()); err != nil {
+			t.Fatalf("databaseCheckTask() call %d error = %v", i+1, err)
+		}
+	}
+	if probe.calls != 3 {
+		t.Fatalf("database probes = %d, want 3", probe.calls)
+	}
+}
+
+func TestDatabaseProbeErrorRedactsCredentials(t *testing.T) {
+	for _, err := range []error{
+		errors.New("connect failed password=secret123"),
+		errors.New("https://user:secret123@db.example/query failed"),
+	} {
+		got := redactDatabaseProbeError(err)
+		if strings.Contains(got, "secret123") || got == "" {
+			t.Fatalf("redactDatabaseProbeError(%q) = %q", err, got)
+		}
+	}
+}
+
 func TestBuiltinTasksOmitsModeBoundTasksWhenDisabled(t *testing.T) {
 	cfg := config.Default("").Server.Scheduler
 	tasks := BuiltinTasks(cfg, Deps{})
-	if len(tasks) != 13 {
-		t.Fatalf("len(BuiltinTasks()) = %d, want 13 with overlay features disabled", len(tasks))
+	if len(tasks) != 14 {
+		t.Fatalf("len(BuiltinTasks()) = %d, want 14 with overlay features disabled", len(tasks))
 	}
 	want := map[string]bool{
 		"ssl_renewal": true, "geoip_update": true, "blocklist_update": true, "keyserver_retry": true,
 		"cve_update": true, "update_check": true, "token_cleanup": true,
 		"log_rotation": true, "disk_check": true, "backup_daily": true, "backup_hourly": true,
 		"healthcheck_self": true, "security_cleanup": true,
+		"database_check": true,
 	}
 	for _, task := range tasks {
 		if !want[task.ID] {

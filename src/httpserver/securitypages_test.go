@@ -200,3 +200,18 @@ func TestSecurityContactEmailFallsBackToFQDN(t *testing.T) {
 		t.Errorf("securityContactEmail() = %q, want configured server contact", got)
 	}
 }
+
+func TestSecurityContactEmailUsesOnlyTorContactOnionRequests(t *testing.T) {
+	fd := testSecurityFrontendDeps(t)
+	fd.cfg.Server.Contact.Security.Email = "clearnet@example.com"
+	fd.resolver.SetOverlayHost(OverlayTor, "shortnerexample.onion")
+	req := htmlRequest(http.MethodGet, "/server/security", nil)
+	req.Host = "shortnerexample.onion"
+	if got := fd.securityContactEmail(req); got != "" {
+		t.Fatalf("unset Tor contact = %q, want omitted", got)
+	}
+	fd.cfg.Server.Tor.ContactEmail = "tor@example.com"
+	if got := fd.securityContactEmail(req); got != "tor@example.com" {
+		t.Fatalf("Tor contact = %q, want configured Tor-only address", got)
+	}
+}

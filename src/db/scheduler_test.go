@@ -101,6 +101,31 @@ func TestRecordSchedulerRunAndHistory(t *testing.T) {
 	}
 }
 
+func TestSchedulerInterruptionPreservesFailureState(t *testing.T) {
+	sqlDB := openTestDB(t)
+	ctx := context.Background()
+	if err := UpsertSchedulerTask(ctx, sqlDB, "recoverable", "Recoverable", "@every 1h"); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now().Add(-time.Minute)
+	if err := RecordSchedulerRun(ctx, sqlDB, "recoverable", started, started.Add(time.Second), nil, "failed", "previous failure"); err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkSchedulerTaskRunning(ctx, sqlDB, "recoverable", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkRunningSchedulerTasksInterrupted(ctx, sqlDB); err != nil {
+		t.Fatal(err)
+	}
+	task, err := GetSchedulerTask(ctx, sqlDB, "recoverable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.LastStatus != "interrupted" || task.LastError != "previous failure" || task.FailCount != 1 || task.RunCount != 0 {
+		t.Fatalf("interrupted task = status %q, error %q, failures %d, runs %d", task.LastStatus, task.LastError, task.FailCount, task.RunCount)
+	}
+}
+
 func TestListSchedulerTasks(t *testing.T) {
 	sqlDB := openTestDB(t)
 	ctx := context.Background()

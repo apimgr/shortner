@@ -88,6 +88,25 @@ func (s *Store) QueryRow(query string, args ...any) *sql.Row {
 // PingContext verifies the query-only pool can reach the SQLite file.
 func (s *Store) PingContext(ctx context.Context) error { return s.r.PingContext(ctx) }
 
+// Probe verifies a trivial query succeeds through both independently pooled
+// database handles, so a read-only cache cannot mask a failed writer.
+func (s *Store) Probe(ctx context.Context) error {
+	writeCtx, cancelWrite := context.WithTimeout(ctx, 5*time.Second)
+	var writeValue int
+	err := s.w.QueryRowContext(writeCtx, `SELECT 1`).Scan(&writeValue)
+	cancelWrite()
+	if err != nil {
+		return fmt.Errorf("write handle probe failed: %w", err)
+	}
+	readCtx, cancelRead := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelRead()
+	var readValue int
+	if err := s.r.QueryRowContext(readCtx, `SELECT 1`).Scan(&readValue); err != nil {
+		return fmt.Errorf("read handle probe failed: %w", err)
+	}
+	return nil
+}
+
 // IssueCaptchaChallenge persists only the answer digest for a single-use challenge.
 func (s *Store) IssueCaptchaChallenge(ctx context.Context, id, answerHash string, createdAt, expiresAt time.Time) error {
 	return s.Write(ctx, func(tx *sql.Tx) error {

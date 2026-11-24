@@ -95,6 +95,33 @@ func SetSchedulerTaskEnabled(ctx context.Context, sqlDB Handle, id string, enabl
 	return nil
 }
 
+// MarkSchedulerTaskRunning persists the active state without changing any
+// prior result counters or error details.
+func MarkSchedulerTaskRunning(ctx context.Context, sqlDB Handle, id string, started time.Time) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err := sqlDB.ExecContext(ctx, `UPDATE scheduler_tasks SET last_run = ?, last_status = 'running' WHERE id = ?`, started.Unix(), id)
+	return HandleQueryError(err)
+}
+
+// MarkRunningSchedulerTasksInterrupted recovers tasks left active by a crash.
+// It deliberately leaves fail_count and last_error unchanged.
+func MarkRunningSchedulerTasksInterrupted(ctx context.Context, sqlDB Handle) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err := sqlDB.ExecContext(ctx, `UPDATE scheduler_tasks SET last_status = 'interrupted' WHERE last_status = 'running'`)
+	return HandleQueryError(err)
+}
+
+// MarkSchedulerTaskInterrupted records a timed-out shutdown without counting
+// the interrupted execution as a failure.
+func MarkSchedulerTaskInterrupted(ctx context.Context, sqlDB Handle, id string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err := sqlDB.ExecContext(ctx, `UPDATE scheduler_tasks SET last_status = 'interrupted' WHERE id = ? AND last_status = 'running'`, id)
+	return HandleQueryError(err)
+}
+
 // RecordSchedulerRun updates a task's run-state columns after an execution
 // and appends a scheduler_history row, per AI.md PART 18 "Task Execution
 // Flow".

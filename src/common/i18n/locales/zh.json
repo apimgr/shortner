@@ -779,6 +779,11 @@
     "update_available": "应用的新版本已就绪。",
     "update_now": "立即更新"
   },
+  "offline": {
+    "title": "离线",
+    "heading": "您当前处于离线状态",
+    "message": "无法加载此页面，也没有可用的已保存副本。请检查网络连接后重试。"
+  },
   "api_docs": {
     "graphql_title": "GraphQL 浏览器",
     "endpoint": "端点",

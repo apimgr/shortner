@@ -5,6 +5,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apimgr/shortner/src/config"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
@@ -31,7 +33,8 @@ var (
 	cdpURL string
 	// artifactDir receives screenshots and HTML dumps for failing tests. It
 	// lives in the OS temp dir, never in the project directory (PART 28).
-	artifactDir string
+	artifactDir   string
+	operatorToken string
 
 	serverCmd *exec.Cmd
 )
@@ -102,7 +105,39 @@ func setup() error {
 	if err := serverCmd.Start(); err != nil {
 		return fmt.Errorf("starting server: %w", err)
 	}
-	return waitForHealth(httpBaseURL+"/api/healthz", 60*time.Second)
+	if err := waitForHealth(httpBaseURL+"/api/healthz", 60*time.Second); err != nil {
+		return err
+	}
+	cfg, err := config.Load(filepath.Join(cfgDir, "server.yml"), "")
+	if err != nil {
+		return fmt.Errorf("reading test operator token: %w", err)
+	}
+	if cfg.Server.Token == "" {
+		return fmt.Errorf("test server did not persist its operator token")
+	}
+	operatorToken = cfg.Server.Token
+	return nil
+}
+
+func getWithOperator(t *testing.T, path string) (*http.Response, string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, httpBaseURL+path, nil)
+	if err != nil {
+		t.Fatalf("GET %s request: %v", path, err)
+	}
+	req.Header.Set("Accept", "text/html")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64)")
+	req.Header.Set("Authorization", "Bearer "+operatorToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", path, err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	return resp, string(body)
 }
 
 func teardown() {

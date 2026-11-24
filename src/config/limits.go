@@ -108,6 +108,20 @@ func Validate(cfg *Config) []string {
 		warnings = append(warnings, "invalid server.notifications.disk_low.repeat, using default 24h")
 		diskLow.Repeat = defaultDiskLow.Repeat
 	}
+	databaseError := &cfg.Server.Notifications.DatabaseError
+	defaultDatabaseError := defaults.Server.Notifications.DatabaseError
+	if databaseError.Failures < 1 || databaseError.Failures > 100 {
+		warnings = append(warnings, "invalid server.notifications.database_error.failures, using default 3")
+		databaseError.Failures = defaultDatabaseError.Failures
+	}
+	if d, err := ParseDuration(databaseError.CheckInterval, 0); err != nil || d <= 0 {
+		warnings = append(warnings, "invalid server.notifications.database_error.check_interval, using default 1m")
+		databaseError.CheckInterval = defaultDatabaseError.CheckInterval
+	}
+	if d, err := ParseDuration(databaseError.Repeat, 0); err != nil || d <= 0 {
+		warnings = append(warnings, "invalid server.notifications.database_error.repeat, using default 24h")
+		databaseError.Repeat = defaultDatabaseError.Repeat
+	}
 	switch strings.ToLower(strings.TrimSpace(cfg.Server.Mode)) {
 	case "production", "prod", "development", "dev", "devel", "debug":
 	default:

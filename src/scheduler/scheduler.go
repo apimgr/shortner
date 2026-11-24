@@ -123,12 +123,20 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		return nil
 	}
 	now := time.Now().In(s.location)
+	if err := db.MarkRunningSchedulerTasksInterrupted(ctx, s.sqlDB); err != nil {
+		return fmt.Errorf("scheduler: recover interrupted tasks: %w", err)
+	}
 	for id, task := range s.tasks {
 		row, err := db.GetSchedulerTask(ctx, s.sqlDB, id)
 		if err != nil {
 			return fmt.Errorf("scheduler: load task %s: %w", id, err)
 		}
 		next := nextScheduled(task.Schedule, now, s.location)
+		if row != nil && row.LastStatus == "interrupted" && row.Enabled && task.Enabled {
+			s.nextRuns[id] = next
+			go s.runTask(id)
+			continue
+		}
 		if row != nil && row.NextRun != nil {
 			persisted := row.NextRun.In(s.location)
 			if persisted.After(now) {
@@ -215,7 +223,6 @@ func (s *Scheduler) Stop() error {
 }
 
 func (s *Scheduler) forceReleaseInterrupted() {
-	now := time.Now()
 	s.mu.Lock()
 	ids := make([]string, 0, len(s.running))
 	for id, run := range s.running {
@@ -226,7 +233,7 @@ func (s *Scheduler) forceReleaseInterrupted() {
 	}
 	s.mu.Unlock()
 	for _, id := range ids {
-		_ = db.RecordSchedulerRun(context.Background(), s.sqlDB, id, now, now, &now, "failed", "interrupted during shutdown; scheduled for retry")
+		_ = db.MarkSchedulerTaskInterrupted(context.Background(), s.sqlDB, id)
 	}
 }
 
@@ -242,6 +249,9 @@ func (s *Scheduler) runTask(id string) {
 	s.running[id] = run
 	s.mu.Unlock()
 	defer cancel()
+	if err := db.MarkSchedulerTaskRunning(ctx, s.sqlDB, id, run.startedAt); err != nil && s.logger != nil {
+		_ = s.logger.WriteLine(applog.LevelError, fmt.Sprintf("scheduler: mark task %s running: %v\n", id, err))
+	}
 
 	row, err := db.GetSchedulerTask(ctx, s.sqlDB, id)
 	enabled := task.Enabled
@@ -368,6 +378,12 @@ func (s *Scheduler) RunNow(ctx context.Context, id string) error {
 	s.running[id] = run
 	s.mu.Unlock()
 	defer cancel()
+	if err := db.MarkSchedulerTaskRunning(runCtx, s.sqlDB, id, run.startedAt); err != nil {
+		s.mu.Lock()
+		delete(s.running, id)
+		s.mu.Unlock()
+		return err
+	}
 
 	err := s.invokeWithRetry(runCtx, task)
 	finished := time.Now()

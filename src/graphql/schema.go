@@ -95,7 +95,7 @@ func Schema(languages ...string) (graphql.Schema, error) {
 		}},
 	}
 	for _, route := range swagger.RouteAnnotations(lang) {
-		if route.Method != "get" || route.OperationID == "importSyncedPreferences" || strings.HasPrefix(route.Path, "/cli/") {
+		if route.Method != "get" || route.OperationID == "importSyncedPreferences" || strings.HasPrefix(route.OperationID, "executeGraphQL") || strings.HasPrefix(route.Path, "/cli/") {
 			continue
 		}
 		route := route

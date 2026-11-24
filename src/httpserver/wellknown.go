@@ -283,10 +283,13 @@ func (wd *wellKnownDeps) securityTxt(r *http.Request) string {
 // security@{fqdn} for the host this client actually used, per AI.md
 // PART 12's `server.contact.security.email` setting and its per-request fallback.
 func (wd *wellKnownDeps) securityContact(r *http.Request) string {
+	_, fqdn, _ := wd.resolver.GetURLVars(r)
+	if strings.HasSuffix(strings.ToLower(fqdn), ".onion") {
+		return strings.TrimSpace(wd.cfg.Server.Tor.ContactEmail)
+	}
 	if c := strings.TrimSpace(wd.cfg.Server.Contact.Security.Email); c != "" {
 		return c
 	}
-	_, fqdn, _ := wd.resolver.GetURLVars(r)
 	if fqdn == "" {
 		return ""
 	}
@@ -365,7 +368,9 @@ func (wd *wellKnownDeps) llmsTxt(r *http.Request) string {
 		}
 		fmt.Fprintf(&b, "\n## %s\n%s\n", strings.NewReplacer("<", "&lt;", ">", "&gt;").Replace(section.Title), strings.NewReplacer("<", "&lt;", ">", "&gt;").Replace(section.Content))
 	}
-	if warned { llmCustomSectionWarning.Do(func() { log.Printf("well-known: skipped invalid llms.txt custom section") }) }
+	if warned {
+		llmCustomSectionWarning.Do(func() { log.Printf("well-known: skipped invalid llms.txt custom section") })
+	}
 
 	b.WriteString("\n## Contact\n")
 	fmt.Fprintf(&b, "Website reports: %s\n", wd.resolver.BuildURL(r, "/server/security"))

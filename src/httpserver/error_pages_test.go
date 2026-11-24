@@ -41,13 +41,71 @@ func TestDebugError500RouteExistsOnlyInDebug(t *testing.T) {
 	}
 	mode.SetDebugEnabled(true)
 	defer mode.SetDebugEnabled(false)
-	debug := New(Options{Config: config.Default("")})
+	cfg := config.Default("")
+	cfg.Server.Token = "adm_test"
+	debug := New(Options{Config: cfg})
 	req := httptest.NewRequest(http.MethodGet, "/debug/error500", nil)
 	req.Header.Set("Accept", "text/html")
 	rec = httptest.NewRecorder()
 	debug.httpServer.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated debug response = %d, want 401", rec.Code)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/debug/error500", nil)
+	req.Header.Set("Accept", "text/html")
+	req.Header.Set("Authorization", "Bearer adm_test")
+	rec = httptest.NewRecorder()
+	debug.httpServer.Handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Header().Get("Content-Type"), "text/html") {
 		t.Fatalf("debug response = %d %q, want themed HTML 500", rec.Code, rec.Header().Get("Content-Type"))
+	}
+}
+
+func TestPprofEndpointsRequireOperatorToken(t *testing.T) {
+	mode.SetDebugEnabled(true)
+	defer mode.SetDebugEnabled(false)
+	cfg := config.Default("")
+	cfg.Server.Token = "adm_test"
+	debug := New(Options{Config: cfg})
+	for _, path := range []string{"/debug/pprof/", "/debug/pprof/cmdline", "/debug/vars"} {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			rec := httptest.NewRecorder()
+			debug.httpServer.Handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("unauthenticated status = %d, want 401", rec.Code)
+			}
+			req = httptest.NewRequest(http.MethodGet, path, nil)
+			req.Header.Set("Authorization", "Bearer adm_test")
+			rec = httptest.NewRecorder()
+			debug.httpServer.Handler.ServeHTTP(rec, req)
+			if rec.Code == http.StatusMovedPermanently {
+				location := rec.Header().Get("Location")
+				if location == "" {
+					t.Fatal("canonical debug redirect has no Location")
+				}
+				req = httptest.NewRequest(http.MethodGet, location, nil)
+				req.Header.Set("Authorization", "Bearer adm_test")
+				rec = httptest.NewRecorder()
+				debug.httpServer.Handler.ServeHTTP(rec, req)
+			}
+			if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "adm_test") {
+				t.Fatalf("authenticated response = %d, body contains secret: %v", rec.Code, strings.Contains(rec.Body.String(), "adm_test"))
+			}
+		})
+	}
+}
+
+func TestDebugRoutesRejectEmptyOperatorToken(t *testing.T) {
+	mode.SetDebugEnabled(true)
+	defer mode.SetDebugEnabled(false)
+	debug := New(Options{Config: config.Default("")})
+	req := httptest.NewRequest(http.MethodGet, "/debug/vars", nil)
+	req.Header.Set("Authorization", "Bearer ")
+	rec := httptest.NewRecorder()
+	debug.httpServer.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("empty configured operator token accepted: status = %d", rec.Code)
 	}
 }
 

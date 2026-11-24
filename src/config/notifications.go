@@ -15,9 +15,17 @@ import (
 // Notifications holds `server.notifications`, per AI.md PART 17
 // "Configuration".
 type Notifications struct {
-	WebUI   NotificationsWebUI  `yaml:"webui"`
-	Email   EmailNotifications  `yaml:"email"`
-	DiskLow DiskLowNotification `yaml:"disk_low"`
+	WebUI         NotificationsWebUI        `yaml:"webui"`
+	Email         EmailNotifications        `yaml:"email"`
+	DiskLow       DiskLowNotification       `yaml:"disk_low"`
+	DatabaseError DatabaseErrorNotification `yaml:"database_error"`
+}
+
+type DatabaseErrorNotification struct {
+	Enabled       bool   `yaml:"enabled"`
+	Failures      int    `yaml:"failures"`
+	CheckInterval string `yaml:"check_interval"`
+	Repeat        string `yaml:"repeat"`
 }
 
 // DiskLowNotification controls the PART 17 disk-space warning cadence.
@@ -138,7 +146,8 @@ func DefaultNotifications() Notifications {
 				UpdateInstalled:  true,
 			},
 		},
-		DiskLow: DiskLowNotification{Enabled: true, ThresholdPercent: 85, CheckInterval: "5m", Repeat: "24h"},
+		DiskLow:       DiskLowNotification{Enabled: true, ThresholdPercent: 85, CheckInterval: "5m", Repeat: "24h"},
+		DatabaseError: DatabaseErrorNotification{Enabled: true, Failures: 3, CheckInterval: "1m", Repeat: "24h"},
 	}
 }
 

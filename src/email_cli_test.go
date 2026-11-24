@@ -311,8 +311,8 @@ func TestOperatorRecipients(t *testing.T) {
 	}{
 		{name: "no contacts means no recipients"},
 		{name: "admin wins", admin: "admin@example.com", general: "info@example.com", want: []string{"admin@example.com"}},
-		{name: "general is the fallback", general: "info@example.com", want: []string{"info@example.com"}},
-		{name: "whitespace-only is not an address", admin: "   ", general: "info@example.com", want: []string{"info@example.com"}},
+		{name: "general is not the admin recipient", general: "info@example.com"},
+		{name: "whitespace-only admin is missing", admin: "   ", general: "info@example.com"},
 	}
 
 	for _, tc := range tests {

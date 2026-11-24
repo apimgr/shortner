@@ -60,6 +60,13 @@ func Document(serverURL string, languages ...string) ([]byte, error) {
 				map[string]any{"name": "code", "in": "query", "required": false, "description": "Base64url encoded preference set.", "schema": stringSchema()},
 			)
 		}
+		if route.OperationID == "executeGraphQLGet" {
+			op.Parameters = append(op.Parameters,
+				map[string]any{"name": "query", "in": "query", "required": false, "description": "Read-only GraphQL query. Omit it to receive endpoint usage information.", "schema": stringSchema()},
+				map[string]any{"name": "variables", "in": "query", "required": false, "description": "JSON object containing GraphQL variable values.", "schema": stringSchema()},
+				map[string]any{"name": "operationName", "in": "query", "required": false, "schema": stringSchema()},
+			)
+		}
 		if requestSchema := requestSchema(route.OperationID); requestSchema != "" {
 			contentTypes := route.ContentTypes
 			if len(contentTypes) == 0 {
@@ -205,7 +212,7 @@ func responseContract(route Route) (status, contentType, schema string) {
 		schema = "TokenStatusResponse"
 	case "getMetrics", "getPrometheusMetrics", "getGrafanaMetrics", "getLokiMetrics", "getServerMetrics", "getServerPrometheusMetrics", "getServerGrafanaMetrics", "getServerLokiMetrics", "getAPIMetrics", "getAPIPrometheusMetrics", "getAPIGrafanaMetrics", "getAPILokiMetrics", "getRootMetrics", "getRootPrometheusMetrics", "getRootGrafanaMetrics", "getRootLokiMetrics":
 		contentType, schema = "text/plain", ""
-	case "executeGraphQL", "executeGraphQLAlias":
+	case "executeGraphQL", "executeGraphQLAlias", "executeGraphQLGet":
 		schema = "GraphQLResponse"
 	}
 	return

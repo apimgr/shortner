@@ -39,6 +39,7 @@ func RouteAnnotations(languages ...string) []Route {
 		{Path: "/mcp", Method: "post", Summary: "MCP Streamable HTTP endpoint alias", OperationID: "handleRootMCP"},
 		{Path: "/api/{api_version}/server/swagger", Method: "get", Summary: "OpenAPI specification", OperationID: "getOpenAPI"},
 		{Path: "/api/{api_version}/server/graphql", Method: "post", Summary: "Execute a read-only GraphQL query", OperationID: "executeGraphQL", Example: map[string]any{"query": "{ links(limit: 10, offset: 0) { shortCode shortURL destinationURL } }"}},
+		{Path: "/api/{api_version}/server/graphql", Method: "get", Summary: "Execute a read-only GraphQL query over GET", OperationID: "executeGraphQLGet"},
 		{Path: "/api/{api_version}/server/preferences", Method: "get", Summary: "Read preferences", OperationID: "getPreferences"},
 		{Path: "/api/{api_version}/server/preferences", Method: "post", Summary: "Update preferences", OperationID: "updatePreferences", Example: map[string]any{"theme": "dark", "lang": "en"}},
 		{Path: "/api/{api_version}/server/preferences/sync", Method: "get", Summary: "Export preferences for cross-device sync", OperationID: "syncPreferences"},
@@ -124,7 +125,7 @@ func summaryCategory(id string) string {
 		return "mcp"
 	case "getOpenAPI", "getOpenAPIAlias":
 		return "openapi"
-	case "executeGraphQL", "executeGraphQLAlias":
+	case "executeGraphQL", "executeGraphQLAlias", "executeGraphQLGet":
 		return "graphql"
 	case "getPreferences":
 		return "preferences_read"

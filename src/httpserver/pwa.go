@@ -1,7 +1,6 @@
 package httpserver
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -28,12 +27,6 @@ func registerPWARoutes(r chi.Router, version, commitID string, branding ...*bran
 	})
 	r.Get("/manifest.json", manifest)
 	r.Head("/manifest.json", manifest)
-	r.Get("/offline.html", func(w http.ResponseWriter, req *http.Request) {
-		serveEmbeddedAsset(w, req, "static/offline.html", "text/html; charset=utf-8")
-	})
-	r.Head("/offline.html", func(w http.ResponseWriter, req *http.Request) {
-		serveEmbeddedAsset(w, req, "static/offline.html", "text/html; charset=utf-8")
-	})
 	worker := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		body, err := serviceWorkerBody(version, commitID)
 		if err != nil {
@@ -179,33 +172,4 @@ func staticAssetHandler(stamp string) http.Handler {
 		}
 		files.ServeHTTP(w, r)
 	})
-}
-
-func serveEmbeddedAsset(w http.ResponseWriter, r *http.Request, name, contentType string) {
-	body, err := fs.ReadFile(server.StaticFS, name)
-	if err != nil {
-		sendError(w, r, apperr.New(apperr.CodeNotFound))
-		return
-	}
-	if name == "static/offline.html" {
-		if stamp := w.Header().Get("X-Build"); stamp != "" {
-			body = stampOfflineAssets(body, stamp)
-		}
-	}
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Cache-Control", "no-store")
-	if stamp := w.Header().Get("X-Build"); stamp != "" {
-		w.Header().Set("ETag", buildETag(stamp))
-	}
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Length", fmt.Sprint(len(body)))
-	w.WriteHeader(http.StatusOK)
-	if r.Method != http.MethodHead {
-		_, _ = w.Write(body)
-	}
-}
-
-func stampOfflineAssets(body []byte, stamp string) []byte {
-	body = bytes.ReplaceAll(body, []byte(`href="/static/css/common.css"`), []byte(`href="/static/css/common.css?v=`+stamp+`"`))
-	return bytes.ReplaceAll(body, []byte(`href="/static/css/public.css"`), []byte(`href="/static/css/public.css?v=`+stamp+`"`))
 }

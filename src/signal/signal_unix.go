@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 )
 
@@ -25,8 +26,10 @@ func Start() {
 		syscall.SIGUSR1,
 		syscall.SIGUSR2,
 	)
-	// SIGRTMIN+3 (signal 37) is Docker's default STOPSIGNAL.
-	signal.Notify(sigChan, syscall.Signal(37))
+	// SIGRTMIN+3 (signal 37) is Docker's default STOPSIGNAL on Linux only.
+	if runtime.GOOS == "linux" {
+		signal.Notify(sigChan, syscall.Signal(37))
+	}
 	signal.Ignore(syscall.SIGHUP)
 
 	go func() {

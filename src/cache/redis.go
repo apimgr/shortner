@@ -39,8 +39,22 @@ type RedisOptions struct {
 
 // Redis is a Valkey/Redis-backed implementation of Cache.
 type Redis struct {
-	client *redis.Client
-	prefix string
+	client   *redis.Client
+	prefix   string
+	observer CacheLookupObserver
+}
+
+// CacheLookupObserver receives cache lookup outcomes without coupling this
+// package to the metrics package.
+type CacheLookupObserver interface {
+	RecordCacheLookup(name string, hit bool)
+}
+
+// SetLookupObserver attaches a cache metrics observer.
+func (r *Redis) SetLookupObserver(observer CacheLookupObserver) {
+	if r != nil {
+		r.observer = observer
+	}
 }
 
 // AllowRate atomically increments a per-class and global fixed-window pair.
@@ -55,11 +69,15 @@ func (r *Redis) AllowRate(classKey, ip string, classLimit, globalLimit int, clas
 	classKey = r.prefix + "rate:" + classKey
 	globalKey := r.prefix + "rate:global:" + ip
 	result, err := rateLimitScript.Run(ctx, r.client, []string{classKey, globalKey}, classLimit, globalLimit, classWindow.Milliseconds(), globalWindow.Milliseconds()).Slice()
-	if err != nil || len(result) != 2 {
+	if err != nil || len(result) != 3 {
 		return false, 0, false
 	}
 	allow, _ := redisInt64(result[0])
 	retryMillis, _ := redisInt64(result[1])
+	hit, _ := redisInt64(result[2])
+	if r.observer != nil {
+		r.observer.RecordCacheLookup("rate_limit", hit == 1)
+	}
 	return allow == 1, int((retryMillis + 999) / 1000), true
 }
 
@@ -69,6 +87,37 @@ func (r *Redis) Check(ctx context.Context) error {
 		return errors.New("cache: client unavailable")
 	}
 	return r.client.Ping(ctx).Err()
+}
+
+// Stats returns the number and Redis-reported memory usage for keys owned by
+// this cache namespace. An empty prefix is deliberately rejected so shared
+// databases are never scanned or counted as this application's cache.
+func (r *Redis) Stats(ctx context.Context) (int, int64, error) {
+	if r == nil || r.client == nil {
+		return 0, 0, errors.New("cache: client unavailable")
+	}
+	if r.prefix == "" {
+		return 0, 0, errors.New("cache: namespace prefix required for statistics")
+	}
+	items := 0
+	var bytes int64
+	iter := r.client.Scan(ctx, 0, redisStatsPattern(r.prefix), 200).Iterator()
+	for iter.Next(ctx) {
+		items++
+		usage, err := r.client.MemoryUsage(ctx, iter.Val()).Result()
+		if err != nil {
+			return 0, 0, err
+		}
+		bytes += usage
+	}
+	if err := iter.Err(); err != nil {
+		return 0, 0, err
+	}
+	return items, bytes, nil
+}
+
+func redisStatsPattern(prefix string) string {
+	return strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`, `]`, `\]`).Replace(prefix) + "*"
 }
 
 var rateLimitScript = redis.NewScript(`
@@ -81,13 +130,17 @@ if classCount >= classLimit or globalCount >= globalLimit then
   if classCount >= classLimit then ttl = redis.call('PTTL', KEYS[1]) end
   if globalCount >= globalLimit then ttl = math.max(ttl, redis.call('PTTL', KEYS[2])) end
   ttl = math.max(ttl, 0)
-  return {0, ttl}
+  local hit = 0
+  if classCount > 0 or globalCount > 0 then hit = 1 end
+  return {0, ttl, hit}
 end
+local hit = 0
+if classCount > 0 or globalCount > 0 then hit = 1 end
 local classNext = redis.call('INCR', KEYS[1])
 if classNext == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[3]) end
 local globalNext = redis.call('INCR', KEYS[2])
 if globalNext == 1 then redis.call('PEXPIRE', KEYS[2], ARGV[4]) end
-return {1, 0}
+return {1, 0, hit}
 `)
 
 func redisInt64(value any) (int64, bool) {

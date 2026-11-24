@@ -7,6 +7,56 @@ import (
 	"github.com/apimgr/shortner/src/cache"
 )
 
+// RecordCacheLookup records a driver-reported lookup, including atomic Redis
+// rate-limit accesses that do not pass through Cache.Get.
+func (m *Metrics) RecordCacheLookup(name string, hit bool) {
+	if m == nil {
+		return
+	}
+	if hit {
+		m.CacheHitsTotal.WithLabelValues(name).Inc()
+	} else {
+		m.CacheMissesTotal.WithLabelValues(name).Inc()
+	}
+}
+
+type cacheStats interface {
+	Stats(context.Context) (int, int64, error)
+}
+
+// StartCacheCollector publishes an authoritative cache size snapshot while
+// the supplied backend supports Stats.
+func (m *Metrics) StartCacheCollector(ctx context.Context, backend cache.Cache, name string) {
+	if m == nil || backend == nil {
+		return
+	}
+	stats, ok := backend.(cacheStats)
+	if !ok {
+		return
+	}
+	collect := func() {
+		child, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		items, bytes, err := stats.Stats(child)
+		if err == nil {
+			m.SetCacheSize(name, items, bytes)
+		}
+	}
+	go func() {
+		collect()
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				collect()
+			}
+		}
+	}()
+}
+
 // MetricsCache wraps an existing cache.Cache and records successful and
 // unsuccessful reads using the supplied PART 20 cache label.
 type MetricsCache struct {

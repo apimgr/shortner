@@ -160,7 +160,7 @@ func TestTier1ServerSideRendering(t *testing.T) {
 }
 
 func TestDebug500PageUsesThemedRenderer(t *testing.T) {
-	resp, body := get(t, newClient(t), "/debug/error500")
+	resp, body := getWithOperator(t, "/debug/error500")
 	if resp.StatusCode != http.StatusInternalServerError || !strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
 		t.Fatalf("GET /debug/error500 = %d %q, want themed HTML 500", resp.StatusCode, resp.Header.Get("Content-Type"))
 	}

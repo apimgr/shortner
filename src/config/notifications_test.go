@@ -221,3 +221,22 @@ func TestValidateNotifications(t *testing.T) {
 		})
 	}
 }
+
+func TestDatabaseErrorNotificationDefaultsAndValidation(t *testing.T) {
+	cfg := Default("")
+	defaults := cfg.Server.Notifications.DatabaseError
+	if !defaults.Enabled || defaults.Failures != 3 || defaults.CheckInterval != "1m" || defaults.Repeat != "24h" {
+		t.Fatalf("database_error defaults = %+v", defaults)
+	}
+	cfg.Server.Notifications.DatabaseError.Failures = 0
+	cfg.Server.Notifications.DatabaseError.CheckInterval = "invalid"
+	cfg.Server.Notifications.DatabaseError.Repeat = "0s"
+	warnings := Validate(cfg)
+	if len(warnings) == 0 {
+		t.Fatal("invalid database_error settings produced no warnings")
+	}
+	got := cfg.Server.Notifications.DatabaseError
+	if got.Failures != 3 || got.CheckInterval != "1m" || got.Repeat != "24h" {
+		t.Fatalf("database_error after validation = %+v", got)
+	}
+}

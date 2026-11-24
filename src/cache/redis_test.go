@@ -34,3 +34,9 @@ func TestRedisOptionsURLParsing(t *testing.T) {
 		})
 	}
 }
+
+func TestRedisStatsPatternScopesLiteralPrefix(t *testing.T) {
+	if got, want := redisStatsPattern("shortner:tenant[1]*"), `shortner:tenant\[1\]\**`; got != want {
+		t.Fatalf("redisStatsPattern() = %q, want %q", got, want)
+	}
+}

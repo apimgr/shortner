@@ -14,7 +14,7 @@ import (
 	serverassets "github.com/apimgr/shortner/src/server"
 )
 
-func TestPWARoutesServeEmbeddedManifestAndOfflinePage(t *testing.T) {
+func TestPWARoutesServeManifestWithoutStaticOfflinePage(t *testing.T) {
 	router := chi.NewRouter()
 	registerPWARoutes(router, "1.2.3", "abc1234")
 
@@ -24,7 +24,11 @@ func TestPWARoutesServeEmbeddedManifestAndOfflinePage(t *testing.T) {
 		contains    string
 	}{
 		{path: "/manifest.json", contentType: "application/manifest+json", contains: `"display":"standalone"`},
-		{path: "/offline.html", contentType: "text/html; charset=utf-8", contains: "You are offline"},
+	}
+	missing := httptest.NewRecorder()
+	router.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, "/offline.html", nil))
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("/offline.html status = %d, want 404", missing.Code)
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
@@ -88,13 +92,23 @@ func TestPWAServiceWorkerUsesBuildStampAndNoCache(t *testing.T) {
 	if strings.Contains(rec.Body.String(), "__BUILD_STAMP__") {
 		t.Errorf("service worker contains an unresolved build-stamp placeholder")
 	}
-	if !strings.Contains(rec.Body.String(), "!/\\b(no-store|private)\\b/.test(cacheControl)") {
-		t.Errorf("service worker does not avoid caching private/no-store HTML responses")
+	if !strings.Contains(rec.Body.String(), `response.headers.get("X-Offline-Cache") === "public"`) {
+		t.Errorf("service worker does not require the public-page cache signal")
+	}
+	if !strings.Contains(rec.Body.String(), `cache.delete(request)`) {
+		t.Errorf("service worker does not remove a stale cached copy of a private page")
+	}
+	if !strings.Contains(rec.Body.String(), `shortner-offline-strings`) || !strings.Contains(rec.Body.String(), `offline-strings.json`) {
+		t.Errorf("service worker does not load translated offline strings")
+	}
+	if strings.Contains(rec.Body.String(), `"/offline.html"`) || !strings.Contains(rec.Body.String(), "offlineFallbackResponse()") {
+		t.Errorf("service worker must synthesize its offline fallback without a static page")
 	}
 	for _, required := range []string{
 		"const NAV_TIMEOUT_MS = 8000",
 		"withTimeout(fetch(request), NAV_TIMEOUT_MS)",
-		"if (response.redirected) throw",
+		"if (response.redirected) {",
+		"return new Response(\"\", { status: 504, statusText: \"Gateway Timeout\" })",
 		"response.ok && !response.redirected",
 		"if (!response.ok || response.redirected) throw",
 		"return response && response.ok && !response.redirected ? response : null",
@@ -141,7 +155,7 @@ func TestPWAUpdateReloadsOnlyAfterAcceptanceAndHasFallback(t *testing.T) {
 func TestPWAHeadRoutesHaveEmptyBodiesAndCorrectLengths(t *testing.T) {
 	router := chi.NewRouter()
 	registerPWARoutes(router, "1.2.3", "abc1234")
-	for _, path := range []string{"/manifest.json", "/offline.html", "/sw.js"} {
+	for _, path := range []string{"/manifest.json", "/sw.js"} {
 		t.Run(path, func(t *testing.T) {
 			get := httptest.NewRecorder()
 			router.ServeHTTP(get, httptest.NewRequest(http.MethodGet, path, nil))

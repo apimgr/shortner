@@ -20,14 +20,16 @@ import (
 // It is always non-nil; email stays disabled until Startup succeeds.
 func newNotifier(cfg *config.Config, p paths.Paths, fqdnHost string) *notify.Notifier {
 	return notify.New(notify.Options{
-		Email:      cfg.Server.Notifications.Email,
-		Store:      notify.NewStore(p.Config),
-		AppName:    appName(cfg),
-		AppURL:     appURL(cfg, fqdnHost),
-		FQDN:       fqdnHost,
-		Recipients: operatorRecipients(cfg),
-		Version:    version.String(),
-		Mode:       mode.GetCurrentAppMode().String(),
+		Email:       cfg.Server.Notifications.Email,
+		Contact:     cfg.Server.Contact,
+		Store:       notify.NewStore(p.Config),
+		AppName:     appName(cfg),
+		AppURL:      appURL(cfg, fqdnHost),
+		FQDN:        fqdnHost,
+		Recipients:  operatorRecipients(cfg),
+		Version:     version.String(),
+		ProjectName: internalName,
+		Mode:        mode.GetCurrentAppMode().String(),
 	})
 }
 
@@ -55,15 +57,11 @@ func appURL(cfg *config.Config, fqdnHost string) string {
 	return scheme + "://" + fqdnHost
 }
 
-// operatorRecipients resolves who receives operator event email. AI.md
-// PART 17 "Operator Notifications" routes everything to the operator, and
-// PART 12's contact roles are where operator addresses live: the admin
-// role first, falling back to the general role.
+// operatorRecipients resolves the required admin recipient for operator
+// event email, per AI.md PART 12 "Contact Configuration".
 func operatorRecipients(cfg *config.Config) []string {
-	for _, addr := range []string{cfg.Server.Contact.Admin.Email, cfg.Server.Contact.General.Email} {
-		if addr = strings.TrimSpace(addr); addr != "" {
-			return []string{addr}
-		}
+	if addr := strings.TrimSpace(cfg.Server.Contact.Admin.Email); addr != "" {
+		return []string{addr}
 	}
 	return nil
 }
@@ -78,6 +76,11 @@ func operatorRecipients(cfg *config.Config) []string {
 // picked. When nothing works, email is simply off: nothing is queued, and
 // no "would have sent" line is ever written.
 func startupNotifications(binaryName string, n *notify.Notifier, cfg *config.Config, p paths.Paths, fqdnHost string, log *applog.Logger) {
+	if strings.TrimSpace(cfg.Server.Contact.Admin.Email) == "" {
+		line := "server.contact.admin.email is empty; operator email notifications have no fallback recipient"
+		fmt.Fprintln(os.Stderr, binaryName+": warning: "+line)
+		writeLine(log, applog.LevelWarn, line)
+	}
 	res := n.Startup(fqdnHost)
 
 	switch {
@@ -104,9 +107,7 @@ func startupNotifications(binaryName string, n *notify.Notifier, cfg *config.Con
 		writeLine(log, applog.LevelInfo, "email: no SMTP server found — email notifications disabled")
 	}
 
-	if n.Enabled() {
-		_ = n.Send(notify.EventStartup, nil)
-	}
+	_ = n.Send(notify.EventStartup, nil)
 }
 
 // writeLine appends one formatted line to log, if a log is open.

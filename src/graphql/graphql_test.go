@@ -78,7 +78,7 @@ func TestSchemaMirrorsDocumentedReadRoutesOnly(t *testing.T) {
 			t.Errorf("GraphQL query field %q is missing", name)
 		}
 	}
-	for _, name := range []string{"createLink", "updateLink", "deleteLink", "importSyncedPreferences", "downloadCLIBinary"} {
+	for _, name := range []string{"createLink", "updateLink", "deleteLink", "importSyncedPreferences", "downloadCLIBinary", "executeGraphQLGet"} {
 		if fields[name] != nil {
 			t.Errorf("GraphQL query field %q must not be exposed", name)
 		}
@@ -106,6 +106,45 @@ func TestHandlerRunsReadOnlyRESTRoute(t *testing.T) {
 	}
 	if got := result.Data["getHealth"]["ok"]; got != true {
 		t.Errorf("GraphQL REST result = %v, want ok=true", result.Data["getHealth"])
+	}
+}
+
+func TestHandlerReadsGetQueryVariablesAndOperationName(t *testing.T) {
+	resolver := &testResolver{}
+	handler := Handler(func(*http.Request) Resolver { return resolver })
+	query := `query Health($version: String!) { getHealth(api_version: $version) }`
+	values := url.Values{
+		"query":         {query},
+		"variables":     {`{"version":"v1"}`},
+		"operationName": {"Health"},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/graphql?"+values.Encode(), nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if resolver.readPath != "/api/v1/server/healthz" {
+		t.Errorf("read path = %q, response %s; want versioned health route", resolver.readPath, rec.Body.String())
+	}
+}
+
+func TestHandlerGetWithoutQueryReturnsUsage(t *testing.T) {
+	handler := Handler(func(*http.Request) Resolver { return &testResolver{} })
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/server/graphql", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Supply query") {
+		t.Fatalf("GET without query = %d %q, want usage message", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlerGetRejectsMalformedVariables(t *testing.T) {
+	handler := Handler(func(*http.Request) Resolver { return &testResolver{} })
+	values := url.Values{"query": {"{ getAPIHealth }"}, "variables": {"{"}}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/server/graphql?"+values.Encode(), nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body.String())
 	}
 }
 

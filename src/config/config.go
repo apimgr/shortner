@@ -562,7 +562,8 @@ type ContactAntispam struct {
 
 // ContactRecipient is one named contact-form recipient.
 type ContactRecipient struct {
-	Email string `yaml:"email"`
+	Email    string            `yaml:"email"`
+	Webhooks map[string]string `yaml:"webhooks"`
 }
 
 // ContactDPO is the Data Protection Officer's published contact details.
@@ -989,6 +990,7 @@ func Default(dbPath string) *Config {
 					"ssl_renewal":      {Schedule: "0 3 * * *", Enabled: true},
 					"geoip_update":     {Schedule: "0 3 * * 0", Enabled: true},
 					"blocklist_update": {Schedule: "0 4 * * *", Enabled: true, RetryOnFail: true, RetryDelay: "1h"},
+					"database_check":   {Schedule: "@every 1m", Enabled: true},
 					"keyserver_retry":  {Schedule: "@every 15m", Enabled: true},
 					"cve_update":       {Schedule: "0 5 * * *", Enabled: true},
 					"update_check":     {Schedule: "0 6 * * *", Enabled: true},
@@ -1649,7 +1651,7 @@ func Save(path string, cfg *Config) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("config: create dir for %s: %w", path, err)
 	}
-	if cfg.Server.Token != "" || cfg.Server.Security.EncryptionKey != "" || cfg.Server.Database.Token != "" || cfg.Server.Metrics.Auth.Tokens.Prometheus != "" || cfg.Server.Metrics.Auth.Tokens.Grafana != "" || cfg.Server.Metrics.Auth.Tokens.Loki != "" || cfg.Data.CVE.APIKey != "" || ((!cfg.databaseURLEnv || cfg.databaseURLSeeded) && connectionHasCredentials(cfg.Server.Database.URL)) || ((!cfg.cacheURLEnv || cfg.cacheURLSeeded) && connectionHasCredentials(cfg.Server.Cache.URL)) {
+	if cfg.Server.Token != "" || cfg.Server.Security.EncryptionKey != "" || cfg.Server.Database.Token != "" || cfg.Server.Metrics.Auth.Tokens.Prometheus != "" || cfg.Server.Metrics.Auth.Tokens.Grafana != "" || cfg.Server.Metrics.Auth.Tokens.Loki != "" || cfg.Data.CVE.APIKey != "" || hasWebhookCredentials(cfg) || hasPersistedWebhookCredentials(path) || ((!cfg.databaseURLEnv || cfg.databaseURLSeeded) && connectionHasCredentials(cfg.Server.Database.URL)) || ((!cfg.cacheURLEnv || cfg.cacheURLSeeded) && connectionHasCredentials(cfg.Server.Cache.URL)) {
 		if err := SaveSecrets(path, cfg); err != nil {
 			return err
 		}
@@ -1662,6 +1664,10 @@ func Save(path string, cfg *Config) error {
 	fileConfig.Server.Security.EncryptionKey = ""
 	fileConfig.Server.Database.Token = ""
 	fileConfig.Data.CVE.APIKey = ""
+	fileConfig.Server.Contact.Admin = configFileContactRecipient(fileConfig.Server.Contact.Admin)
+	fileConfig.Server.Contact.General = configFileContactRecipient(fileConfig.Server.Contact.General)
+	fileConfig.Server.Contact.Security = configFileContactRecipient(fileConfig.Server.Contact.Security)
+	fileConfig.Server.Contact.Abuse = configFileContactRecipient(fileConfig.Server.Contact.Abuse)
 	if cfg.databaseURLEnv && !cfg.databaseURLSeeded || connectionHasCredentials(cfg.Server.Database.URL) {
 		fileConfig.Server.Database.URL = ""
 	}
@@ -1812,6 +1818,40 @@ func SaveSecrets(configPath string, cfg *Config) error {
 	if len(security) > 0 {
 		server["security"] = security
 	}
+	contact, _ := server["contact"].(map[string]any)
+	if contact == nil {
+		contact = map[string]any{}
+	}
+	for role, recipient := range map[string]ContactRecipient{
+		"admin": cfg.Server.Contact.Admin, "general": cfg.Server.Contact.General,
+		"security": cfg.Server.Contact.Security, "abuse": cfg.Server.Contact.Abuse,
+	} {
+		webhookCredentials := map[string]any{}
+		for key, value := range recipient.Webhooks {
+			if value != "" {
+				webhookCredentials[key] = value
+			}
+		}
+		roleMap, _ := contact[role].(map[string]any)
+		if roleMap == nil {
+			roleMap = map[string]any{}
+		}
+		if len(webhookCredentials) == 0 {
+			delete(roleMap, "webhooks")
+		} else {
+			roleMap["webhooks"] = webhookCredentials
+		}
+		if len(roleMap) == 0 {
+			delete(contact, role)
+		} else {
+			contact[role] = roleMap
+		}
+	}
+	if len(contact) > 0 {
+		server["contact"] = contact
+	} else {
+		delete(server, "contact")
+	}
 	metrics, _ := server["metrics"].(map[string]any)
 	if metrics == nil {
 		metrics = map[string]any{}
@@ -1858,6 +1898,45 @@ func SaveSecrets(configPath string, cfg *Config) error {
 		return fmt.Errorf("config: encode secrets: %w", err)
 	}
 	return writeAtomic(filepath.Join(dir, "secrets.yml"), []byte(strings.TrimRight(output.String(), "\n")+"\n"), 0o600)
+}
+
+func hasWebhookCredentials(cfg *Config) bool {
+	for _, recipient := range []ContactRecipient{cfg.Server.Contact.Admin, cfg.Server.Contact.General, cfg.Server.Contact.Security, cfg.Server.Contact.Abuse} {
+		for _, value := range recipient.Webhooks {
+			if value != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasPersistedWebhookCredentials(configPath string) bool {
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(configPath), "secrets.yml"))
+	if err != nil {
+		return false
+	}
+	var root map[string]any
+	if yaml.Unmarshal(data, &root) != nil {
+		return false
+	}
+	server, _ := root["server"].(map[string]any)
+	contact, _ := server["contact"].(map[string]any)
+	for _, role := range []string{"admin", "general", "security", "abuse"} {
+		roleMap, _ := contact[role].(map[string]any)
+		webhooks, _ := roleMap["webhooks"].(map[string]any)
+		if len(webhooks) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func configFileContactRecipient(recipient ContactRecipient) ContactRecipient {
+	// Webhook URLs and signing keys are credentials; keep the entire map in
+	// secrets.yml rather than exposing URL tokens in server.yml.
+	recipient.Webhooks = nil
+	return recipient
 }
 
 func writeAtomic(path string, data []byte, perm os.FileMode) error {

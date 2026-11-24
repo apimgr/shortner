@@ -785,6 +785,11 @@
     "update_available": "A new version of the app is ready.",
     "update_now": "Update now"
   },
+  "offline": {
+    "title": "Offline",
+    "heading": "You are offline",
+    "message": "This page could not be loaded and no cached copy is available. Check your connection and try again."
+  },
   "api_docs": {
     "graphql_title": "GraphQL explorer",
     "endpoint": "Endpoint",

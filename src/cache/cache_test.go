@@ -30,6 +30,20 @@ func TestMemorySetGet(t *testing.T) {
 	}
 }
 
+func TestMemoryStatsExcludeExpiredEntries(t *testing.T) {
+	m := NewMemory()
+	m.Set(context.Background(), "live", "value", time.Hour)
+	m.Set(context.Background(), "expired", "old", time.Nanosecond)
+	time.Sleep(time.Millisecond)
+	items, bytes, err := m.Stats(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if items != 1 || bytes != int64(len("live")+len("value")) {
+		t.Fatalf("Stats() = (%d, %d), want (1, %d)", items, bytes, len("live")+len("value"))
+	}
+}
+
 func TestMemoryExpiry(t *testing.T) {
 	m := NewMemory()
 	ctx := context.Background()

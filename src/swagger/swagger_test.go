@@ -75,6 +75,14 @@ func TestDocumentIncludesRegisteredAliasesAndContractDetails(t *testing.T) {
 	if _, ok := document.Paths["/api/{api_version}/server/preferences/tokens"]["get"]["security"]; !ok {
 		t.Error("token authorization is not documented")
 	}
+	graphqlGet := document.Paths["/api/{api_version}/server/graphql"]["get"]
+	graphqlParams, ok := graphqlGet["parameters"].([]any)
+	if !ok || len(graphqlParams) != 4 {
+		t.Fatalf("GraphQL GET parameters = %v, want one path and three query parameters", graphqlGet["parameters"])
+	}
+	if _, hasBody := graphqlGet["requestBody"]; hasBody {
+		t.Error("GraphQL GET must use query parameters, not a request body")
+	}
 	deleteResponse := document.Paths["/api/{api_version}/links/{slug}"]["delete"]["responses"].(map[string]any)["200"].(map[string]any)
 	deleteSchema := deleteResponse["content"].(map[string]any)["application/json"].(map[string]any)["schema"].(map[string]any)
 	if deleteSchema["$ref"] != "#/components/schemas/DeleteLinkResponse" {

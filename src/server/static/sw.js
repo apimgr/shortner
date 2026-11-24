@@ -17,8 +17,7 @@ const PRECACHE = [
   "/static/icons/icon-384.png?v=__BUILD_STAMP__",
   "/static/icons/icon-512.png?v=__BUILD_STAMP__",
   "/static/icons/icon-maskable-192.png?v=__BUILD_STAMP__",
-  "/static/icons/icon-maskable-512.png?v=__BUILD_STAMP__",
-  "/offline.html"
+  "/static/icons/icon-maskable-512.png?v=__BUILD_STAMP__"
 ];
 
 self.addEventListener("message", (event) => {
@@ -61,15 +60,18 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
 
   if (request.mode === "navigate") {
-    event.respondWith(withTimeout(fetch(request), NAV_TIMEOUT_MS).then((response) => {
-      if (response.redirected) throw new Error("refusing redirected navigation response");
-      const cacheControl = (response.headers.get("Cache-Control") || "").toLowerCase();
-      const contentType = (response.headers.get("Content-Type") || "").toLowerCase();
-      if (response.ok && !response.redirected && contentType.includes("text/html") && !/\b(no-store|private)\b/.test(cacheControl)) {
+    event.respondWith(withTimeout(fetch(request), NAV_TIMEOUT_MS).then(async (response) => {
+      if (response.redirected) {
+        await caches.open(CACHE_NAME).then((cache) => cache.delete(request));
+        return new Response("", { status: 504, statusText: "Gateway Timeout" });
+      }
+      if (response.ok && !response.redirected && response.headers.get("X-Offline-Cache") === "public") {
         event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone())).catch(() => false));
+      } else {
+        event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.delete(request)).catch(() => false));
       }
       return response;
-    }).catch(async () => (await cachedResponse(request)) || (await cachedResponse("/offline.html")) || offlineFallbackResponse()).catch(() => offlineFallbackResponse()));
+    }).catch(async () => (await cachedResponse(request)) || offlineFallbackResponse()).catch(() => offlineFallbackResponse()));
     return;
   }
 
@@ -87,8 +89,28 @@ async function cachedResponse(request) {
   return response && response.ok && !response.redirected ? response : null;
 }
 
-function offlineFallbackResponse() {
-  return new Response("<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Offline · Shortner</title><main><h1>You are offline</h1><p>Check your connection and try again.</p></main></html>", {
+const STRINGS_CACHE = "shortner-offline-strings";
+const DEFAULT_STRINGS = {
+  lang: "en",
+  dir: "ltr",
+  title: "Offline",
+  heading: "You are offline",
+  message: "This page could not be loaded and no cached copy is available. Check your connection and try again."
+};
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>\"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" })[character]);
+}
+
+async function offlineFallbackResponse() {
+  let strings = DEFAULT_STRINGS;
+  try {
+    const stored = await (await caches.open(STRINGS_CACHE)).match("/offline-strings.json");
+    if (stored) strings = Object.assign({}, DEFAULT_STRINGS, await stored.json());
+  } catch (_) {
+    strings = DEFAULT_STRINGS;
+  }
+  return new Response("<!doctype html><html lang=\"" + escapeHtml(strings.lang) + "\" dir=\"" + escapeHtml(strings.dir) + "\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + escapeHtml(strings.title) + "</title></head><body><main><h1>" + escapeHtml(strings.heading) + "</h1><p>" + escapeHtml(strings.message) + "</p></main></body></html>", {
     status: 503,
     statusText: "Service Unavailable",
     headers: { "Content-Type": "text/html; charset=utf-8" }

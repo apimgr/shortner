@@ -791,6 +791,11 @@
     "update_available": "Una nuova versione dell'app è pronta.",
     "update_now": "Aggiorna ora"
   },
+  "offline": {
+    "title": "Non in linea",
+    "heading": "Sei offline",
+    "message": "Impossibile caricare questa pagina e non è disponibile alcuna copia salvata. Controlla la connessione e riprova."
+  },
   "api_docs": {
     "graphql_title": "Esplora GraphQL",
     "endpoint": "Endpoint",

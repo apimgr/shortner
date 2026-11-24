@@ -785,6 +785,11 @@
     "update_available": "Hay una nueva versión de la aplicación.",
     "update_now": "Actualizar ahora"
   },
+  "offline": {
+    "title": "Sin conexión",
+    "heading": "No tienes conexión",
+    "message": "No se pudo cargar esta página y no hay una copia guardada disponible. Comprueba tu conexión e inténtalo de nuevo."
+  },
   "api_docs": {
     "graphql_title": "Explorador de GraphQL",
     "endpoint": "Punto de conexión",

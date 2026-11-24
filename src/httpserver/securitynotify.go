@@ -34,11 +34,13 @@ func (fd *frontendDeps) notifySecurityReport(r *http.Request, trackingID, status
 }
 
 func (fd *frontendDeps) notifySecurityReportWith(sender securityReportSender, r *http.Request, trackingID, statusToken string, f securityReportForm) (acknowledged, notified bool) {
-	if sender == nil || !sender.Enabled() {
+	if sender == nil {
 		return false, false
 	}
 	notified = fd.notifyMaintainerSecurityReport(sender, trackingID, f)
-	acknowledged = fd.notifyResearcherSecurityReport(sender, r, trackingID, statusToken, f)
+	if sender.Enabled() {
+		acknowledged = fd.notifyResearcherSecurityReport(sender, r, trackingID, statusToken, f)
+	}
 	return acknowledged, notified
 }
 
@@ -47,9 +49,14 @@ func (fd *frontendDeps) notifySecurityReportWith(sender securityReportSender, r 
 // AES-encrypted attachment + warning if no PGP key is configured. The
 // vulnerability text is never included in the plaintext body.
 func (fd *frontendDeps) notifyMaintainerSecurityReport(sender securityReportSender, trackingID string, f securityReportForm) bool {
-	to := strings.TrimSpace(fd.cfg.Server.Contact.Security.Email)
+	to := firstNonEmpty(fd.cfg.Server.Contact.Security.Email, fd.cfg.Server.Contact.Admin.Email)
+	if fd.notifier != nil {
+		subject := fmt.Sprintf("[SECURITY] %s report %s", f.Severity, trackingID)
+		body := fmt.Sprintf("A security report was received.\n\nTracking ID: %s\nSeverity: %s\nComponent: %s\nOperator review: %s --maintenance security show %s\n", trackingID, f.Severity, f.Component, metricsProjectName, trackingID)
+		fd.notifier.DispatchWebhook("security", "security.report_received", subject, body, "critical", trackingID)
+	}
 	if to == "" {
-		return false
+		return fd.notifier != nil && fd.notifier.HasWebhook("security")
 	}
 	if armored, err := pgp.NewStore(fd.configDir).ReadPublicKey(); err == nil {
 		recipients, err := pgp.ParsePublic(armored)
@@ -64,7 +71,7 @@ func (fd *frontendDeps) notifyMaintainerSecurityReport(sender securityReportSend
 		if err != nil {
 			return false
 		}
-		return sender.SendRaw([]string{to}, fmt.Sprintf("[SECURITY] %s report %s", f.Severity, trackingID), message) == nil
+		return sender.SendRaw([]string{to}, fmt.Sprintf("[SECURITY] %s report %s", f.Severity, trackingID), message) == nil || fd.notifier != nil && fd.notifier.HasWebhook("security")
 	}
 
 	sealed, err := fd.sealedReportBytes(f)
@@ -87,7 +94,7 @@ func (fd *frontendDeps) notifyMaintainerSecurityReport(sender securityReportSend
 	return sender.SendRawWithAttachments([]string{to},
 		fmt.Sprintf("[SECURITY] %s report %s", f.Severity, trackingID), b.String(), []notify.Attachment{{
 			Filename: "security-report-" + trackingID + ".enc", ContentType: "application/octet-stream", Data: sealed,
-		}}) == nil
+		}}) == nil || fd.notifier != nil && fd.notifier.HasWebhook("security")
 }
 
 func (fd *frontendDeps) sealedReportBytes(f securityReportForm) ([]byte, error) {

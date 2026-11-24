@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/apimgr/shortner/src/apperr"
@@ -142,10 +143,13 @@ func (fd *frontendDeps) dpoHandler(w http.ResponseWriter, r *http.Request) {
 // securityContactEmail resolves the CC address the same way security.txt
 // does, defaulting to security@{fqdn} for the host this client used.
 func (fd *frontendDeps) securityContactEmail(r *http.Request) string {
+	_, fqdn, _ := fd.resolver.GetURLVars(r)
+	if strings.HasSuffix(strings.ToLower(fqdn), ".onion") {
+		return strings.TrimSpace(fd.cfg.Server.Tor.ContactEmail)
+	}
 	if c := fd.cfg.Server.Contact.Security.Email; c != "" {
 		return c
 	}
-	_, fqdn, _ := fd.resolver.GetURLVars(r)
 	if fqdn == "" {
 		return ""
 	}

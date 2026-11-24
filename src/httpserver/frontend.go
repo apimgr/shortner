@@ -919,18 +919,17 @@ func setContactRetryAfter(w http.ResponseWriter, window string) {
 // relayReportMessage sends one accepted report to the role selected by its type.
 // Delivery is best-effort; the SMTP layer never queues or logs the report body.
 func (fd *frontendDeps) relayReportMessage(values url.Values) {
-	if !fd.notifier.Enabled() {
+	if fd.notifier == nil {
 		return
 	}
 	var to string
+	role := "general"
 	switch values.Get("type") {
 	case "abuse", "dmca":
+		role = "abuse"
 		to = firstNonEmpty(fd.cfg.Server.Contact.Abuse.Email, fd.cfg.Server.Contact.General.Email, fd.cfg.Server.Contact.Admin.Email)
 	case "privacy":
 		to = firstNonEmpty(fd.cfg.Server.Contact.DPO.Email, fd.cfg.Server.Contact.General.Email, fd.cfg.Server.Contact.Admin.Email)
-	}
-	if to == "" {
-		return
 	}
 	var body strings.Builder
 	fmt.Fprintf(&body, "A %s report was submitted through the report form.\n\nFrom: %s <%s>\nSubject: %s\n",
@@ -949,7 +948,12 @@ func (fd *frontendDeps) relayReportMessage(values url.Values) {
 	if appName == "" {
 		appName = "Shortner"
 	}
-	_ = fd.notifier.SendRawReplyTo([]string{to}, values.Get("email"), "["+appName+" contact] "+values.Get("subject"), body.String())
+	subject := "[" + appName + " contact] " + values.Get("subject")
+	webhookSubject := "A " + values.Get("type") + " report was received"
+	fd.notifier.DispatchWebhook(role, "contact.report_received", webhookSubject, webhookSubject+". Review it through the operator's configured secure workflow.", "warning", "")
+	if to != "" && fd.notifier.Enabled() {
+		_ = fd.notifier.SendRawReplyTo([]string{to}, values.Get("email"), subject, body.String())
+	}
 }
 
 // consentCookieName is the granular cookie-consent cookie, per AI.md

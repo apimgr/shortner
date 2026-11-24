@@ -47,7 +47,7 @@ func (fd *frontendDeps) graphqlPage(w http.ResponseWriter, r *http.Request) {
 	}
 	data := apiDocsPageData{
 		Base:          fd.newPageData(r, "", "GraphQL documentation", "Explore read-only Shortner GraphQL queries."),
-		Endpoint:      fd.resolver.BuildURL(r, "/api/graphql"),
+		Endpoint:      fd.resolver.BuildURL(r, "/api/"+fd.cfg.Server.APIVersion+"/server/graphql"),
 		GraphQLSchema: string(apiGraphql.SchemaDocument(lang)),
 		Queries:       queries,
 	}

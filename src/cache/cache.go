@@ -6,6 +6,7 @@ package cache
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -139,4 +140,22 @@ func (m *Memory) Len() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.entries)
+}
+
+// Stats returns a snapshot of live entries and their logical key/value bytes.
+func (m *Memory) Stats(_ context.Context) (int, int64, error) {
+	now := time.Now()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var items int
+	var bytes int64
+	for key, value := range m.entries {
+		if value.expired(now) {
+			delete(m.entries, key)
+			continue
+		}
+		items++
+		bytes += int64(len(key) + len(fmt.Sprint(value.value)))
+	}
+	return items, bytes, nil
 }

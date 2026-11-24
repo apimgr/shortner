@@ -8,17 +8,33 @@
 
   var recoveryKey = "shortner_recovered";
 
+  function cacheOfflineStrings() {
+    var element = document.getElementById("offline-strings");
+    if (!element || !window.caches || typeof window.Response !== "function") return;
+    var strings = {
+      lang: element.getAttribute("data-lang") || "en",
+      dir: element.getAttribute("data-dir") || "ltr",
+      title: element.getAttribute("data-title") || "Offline",
+      heading: element.getAttribute("data-heading") || "You are offline",
+      message: element.getAttribute("data-message") || "This page could not be loaded and no cached copy is available. Check your connection and try again."
+    };
+    window.caches.open("shortner-offline-strings").then(function (cache) {
+      return cache.put("/offline-strings.json", new Response(JSON.stringify(strings), {
+        headers: { "Content-Type": "application/json" }
+      }));
+    }).catch(function () { return null; });
+  }
+
+  cacheOfflineStrings();
+
   function showBootFailure() {
     var main = document.createElement("main");
     var title = document.createElement("h1");
     var message = document.createElement("p");
-    var link = document.createElement("a");
     main.className = "container";
     title.textContent = "This page could not finish loading";
     message.textContent = "Reload the page or check your connection and try again.";
-    link.href = "/offline.html";
-    link.textContent = "Open the offline page";
-    main.append(title, message, link);
+    main.append(title, message);
     document.body.replaceChildren(main);
   }
 

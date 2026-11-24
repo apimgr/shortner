@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -24,8 +25,9 @@ import (
 
 // Deps are the runtime dependencies built-in tasks need.
 type Deps struct {
-	DB     db.Handle
-	Tokens config.Tokens
+	DB      db.Handle
+	DBProbe interface{ Probe(context.Context) error }
+	Tokens  config.Tokens
 	// Logs are rotated by log_rotation, per AI.md PART 18 "log_rotation" ->
 	// "Applies each log's rotate/keep/compress policy from server.logs".
 	Logs                    []*applog.Logger
@@ -34,6 +36,7 @@ type Deps struct {
 	DiskLowRepeat           time.Duration
 	DiskLowEnabled          bool
 	DiskCheckInterval       string
+	DatabaseError           config.DatabaseErrorNotification
 	// TLSEnabled/ConfigDir/FQDN/DevTLD feed ssl_renewal's proactive-renewal
 	// check (AI.md PART 15 "NeedsRenewal" window, called from PART 18).
 	TLSEnabled                  bool
@@ -82,6 +85,7 @@ func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
 	}
 
 	tasks := []TaskDef{
+		{ID: "database_check", Name: "Database Connection Check", Run: databaseCheckTask(deps)},
 		{ID: "token_cleanup", Name: "Token Cleanup", Run: tokenCleanupTask(deps.DB, deps.Tokens)},
 		{ID: "security_cleanup", Name: "Security Report Cleanup", Run: securityCleanupTask(deps)},
 		{ID: "log_rotation", Name: "Log Rotation", Run: logRotationTask(deps.Logs)},
@@ -119,8 +123,104 @@ func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
 			}
 			tasks[i].Schedule, tasks[i].Enabled = "@every "+interval, true
 		}
+		if tasks[i].ID == "database_check" {
+			interval := deps.DatabaseError.CheckInterval
+			if interval == "" {
+				interval = "1m"
+			}
+			tasks[i].Schedule = "@every " + interval
+			tasks[i].Enabled = tasks[i].Enabled && deps.DatabaseError.Enabled
+		}
 	}
 	return tasks
+}
+
+type databaseProbeState struct {
+	mu           sync.Mutex
+	failures     int
+	since        time.Time
+	lastError    string
+	lastNotified time.Time
+}
+
+var databaseCredentialPattern = regexp.MustCompile(`(?i)(password|passwd|token|auth_token|authtoken|secret)(\s*[:=]\s*|["']\s*:\s*["'])([^&\s,;"']+)`)
+var databaseURLCredentialPattern = regexp.MustCompile(`(?i)(://)[^/@\s]+@`)
+
+func redactDatabaseProbeError(err error) string {
+	if err == nil {
+		return "database probe failed"
+	}
+	message := databaseCredentialPattern.ReplaceAllString(err.Error(), "$1$2[redacted]")
+	message = databaseURLCredentialPattern.ReplaceAllString(message, "$1[redacted]@")
+	return strings.TrimSpace(message)
+}
+
+func databaseCheckTask(deps Deps) TaskFunc {
+	state := &databaseProbeState{}
+	return func(ctx context.Context) error {
+		if !deps.DatabaseError.Enabled {
+			return nil
+		}
+		probe := deps.DBProbe
+		if probe == nil {
+			if candidate, ok := deps.DB.(interface{ Probe(context.Context) error }); ok {
+				probe = candidate
+			}
+		}
+		var err error
+		if probe != nil {
+			err = probe.Probe(ctx)
+		} else if deps.DB != nil {
+			checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			err = deps.DB.PingContext(checkCtx)
+			cancel()
+		} else {
+			err = fmt.Errorf("database handle unavailable")
+		}
+		now := time.Now().UTC()
+		state.mu.Lock()
+		if err == nil {
+			recovered := state.failures > 0
+			state.failures, state.since, state.lastError, state.lastNotified = 0, time.Time{}, "", time.Time{}
+			state.mu.Unlock()
+			if recovered && deps.Logger != nil {
+				_ = deps.Logger.WriteLine(applog.LevelInfo, "Database connection recovered\n")
+			}
+			return nil
+		}
+		if state.failures == 0 {
+			state.since = now
+		}
+		state.failures++
+		state.lastError = redactDatabaseProbeError(err)
+		threshold := deps.DatabaseError.Failures
+		if threshold < 1 {
+			threshold = 3
+		}
+		if threshold > state.failures {
+			state.mu.Unlock()
+			return nil
+		}
+		repeat := 24 * time.Hour
+		if parsed, parseErr := time.ParseDuration(deps.DatabaseError.Repeat); parseErr == nil && parsed > 0 {
+			repeat = parsed
+		}
+		if !state.lastNotified.IsZero() && now.Sub(state.lastNotified) < repeat {
+			state.mu.Unlock()
+			return nil
+		}
+		since := state.since.Format(time.RFC3339)
+		lastError := state.lastError
+		state.lastNotified = now
+		state.mu.Unlock()
+		if deps.Logger != nil {
+			_ = deps.Logger.WriteLine(applog.LevelWarn, "Database connection problem: "+lastError+"\n")
+		}
+		if deps.Notifier != nil {
+			_ = deps.Notifier.Send(notify.EventDatabaseError, map[string]string{"since": since, "error": lastError})
+		}
+		return nil
+	}
 }
 
 func blocklistUpdateTask(manager *blocklist.Manager) TaskFunc {

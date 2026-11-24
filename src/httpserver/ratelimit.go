@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/metrics"
 )
 
 type rateCounter interface {
@@ -54,12 +55,13 @@ const rlSweepInterval = time.Minute
 // per-class per-IP sliding windows, plus a global-burst ceiling per IP
 // across all classes.
 type RateLimiter struct {
-	mu        sync.Mutex
-	cfg       config.RateLimit
-	byClass   map[rlClass]map[string]*window
-	global    map[string]*window
-	lastSweep time.Time
-	backend   rateCounter
+	mu           sync.Mutex
+	cfg          config.RateLimit
+	byClass      map[rlClass]map[string]*window
+	global       map[string]*window
+	lastSweep    time.Time
+	backend      rateCounter
+	metrics      *metrics.Metrics
 	fallbackWarn sync.Once
 }
 
@@ -79,6 +81,9 @@ func NewRateLimiter(cfg config.RateLimit, backend ...rateCounter) *RateLimiter {
 	}
 	return rl
 }
+
+// SetMetrics connects the limiter's in-process counters to PART 20 cache metrics.
+func (rl *RateLimiter) SetMetrics(m *metrics.Metrics) { rl.metrics = m }
 
 // classLimit returns the configured (requests, window) for class.
 func (rl *RateLimiter) classLimit(class rlClass) config.RateLimitClass {
@@ -110,6 +115,17 @@ func (rl *RateLimiter) Allow(ip string, class rlClass) (allowed bool, retryAfter
 
 	classWindows := rl.byClass[class]
 	w, ok := classWindows[ip]
+	hit := ok && now.Sub(w.windowStart) < time.Duration(limit.Window)*time.Second
+	if globalWindow, found := rl.global[ip]; found && now.Sub(globalWindow.windowStart) < time.Minute {
+		hit = true
+	}
+	if rl.metrics != nil {
+		if hit {
+			rl.metrics.CacheHitsTotal.WithLabelValues("rate_limit").Inc()
+		} else {
+			rl.metrics.CacheMissesTotal.WithLabelValues("rate_limit").Inc()
+		}
+	}
 	if !ok || now.Sub(w.windowStart) >= time.Duration(limit.Window)*time.Second {
 		w = &window{count: 0, windowStart: now}
 		classWindows[ip] = w
@@ -122,15 +138,37 @@ func (rl *RateLimiter) Allow(ip string, class rlClass) (allowed bool, retryAfter
 	}
 
 	if w.count >= limit.Requests {
+		rl.updateCacheSizeLocked()
 		return false, remainingSeconds(w.windowStart, time.Duration(limit.Window)*time.Second, now)
 	}
 	if gw.count >= rl.cfg.GlobalBurst {
+		rl.updateCacheSizeLocked()
 		return false, remainingSeconds(gw.windowStart, time.Minute, now)
 	}
 
 	w.count++
 	gw.count++
+	rl.updateCacheSizeLocked()
 	return true, 0
+}
+
+func (rl *RateLimiter) updateCacheSizeLocked() {
+	if rl.metrics == nil {
+		return
+	}
+	items := 0
+	var bytes int64
+	for _, windows := range rl.byClass {
+		for ip := range windows {
+			items++
+			bytes += int64(len(ip) + 32)
+		}
+	}
+	for ip := range rl.global {
+		items++
+		bytes += int64(len(ip) + 32)
+	}
+	rl.metrics.SetCacheSize("rate_limit", items, bytes)
 }
 
 // sweepLocked drops every per-IP window whose period has already elapsed,

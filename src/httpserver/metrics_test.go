@@ -116,6 +116,19 @@ func TestGrafanaDashboardHandler(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), metricsProjectName+"_http_requests_total") {
 		t.Errorf("dashboard body missing expected metric expression: %s", rec.Body.String())
 	}
+	for _, marker := range []string{
+		metricsProjectName + "_scheduler_tasks_total",
+		metricsProjectName + "_scheduler_task_duration_seconds_bucket",
+		metricsProjectName + "_scheduler_tasks_running",
+		metricsProjectName + "_scheduler_last_run_timestamp",
+		metricsProjectName + "_links_total",
+		metricsProjectName + "_links_created_24h",
+		metricsProjectName + "_links_clicked_24h",
+	} {
+		if !strings.Contains(rec.Body.String(), marker) {
+			t.Errorf("dashboard body missing required panel metric %q", marker)
+		}
+	}
 }
 
 func TestLokiHandlerEmptyLoggerServesEmptyStreams(t *testing.T) {

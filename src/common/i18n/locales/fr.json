@@ -785,6 +785,11 @@
     "update_available": "Une nouvelle version de l’application est prête.",
     "update_now": "Mettre à jour"
   },
+  "offline": {
+    "title": "Hors ligne",
+    "heading": "Vous êtes hors ligne",
+    "message": "Cette page n’a pas pu être chargée et aucune copie enregistrée n’est disponible. Vérifiez votre connexion et réessayez."
+  },
   "api_docs": {
     "graphql_title": "Explorateur GraphQL",
     "endpoint": "Point de terminaison",

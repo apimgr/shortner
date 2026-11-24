@@ -119,6 +119,46 @@ func TestRegisterAndRunNow(t *testing.T) {
 	}
 }
 
+func TestStartImmediatelyRetriesPersistedInterruption(t *testing.T) {
+	sqlDB := openTestDB(t)
+	sched, err := New(sqlDB, testLogger(t), "UTC", "1h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := make(chan struct{}, 1)
+	ctx := context.Background()
+	if err := sched.Register(ctx, TaskDef{
+		ID: "interrupted_task", Name: "Interrupted Task", Schedule: "@every 1h", Enabled: true,
+		Run: func(context.Context) error { run <- struct{}{}; return nil },
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkSchedulerTaskRunning(ctx, sqlDB, "interrupted_task", time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := sched.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer sched.Stop()
+	select {
+	case <-run:
+	case <-time.After(2 * time.Second):
+		t.Fatal("interrupted task was not retried immediately on start")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		state, err := sched.Show(ctx, "interrupted_task")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state.LastStatus == "success" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("retried task did not persist success")
+}
+
 func TestRunNowRecordsFailure(t *testing.T) {
 	sqlDB := openTestDB(t)
 	sched, err := New(sqlDB, testLogger(t), "UTC", "1h")
