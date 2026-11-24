@@ -91,9 +91,9 @@ backup and restore, the self-updater, service installation, and CI/CD.
 The server includes server-rendered Swagger and GraphQL documentation pages,
 an OpenAPI JSON endpoint, a read-only GraphQL endpoint, API mirrors for
 server pages, and an MCP endpoint with tools derived from the OpenAPI
-contract. The MCP guide is available at `/server/help/mcp`. Remaining work
-includes completing all route and schema coverage against the full API
-contract, notification surfaces, and cache metrics. The server also
+contract. The MCP guide is available at `/server/help/mcp`. API route and
+schema coverage continues to be tracked against the full API contract.
+Notification delivery and rate-limit cache metrics are implemented. The server also
 publishes CLI update metadata and serves colocated client binaries. The PWA
 includes install and update prompts, offline status and fallback, a
 versioned cache, and its required icon assets.

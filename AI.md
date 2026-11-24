@@ -31,19 +31,23 @@ have_internal_org=$(grep -cE '^internal_org:[[:space:]]*.+$' IDEA.md 2>/dev/null
 
 | Value | Primary Source | Fallback |
 |-------|----------------|----------|
-| `{project_name}` | IDEA.md `## Project variables` | Existing long-form `CLAUDE.md` / `.claude/CLAUDE.md` project details, then `basename "$PWD"` |
-| `{project_org}` | IDEA.md `## Project variables` | Existing long-form `CLAUDE.md` / `.claude/CLAUDE.md` project details, then `basename "$(dirname "$PWD")"` |
-| `{internal_name}` | IDEA.md `## Project variables` (always — set at first run; reset only on an explicit rename or fork) | Existing long-form `CLAUDE.md` / `.claude/CLAUDE.md` project details, then first-time setup: copy from `{project_name}` |
-| `{internal_org}` | IDEA.md `## Project variables` (always — set at first run; reset only on an explicit rename or fork) | Existing long-form `CLAUDE.md` / `.claude/CLAUDE.md` project details, then first-time setup: copy from `{project_org}` |
+| `{project_name}` | IDEA.md `## Project variables` | The git remote (`git remote get-url origin`), then `basename "$PWD"` |
+| `{project_org}` | IDEA.md `## Project variables` | The git remote (`git remote get-url origin`), then `basename "$(dirname "$PWD")"` |
+| `{internal_name}` | IDEA.md `## Project variables` (always — set at first run; reset only on an explicit rename or fork) | First-time setup: copy from `{project_name}` |
+| `{internal_org}` | IDEA.md `## Project variables` (always — set at first run; reset only on an explicit rename or fork) | First-time setup: copy from `{project_org}` |
 | `{plist_name}` | **Derived (not stored)**: `io.github.{internal_org}.{internal_name}` | — |
 
 **Detection commands (use commands — never guess):**
 ```bash
-# Project name: current directory name
-project_name=$(basename "$PWD")
+# Project name: IDEA.md project variables first, then the git remote, then the directory name
+project_name=$(sed -n 's/^project_name:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1 | tr -d '[:space:]')
+[ -n "$project_name" ] || project_name=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)$|\1|; s|\.git$||')
+[ -n "$project_name" ] || project_name=$(basename "$PWD")
 
-# Project org: parent directory name (assumes ~/org/project structure)
-project_org=$(basename "$(dirname "$PWD")")
+# Project org: IDEA.md project variables first, then the git remote, then the parent directory name (assumes ~/org/project structure)
+project_org=$(sed -n 's/^project_org:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1 | tr -d '[:space:]')
+[ -n "$project_org" ] || project_org=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$|\1|')
+[ -n "$project_org" ] || project_org=$(basename "$(dirname "$PWD")")
 
 # Internal name: same as project_name on first run, stable after
 internal_name="$project_name"
@@ -146,7 +150,7 @@ IDEA.md is the project PLAN. AI.md (this file) is the authoritative template bas
 | IDEA.md MAY | IDEA.md MAY NOT |
 |-------------|-----------------|
 | Define the product's features, data models, business rules and audience, and its API surface: the `### API routes` inventory of what callers can do (method, path, auth, purpose, request/response summary), never how a handler is written | Remove, weaken or waive a mandatory AI.md requirement (server baseline, configuration, security, health, build, CI/CD, i18n, accessibility, documentation, testing) |
-| Choose which of the template's explicitly OPTIONAL capabilities the project uses (the PARTs the template labels optional; PARTS 34-36 are activated in SPEC.md only, IDEA.md just describes the feature) | Change how a mandatory requirement is implemented |
+| Choose which of the template's explicitly OPTIONAL capabilities the project uses (the PARTs the template labels optional; for PARTS 34-36 IDEA.md only DESCRIBES the feature, and SPEC.md alone activates it) | Change how a mandatory requirement is implemented |
 | State non-goals in product terms (for example "no user accounts") | Use a non-goal as a reason to skip a mandatory part |
 
 **Non-goal vs mandatory requirement:** a non-goal limits the product's FEATURES, never AI.md's baseline. "No accounts" is honored by not enabling the optional multi-user parts; it does not remove the health endpoint, the config file, the security headers or any other mandatory part, which are built exactly as AI.md defines them. If an IDEA.md line contradicts a mandatory AI.md requirement, fix the IDEA.md line (reword it as product scope) — never change the implementation to match it. Log a template defect only when AI.md itself is ambiguous or self-contradictory.
@@ -5966,7 +5970,7 @@ package main
 ```bash
 # Method 1: Infer from git remote (PREFERRED - works regardless of directory location)
 # github.com/cloudops/echoip.git → PROJECT_ORG=cloudops, PROJECT_NAME=echoip
-PROJECT_NAME=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$|\1|')
+PROJECT_NAME=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)$|\1|; s|\.git$||')
 PROJECT_ORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$|\1|')
 
 # Method 2: Infer from current directory path (fallback if no git remote)
@@ -5977,7 +5981,7 @@ PROJECT_NAME=$(basename "$PWD")
 PROJECT_ORG=$(basename "$(dirname "$PWD")")
 
 # Method 3: Combined approach (git first, fallback to path)
-PROJECT_NAME=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$|\1|' || basename "$PWD")
+PROJECT_NAME=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)$|\1|; s|\.git$||' || basename "$PWD")
 PROJECT_ORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$|\1|' || basename "$(dirname "$PWD")")
 ```
 
@@ -12937,6 +12941,8 @@ func isWritable(path string) bool {
 // macOS: /Library/Backups/{internal_org}/{internal_name}
 // BSD:   /var/backups/{internal_org}/{internal_name}
 // Windows: %ProgramData%\Backups\{internal_org}\{internal_name}
+// internalOrg and internalName are the frozen identity ({internal_org}/{internal_name}): backup paths use them, never the
+// renameable project_org/project_name, so a rename never orphans existing backups
 func systemBackupDir() string {
     switch runtime.GOOS {
     case "darwin":
@@ -14719,7 +14725,7 @@ When `DEBUG=true` is active and an error occurs, the canonical error body (PART 
 | **Constant-time comparison** | Use `crypto/subtle.ConstantTimeCompare` for ALL token, password-hash, HMAC, signature, and credential comparisons. Never compare with `==`, `bytes.Equal`, or `strings.EqualFold` — they leak timing. Applies whether the inbound value is a token, an API key, a webhook signature, or a TOTP code. |
 | **Identical auth error messages** | Every authentication failure MUST return the SAME message regardless of root cause. "Wrong password", "no such user", "account locked", "token expired", and "token revoked" all return the same generic message (e.g., `"Invalid credentials"`) and the same HTTP status. The underlying reason is logged server-side but NEVER surfaced to the client — surfacing it enables user enumeration. |
 | **Identical auth response timing** | Pad failed-auth response time to a fixed floor (≥100ms) so attackers cannot distinguish "user exists, wrong password" (slow bcrypt path) from "no such user" (fast early-return) by latency. |
-| **Opaque resource IDs** | Resource IDs exposed in URLs, JSON bodies, or logs MUST be opaque — UUID v4 (random) or UUID v7 (time-ordered for indexable workloads). NEVER expose sequential integer primary keys (`/users/1`, `/users/2`, ...) in any public-facing surface; they enable trivial enumeration and IDOR. Internal DB primary keys may remain `BIGSERIAL` for performance, but all external identifiers go through an opaque ID column. |
+| **Opaque resource IDs** | Resource IDs exposed in URLs, JSON bodies, or logs MUST be opaque — UUID v4 (random) or UUID v7 (time-ordered for indexable workloads). NEVER expose sequential integer primary keys (`/users/1`, `/users/2`, ...) in any public-facing surface; they enable trivial enumeration and IDOR. Internal DB primary keys may remain `BIGSERIAL` for performance, but all external identifiers go through an opaque ID column, except in a table whose schema in this specification defines `id` itself as the UUID (`owners`, `api_tokens`): there `id` is the one public identifier and no integer key exists. |
 | **No credential echo** | Never include the submitted password / token in error responses, logs, or audit events — not even hashed. Log only a stable hash of the identifier (`user_id`, `token_prefix_sha256[:8]`). |
 
 ### Output Sanitization Pipeline
@@ -14837,7 +14843,7 @@ The root secret all other derived material hangs off. Without it, in-flight HMAC
 | `cookie_signing_key` | 32 bytes (HMAC-SHA256) | `server.db` row `app_secrets.cookie_signing_key` | Signs the short-lived values the server gives a browser so tampering is detected (the one-use token view cookie; the contact-form token is keyed with `installation_secret`, see the contact antispam rules). There is no session cookie: the product has no sessions. | Auto-rotated every 90 days; previous key valid for 7 days. |
 | `csrf_token_secret` | 32 bytes | `server.db` row `app_secrets.csrf_token_secret` | HMAC base for CSRF tokens (double-submit pattern, PART 16 → CSRF). | Auto-rotated on API key regeneration + every 180 days. |
 
-**Pre-existing key (auto-generated in `server.yml` on first run):**
+**Pre-existing key (auto-generated in `secrets.yml` on first run):**
 
 | Key | Length | Storage | Purpose | Rotation |
 |-----|--------|---------|---------|----------|
@@ -16169,7 +16175,7 @@ server:
 | `event` | String | Event type (e.g., `config.updated`) |
 | `category` | String | Event category (e.g., `authentication`) |
 | `severity` | String | `info`, `warn`, `error`, `critical` |
-| `actor` | Object | Who performed the action: `type` (`owner`, `operator`, `visitor` or `system`), `id` (the owner id, or `server` or `scheduler`) and `ip` when the event arrived over the network. Autonomous events (startup, shutdown, backups, scheduler tasks) have `type: system` and no `ip` |
+| `actor` | Object | Who performed the action: `type` (`owner`, `operator`, `anonymous` or `system`), `id` (the owner id, or `server` or `scheduler`) and `ip` when the event arrived over the network. Autonomous events (startup, shutdown, backups, scheduler tasks) have `type: system` and no `ip` |
 | `result` | String | `success` or `failure` |
 | `prev` | String | Lowercase hex SHA-256 of the previous entry's line (hash chain, see "Audit Log Integrity") |
 
@@ -24440,7 +24446,7 @@ if ('serviceWorker' in navigator) {
 > When a service worker calls `event.respondWith()` it owns that response completely. If the promise it passes **resolves to `undefined`** (a cache miss on the last fallback) or **rejects** (an uncaught network failure), the browser shows **`net::ERR_FAILED`** — a dead tab — instead of a page. A transient network blip on a page navigation MUST degrade to a real offline/error page, never a broken site. The handler below, and any service worker a project ships, MUST obey:
 >
 > - **Navigations are network-first** — fetch the network first so a new build's HTML is seen immediately (and the `Clear-Site-Data` build-purge has nothing stale to fight); only on failure fall back to the cached page, then to a **synthesized** `Response`.
-> - **Offline copies are for public pages only** — the server adds the internal header `X-Offline-Cache: public` to a navigation response ONLY when the page is identical for every visitor: the request carries no session or owner cookie, and the body holds no signed-in state, token, per-visitor value or CSRF token. `Cache-Control` stays `no-store`; the header is only a signal to the worker. The worker puts a navigation response in the cache only when it also has that header; any other navigation response is not cached, and the worker deletes an existing entry for that URL, so a page that becomes private leaves no old copy. Authenticated pages, token pages, the admin area and every page with a form never carry the header, and on offline they show the synthesized offline page.
+> - **Offline copies are for public pages only** — the server adds the internal header `X-Offline-Cache: public` to a navigation response ONLY when the page is identical for every visitor: the request carries no session or owner cookie, and the body holds no signed-in state, owner token or per-visitor value. The CSRF value of the shared header theme form and the consent forms does not count against eligibility: it is only used online, a form submitted from an offline copy fails, and nothing is queued. `Cache-Control` stays `no-store`; the header is only a signal to the worker. The worker puts a navigation response in the cache only when it also has that header; any other navigation response is not cached, and the worker deletes an existing entry for that URL, so a page that becomes private leaves no old copy. Authenticated pages, token pages, the admin area and every page with a form of its own (the shared header theme and consent forms do not count) never carry the header, and on offline they show the synthesized offline page.
 > - **Every `respondWith()` branch ends in a guaranteed `Response`** — a terminal `.catch()` returning a real `Response` (a synthesized 503 offline page for navigations, a 504 for subresources). Never end a chain on `cached || caches.match('/offline…')`: that link can itself miss and resolve `undefined`.
 > - **Only intercept same-origin GET.** Let API calls, cross-origin requests, and non-GET methods fall through untouched — never call `respondWith()` for them.
 > - **The wait for the network is bounded** — a navigation `fetch` races an 8 s timer (`NAV_TIMEOUT_MS`); on timeout the worker falls back to the cached public page, then the synthesized offline page. A server that is restarting, updating or hung never leaves a tab on a blank page with a stuck load bar.
@@ -35011,7 +35017,7 @@ func (ws *windowsService) Execute(args []string, r <-chan svc.ChangeRequest, s c
 - **NEVER guess or assume** - must be explicitly created by the user, and never written by AI
 - Canonical single-line official site source when present
 - If `site.txt` exists, it wins over `IDEA.md`, README, env vars, CI secrets, and other fallbacks
-- If `site.txt` and `IDEA.md ## Project variables` both exist, `IDEA.md` should match `site.txt`; `site.txt` is the easy-to-update operational override
+- `IDEA.md` `official_site` only resolves the `{official_site}` placeholder in README and docs; it is NOT an operational source. The embedded `OfficialSite` and the CLI's default server come only from `site.txt`, `OFFICIAL_SITE` or CI secrets, so with none of them the CLI requires `--server` even when IDEA.md has a value. When both exist, `IDEA.md` should match `site.txt`; `site.txt` is the easy-to-update operational override
 - If not present, CLI/Agent users must always specify `--server` flag
 - Sources checked in order:
   1. File: `site.txt` in project root
@@ -35171,7 +35177,7 @@ binaries/
 # PROJECT_NAME and PROJECT_ORG: IDEA.md project variables first (the same source as {project_name}), then the git remote, then the directory path (NEVER hardcode)
 PROJECT_NAME := $(shell sed -n 's/^project_name:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1 | tr -d '[:space:]')
 ifeq ($(PROJECT_NAME),)
-PROJECT_NAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$$|\1|' || basename "$$(pwd)")
+PROJECT_NAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)$$|\1|; s|\.git$$||' || basename "$$(pwd)")
 endif
 PROJECT_ORG := $(shell sed -n 's/^project_org:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1 | tr -d '[:space:]')
 ifeq ($(PROJECT_ORG),)
@@ -41451,6 +41457,12 @@ fi
    - Test `server.token` authentication (see "Testing Operator-Token Routes")
    - **CLI full functionality** (with API token against running server)
 7. Clean up on exit: register `trap cleanup EXIT INT TERM` BEFORE the first container starts; it removes every container, sidecar, network and volume the script started, by the exact names the script recorded, so a failed or interrupted run leaves nothing behind (see "Container Discipline")
+
+#### Testing Operator-Token Routes
+
+**Every operator route (`server.token`, `adm_`) is tested with five requests, in `docker.sh` and `incus.sh` alike:** no `Authorization` header → `401`; a wrong token → `401`; an owner or linked token (`own_`) → `403`; the real `server.token` read from `secrets.yml` inside the test container → `200`; and the same route with the token in a query string → `401` (a URL is never a credential). The token value is never echoed: scripts pass it through a variable and print only the route and the status.
+
+**CLI full functionality:** the built client runs against the running server with a linked API token (not just `--help`): `--version`, a status or health command, one read command and one write command, each checked for exit code `0` and expected output, plus one failure case (bad token → non-zero exit and a clear message).
 
 #### tests/docker.sh
 
@@ -48414,9 +48426,9 @@ func EnsureConfigured() error {
 | **Linux** | `github.com/gogpu/ui` + `github.com/gogpu/gogpu` | Pure Go, zero CGO — `goffi` `dlopen`s `libX11`/`libwayland-client` at runtime, no link-time C dependency; native Wayland, not XWayland compat. The binary still needs the system loader, so it is the separate `gui` build only |
 | **macOS** | `github.com/gogpu/ui` + `github.com/gogpu/gogpu` | Pure Go, no cgo — Metal access via the Objective-C runtime through `goffi` |
 | **Windows** | `github.com/gogpu/ui` + `github.com/gogpu/gogpu` | Pure Go, no cgo — DX12 via `goffi` |
-| **BSD** | none | `gogpu/gogpu`'s windowing layer does not implement BSD yet (stubbed via build tags). Compile GUI support out on `freebsd`/`netbsd`/`openbsd` (`caps.GUISupported == false`); falls back to TUI, or CLI if no TTY (see APPLICATION.md's Smart Detect Rules) |
+| **BSD** | none | `gogpu/gogpu`'s windowing layer does not implement BSD yet (stubbed via build tags). Compile GUI support out on `freebsd`/`netbsd`/`openbsd` (`caps.GUISupported == false`); automatic mode falls back to TUI, or CLI if no TTY (see APPLICATION.md's Smart Detect Rules); a forced `gui` mode fails with `gui_unavailable` |
 
-**GUI build separation (REQUIRED).** `gogpu` loads the platform's graphics libraries through `goffi`, so a binary that contains it depends on the system dynamic loader even with `CGO_ENABLED=0` (built in the Alpine toolchain on Linux, that is the musl loader): it is NOT a static, cross-distribution binary and it would not even start in a Debian test container. The GUI is therefore compiled out of every default build. The default client `{project_name}-cli-{os}-{arch}` (and the server and the TUI) is built WITHOUT the `gui` build tag: fully static, runs on every distribution, and `caps.GUISupported` is `false`, so a request for GUI mode resolves to the TUI. The GUI is a separate, OPTIONAL artifact `{project_name}-cli-gui-{os}-{arch}`, built with `-tags gui` for Linux, macOS and Windows only; it is documented as dynamically linked (on Linux it needs the loader of the toolchain that built it) and desktop-only, and the update flow of the static client never replaces it.
+**GUI build separation (REQUIRED).** `gogpu` loads the platform's graphics libraries through `goffi`, so a binary that contains it depends on the system dynamic loader even with `CGO_ENABLED=0` (built in the Alpine toolchain on Linux, that is the musl loader): it is NOT a static, cross-distribution binary and it would not even start in a Debian test container. The GUI is therefore compiled out of every default build. The default client `{project_name}-cli-{os}-{arch}` (and the server and the TUI) is built WITHOUT the `gui` build tag: fully static, runs on every distribution, and `caps.GUISupported` is `false`, so automatic mode resolves to the TUI; an explicitly forced `display.mode: gui` still fails with `gui_unavailable` and never degrades. The GUI is a separate, OPTIONAL artifact `{project_name}-cli-gui-{os}-{arch}`, built with `-tags gui` for Linux, macOS and Windows only; it is documented as dynamically linked (on Linux it needs the loader of the toolchain that built it) and desktop-only, and the update flow of the static client never replaces it.
 
 **One toolkit, one implementation, every platform GUI is supported on.** `gogpu/ui` (+ `gogpu/gogpu` for windowing) is cross-platform in a single codebase for Linux/macOS/Windows — there is no per-OS launcher file and no `runtime.GOOS` dispatch. `gioui.org` (Gio) and `fyne.io/fyne/v2` are **NOT compliant** — both require cgo on Linux (Gio's own install docs list `libwayland-dev`/`libx11-dev`/`libxkbcommon-x11-dev`/etc.; Fyne is built on `go-gl`/`glfw`) and are therefore banned project-wide, not just discouraged.
 
@@ -51237,7 +51249,7 @@ maintainer_email: jane@example.com
 
 **Testing (Docker OR Incus):**
 - [ ] **Unit tests** - `make test` in the Docker toolchain image `casjaysdev/go:latest` (locally and in CI/CD), never in `alpine:latest`
-- [ ] **Quick binary checks** - Docker `alpine:latest` (`tests/docker.sh`), for the compiled binary only
+- [ ] **Basic tier** - Docker `alpine:latest` (`tests/docker.sh`): the compiled binary (not the shipped image), the basic suite including Tor and I2P health; the init-system and service lifecycle belong to `tests/incus.sh`
 - [ ] **Full OS tests** - Incus `debian:latest` for systemd (PREFERRED)
 - [ ] **NEVER run binaries locally** - use Docker or Incus container
 

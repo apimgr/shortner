@@ -301,8 +301,10 @@ settings (`url`, `host`, `port`, `username`, `password`, `db`, `tls`,
 
 !!! note
     Redis and Valkey share atomic rate-limit counters across server
-    instances. Other cache-backed application data paths and cache metrics
-    are not yet wired into request handling.
+    instances. Cache metrics report rate-limit hits and misses; item count and
+    bytes are sampled for the in-process cache and for Redis/Valkey when a
+    cache prefix is configured. Other application data paths do not currently
+    use the cache.
 
 ### CORS and CSRF
 

@@ -103,9 +103,10 @@ lines, sized by `server.metrics.loki.max_entries` and
 
 Business gauges cover total links, links created and clicked in 24 hours,
 and active API tokens. Tor circuit and request gauges are collected when
-Tor is configured. Redis and Valkey back shared rate-limit counters, but
-cache instrumentation is not yet populated; I2P metrics are not defined by
-the current AI.md contract.
+Tor is configured. Cache metrics cover rate-limit counter hits and misses,
+evictions, item count, and bytes. Redis and Valkey report size only when a
+cache prefix scopes the keys; the in-process limiter reports its active
+counter state. I2P metrics are not defined by the current AI.md contract.
 
 ## GeoIP
 
