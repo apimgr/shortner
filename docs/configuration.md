@@ -394,6 +394,10 @@ server:
       address: ""
 ```
 
+`server.contact.admin.email` is the required recipient for operator email
+notifications. If it is empty, startup warns and no operator email recipient
+is selected; the general contact address is not used for admin events.
+
 Webhook endpoint URLs can be set under each role's `webhooks` map. Built-in
 adapters support Telegram, Discord, Slack, Mattermost, Pushover, Gotify, and
 generic HTTPS JSON. The server generates a per-endpoint HMAC signing secret

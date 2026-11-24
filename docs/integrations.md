@@ -396,11 +396,13 @@ translated strings stored by the first page load; there is no static
 `/offline.html` route or asset.
 Service workers require HTTPS in browsers. The install prompt, iOS install
 instructions, user-confirmed update prompt, and online/offline indicator
-enhance the pages. The worker caches version-stamped static assets and
-previously visited HTML pages; API responses are network-only. Background
-Sync and geolocation are not implemented: the product-specific offline
-actions, replay/privacy rules, and location use case are undefined in the
-current API template.
+enhance the pages. The worker caches version-stamped static assets and only
+HTML navigations explicitly marked `X-Offline-Cache: public`; it removes a
+cached copy when a later response is private, fails, or redirects. Forms and
+personalized pages stay network-only, and API responses are always network-only.
+Background Sync and geolocation are not implemented: the product-specific
+offline actions, replay/privacy rules, and location use case are undefined in
+the current API template.
 
 ## Tor and I2P
 

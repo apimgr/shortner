@@ -30,7 +30,8 @@ the originating IP anonymized for privacy-respecting analytics.
 - Security, abuse, DMCA, and privacy reports through a private report form
   with review and confirmation, origin checks, single-use tokens and CAPTCHA,
   rate limits, content filtering, strike bans, and silent honeypot drops
-- HTTPS service worker with cached static assets and an offline fallback
+- HTTPS service worker with cached static assets and a synthesized translated
+  offline fallback
 - REST API for link creation, listing, management, analytics, and health,
   with OpenAPI, read-only GraphQL, and MCP tools using the same API tokens
 - Local GeoIP enrichment for click analytics and country-based controls

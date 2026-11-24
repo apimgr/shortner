@@ -1675,18 +1675,15 @@ Purpose:
 - Frontend/WebUI: `.claude/rules/frontend-rules.md` (PART 16)
 - Full spec: `AI.md` (~46k lines) ← **SOURCE OF TRUTH**
 
-## Current Project State
-[AI updates this section as work progresses]
-- Last read AI.md: [date/time]
-- Current task: [description]
-- Relevant PARTs: [list]
+## Progress
+No progress or date-specific state lives in this file or in AI.md: the loader stays project-neutral. Current task, status and the PARTs in play are tracked in `TODO.AI.md` or `PLAN.AI.md`.
 ```
 
 **Rules:**
 - This file is ALWAYS loaded first by the AI tool
 - Keep it under 100 lines - it's a quick reference, not the full spec
 - Points to rules/ files and AI.md for details
-- "Current Project State" section updated by AI as work progresses
+- Progress is tracked in `TODO.AI.md` / `PLAN.AI.md`, never in CLAUDE.md or AI.md
 - Existing valid `CLAUDE.md` content must be merged/migrated, not blindly replaced
 
 **AI Enforcement - Surviving Context Compaction:**
@@ -5907,7 +5904,7 @@ package main
 
 | Project License | Can Use Dependencies Licensed As |
 |----------------|----------------------------------|
-| **MIT** | MIT, Apache 2.0, BSD, ISC, Public Domain |
+| **MIT** | MIT, Apache 2.0, BSD, ISC, MPL 2.0 (as an unmodified dependency: its file-level copyleft covers only its own files; a modified MPL file is published under MPL, and attribution is required as above), Public Domain |
 | **MIT** | ❌ **CANNOT use:** GPL, AGPL, LGPL |
 
 **When in doubt:** Choose MIT/Apache 2.0/BSD licensed alternatives.
@@ -7786,12 +7783,14 @@ func ParseBool(s string, defaultVal bool) (bool, error) {
 	return false, fmt.Errorf("invalid boolean value: %q", s)
 }
 
-// MustParseBool parses a string into a boolean, panics on invalid value.
-// Use only during initialization where invalid config should halt startup.
-func MustParseBool(s string, defaultVal bool) bool {
+// ParseBoolOrDefault is the helper for ALL configuration input (environment variables, config files, flags): an invalid value
+// never fails startup, it is replaced by the default with ONE warning that names the setting. There is deliberately no
+// panicking variant: a bad configuration value must never stop the server (PART 5 -> "Invalid → default").
+func ParseBoolOrDefault(name, s string, defaultVal bool) bool {
 	val, err := ParseBool(s, defaultVal)
 	if err != nil {
-		panic(err)
+		slog.Warn("invalid boolean, using default", "setting", name, "value", s, "default", defaultVal)
+		return defaultVal
 	}
 	return val
 }
@@ -7813,13 +7812,10 @@ func IsFalsy(s string) bool {
 
 ```go
 // Environment variables
-debug := config.MustParseBool(os.Getenv("DEBUG"), false)
+debug := config.ParseBoolOrDefault("DEBUG", os.Getenv("DEBUG"), false)
 
 // Config file values (after YAML/JSON unmarshal to string)
-sslEnabled, err := config.ParseBool(cfg.SSL.Enabled, false)
-if err != nil {
-    return fmt.Errorf("invalid ssl.enabled value: %w", err)
-}
+sslEnabled := config.ParseBoolOrDefault("server.ssl.enabled", cfg.SSL.Enabled, false)
 
 // CLI flags (custom parsing)
 if config.IsTruthy(flagValue) {
@@ -12450,7 +12446,7 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 | Rule | Detail |
 |------|--------|
 | Management requires the primary | Token management (reveal, rotate, restore, create/rename/expiry/revoke linked, revoke the primary) is allowed only with the primary token (owner cookie, or primary Bearer on the API mirror). A linked token on any of these returns `403` — a leaked automation token can never mint, read, or extend other tokens. Primary issuance (`POST .../tokens/primary`, "Issue on request") is not management: it needs no token, and a caller presenting ANY valid token, a linked one included, gets `409 CONFLICT`, never `403` |
-| Issue on request | `POST /server/preferences/token/create` (web) and `POST /api/{api_version}/server/preferences/tokens/primary` (API) need no token: they create a new owner and its primary token, return it as `owner_token` (`201`), set the owner cookie on the web route, use the `strict` limiter, write `token.created` with `details.source` set to `issue`, and answer `409 CONFLICT` when the caller already presents a valid token (one caller never gets a second primary) |
+| Issue on request | `POST /server/preferences/token/create` (web) and `POST /api/{api_version}/server/preferences/tokens/primary` (API) need no token: they create a new owner and its primary token, deliver it per route: the web route sets the owner cookie and the one-use view cookie (naming `primary`) and answers `303` to the tokens page, which shows the token once ("Token delivery"), while the API route returns it as `owner_token` in the JSON body with `201`. Both use the `strict` limiter, write `token.created` with `details.source` set to `issue`, and answer `409 CONFLICT` when the caller already presents a valid token (one caller never gets a second primary) |
 | Independent rotation | Rotating the primary replaces only the primary token: linked tokens keep working with their own values. Rotating a linked token replaces only that token: the primary and the other linked tokens are untouched |
 | Linked = full owner access otherwise | A linked token can do everything the primary can to the owner's resources through the API and MCP, except token management |
 | Expiry | A linked token past `expires_at` is rejected like a revoked one; it stays listed (marked expired) until the owner revokes it or changes its expiry |
@@ -17302,7 +17298,7 @@ server:
 | `gotify` | Gotify URL | `POST {url}/message?token={token}` body `{"title", "message", "priority"}` (mapping below) |
 | `generic` | Any HTTPS URL | `POST {url}` JSON body: `{role, event, subject, body, severity, timestamp, project_name, project_version, app_url, tracking_id?}` |
 
-**Generic payload `timestamp`.** The event time as an RFC 3339 string in UTC with a `Z` suffix and whole seconds (`2026-01-15T10:30:00Z`), set by the server when the event is raised, never local time. It is the same instant as the `X-Webhook-Timestamp` header, which carries it as Unix seconds.
+**Generic payload `timestamp`.** The event time as an RFC 3339 string in UTC with a `Z` suffix and whole seconds (`2026-01-15T10:30:00Z`), set by the server when the event is raised, never local time. It is the immutable event time and is NOT the `X-Webhook-Timestamp` header: that header is the send time of THIS delivery attempt, so every retry gets a fresh one and stays inside the receiver's replay window.
 
 **Severity and priority.** `severity` is `info`, `warning` or `critical` (a success or info event is `info`, a warning is `warning`, an error is `critical`). Pushover `priority` is `0` for `info` and `warning` and `1` for `critical`; the emergency priority `2` is never used because it needs retry and expire parameters. Gotify `priority` is `2` for `info`, `5` for `warning` and `8` for `critical`.
 
@@ -17315,7 +17311,7 @@ Every outbound webhook POST includes these headers so the receiver can verify th
 | Header | Value |
 |--------|-------|
 | `X-Webhook-Signature` | `sha256=<hex_hmac>` where `hmac = HMAC-SHA256(per_webhook_secret, request_body_bytes)`. The `per_webhook_secret` is generated at start whenever the webhook URL is set and its secret is empty (random 32 bytes, persisted in `secrets.yml` as `server.contact.{role}.webhooks.{transport}_secret`, the sibling of the URL key `{transport}`). It is never returned by any API response and never printed: the operator reads it from `secrets.yml` (mode `0600`) to configure the receiving end, or writes a value of their own there before the first start. |
-| `X-Webhook-Timestamp` | Unix seconds — receiver SHOULD reject if delta exceeds `±5 min` to prevent replay |
+| `X-Webhook-Timestamp` | Unix seconds of THIS delivery attempt, set again on every retry (the payload `timestamp` stays the immutable event time) — receiver SHOULD reject if delta exceeds `±5 min` to prevent replay |
 | `X-Webhook-ID` | UUID v7 (PART 11) — idempotency key the receiver can use to deduplicate retries |
 | `X-Webhook-Event` | The event type (e.g., `security.report_received`, `backup.failed`) |
 | `User-Agent` | `{project_name}/{project_version} (+{app_url})` |
@@ -41444,7 +41440,7 @@ fi
 3. Install test tools in container (Docker: `apk add --no-cache curl bash file jq tor i2pd tzdata ca-certificates`)
 4. Copy binaries to test container
 5. Start server
-6. Run full beta test suite:
+6. Run the beta test suite below (identical in both scripts: operator-token authentication and the full CLI checks are required in BOTH; only the init-system and service-lifecycle checks belong to `incus.sh` alone):
    - Version and help checks (server, CLI)
    - Binary info verification
    - **Binary rename tests** (copy binary, verify --help shows new name)
@@ -41458,7 +41454,7 @@ fi
 
 #### tests/docker.sh
 
-**Purpose:** The basic tier: the binary-validation suite in one Docker Alpine container (does it start and answer, Tor and I2P health included). The shipped image is checked after `make docker` and in CI ("Image check"), not here. No init system and no service lifecycle: those belong to `tests/incus.sh`
+**Purpose:** The basic tier: the beta suite in one Docker Alpine container (does it start and answer, operator-token and CLI checks and Tor and I2P health included): the same suite as `tests/incus.sh` minus the init-system and service-lifecycle steps. The shipped image is checked after `make docker` and in CI ("Image check"), not here. No init system and no service lifecycle: those belong to `tests/incus.sh`
 
 ```bash
 #!/usr/bin/env bash
@@ -52619,7 +52615,7 @@ Before starting integration:
 - Work incrementally
 - Test continuously
 - Document everything
-- Get approval at each phase
+- Get human approval before a phase only when it introduces breaking behavior, destructive migration steps, production-impacting risk or unresolved scope decisions (the Phase 4 rule); every other phase proceeds without waiting
 - Preserve existing functionality unless explicitly changing it
 - NEVER rush integration to "get it done faster"
 
