@@ -354,10 +354,20 @@ server:
   contact:
     general:
       email: ""
+      webhooks:
+        telegram: ""
+        discord: ""
+        slack: ""
+        mattermost: ""
+        pushover: ""
+        gotify: ""
+        generic: ""
     admin:
       email: ""
+      webhooks: {}
     abuse:
       email: ""
+      webhooks: {}
     antispam:
       honeypot: true
       min_fill_seconds: 3
@@ -377,11 +387,19 @@ server:
       duplicate_window_hours: 24
     security:
       email: ""
+      webhooks: {}
     dpo:
       name: ""
       email: ""
       address: ""
 ```
+
+Webhook endpoint URLs can be set under each role's `webhooks` map. Built-in
+adapters support Telegram, Discord, Slack, Mattermost, Pushover, Gotify, and
+generic HTTPS JSON. The server generates a per-endpoint HMAC signing secret
+and stores it with the webhook URL in `secrets.yml`. Configure the generated
+secret on the receiving side. Security report webhooks receive metadata
+summaries only, never the report body or reporter contact details.
 
 Branding, SEO, and the default visitor theme belong in
 `{config_dir}/yaml.d/branding.yml`. The server does not generate this file;

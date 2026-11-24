@@ -71,7 +71,9 @@ owner_token: shortner_owner_token_zgnygola
 - Tor and I2P provide optional overlay ingress for the same server-rendered service.
   Tor starts when its runtime is present; I2P defaults off on hosts and on in
   containers. Overlay addresses use HTTP within their networks.
-- No identity provider, no OAuth, no payment processor, no webhook integrations.
+- No identity provider, no OAuth, or payment processor. Operator notifications and
+  report routing support configured outbound webhooks; these are server-to-operator
+  integrations, not user-facing callbacks.
 - User-supplied `destination_url` is untrusted input: validated for well-formed URL
   syntax only. No SSRF exposure server-side, since redirects are 302 responses sent to
   the client's browser — the server never fetches, renders, or proxies the destination.

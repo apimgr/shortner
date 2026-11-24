@@ -520,7 +520,6 @@ Server-rendered HTML. Every one of these works with JavaScript disabled.
 | `GET /static/*` | Embedded CSS, JS, and images |
 | `GET /manifest.json` | PWA manifest |
 | `GET /sw.js` | Build-stamped service worker |
-| `GET /offline.html` | Offline fallback page |
 | `GET /favicon.ico` | Embedded default favicon (the page head may use a configured HTTPS or same-origin branding icon) |
 | `GET /sitemap.xml` | Public-page sitemap or sitemap index |
 | `GET /sitemap-{part}.xml` | A numbered sitemap page when the URL limit is exceeded |

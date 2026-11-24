@@ -17,7 +17,8 @@ and protocol surfaces it exposes, and the ones it deliberately does not.
 | Atom and RSS feeds | Served at `/feed.xml` and `/rss.xml` |
 | WebFinger, OpenID configuration, app association, MTA-STS | Present but disabled by default |
 | Browser reporting (CSP, NEL) | Available |
-| Webhooks, federation, OAuth/OIDC provider, machine identity | **None. Not implemented.** |
+| Role-based webhooks | Available for operator events and contact/security reports |
+| Federation, OAuth/OIDC provider, machine identity | **None. Not implemented.** |
 | Swagger / OpenAPI / GraphQL | Available at `/server/docs/swagger`, `/server/docs/graphql`, `/api/swagger`, and `/api/graphql` |
 | Tor v3 hidden service | Available when a Tor binary is detected |
 | I2P eepsite | On by default in containers; opt-in on hosts; needs i2pd or a SAM provider |
@@ -344,12 +345,30 @@ no OAuth or OIDC flow is implemented. The endpoint exists so an operator
 who fronts the domain with a real identity provider can publish metadata
 at the expected path.
 
+## Webhooks
+
+Outbound webhooks use the role configuration under
+`server.contact.{admin,security,abuse,general}.webhooks`. Supported adapters
+are Telegram, Discord, Slack, Mattermost, Pushover, Gotify, and generic HTTPS
+JSON. Events include operator notifications and accepted contact/security
+reports; shortened-link creation and click events are not emitted.
+
+Every request carries an HMAC-SHA256 `X-Webhook-Signature`, an
+`X-Webhook-Timestamp`, a stable retry `X-Webhook-ID`, the event name, and a
+project/version user agent. Configure each generated per-endpoint signing
+secret from `secrets.yml` at the receiver. Failed deliveries retry after
+1 minute, 5 minutes, 15 minutes, 1 hour, 6 hours, and 24 hours, then log a
+redacted failure without exposing endpoint URLs or payload contents.
+
+Pushover priorities are 0 for info/warning and 1 for critical. Gotify uses 2,
+5, and 8 for info, warning, and critical. Security report webhooks contain
+only tracking ID, severity, component, and operator review instructions;
+full report content and reporter contact details are never sent by webhook.
+
 ## Integrations Not Yet Implemented
 
 Stated explicitly so they are not assumed:
 
-- **No webhooks.** There is no outbound callback on link creation, click,
-  or any other event.
 - **No federation.** No ActivityPub, no Matrix, no cross-instance
   protocol.
 - **No OAuth or OIDC**, as provider or as client. There are no user
@@ -370,8 +389,10 @@ Stated explicitly so they are not assumed:
 
 ## Progressive Web App
 
-The server serves an embedded manifest at /manifest.json, a root-scoped
-service worker at /sw.js, and an offline fallback at /offline.html.
+The server serves an embedded manifest at `/manifest.json` and a root-scoped
+service worker at `/sw.js`. The worker synthesizes its offline document from
+translated strings stored by the first page load; there is no static
+`/offline.html` route or asset.
 Service workers require HTTPS in browsers. The install prompt, iOS install
 instructions, user-confirmed update prompt, and online/offline indicator
 enhance the pages. The worker caches version-stamped static assets and
