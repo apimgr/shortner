@@ -106,7 +106,7 @@ AI reads AI.md for the first time
 | `{PROJECT_NAME}` | UPPERCASE | Mutable | `MYAPP` |
 | `{project_org}` | lowercase | Mutable | `myorg` |
 | `{PROJECT_ORG}` | UPPERCASE | Mutable | `MYORG` |
-| `{internal_name}` | lowercase | **Stable** at first-time setup | `myapp` |
+| `{internal_name}` | lowercase for a new value (a mixed-case value kept by a migration is the one exception, see the migration rule) | **Stable** at first-time setup | `myapp` |
 | `{INTERNAL_NAME}` | UPPERCASE | **Stable** | `MYAPP` |
 | `{plist_name}` | derived | Derived from `{internal_org}` + `{internal_name}` (frozen identifiers, so a rename never changes the launchd label) | `io.github.myorg.myapp` |
 
@@ -957,7 +957,7 @@ The `release` job already has `contents: write` to push assets — this covers t
 --status                     # Show status and health (exit 0=healthy, 1=unhealthy)
 --service {start,restart,stop,reload,--install,--uninstall,--disable,--help}
 --daemon                     # Daemonize (detach from terminal)
---maintenance {backup,restore,update,mode,setup,pgp,security,secret,token,data,compliance,scheduler,--help} [optional-file-or-setting-or-action]
+--maintenance {backup,restore,update,mode,setup,pgp,security,secret,token,data,compliance,scheduler,email,--help} [optional-file-or-setting-or-action]
 --update [check|yes|branch {stable|beta|devel}]
 ```
 
@@ -2880,7 +2880,7 @@ fi
 
 - Migration is a one-time operation per project. Once IDEA.md is in the three-section format, do NOT re-run migration on subsequent reads (the detection step above is the gate).
 - If old content does not fit cleanly into one of the three sections, ASK the user — do not invent a fourth section, do not silently drop content.
-- If the old IDEA.md already had `internal_name` set to a value different from `project_name`, KEEP that value. The freeze rule applies — the existing internal_name is the stable identity, even if it differs from project_name (the project may have already been renamed once).
+- If the old IDEA.md already had `internal_name` set to a value different from `project_name`, KEEP that value. The freeze rule applies — the existing internal_name is the stable identity, even if it differs from project_name (the project may have already been renamed once). A kept `internal_name` that is not lowercase stays exactly as it is: the shipped on-disk identity overrides the lowercase rule, which governs new values only. Record it in IDEA.md `## Project variables` with a one-line reason, and never lowercase it in any consumer, because that would move `{config_dir}`, `{data_dir}` and the service names.
 - After successful migration, verify the new `## Project variables` section is complete and accurate.
 
 
@@ -5022,11 +5022,11 @@ By using this software, you acknowledge that you have read and understood this d
 | Context | URL Format | Example |
 |---------|------------|---------|
 | **Documentation** (README, docs/, examples) | `{official_site}/path` | `GET https://api.example.com/server/healthz` |
-| **Embedded code** (Go, JS, templates) | `{fqdn}/path` | `fmt.Sprintf("https://%s/server/healthz", cfg.FQDN)` |
+| **Embedded code** (Go, JS, templates) | `{fqdn}/path` | `BuildURL(r, "/server/healthz")` |
 
 **Why the distinction:**
 - **Documentation**: Users copy-paste. Full URLs work immediately.
-- **Embedded code**: Must use configured FQDN variable for the running instance.
+- **Embedded code**: Must use the `{fqdn}` resolved for the request (PART 8 -> "Resolution Order"; the operator fixes it with `DOMAIN`), never a hardcoded host and never the `server.fqdn` key, which is not a URL source.
 
 ---
 
@@ -5184,7 +5184,7 @@ if cfg.Server.Healthz.Root.Enabled {
 |----------|--------|---------|
 | README.md | `{official_site}/path` | `GET https://api.example.com/server/healthz` |
 | docs/*.md | `{official_site}/path` | `curl -q -LSsf https://api.example.com/api/v1/items` |
-| Go code | `{fqdn}/path` | `fmt.Sprintf("https://%s/path", cfg.FQDN)` |
+| Go code | `{fqdn}/path` | `BuildURL(r, "/path")` |
 | JS code | `origin/path` | `${window.location.origin}/path` |
 | Email templates | `{fqdn}/path` (PART 17: `{variable}` syntax, not Go templates) | `https://{fqdn}/server/security/report/{token}` |
 | HTML pages (same-origin links, forms, assets) | origin-relative via `path` | `{{ path "/server/healthz" }}` |
@@ -6131,7 +6131,7 @@ PROJECT_ORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+
 ├── src/                    # All source files
 ├── scripts/                # Production/install scripts (if any)
 ├── tests/                  # Repository-root executable integration test scripts (Go unit tests stay next to code as *_test.go)
-│   ├── run_tests.sh        # Auto-detect and run tests (REQUIRED)
+│   ├── run_tests.sh        # Docker-only basic runner, runs docker.sh (REQUIRED)
 │   ├── docker.sh           # Beta testing with Docker (REQUIRED)
 │   ├── incus.sh            # Full-app testing in Incus containers, with and without systemd (REQUIRED)
 │   ├── virt.sh             # Clean-OS testing in real VMs (OPTIONAL — only when a clean OS is needed, PART 28)
@@ -7797,7 +7797,6 @@ func IsFalsy(s string) bool {
 ```go
 // Environment variables
 debug := config.MustParseBool(os.Getenv("DEBUG"), false)
-enableTor := config.MustParseBool(os.Getenv("ENABLE_TOR"), true)
 
 // Config file values (after YAML/JSON unmarshal to string)
 sslEnabled, err := config.ParseBool(cfg.SSL.Enabled, false)
@@ -8468,6 +8467,7 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 | `--maintenance token revoke <prefix>` | 🔐 Auth | Requires `server.token` OR root, plus typed confirmation | N/A |
 | `--maintenance data <export\|delete> --owner <prefix>` | 🔐 Auth | Requires `server.token` OR root | N/A |
 | `--maintenance compliance report` | 🔐 Auth | Requires `server.token` OR root | N/A |
+| `--maintenance email test [--to ADDRESS] [--dry-run]` | 🔐 Auth | Requires `server.token` OR root (`--dry-run` sends nothing) | N/A |
 | `--maintenance scheduler list`, `show <id>`, `history <id>` | 🔐 Auth | Requires `server.token` OR root | N/A |
 | `--maintenance scheduler run <id>`, `enable <id>`, `disable <id>` | 🔐 Auth | Requires `server.token` OR root; each run, enable and disable is audited | N/A |
 | (normal start) | ❌ No | Adapts paths to current user | N/A |
@@ -9135,6 +9135,8 @@ Before proceeding, confirm you understand:
 | `/debug/cache` | GET | Cache statistics |
 | `/debug/db` | GET | Database statistics |
 | `/debug/scheduler` | GET | Scheduler task status |
+| `/debug/memory` | GET | Memory statistics (`runtime.MemStats`) |
+| `/debug/goroutines` | GET | Goroutine count and stack summary |
 
 ### Debug Implementation
 
@@ -10658,7 +10660,7 @@ NO_COLOR=1 {project_name} --status | grep -E '✅|❌|⚠️|🚀'
 --color {auto|yes|no}
 # Language for output (default: auto, from LANG env)
 --lang {code}
---maintenance {backup,restore,update,mode,setup,pgp,security,secret,token,data,compliance,scheduler,--help} [optional-file-or-setting-or-action]
+--maintenance {backup,restore,update,mode,setup,pgp,security,secret,token,data,compliance,scheduler,email,--help} [optional-file-or-setting-or-action]
 # Check/perform updates
 --update [check|yes|branch {stable|beta|devel}|--help]
 # Shell integration
@@ -12128,12 +12130,15 @@ func OpenDatabase(cfg *Config) (*Database, error) {
 -- There is NO config table: configuration lives only in server.yml (PART 5)
 
 -- ----------------------------------------------------------------------------
--- Rate Limiting (sliding window counters)
+-- Rate Limiting (sliding window counter: the current and the previous fixed window)
+-- allowed while prev_count * (1 - elapsed / window) + count is below the limit, where elapsed is the seconds since window_start;
+-- when now passes window_start + window, count becomes prev_count and a new window starts
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS rate_limits (
     -- "ip:1.2.3.4:login" or "key:abc12345:global" (prefix, not hash)
     key         TEXT PRIMARY KEY,
     count       INTEGER NOT NULL DEFAULT 1,
+    prev_count  INTEGER NOT NULL DEFAULT 0,
     window_start INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
     updated_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 );
@@ -12403,7 +12408,7 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 | **New token** | Shown only without an owner cookie: issues a new owner and its primary token on request (see "Owners and Owner Tokens") |
 | **Use an existing token** | Restore an identity on a new browser/device by pasting the primary token (see "Owners and Owner Tokens") |
 | **Linked tokens** (list) | Name, masked token, created, last used, expires, status (active / expired / revoked) |
-| **Create linked token** | Name (required, 1–64 chars, unique per owner) and expiry: `never` (default), `7d`, `30d`, `90d`, `1y`, or a chosen date. Maximum `server.tokens.max_linked` (default `25`) active per owner. The new token is displayed and stays viewable |
+| **Create linked token** | Name (required, 1–64 chars, unique per owner) and expiry: `never` (default), `7d`, `30d`, `90d`, `1y`, or a chosen date (UTC, see "Expiry semantics"). Maximum `server.tokens.max_linked` (default `25`) active per owner. The new token is displayed and stays viewable |
 | **Per linked token** | Reveal, Copy, Rotate (in place, keeps name and expiry), Rename, Change expiry, Revoke (immediate, permanent) |
 | **Revoke primary** | Offered behind a typed confirmation: it DELETES the whole owner, meaning the primary, every linked token and every resource the owner has, including anything created with a linked token. It is a different action from **Rotate**: rotate swaps the token's value and keeps the owner, its linked tokens and its resources; revoke ends the owner and nothing of it remains (see "Revoking a primary token") |
 
@@ -12437,6 +12442,19 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 | `POST /server/preferences/tokens/{id}/rotate` | `POST /api/{api_version}/server/preferences/tokens/{id}/rotate` | Rotate a linked token in place |
 | `POST /server/preferences/tokens/{id}/update` | `PATCH /api/{api_version}/server/preferences/tokens/{id}` | Rename / change expiry |
 | `POST /server/preferences/tokens/{id}/revoke` | `DELETE /api/{api_version}/server/preferences/tokens/{id}` | Revoke a linked token |
+
+**Linked-token JSON (envelope `{ "ok": true, "data": ... }`; field names are fixed).** A token object never carries the raw value: `{ "id": "<uuid>", "name": "ci", "kind": "linked", "token_masked": "own_...XXXX", "created_at": "<RFC 3339 UTC>", "last_used_at": "<RFC 3339 UTC>|null", "expires_at": "<RFC 3339 UTC>|null", "status": "active|expired|revoked" }`.
+
+| Operation | Request body | Success | Errors |
+|-----------|--------------|---------|--------|
+| List `GET .../tokens` | none | `200`, `data`: `{ "primary": <token object, kind "primary">, "linked": [<token object>], "max_linked": 25 }` (masked values only) | `401` |
+| Create `POST .../tokens` | `{ "name": "ci", "expires": "never" }` or `{ "name": "ci", "expires_on": "2027-01-31" }`; `expires` is one of `never`, `7d`, `30d`, `90d`, `1y` (default `never`), `expires_on` is a date; sending both is `400` | `201`, `data`: the token object plus `"linked_token": "own_..."` (the raw value, the field name is fixed like `owner_token`) | `400 VALIDATION_FAILED`, `409 CONFLICT` (name already used by this owner, or `server.tokens.max_linked` reached), `401`, `403` |
+| Reveal `POST .../tokens/{id}/reveal` | none | `200`, `data`: the token object plus `linked_token` | `404 NOT_FOUND`, `401`, `403` |
+| Rotate `POST .../tokens/{id}/rotate` | none | `200`, `data`: the token object (same `id`, `name` and `expires_at`) plus the new `linked_token` | `404 NOT_FOUND`, `401`, `403` |
+| Update `PATCH .../tokens/{id}` | any of `name`, `expires`, `expires_on` (same rules as create) | `200`, `data`: the token object, no raw value | `400 VALIDATION_FAILED`, `409 CONFLICT`, `404 NOT_FOUND`, `401`, `403` |
+| Revoke `DELETE .../tokens/{id}` | none | `200`, `data`: `{ "id": "<uuid>", "status": "revoked" }` | `404 NOT_FOUND`, `401`, `403` |
+
+**Expiry semantics (one rule for the page, the API and the CLI).** `7d`, `30d`, `90d` and `1y` run from the moment of creation or change, to the second. A chosen date (`expires_on`, `YYYY-MM-DD`) is a UTC date: the token stays valid through that whole day and is rejected from `00:00:00 UTC` of the next day, and `expires_at` is stored and returned as that instant. The date must be today or later in UTC; a past date is `400`. The tokens page shows every expiry in UTC and labels it so.
 
 Token-management routes get no unversioned alias (they are data-shaped, see "Unversioned API aliases") and are never exposed as MCP tools.
 
@@ -15475,7 +15493,7 @@ web:
 - API base URL from config
 - Endpoints auto-discovered from route registrations (public + authenticated, not admin-only)
 - Capabilities derived from enabled features
-- Contact info from `web.security.contact` and `web.api_contact`
+- Contact info from the canonical contact keys: `{api_contact}` is `server.contact.general.email` and `{security_contact}` is `server.contact.security.email` (PART 12 -> "Contact Configuration")
 
 **Endpoint Inclusion Rules:**
 | Route Type | Included | Reason |
@@ -15504,11 +15522,11 @@ web:
 | Specification | This template targets MCP revision **2026-07-28** (https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http). A request whose `MCP-Protocol-Version` names any other revision, or an `initialize` handshake from an older client, is answered `400` with the spec's `UnsupportedProtocolVersionError` listing `2026-07-28`; the older initialize negotiation that answers with another supported version is not implemented. The header, error and transport rules come from that revision, not from this file |
 | Canonical route | `/api/{api_version}/server/mcp` |
 | Aliases | `/api/mcp` and `/mcp` — direct aliases for the current `{api_version}`; the SAME handler mounted at all three paths, never a redirect (see "Unversioned API aliases") |
-| Route class | All three paths, including the root `/mcp` alias, are API-class: never content-negotiated, no User-Agent detection, never HTML or plain text. Every response, including `400`, `403`, `404` and `405`, is JSON (a JSON-RPC error object when the request parsed, otherwise the canonical error body); success is `application/json` or `text/event-stream` according to the client's `Accept` |
+| Route class | All three paths, including the root `/mcp` alias, are API-class: never content-negotiated, no User-Agent detection, never HTML or plain text. Every response, including `400`, `403`, `404` and `405`, is JSON (a JSON-RPC error object when the request parsed, otherwise the canonical error body); success is a single `application/json` object, or `text/event-stream` only when the tool being called streams progress AND the client's `Accept` lists `text/event-stream` |
 | Reserved name | `mcp` is in `reservedNames` so no user, org, or project slug can claim `/mcp` |
 | Help page | `/server/help/mcp` documents how to connect a client (see "/server/help/mcp"); `/server/help` links to it |
 | Methods | `POST` only. `GET` and `DELETE` → `405 Method Not Allowed` (the server keeps no sessions and opens no standalone stream) |
-| Responses | A single `application/json` object per request; an SSE stream only when a tool needs to stream progress. Server-initiated requests are never sent |
+| Responses | A single `application/json` object per request; an SSE stream only when a tool needs to stream progress AND the client's `Accept` lists `text/event-stream` (a client that does not accept it gets the one JSON object, the tool's final result without progress). Server-initiated requests are never sent |
 | Sessions | None. An `Mcp-Session-Id` header, if sent by an older client, is ignored — never minted, never echoed |
 | `Origin` | If an `Origin` header is present it MUST be the request's own origin, a configured public origin (PART 8 → "Resolution Order"), or an explicit entry of the resolved CORS allow-list (PART 16 → "CORS Allow-list Resolution Order"); the `*` default of that list does NOT authorize MCP origins; anything else → `403` (DNS-rebinding protection required by the spec). Requests without an `Origin` header (non-browser clients) are unaffected |
 | Header checks | Every `POST` carries `MCP-Protocol-Version` (equal to `_meta` `io.modelcontextprotocol/protocolVersion` in the body) and `Mcp-Method` (equal to the body `method`); `tools/call`, `resources/read` and `prompts/get` also carry `Mcp-Name` (equal to `params.name` or `params.uri`; a value that is not plain ASCII arrives as `=?base64?…?=` and is decoded before it is compared). A missing, malformed or mismatched header → `400` with JSON-RPC error code `-32020` (`HeaderMismatch`) |
@@ -16962,14 +16980,14 @@ server:
 ## Tor Hidden Service Configuration
 
 ```yaml
-tor:
-  # .onion hostname for this service (without http:// prefix)
-  # If set, requests with this Host header are treated as Tor requests
-  onion_address: ""
-  # Contact email for .onion responses (security.txt, contact pages, error pages)
-  # If unset, no email is shown on Tor responses — never fall back to the clearnet email
-  contact_email: ""
+server:
+  tor:
+    # Contact email for .onion responses (security.txt, contact pages, error pages)
+    # If unset, no email is shown on Tor responses — never fall back to the clearnet email
+    contact_email: ""
 ```
+
+**`tor.onion_address` is not a configuration key.** In this specification it names the `.onion` hostname that the Tor manager reads from the HiddenServiceDir `hostname` file once tor has written it (PART 31): runtime state, never written to `server.yml`. While it is unknown (no Tor binary, or tor has not published the address yet) Tor detection is off. The only configured Tor value in this section is `server.tor.contact_email`.
 
 ### Tor Request Detection
 
@@ -17043,7 +17061,7 @@ These rules apply to **all responses** when the request is detected as a Tor req
 
 | Rule | Requirement |
 |------|-------------|
-| **Email** | Show `tor.contact_email` only; if unset, omit email entirely from all responses (security.txt, contact pages, error pages, footers). Never fall back to the clearnet contact email. |
+| **Email** | Show `server.tor.contact_email` only; if unset, omit email entirely from all responses (security.txt, contact pages, error pages, footers). Never fall back to the clearnet contact email. |
 | **URLs** | All absolute URLs in responses must use `tor.onion_address`. Never embed clearnet FQDN. Applies to: `security.txt`, `llms.txt`, OpenAPI `servers[0].url`, GraphQL endpoint, OAuth redirect URIs, email verification links, pagination links. |
 | **Clearnet links** | Any link that would normally point to the clearnet site must use the onion address or be omitted entirely. |
 | **CORS** | The onion address is added to the CORS allow-list automatically when `tor.onion_address` is set. The clearnet origin must NOT appear in Tor response CORS headers. |
@@ -17063,7 +17081,7 @@ Policy: http://{tor.onion_address}/server/security/policy
 Expires: {expiry_date}
 ```
 
-- `{tor_contact_line}` = `Contact: mailto:{tor.contact_email}` — **omitted entirely if `tor.contact_email` is unset**; never falls back to the clearnet contact email
+- `{tor_contact_line}` = `Contact: mailto:{tor.contact_email}` — **omitted entirely if `server.tor.contact_email` is unset**; never falls back to the clearnet contact email
 - All URLs use `http://` and `tor.onion_address` — no clearnet FQDN appears anywhere in this file
 - `Preferred-Languages:` line is **omitted** (locale fingerprinting risk on Tor)
 - Served per-request via `BuildURL(r, path)`; never cached or frozen at startup
@@ -17110,7 +17128,7 @@ server:
 | Health / status | 120 req/min | 60s | `/server/healthz` (and the optional `/healthz` root alias) |
 | Global burst | 240 req/min | 60s | Absolute ceiling across all types |
 | Strict (token reveal, rotate, restore) | 10 / 15 min | 900s | Per IP (anonymous restore) or per owner (authenticated reveal and rotate). Every attempt, valid or not, consumes it |
-| Failed authentication | 5 failures / 15 min | 900s | Per IP, sliding window. At the limit every request from that IP, even one with a valid token, gets `429` until the oldest failure leaves the window; a success never resets the count |
+| Failed authentication | 5 failures / 15 min | 900s | Per IP, sliding window. At the limit every request from that IP, even one with a valid token, gets `429` until the sliding-window count falls below the limit; a success never resets the count |
 
 **Response when limited:** `429 Too Many Requests` with `Retry-After` header set to seconds until the window resets. Body: `{"ok":false,"error":"RATE_LIMITED","message":"Too many requests"}` — the wait time is conveyed via the `Retry-After` header only, never as a top-level body field (see PART 14 error-response rules).
 
@@ -17296,6 +17314,8 @@ Use only the canonical contact keys in all new config, examples, docs, UI, and c
 - `server.contact.security.email`
 - `server.contact.abuse.email`
 - `server.contact.general.email`
+
+The one other recipient key is `server.tor.contact_email`, the only address shown on Tor responses (PART 31).
 
 Do NOT introduce flat aliases, duplicate names, or migration shims for contact recipients unless the user explicitly requests a migration feature.
 
@@ -19435,7 +19455,7 @@ Before adding ANY route, verify:
 
 **Path Parameters (Preferred):**
 ```
-GET /api/{api_version}/items/123              ✓ Good - resource by ID
+GET /api/{api_version}/items/0b9a7c5e-3f1d-4a8e-9c2b-6d4e1f7a8b30              ✓ Good - resource by ID
 GET /api/{api_version}/jokes/programming      ✓ Good - category in path (project-scoped)
 GET /api/{api_version}/search/golang          ✓ Good - search term in path
 
@@ -19768,7 +19788,7 @@ func getAPIResponseFormat(r *http.Request) string {
 
 **Frontend with smart detection:**
 - `curl -q -LSsf https://example.com/joke/random` → Auto-detects CLI, returns text (no .txt needed)
-- `curl -q -LSsf -H "Accept: text/plain" https://example.com/items/123` → Plain text
+- `curl -q -LSsf -H "Accept: text/plain" https://example.com/items/0b9a7c5e-3f1d-4a8e-9c2b-6d4e1f7a8b30` → Plain text
 - Browser visit to `/joke/random` → HTML page
 - Command-line tools get text automatically
 
@@ -20805,7 +20825,7 @@ Need additional compatible endpoints?"
 | `/server/docs/graphql` | GET | None | GraphiQL UI (interactive GraphQL explorer; POSTs to `/api/{api_version}/server/graphql`) |
 | `/server/metrics[/{service}]` | GET | Bearer token (per service) | Metrics — `prometheus`, `grafana`, `loki` services (PART 20) |
 | `/metrics[/{service}]` | GET | Bearer token (per service) | Root alias when `server.metrics.root.enabled: true` (default true); same handler, NEVER a redirect |
-| `/api/autodiscover` | GET | None | Server settings, config schema, and options for CLI (non-versioned) |
+| `/api/autodiscover` | GET | None | Discovery document for clients and the CLI (non-versioned): `name`, `version`, `api`, `urls`, `onion` and `i2p` (only when exposed), `cli_versions`, `cli_min_version` (see "CLI Auto-Update") |
 | `/api/swagger` | GET | None | OpenAPI JSON spec — direct alias for current `{api_version}` |
 | `/api/graphql` | POST | None | GraphQL queries — direct alias for current `{api_version}` |
 | `/api/mcp` | POST | Bearer (required) | MCP endpoint — direct alias for current `{api_version}`; same auth as the API |
@@ -22296,7 +22316,7 @@ func detectClientType(r *http.Request) string {
 |-------|---------|----------|-------------------|-------------------|--------------------------|
 | `/` | HTML page | Text | Text | HTML | JSON |
 | `/items` | HTML list | Text list | Text list | HTML list | JSON array |
-| `/items/123` | HTML detail | Text (name) | Text | HTML detail | JSON object |
+| `/items/0b9a7c5e-3f1d-4a8e-9c2b-6d4e1f7a8b30` | HTML detail | Text (name) | Text | HTML detail | JSON object |
 | `/jokes/random` | HTML joke page | Just the joke | Just the joke | HTML page | JSON object |
 
 ### CRUD Operations MUST Work in All Modes
@@ -22306,7 +22326,7 @@ func detectClientType(r *http.Request) string {
 1. **HTML Forms** (browser users):
    ```html
    <form action="/items" method="POST">...</form>
-   <form action="/items/123" method="POST">
+   <form action="/items/0b9a7c5e-3f1d-4a8e-9c2b-6d4e1f7a8b30" method="POST">
      <input type="hidden" name="_method" value="PUT">
    </form>
    ```
@@ -22314,8 +22334,8 @@ func detectClientType(r *http.Request) string {
 2. **API Endpoints** (programmatic):
    ```bash
    curl -q -LSsf -X POST /api/{api_version}/items -d '{"name":"test"}'
-   curl -q -LSsf -X PATCH /api/{api_version}/items/123 -d '{"name":"updated"}'
-   curl -q -LSsf -X DELETE /api/{api_version}/items/123
+   curl -q -LSsf -X PATCH /api/{api_version}/items/0b9a7c5e-3f1d-4a8e-9c2b-6d4e1f7a8b30 -d '{"name":"updated"}'
+   curl -q -LSsf -X DELETE /api/{api_version}/items/0b9a7c5e-3f1d-4a8e-9c2b-6d4e1f7a8b30
    ```
 
 3. **Frontend Direct** (CLI/scripting):
@@ -22323,7 +22343,7 @@ func detectClientType(r *http.Request) string {
    # Form-encoded
    curl -q -LSsf -X POST /items -d 'name=test'
    # Returns text (auto-detected)
-   curl -q -LSsf /items/123
+   curl -q -LSsf /items/0b9a7c5e-3f1d-4a8e-9c2b-6d4e1f7a8b30
    ```
 
 **Rule:** CRUD must work for browsers (HTML forms), APIs (JSON), and CLI (text/form-encoded).
@@ -22366,13 +22386,13 @@ func deleteHandler(w http.ResponseWriter, r *http.Request) {
 ```bash
 # Easy: Test text output (no HTML parsing needed)
 # Auto-detects CLI, returns text
-curl -q -LSsf /items/123
+curl -q -LSsf /items/0b9a7c5e-3f1d-4a8e-9c2b-6d4e1f7a8b30
 # Explicitly request text
-curl -q -LSsf -H "Accept: text/plain" /items/123
+curl -q -LSsf -H "Accept: text/plain" /items/0b9a7c5e-3f1d-4a8e-9c2b-6d4e1f7a8b30
 
 # Hard: Testing HTML requires parsing
 # Fragile
-curl -q -LSsf -H "Accept: text/html" /items/123 | grep "<title>"
+curl -q -LSsf -H "Accept: text/html" /items/0b9a7c5e-3f1d-4a8e-9c2b-6d4e1f7a8b30 | grep "<title>"
 ```
 
 **Recommended testing approach:**
@@ -22384,7 +22404,7 @@ curl -q -LSsf -H "Accept: text/html" /items/123 | grep "<title>"
 **Test scripts should:**
 ```bash
 # Test frontend returns text for CLI
-RESULT=$(curl -q -LSsf http://localhost:80/items/123)
+RESULT=$(curl -q -LSsf http://localhost:80/items/0b9a7c5e-3f1d-4a8e-9c2b-6d4e1f7a8b30)
 if echo "$RESULT" | grep -q "testitem"; then
     echo "✓ Frontend returns item data"
 else
@@ -22392,7 +22412,7 @@ else
 fi
 
 # Test frontend returns HTML for browser (optional, just check Content-Type)
-CONTENT_TYPE=$(curl -q -LSsfI -H "Accept: text/html" http://localhost:80/items/123 | grep -i "content-type")
+CONTENT_TYPE=$(curl -q -LSsfI -H "Accept: text/html" http://localhost:80/items/0b9a7c5e-3f1d-4a8e-9c2b-6d4e1f7a8b30 | grep -i "content-type")
 if echo "$CONTENT_TYPE" | grep -q "text/html"; then
     echo "✓ Frontend serves HTML to browsers"
 fi
@@ -23883,13 +23903,13 @@ function showToast(message, type = 'info', duration = 3000) {
 | Feature | Description |
 |---------|-------------|
 | **Source** | `web.announcements` config (see "Announcements"); each message whose `start`–`end` window is active renders as a banner; disabled or empty list = no banner |
-| **Placement** | Immediately after `<body>`, before `<main>` — rendered server-side in the base template, so there is no layout shift and no JS dependency |
+| **Placement** | Immediately after the two skip links (the first children of `<body>`), before `<header>` and `<main>` — rendered server-side in the base template, so there is no layout shift and no JS dependency |
 | **Types** | `info`, `warning`, `error`, `success` |
 | **ARIA** | `role="status"` for `info` and `success`; `role="alert"` for `warning` and `error` |
 | **Dismissal** | X button (only when `dismissible: true`) — a tiny `<form method="post" action="/announcements/dismiss">`; the server appends the announcement `id` to the `dismissed_announcements` cookie (comma-separated ids) and redirects back, so dismissal works with zero JS. On `/server/preferences` an announcement renders WITHOUT the dismiss form, because that page has exactly one `POST` form ("Page layout and buttons"); it can be dismissed on any other page. The cookie is keyed on the announcement `id`, so changing the `id` reshows the banner for everyone |
 | **Storage** | `dismissed_announcements` cookie — server-readable, so the server skips rendering dismissed announcements entirely; no flash of a dismissed banner and no JS dependency |
 | **Expiry** | Per-announcement `start`/`end` (ISO 8601, UTC); outside the window = banner not rendered |
-| **Stacking** | Multiple active announcements stack in config order; cookie consent and the PWA update banner share the slot, ordered: cookie consent → announcements → PWA update |
+| **Stacking** | Multiple active announcements stack in config order; cookie consent and the PWA update banner share this one slot (the banner region right after the skip links), ordered: cookie consent → announcements → PWA update |
 
 **HTML Structure:**
 ```html
@@ -26296,7 +26316,7 @@ document.querySelectorAll('[data-confirm-dialog]').forEach((btn) => {
 
 ```html
 <!-- Delete confirmation - native <dialog>, no confirm() -->
-<form id="delete-form" method="post" action="/items/123/delete">
+<form id="delete-form" method="post" action="/items/0b9a7c5e-3f1d-4a8e-9c2b-6d4e1f7a8b30/delete">
   <button type="button" data-confirm-dialog="confirm-delete">Delete</button>
 </form>
 
@@ -28066,8 +28086,10 @@ func SanitizeFooterHTML(html string) string {
 
     // Allowed: images with safe attributes
     p.AllowAttrs("src", "alt", "title", "width", "height").OnElements("img")
-    // Only allow data: URLs and relative paths for images
-    p.AllowURLSchemes("https", "data")
+    // https URLs and relative paths only. A global scheme allowlist cannot limit data: URLs to img[src] or to raster MIME types, and untrusted
+    // SVG/XML inside a data: URL is forbidden, so data: is never allowed
+    p.AllowURLSchemes("https")
+    p.AllowRelativeURLs(true)
 
     // Allowed: class and id for styling (NO style attribute - use classes)
     p.AllowAttrs("class", "id").Globally()
@@ -29935,7 +29957,7 @@ server:
 **API Behavior:**
 - If SMTP not configured, the startup log reports `email.configured=false`
 - Email-dependent features disabled until SMTP configured
-- `{project_name} email test` validates SMTP actually works before enabling email features
+- `{project_name} --maintenance email test` validates SMTP actually works before enabling email features
 
 ## Default Templates
 
@@ -30201,9 +30223,9 @@ A custom template that uses translation keys follows this order. A custom templa
 
 ## Email Template Configuration
 
-Templates are stored as files on disk. Override any built-in template by placing a file in the configured template directory. Use `{project_name} email test` to send a test email and verify configuration.
+Templates are stored as files on disk. Override any built-in template by placing a file in the configured template directory. Use `{project_name} --maintenance email test` to send a test email and verify configuration.
 
-**No web editor:** API projects have no admin or settings UI (PART 16), so templates are edited as files on disk and hot-reloaded. Validation and preview run from the CLI: `{project_name} email test --dry-run` renders every template with the sample data below and runs the validation below without sending anything (an unknown `{variable}` is an ERROR, not a warning: the override file is not loaded and the embedded default stays in use; `--dry-run` reports every error and exits `65`).
+**No web editor:** API projects have no admin or settings UI (PART 16), so templates are edited as files on disk and hot-reloaded. Validation and preview run from the CLI: `{project_name} --maintenance email test --dry-run` renders every template with the sample data below and runs the validation below without sending anything (an unknown `{variable}` is an ERROR, not a warning: the override file is not loaded and the embedded default stays in use; `--dry-run` reports every error and exits `65`).
 
 ### Template Preview
 
@@ -30221,7 +30243,7 @@ Templates are stored as files on disk. Override any built-in template by placing
 
 ### Send Test Email
 
-**Command:** `{project_name} email test [--to ADDRESS]` (the recipient defaults to `server.notifications.email.reply_to`); it sends real email with sample data.
+**Command:** `{project_name} --maintenance email test [--to ADDRESS]` (the recipient defaults to `server.notifications.email.reply_to`); it sends real email with sample data.
 
 **Rules:** Requires SMTP, uses sample data, subject prefixed `[TEST]`, logged to audit log.
 
@@ -32743,7 +32765,7 @@ Shown on:
 | `keep_yearly` | 0 | ≥0 | Yearly backups (Jan 1st) - 0 = disabled |
 | `max_total_size` | `"10%"` | % or bytes | Hard size cap (e.g. `"10%"`, `"50G"`); `0` = disabled; overrides count limits |
 
-**Falsey Values (all disabled):** `0`, `false`, `no`, `none`, `disable`, `disabled`, `off`
+**Falsey Values (disable an optional retention field):** `0`, `false`, `no`, `none`, `disable`, `disabled`, `off`. They apply to `keep_weekly`, `keep_monthly`, `keep_yearly` and `max_total_size` only. `max_backups` cannot be disabled: its valid range is ≥1, and `0` or a falsey word is invalid (warn and use the default `1`, see the validation table).
 
 **Configuration:**
 
@@ -33254,7 +33276,7 @@ server:
 3. The restart runs as root. Startup step 7b verifies the SHA256 again, checks that the staged version is newer than the running one, runs `replaceBinary()` (step 4), deletes `{data_dir}/update/` and re-executes the new binary (step 5), which continues at step 6 as the new version.
 4. Any failure (bad checksum, rename error): the staged files are deleted, the old binary keeps running, `update.failed` is recorded and the Server Admins get the `update_failed` notification. The same version is not staged again until the next release.
 
-**Restart support:** systemd (`Restart=on-failure`), launchd (`KeepAlive`), runit and s6 restart the service after exit `75`. OpenRC, SysV and rc.d do not supervise it: the staged update waits for the next start (boot or `--service restart`) and the Server Admins get the `update_staged` notification (restart to apply).
+**Restart support:** systemd (`Restart=on-failure`), launchd (`KeepAlive`), runit, s6 and rc.d (`daemon -r` restarts the server whenever it exits) restart the service after exit `75`. OpenRC and SysV do not supervise it: the staged update waits for the next start (boot or `--service restart`) and the Server Admins get the `update_staged` notification (restart to apply).
 
 ### Platform-Specific Binary Replacement
 
@@ -35646,7 +35668,7 @@ docker/
 | Meta labels | All OCI labels (see below) |
 | Required packages | git, curl, bash, tini, tor, i2pd, tzdata, ca-certificates |
 | Image contract | EVERY image the project ships (release, `:devel`, the all-in-one Debian image, any variant) installs `bash`, `curl`, `tor`, `i2pd`, `tini`, `tzdata` and `ca-certificates` in its FINAL stage. `tor` and `i2pd` are installed even though I2P is opt-in: a missing package is an image bug, never a runtime fallback. A project may ADD packages and never remove these |
-| Image check | After every build, CI and `tests/docker.sh` run `docker run --rm --entrypoint sh {image} -c 'for c in bash curl tor i2pd tini; do command -v "$c" || exit 1; done'` and fail on any missing command; the container's `/server/healthz` must then report `features.tor.status` `healthy` within `server.tor.bootstrap_timeout` (default 180 seconds): it is `starting` while Tor bootstraps and becomes `healthy` only once the hidden service address exists, so the check waits for the bootstrap timeout, not the shorter `startup_timeout`. The image contract assumes outbound network access, because Tor cannot bootstrap without it: on a runner with none, the check accepts `starting` or `unavailable` (never `error`), prints `SKIP: no outbound network` on stderr and does not fail, and `REQUIRE_OVERLAY=1` makes `healthy` mandatory |
+| Image check | After every image build (`make docker`) and in CI, run `docker run --rm --entrypoint sh {image} -c 'for c in bash curl tor i2pd tini; do command -v "$c" || exit 1; done'` and fail on any missing command; the container's `/server/healthz` must then report `features.tor.status` `healthy` within `server.tor.bootstrap_timeout` (default 180 seconds): it is `starting` while Tor bootstraps and becomes `healthy` only once the hidden service address exists, so the check waits for the bootstrap timeout, not the shorter `startup_timeout`. The image contract assumes outbound network access, because Tor cannot bootstrap without it: on a runner with none, the check accepts `starting` or `unavailable` (never `error`), prints `SKIP: no outbound network` on stderr and does not fail, and `REQUIRE_OVERLAY=1` makes `healthy` mandatory |
 | Tor handling | Installed but **binary controls** (see PART 31) |
 | Binary location | `/usr/local/bin/{project_name}` |
 | Entrypoint script | `/usr/local/bin/entrypoint.sh` |
@@ -38596,7 +38618,7 @@ All `$CI_*` variables are auto-populated by GitLab (works with self-hosted).
 
 ```yaml
 # GitLab CI/CD Pipeline for {project_name}
-# Equivalent to GitHub Actions: release.yml, beta.yml, devel.yml, docker.yml
+# Equivalent to GitHub Actions: release.yml, beta.yml, devel.yml, docker.yml and the jobs of ci.yml (lint, coverage, secret-scan, workflow-policy, vuln-scan, image-scan)
 
 variables:
   PROJECT_NAME: "{project_name}"
@@ -38608,6 +38630,8 @@ variables:
   BUILD_IMAGE: "casjaysdev/go:latest"
 
 stages:
+  - lint
+  - security
   - build
   - test
   - package
@@ -38636,6 +38660,83 @@ stages:
         export OFFICIAL_SITE="${OFFICIAL_SITE:-}"
       fi
     - export LDFLAGS="-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildEpoch=${BUILD_EPOCH}' -X 'main.OfficialSite=${OFFICIAL_SITE}'"
+
+# =============================================================================
+# CI JOBS (the jobs of ci.yml: lint and the security jobs)
+# =============================================================================
+# lint skips the weekly schedule; the security jobs run on every pipeline, the weekly schedule included
+
+lint:
+  <<: *go-build
+  stage: lint
+  script:
+    - go vet ./...
+    - staticcheck ./...
+  rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule"
+
+secret-scan:
+  stage: security
+  image:
+    name: trufflesecurity/trufflehog:latest
+    entrypoint: [""]
+  variables:
+    # The whole history must be available to the scan
+    GIT_DEPTH: "0"
+  script:
+    - |
+      if [ "$CI_PIPELINE_SOURCE" = "schedule" ] || [ -z "$CI_COMMIT_BEFORE_SHA" ] || [ "$CI_COMMIT_BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
+        trufflehog git file://. --results=verified --exclude-paths=.github/trufflehog-exclude.txt --fail
+      else
+        trufflehog git file://. --since-commit "$CI_COMMIT_BEFORE_SHA" --results=verified,unknown --exclude-paths=.github/trufflehog-exclude.txt --fail
+      fi
+
+workflow-policy:
+  stage: security
+  image: $BUILD_IMAGE
+  script:
+    - |
+      bad=$(grep -RnE '^[[:space:]]*uses:' .github/ .gitea/ .forgejo/ 2>/dev/null | grep -vE '@[0-9a-f]{40}([[:space:]]|$)' || true)
+      if [ -n "$bad" ]; then echo "unpinned actions found:"; echo "$bad"; exit 1; fi
+
+vuln-scan:
+  stage: security
+  image: $BUILD_IMAGE
+  variables:
+    GOFLAGS: -buildvcs=false
+  script:
+    - govulncheck ./...
+  rules:
+    - exists:
+        - go.sum
+
+image-build:
+  stage: security
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker build -t local/scan-target:ci -f docker/Dockerfile .
+    - docker save local/scan-target:ci -o image.tar
+  artifacts:
+    paths:
+      - image.tar
+    expire_in: 1 hour
+  rules:
+    - exists:
+        - docker/Dockerfile
+
+image-scan:
+  stage: security
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  needs: [image-build]
+  script:
+    - trivy image --exit-code 1 --severity CRITICAL,HIGH --input image.tar
+  rules:
+    - exists:
+        - docker/Dockerfile
 
 # =============================================================================
 # RELEASE BUILDS (Tag Push: v* or semver)
@@ -38785,7 +38886,11 @@ test:
   <<: *go-build
   stage: test
   script:
-    - go test -v -cover ./...
+    - mkdir -p "/tmp/${CI_PROJECT_NAMESPACE}"
+    - COVDIR=$(mktemp -d "/tmp/${CI_PROJECT_NAMESPACE}/${CI_PROJECT_NAME}-XXXXXX")
+    - go test -v -cover -coverprofile="$COVDIR/coverage.out" ./...
+    - PCT=$(go tool cover -func="$COVDIR/coverage.out" | awk '/^total:/ {gsub("%","",$3); print int($3)}')
+    - if [ "$PCT" -lt 60 ]; then echo "coverage ${PCT}% is below the 60% threshold"; exit 1; fi
   rules:
     - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
     - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"
@@ -40907,6 +41012,8 @@ test:
 
 ### How to Achieve 60% Coverage
 
+**0. Keep the process entry thin and testable.** The unit gate counts every package, the root `src` package included, so orchestration left in `main()` drags the percentage down while only the compiled binary can reach it. `src/main.go` holds only `main()`: it parses flags, builds the configuration and calls `run(ctx, cfg) error`. `run` (startup, signal handling, graceful shutdown) lives in a package under `src/` that unit tests reach: the test calls `run` with a cancelable context and a listener on `127.0.0.1:0`, waits for the ready signal, makes one request, cancels the context and asserts a clean return. Phase 2 still tests the compiled binary; its coverage never counts toward the Phase 1 percentage.
+
 **1. Test All Code Paths:**
 ```go
 // Function with multiple paths
@@ -41122,7 +41229,7 @@ fi
 | Script | Purpose | Container | Tests |
 |--------|---------|-----------|-------|
 | `tests/run_tests.sh` | Run the basic tier | Docker | Runs docker.sh; the full-app, clean-OS and browser scripts are explicit |
-| `tests/docker.sh` | Basic tier: the binary-validation suite in Docker | `alpine:latest` | Does it start and answer: version, help, endpoints, CLI; no init system, no service lifecycle |
+| `tests/docker.sh` | Basic tier: the binary-validation suite in Docker | `alpine:latest` | Does it start and answer: version, help, endpoints, CLI, plus Tor and I2P health in an application container (PART 31); no init system, no service lifecycle. The shipped image is checked after `make docker` and in CI ("Image check"), not here |
 | `tests/incus.sh` | Full-app testing in Incus CONTAINERS (`[systemd\|openrc\|all]`) | `debian/trixie` (with systemd) + `alpine/{latest_stable}` (without it, OpenRC) | The same suite plus the whole service lifecycle under a real init, reboot persistence, Tor and I2P |
 | `tests/virt.sh` | Clean-OS testing in real VMs (`[systemd\|openrc\|all]`, OPTIONAL) | Incus VMs: `debian/trixie` + `alpine/{latest_stable}` | The same suite on a pristine OS with its own kernel, plus VM-only checks and a cold power cycle |
 | `tests/e2e.sh` | Browser E2E beta testing (see "Browser E2E Testing" below) | Docker + Chromium | Frontend with and without JS, all three tiers |
@@ -41149,7 +41256,7 @@ fi
 
 #### tests/docker.sh
 
-**Purpose:** The basic tier: the binary-validation suite in one Docker Alpine container (does it start and answer). No init system and no service lifecycle: those belong to `tests/incus.sh`
+**Purpose:** The basic tier: the binary-validation suite in one Docker Alpine container (does it start and answer, Tor and I2P health included). The shipped image is checked after `make docker` and in CI ("Image check"), not here. No init system and no service lifecycle: those belong to `tests/incus.sh`
 
 ```bash
 #!/usr/bin/env bash
@@ -43063,8 +43170,10 @@ docker run --name "{project_name}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -
 
 - [Repository]({PLATFORM_REPO_URL})
 - [Live Demo]({official_site}) (if applicable)
-- [API Documentation](/server/docs/swagger) (Swagger UI)
-- [GraphiQL](/server/docs/graphql)
+- [API Documentation]({official_site}/server/docs/swagger) (Swagger UI)
+- [GraphiQL]({official_site}/server/docs/graphql)
+
+Documentation is hosted away from the running server, so a root-relative `/server/docs/...` link would resolve on the documentation host. Link to the runtime pages only through `{official_site}`; with no `official_site` (never invented), name the path as plain code text without a link.
 
 ## License
 
@@ -43175,11 +43284,11 @@ Document:
 
 ## Swagger UI
 
-Interactive API documentation: [/server/docs/swagger](/server/docs/swagger)
+Interactive API documentation: `{official_site}/server/docs/swagger` (linked only when `official_site` is set)
 
 ## GraphQL
 
-GraphQL playground: [/server/docs/graphql](/server/docs/graphql)
+GraphiQL: `{official_site}/server/docs/graphql` (linked only when `official_site` is set)
 
 ### Schema
 
@@ -47497,12 +47606,12 @@ update:
 
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
-| `/api/autodiscover` | GET | None or bearer | Returns `cli_versions` (each entry has `version` + `sha256`) and `cli_min_version` (from `update.cli_min_version`) alongside server info |
+| `/api/autodiscover` | GET | None or bearer | Returns `cli_versions` (each entry has `version` + `sha256`) and `cli_min_version` (from `update.cli_min_version`) alongside `name`, `version`, `api`, `urls` and the exposed `onion` and `i2p` addresses |
 | `{base}/cli/binaries/{project_name}-cli-{os}-{arch}` | GET | None (public — CLIs are user-distributed) OR bearer if `cli.binary_download.require_auth: true` is set | Streams the binary |
 
 **Why CLI download default is unauthenticated:** the CLI is the entry point for new users. Forcing auth on the download means they need a token before they can install the tool that obtains the token. Operators who run a private deployment can flip `cli.binary_download.require_auth` to `true`.
 
-**Autodiscover response.** `/api/autodiscover` follows the standard envelope like every JSON route (it is unversioned, not unenveloped): `{"ok": true, "data": {...}}`. `data.api.current_version` is the API version prefix the server serves (for example `v1`); `data.cli_versions` and `data.cli_min_version` are described below; the rest of `data` carries the server settings, config schema and options the CLI needs. A client, and every test helper, reads these fields under `data`.
+**Autodiscover response.** `/api/autodiscover` follows the standard envelope like every JSON route (it is unversioned, not unenveloped): `{"ok": true, "data": {...}}`. `data.api.current_version` is the API version prefix the server serves (for example `v1`); `data.cli_versions` and `data.cli_min_version` are described below; the rest of `data` is exactly `name` (the project name), `version` (the running version), `urls` (the public origins, as in "Resolution Order"), and `onion` and `i2p` (the hidden-service addresses, present only when that overlay is enabled with `expose: true`). The server publishes no settings, no config schema and no option list: the CLI carries its own configuration (`cli.yml`). A client, and every test helper, reads these fields under `data`.
 
 **CLI binaries: where they come from.** The binaries the server distributes live in `{data_dir}/cli/` (override: `cli.binary_download.dir`) and are provisioned by the OPERATOR, or by the image or package build, by copying the files of a release into it: `{project_name}-cli-{os}-{arch}[.exe]`, `version.txt` and `sha256.txt` (the release already produces all three: "Release Artifacts"). The server never builds, downloads or edits them. At start, and whenever the directory changes, it derives what it publishes itself: the platforms are the `{os}-{arch}` of the files present, `version` is the line of `version.txt`, and `sha256` is read from `sha256.txt` AND recomputed from the file; a file whose hash does not match is not published and a WARN names it. An empty or missing directory publishes `cli_versions: {}`, `/cli/binaries/*` answers `404 NOT_FOUND`, and the CLI reports that no update is available. `cli_min_version` comes only from `update.cli_min_version`.
 
@@ -51311,7 +51420,7 @@ make docker
 **PART 28: Testing & Development**
 - [ ] Unit tests exist
 - [ ] Integration tests exist
-- [ ] tests/run_tests.sh - Auto-detect environment
+- [ ] tests/run_tests.sh - Docker-only basic runner: it runs tests/docker.sh and never falls back to Incus
 - [ ] tests/docker.sh - Docker-based tests
 - [ ] tests/incus.sh - Incus-based tests
 - [ ] tests/e2e.sh - Browser E2E beta testing, on demand (PART 28)
@@ -52410,7 +52519,7 @@ When bootstrapping a new project from this specification:
 4. **Implement SMTP configuration**
 5. **Add all notification configuration pages**
 
-**Test:** Email sending works via CLI: `{project_name} email test`
+**Test:** Email sending works via CLI: `{project_name} --maintenance email test`
 
 #### Step 6: API Layer (PART 14)
 
