@@ -957,7 +957,7 @@ The `release` job already has `contents: write` to push assets — this covers t
 --status                     # Show status and health (exit 0=healthy, 1=unhealthy)
 --service {start,restart,stop,reload,--install,--uninstall,--disable,--help}
 --daemon                     # Daemonize (detach from terminal)
---maintenance {backup,restore,update,mode,setup,pgp,security,secret,token,data,compliance,scheduler,email,--help} [optional-file-or-setting-or-action]
+--maintenance {backup,restore,update,mode,setup,pgp,security,secret,token,data,compliance,scheduler,email,tor,--help} [optional-file-or-setting-or-action]
 --update [check|yes|branch {stable|beta|devel}]
 ```
 
@@ -7958,7 +7958,7 @@ func (req *CreateResourceRequest) Parse() (*Resource, error) {
 | `yaml.d/notifications.yml` | `server.notifications` |
 | `yaml.d/tor.yml` | `server.tor` and the top-level `tor` |
 | `yaml.d/i2p.yml` | `server.i2p` |
-| `yaml.d/maintenance.yml` | `server.maintenance`, `server.scheduler`, `server.update`, `server.auto_update`, `server.backup`, `server.restore` |
+| `yaml.d/maintenance.yml` | `server.maintenance`, `server.scheduler`, `server.update`, `server.auto_update`, `server.backup`, `server.restore` and the top-level `cli` |
 | `yaml.d/app.yml` | Every other section, which is project-defined (the product's own settings) |
 | `secrets.yml` | Credentials only ("Secrets File") |
 
@@ -8468,6 +8468,7 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 | `--maintenance data <export\|delete> --owner <prefix>` | 🔐 Auth | Requires `server.token` OR root | N/A |
 | `--maintenance compliance report` | 🔐 Auth | Requires `server.token` OR root | N/A |
 | `--maintenance email test [--to ADDRESS] [--dry-run]` | 🔐 Auth | Requires `server.token` OR root (`--dry-run` sends nothing) | N/A |
+| `--maintenance tor <status\|validate\|restart\|regenerate\|vanity\|import-keys>` | 🔐 Auth | Requires `server.token` OR root; `regenerate`, `vanity apply` and `import-keys` also need typed confirmation | N/A |
 | `--maintenance scheduler list`, `show <id>`, `history <id>` | 🔐 Auth | Requires `server.token` OR root | N/A |
 | `--maintenance scheduler run <id>`, `enable <id>`, `disable <id>` | 🔐 Auth | Requires `server.token` OR root; each run, enable and disable is audited | N/A |
 | (normal start) | ❌ No | Adapts paths to current user | N/A |
@@ -9137,6 +9138,7 @@ Before proceeding, confirm you understand:
 | `/debug/scheduler` | GET | Scheduler task status |
 | `/debug/memory` | GET | Memory statistics (`runtime.MemStats`) |
 | `/debug/goroutines` | GET | Goroutine count and stack summary |
+| `/debug/error500` | GET | Deterministic 500 through the normal error renderer (the E2E suite's trigger for the themed 500 page) |
 
 ### Debug Implementation
 
@@ -9191,6 +9193,7 @@ func (s *Server) registerDebugRoutes(r chi.Router) {
         r.Get("/scheduler", s.handleDebugScheduler)
         r.Get("/memory", s.handleDebugMemory)
         r.Get("/goroutines", s.handleDebugGoroutines)
+        r.Get("/error500", s.handleDebugError500)
     })
 }
 
@@ -10648,7 +10651,7 @@ NO_COLOR=1 {project_name} --status | grep -E '✅|❌|⚠️|🚀'
 --baseurl {path}
 # Show status and health (exit 0=healthy, 1=unhealthy)
 --status
-# Service control takes exactly one action: start, restart, stop and reload are bare words; --install, --uninstall, --disable and --help keep their double dash (--service --install)
+# Service control takes exactly one value, the next token taken literally, so a value may begin with -- (--service --install is --service with the value --install, never two flags); only these eight values are valid: start, restart, stop, reload, --install, --uninstall, --disable, --help
 --service {start,restart,stop,reload,--install,--uninstall,--disable,--help}
 # Daemonize (detach from terminal)
 --daemon
@@ -10660,7 +10663,7 @@ NO_COLOR=1 {project_name} --status | grep -E '✅|❌|⚠️|🚀'
 --color {auto|yes|no}
 # Language for output (default: auto, from LANG env)
 --lang {code}
---maintenance {backup,restore,update,mode,setup,pgp,security,secret,token,data,compliance,scheduler,email,--help} [optional-file-or-setting-or-action]
+--maintenance {backup,restore,update,mode,setup,pgp,security,secret,token,data,compliance,scheduler,email,tor,--help} [optional-file-or-setting-or-action]
 # Check/perform updates
 --update [check|yes|branch {stable|beta|devel}|--help]
 # Shell integration
@@ -14613,7 +14616,7 @@ For SQLite this retry lives in the `Write` helper of "SQLite Concurrency Contrac
 | `request_count_24h`, `active_connections`, `total_connections` | `/server/healthz` (under `metrics`) | Operational, aggregate |
 | `unique_visitors_24h`, `peak_concurrent` | `/server/healthz` (aggregate only) | Bragging rights / monitoring; no per-IP detail |
 | Public domain(s) the app serves (`{fqdn}`, learned reverse-proxy hosts) | `/api/autodiscover`, banners | Already public — that's how visitors got here |
-| Tor `.onion` / I2P address (if Tor/I2P enabled and `expose: true`) | `/api/autodiscover` | Operator opt-in; advertised on purpose |
+| Tor `.onion` / I2P address (if Tor/I2P enabled and `server.tor.expose` / `server.i2p.expose` is `true`) | `/api/autodiscover` | Operator opt-in; advertised on purpose |
 | OpenAPI spec, GraphQL schema | `/api/{api_version}/server/swagger`, `/api/swagger`, `/server/docs/*` | API surface is intentionally public |
 | Public OG / social metadata | HTML `<meta>` | Required for sharing / SEO |
 
@@ -15393,8 +15396,7 @@ web:
   security:
     # Primary contact — GitHub private vulnerability reporting
     report_url: "https://github.com/{project_org}/{project_name}/security/advisories/new"
-    # Secondary/CC contact email — never the primary reporting channel
-    contact: "security@{fqdn}"
+    # The secondary/CC contact email is `server.contact.security.email` (PART 12, Contact Configuration); there is no key for it here
     # Auto-calculated 1 year from generation
     expires: "{1year}"
     # Disclosure policy page body (Markdown); empty uses the built-in default safe-harbor text
@@ -15484,9 +15486,11 @@ web:
     include_endpoints: true
     # Include request/response schemas (verbose)
     include_schemas: false
-    # Additional custom sections
+    # Sections appended after the generated ones, in this order; each item is { title: "...", content: "..." }
     custom_sections: []
 ```
+
+**`custom_sections` shape and rendering.** Each item is `{ title, content }`: `title` is 1–80 characters, `content` is Markdown of at most 4096 characters. The sections follow the generated ones in list order, each as `## {title}` followed by its content. Content is rendered as Markdown text only: HTML tags are escaped, never interpreted, and links are limited to `https://` and relative paths. At most 10 sections; an item that breaks a limit is skipped with one warning.
 
 **Auto-Generation Rules:**
 - Project name and description from `IDEA.md` or config
@@ -15651,10 +15655,10 @@ The steps below run on the `confirm` call; the first call only returns the revie
 1. Server re-validates the `security_id` server-side (form value can be tampered with).
 2. Allocates a `tracking_id` — `sec_` prefix + 16 random hex chars. Stored in the `security_reports` table (see "Security Report Storage & Operator Workflow").
 3. **Encryption at rest:** the report body is encrypted with the project's PGP key if one exists; otherwise AES-256-GCM with `server.security.encryption_key` (the spec's canonical at-rest AES key — see PART 11 → "Cryptographic Keys"). Plaintext is NEVER persisted to disk.
-4. **Maintainer notification:** PGP-encrypted email to the configured operator contact (the `security` role — `server.contact.security.email`, see PART 12 → "Contact Configuration"); falls back to AES-encrypted attachment + warning if no PGP key is configured.
+4. **Maintainer notification:** PGP-encrypted email to the configured operator contact (the `security` role — `server.contact.security.email`, see PART 12 → "Contact Configuration"); falls back to AES-encrypted attachment + warning if no PGP key is configured. Without working SMTP the notification is skipped: the report is still stored and the form still succeeds, and the maintainer takes the same encrypted message with `--maintenance security export TRACKING_ID --output FILE`.
 5. **Researcher acknowledgment:** email to the researcher's submitted address, containing only the `tracking_id` and the URL `/server/security/report/{tracking_id}` (with a status token only the researcher can use, valid once per day) — never any report content. If the researcher submitted a pubkey, the email is PGP-encrypted to it. If not, it is sent unencrypted: it carries no vulnerability details, and the status page it links to shows only the triage state. A pubkey is never required, and the project key is never used for this email (the researcher cannot decrypt it). Without working SMTP the acknowledgment is skipped and the `tracking_id` appears only in the form response.
 6. **Response to the form POST:** canonical success body — `{"ok": true, "data": {"tracking_id": "sec_..."}}` — with a clear message rendered server-side: "We received your report. Your tracking ID is {tracking_id}." The sentence "A confirmation email is on its way" is added only when step 5 handed the acknowledgment to the mail transport; when step 5 was skipped or failed the message says nothing about email, so the response never promises a message that was not sent. The `tracking_id` in the response is the submitter's one guaranteed record.
-7. **Logging:** one entry to `security.log` as `security.report_received` — `tracking_id`, severity, sanitized affected-component, NO researcher PII, NO vulnerability content. Maintainers see full content only via the encrypted email (no web tracker — there is no admin web UI).
+7. **Logging:** one entry to `security.log` as `security.report_received` — `tracking_id`, `notified` (`true` or `false`), severity, sanitized affected-component, NO researcher PII, NO vulnerability content. Maintainers see full content only through the encrypted message, by email or, without SMTP, from `security export` (no web tracker — there is no admin web UI).
 
 ### Security Report Storage & Operator Workflow
 
@@ -15711,7 +15715,8 @@ CREATE TABLE IF NOT EXISTS security_thanks (
 | Command | Effect |
 |---------|--------|
 | `--maintenance security list [--status STATUS]` | Lists `tracking_id`, status, severity, component, `created_at`, `updated_at`. Never prints report content |
-| `--maintenance security show TRACKING_ID` | Prints the metadata, the researcher comment and the disclosure date. NEVER prints the report body: maintainers read it only in the encrypted notification email (or by decrypting it with the project PGP key) |
+| `--maintenance security show TRACKING_ID` | Prints the metadata, the researcher comment and the disclosure date. NEVER prints the report body: maintainers read it only in the encrypted notification message (the email, or the file from `security export`), decrypted with the project PGP key |
+| `--maintenance security export TRACKING_ID [--output FILE]` | Writes the notification message exactly as step 4 would send it (the PGP-encrypted body, or the AES-encrypted attachment when no PGP key exists) to FILE (default `{tracking_id}.asc` in the current directory, mode `0600`; `--output -` writes to stdout). The body is never decrypted or printed in clear; logs `security.report_exported` (`tracking_id`, no content) |
 | `--maintenance security update TRACKING_ID [--status STATUS] [--comment TEXT] [--disclosure-date YYYY-MM-DD] [--severity LEVEL]` | Sets the given fields, bumps `updated_at`, logs `security.report_updated` (`tracking_id`, old and new status, no content) to `security.log`, and, when SMTP works and `contact_enc` exists, emails the researcher a status-change notice that carries no report content |
 
 ### Public Pages
@@ -16356,7 +16361,7 @@ server:
 **Special Case: Right to Erasure vs Retention Requirements**
 
 When GDPR/CCPA (right to erasure) conflicts with HIPAA/SOC2 (retention requirements):
-1. User data is **anonymized** (not deleted) to preserve audit trail
+1. Where retention requires a stored record to stay, the subject in that record is **anonymized** (not deleted); the audit log is never touched
 2. All PII is removed from the stored data, replaced with `[REDACTED]` or a new random ID
 3. Audit log entries are never rewritten (append-only, hash-chained): they identify the subject only by an opaque ID (never a name or email address), which names nobody once the record is gone
 4. Every mapping from that ID to a person is deleted
@@ -16951,7 +16956,7 @@ All of these headers are supported regardless of proxy vendor (Nginx, Caddy, HAP
 
 **Tor exception:** Tor requests bypass this gate entirely. When `tor.onion_address` is set and the incoming `Host` matches it, FQDN/proto/port are resolved from `tor.*` config — no proxy header inspection, no IP check. See "Tor Hidden Service Configuration" below.
 
-**I2P exception:** identical to the Tor exception. When I2P is opt-in enabled and `i2p.b32_address` is set, a request whose `Host` matches it is resolved from `i2p.*` config — always `http://`, no proxy header inspection, no IP check (the eepsite backend is a plain loopback listener with no PROXY header). When I2P is disabled or the address is unset, `.b32.i2p` Host headers are treated like any other host. See **PART 31.2 → "I2P Eepsite"**.
+**I2P exception:** identical to the Tor exception. When I2P is enabled (the resolved `server.i2p.enabled`) and `i2p.b32_address` is set, a request whose `Host` matches it is resolved from `i2p.*` config — always `http://`, no proxy header inspection, no IP check (the eepsite backend is a plain loopback listener with no PROXY header). When I2P is disabled or the address is unset, `.b32.i2p` Host headers are treated like any other host. See **PART 31.2 → "I2P Eepsite"**.
 
 | Always trusted (no config required) | Reason |
 |--------------------------------------|--------|
@@ -17093,6 +17098,8 @@ Expires: {expiry_date}
 ## Rate Limiting
 
 Rate limiting is the primary abuse defense. It is always on: there is no `enabled` setting, and the numbers below are its tunables. Anonymous requests are limited per IP; requests carrying a valid Bearer token (REST and MCP alike) are limited per token, so clients that share an egress IP (hosted assistants, NAT) never throttle one another, and failed authentication is always counted per IP. Counters use a sliding window stored in `server.db` by default; when an external cache (Valkey/Redis) is configured, the counters live in the cache instead (see the cache usage table in PART 12).
+
+**Counter backend unavailable.** Rate limiting never fails open. When the external cache is unreachable the counters fall back to the in-process memory counter (per instance, started empty, enforcing the same limits), one `warn` is logged and the cache health check reports `degraded`. The failed-authentication lockout and the strict token actions keep their limits through the fallback, so an unavailable cache never lifts a lockout; the counters reset only when the process restarts.
 
 ```yaml
 server:
@@ -19053,7 +19060,7 @@ Same underlying health response as `/server/healthz`, but formatted using the st
 | `features.tor.running` | The hidden service is serving |
 | `features.tor.status` | `disabled`, `starting`, `healthy` or `unavailable`; never free text (see "Overlay Network Health") |
 | `features.tor.hostname` | Onion address (if running) |
-| `features.i2p.enabled` | I2P is opted in AND a provider was found (OPT-IN; false by default) |
+| `features.i2p.enabled` | The resolved `server.i2p.enabled` is true (on by default in a container, opt-in elsewhere) AND a provider was found |
 | `features.i2p.running` | The eepsite is serving |
 | `features.i2p.status` | `disabled`, `starting`, `healthy` or `unavailable`; never free text (mapped from `features.i2p.state`, see "Overlay Network Health") |
 | `features.i2p.state` | Full lifecycle: `disabled`, `no_provider`, `starting`, `building`, `running`, `error` (the same values as CLI `--status`, PART 31.2) |
@@ -19131,7 +19138,7 @@ Same underlying health response as `/server/healthz`, but formatted using the st
 
 | `status` | `enabled` | `running` | `hostname` | `checks.tor` / `checks.i2p` | Meaning |
 |----------|-----------|-----------|------------|-----------------------------|---------|
-| `disabled` | `false` | `false` | empty | omitted | The network is not active on this instance: no `tor` binary (Tor), or I2P not opted in or no provider found (I2P) |
+| `disabled` | `false` | `false` | empty | omitted | The network is not active on this instance: no `tor` binary (Tor), or I2P not enabled (the resolved `server.i2p.enabled` is false) or no provider found (I2P) |
 | `starting` | `true` | `false` | empty | `ok` | The provider was launched and is bootstrapping or building tunnels |
 | `healthy` | `true` | `true` | the address | `ok` | Serving at `hostname` |
 | `unavailable` | `true` | `false` | empty | `degraded` | Active and the provider exists, but it is not serving: failed to start, bootstrap timeout, a directory permission problem, or the provider exited |
@@ -24958,7 +24965,7 @@ Preferences aren't tied to identity — any two guests who set the same `theme`/
 | 15 | **Page layout and buttons** | `/server/preferences` is ONE `<form method="POST" action="/server/preferences">` carrying the CSRF token and every section: appearance (`theme`), language (`lang`), cookie-consent and CCPA controls, every `{project_name}_pref_{key}` control — all sections always visible, none collapsed or revealed by a button. A **More preferences** card, outside the form, links every registered preferences page (see "Preferences and Help Hubs"). The form has exactly three action buttons (the header theme toggle is a separate mini-form on other pages and is not part of this page's form): **Save** (submit; applies every changed field, then `303` per rules 9–10), **Cancel** (a link to the rule 10 redirect target; discards unsaved edits, sends no write) and **Reset** (a `type="button"` with `popovertarget` that opens a native HTML `popover` — no JS; the popover holds the warning, an **Erase everything** submit with `action=reset`, and a dismiss control using `popovertargetaction="hide"`; those two belong to Reset, not to the page's button set; forgets the visitor completely: every noncredential cookie this app set — `theme`, `lang`, `{project_name}_pref_*`, `cookie_consent`, `ccpa_opt_out`, `{project_name}_build`, plus any other noncredential cookie the project defines (announcement dismissals, flash messages, age-verification or content-acknowledgment cookies, forwarding preferences) — is deleted (`Max-Age=0`, same `Path`/attributes as rule 8), and the `303` carries `Clear-Site-Data: "storage"` to wipe localStorage/sessionStorage/IndexedDB without JS. Defaults apply and the consent banner returns on the next page. Never deletes session, CSRF or other credential cookies — signing out is a separate action. The popover warning states exactly what is erased. Only Reset confirms — Save and Cancel never ask for confirmation. The popover is styled with CSS, and a direct `POST action=reset` behaves identically on the server). No per-section save buttons and no "Sync", "Export", "Import" or "Show" buttons: sync has its own page. Every other preferences page (`/server/preferences/sync`, `/server/preferences/tokens` where the project has owner tokens, and project pages) is NOT part of this form: each lives on its own page, reached from the More preferences card, and those pages' own forms are exempt from this button limit. Reset never deletes credential cookies: session, CSRF and the owner-token cookie |
 | 16 | **Web save never `400`** | `400 VALIDATION_FAILED` (rule 11) is API-only. A web `POST /server/preferences` or `POST /server/preferences/sync` always answers `303` (rule 9) — including empty submits, unchecked checkboxes (absent fields), invalid values (dropped) and a bad `code`. The only `4xx` is a missing/invalid CSRF token (`403`), so every preferences form MUST always render the token and post only to the canonical route, never to the `/api/{api_version}/…` mirror |
 | 17 | **Consent and CCPA controls** | The page form's cookie-consent toggles (`consent_preferences`, `consent_analytics`; `essential` is always on and not a field) and the CCPA opt-out toggle (`ccpa_opt_out`, rendered only when `server.privacy.data.sold` is `true`; otherwise absent and never written) are web-form-only controls handled by `POST /server/preferences`, with a hidden `consent_form=1` marker rendered inside the form. They are applied only when `consent_form=1` is present — an unchecked checkbox then means off, while a POST without the marker (the header theme toggle) never touches consent or CCPA. Applying writes `cookie_consent` (JSON per PART 16 consent state, with a fresh timestamp in Unix seconds) and `ccpa_opt_out` with the rule 8 attributes. Import and the API mirror never write them, Reset deletes them (rule 15), and they are never exported (rule 1). The privacy page's own CCPA form is the one other writer of `ccpa_opt_out` (`POST /server/ccpa`), as the cookie banner is the other writer of `cookie_consent` (`POST /server/consent`) |
-| 18 | **Consent gate** | `theme`, `lang` and every `{project_name}_pref_{key}` cookie belong to the **Preferences** cookie category, not to the essential one, so import, save and sync set them only on a device whose `cookie_consent` has `preferences: true` (the same per-device consent that is never exported, rule 1). The gate sits in the one shared implementation, after validation and before any cookie is written, for the web routes and the API mirror alike. When the category is not accepted (no `cookie_consent` cookie, or `preferences: false`): nothing is written, `applied` is empty, every valid value is reported in `ignored`, and the API `data` carries `"consent_required": true`. The web route still answers `303` (rules 9 and 16), never a `4xx`, and the redirect carries `consent_required=1` as a query parameter that the landing page reads, never stores, and turns into a notice pointing at the cookie-consent toggle of rule 17. An import link opened on a new device therefore applies nothing until that device's visitor accepts Preferences and opens the link again; the server keeps no pending state. While the cookies are absent the page renders with the defaults (the language detected from `Accept-Language`) |
+| 18 | **Consent gate** | An explicit preference action (Save, Import, an API write) is not itself consent to the Preferences cookie category, and a visitor who has taken no consent action has the category off. `theme`, `lang` and every `{project_name}_pref_{key}` cookie belong to the **Preferences** cookie category, not to the essential one, so import, save and sync set them only on a device whose `cookie_consent` has `preferences: true` (the same per-device consent that is never exported, rule 1). The gate sits in the one shared implementation, after validation and before any cookie is written, for the web routes and the API mirror alike. When the category is not accepted (no `cookie_consent` cookie, or `preferences: false`): nothing is written, `applied` is empty, every valid value is reported in `ignored`, and the API `data` carries `"consent_required": true`. The web route still answers `303` (rules 9 and 16), never a `4xx`, and the redirect carries `consent_required=1` as a query parameter that the landing page reads, never stores, and turns into a notice pointing at the cookie-consent toggle of rule 17. An import link opened on a new device therefore applies nothing until that device's visitor accepts Preferences and opens the link again; the server keeps no pending state. While the cookies are absent the page renders with the defaults (the language detected from `Accept-Language`) |
 
 **Page layout (`/server/preferences`) — one form, one Save, always visible, then the More preferences card:**
 ```
@@ -30264,7 +30271,7 @@ Templates are stored as files on disk. Override any built-in template by placing
 Every row of this table is a BLOCKING error: the template is not loaded (the embedded default stays in use) and `--dry-run` exits `65`. Only the warnings below never block.
 
 **Warnings (non-blocking):**
-- Using deprecated variables
+- Using a deprecated variable: `Deprecated variable: {old}. Use {new}.` This template deprecates none; a project that renames a variable keeps the old name working and lists each pair (old, replacement, version) in IDEA.md `## Business logic`, which is the set the validator warns about
 - Very long subject line (>78 chars)
 - Missing recommended sections (e.g., contact info in security alerts)
 
@@ -30589,12 +30596,12 @@ Every project MUST include these scheduled tasks:
 | `update_check` | Daily at 06:00 | Check release channel for a newer version — notify-only unless `update.auto_install: true` (default false); honors `update.defer_days` | Yes |
 | `token_cleanup` | Every 15 minutes | Delete used or expired simple-captcha challenges and apply the owner idle purge (`server.tokens.idle_purge_days`, PART 8). Expired linked tokens are NOT deleted: they stay listed as expired until the owner revokes them or changes their expiry | No |
 | `log_rotation` | Daily at 00:00 | Rotate and compress old logs | No |
-| `backup_daily` | Daily at 02:00 | Full backup + daily incremental (2 files per run; 3 on disk, "Incremental Backup Contract") | Yes |
+| `backup_daily` | Daily at 02:00 | Full backup + daily incremental (2 files per run and 3 on disk; the first run has no previous full, so it creates only the full backup, "Incremental Backup Contract") | Yes |
 | `backup_hourly` | Hourly | Hourly incremental (disabled by default) | Yes |
 | `disk_check` | Every 5 minutes | Disk space low check (PART 17 → "Disk Space Low") | Yes |
 | `healthcheck_self` | Every 5 minutes | Self-health verification | No |
 | `tor_health` | Every 10 minutes | Check Tor connectivity, restart if needed | No (when Tor installed) |
-| `i2p_health` | Every 10 minutes | Check I2P provider, restart if needed | No (only when I2P opt-in enabled) |
+| `i2p_health` | Every 10 minutes | Check I2P provider, restart if needed | No (only when I2P is enabled: the resolved `server.i2p.enabled`) |
 
 ### Scheduler Behavior Rules
 
@@ -30863,7 +30870,7 @@ The scheduler status is read-only through the server status API. A task's schedu
 
 | Task | Schedule | Default | Description |
 |------|----------|---------|-------------|
-| `backup_daily` | 02:00 daily | Enabled | Full backup + daily incremental |
+| `backup_daily` | 02:00 daily | Enabled | Full backup + daily incremental (first run: full only) |
 | `backup_hourly` | Hourly | Disabled | Hourly incremental |
 
 Retention is configured ONLY at `server.backup.retention.*` (PART 21); a scheduler task has no retention key. The defaults:
@@ -30956,7 +30963,7 @@ GeoIP databases are NEVER embedded in the binary — they are downloaded on firs
 | **Always alongside, not instead of** | The country check runs after the blocklist and the rate limiter and before authentication (PART 5 → "Middleware Order", positions 6–8 then 9). It only denies; it never replaces authentication or authorization for any request that passes it. |
 | **VPN / proxy / Tor caveat** | Country data is trivially bypassed via VPN, residential proxy, or Tor. Treat any blocking decision based on country as advisory, not authoritative. |
 | **GeoIP-only auth is forbidden** | "Allow if country = US" is not authentication. The operator token and owner tokens are still required regardless of source country. |
-| **Failure mode** | If a GeoIP database is missing, stale, or the lookup fails, the request MUST be processed by the rest of the pipeline normally (fail-open for GeoIP, fail-closed for real auth). Never block a request because a GeoIP lookup errored. |
+| **Failure mode** | If a GeoIP database is missing, stale, or the lookup fails, the request MUST be processed by the rest of the pipeline normally (fail-open for GeoIP, fail-closed for real auth). Never block a request because a GeoIP lookup errored. **Stale:** a database is stale when `{data_dir}/security/geoip/.last_updated` is older than 21 days (three missed weekly runs, the same rule as the other data sets); a stale database keeps being used and its `geoip_{database}` health check is `degraded`. |
 | **Private/internal IPs** | RFC 1918 / RFC 4193 / loopback addresses are never looked up or country-blocked. |
 
 ## Database Sources (ip-location-db) — Canonical, Single Source Per Category
@@ -42186,7 +42193,7 @@ The table is illustrative — the rule is universal: enumerate IDEA.md's feature
 - **Responsive**: 375×812 viewport — no horizontal scroll, navigation usable (PART 16 mobile rules)
 - **i18n (PART 30)**: switching language changes rendered strings
 - **Forms**: validation errors render server-side (Tier 2) and inline (Tier 3); CSRF token present and enforced (PART 16 → "CSRF Protection")
-- **Error pages**: 404 and 500 render the PART 16 themed error pages, not blank bodies or stack traces
+- **Error pages**: 404 and 500 render the PART 16 themed error pages, not blank bodies or stack traces; the suite starts the server with `--debug` and triggers the 500 with `GET /debug/error500`, which exists only while the debug flag is on (production has no such route)
 - **Static assets**: every referenced CSS/JS/image/font loads with 200
 - **Console**: zero JavaScript errors on every page visited (Tier 3)
 
@@ -44915,6 +44922,9 @@ server:
     # Leave empty for auto-detection (recommended)
     binary: ""
 
+    # Publish the .onion address in /api/autodiscover (default false: advertised only on the operator's explicit say-so)
+    expose: false
+
     # --- Outbound Network Settings ---
     # Use Tor network for outbound connections (server-wide setting)
     use_network: false
@@ -46335,16 +46345,16 @@ func enforcePrivate(path string, mode os.FileMode) error {
 
 | Operation | CLI Command |
 |-----------|-------------|
-| View status | `{project_name} tor status` |
-| Validate config | `{project_name} tor validate` |
-| Restart Tor | `{project_name} tor restart` |
-| Regenerate .onion address | `{project_name} tor regenerate` |
-| Start vanity address search | `{project_name} tor vanity start` |
-| Cancel vanity address search | `{project_name} tor vanity stop` |
-| Apply vanity address | `{project_name} tor vanity apply` |
-| Import existing keys | `{project_name} tor import-keys <path>` |
+| View status | `{project_name} --maintenance tor status` |
+| Validate config | `{project_name} --maintenance tor validate` |
+| Restart Tor | `{project_name} --maintenance tor restart` |
+| Regenerate .onion address | `{project_name} --maintenance tor regenerate` |
+| Start vanity address search | `{project_name} --maintenance tor vanity start` |
+| Cancel vanity address search | `{project_name} --maintenance tor vanity stop` |
+| Apply vanity address | `{project_name} --maintenance tor vanity apply` |
+| Import existing keys | `{project_name} --maintenance tor import-keys <path>` |
 
-**CLI-to-running-server control channel:** the server binary already owns the embedded Tor process, so a separately-invoked `{project_name} tor ...` subcommand cannot touch Tor directly — it must reach the running server. Same mechanism `--status` already uses to query a running server (see "Server Startup Sequence" → `--status`): the subcommand issues an HTTP request to the server's own listener at an **internal** endpoint, never a public one.
+**CLI-to-running-server control channel:** the server binary already owns the embedded Tor process, so a separately-invoked `{project_name} --maintenance tor ...` subcommand cannot touch Tor directly — it must reach the running server. Same mechanism `--status` already uses to query a running server (see "Server Startup Sequence" → `--status`): the subcommand issues an HTTP request to the server's own listener at an **internal** endpoint, never a public one.
 
 | Endpoint | Method | Auth | Classification |
 |----------|--------|------|-----------------|
@@ -46497,6 +46507,9 @@ server:
     # No image variable sets it. Unlike Tor (auto-enabled when the binary is found), the eepsite
     # is created only when this is true.
     enabled: false
+
+    # Publish the .b32.i2p address in /api/autodiscover (default false: advertised only on the operator's explicit say-so)
+    expose: false
 
     # Path to the i2pd binary (auto-detected if empty). When an i2pd binary is
     # present the app spawns/manages a dedicated i2pd process (Model A). If no
@@ -46815,7 +46828,7 @@ func samReachable(addr string) bool {
     return true
 }
 
-// ErrI2PDisabled means I2P is not opted in: there is nothing to start, so it is never logged.
+// ErrI2PDisabled means I2P is not enabled (the resolved server.i2p.enabled is false): there is nothing to start, so it is never logged.
 var ErrI2PDisabled = errors.New("i2p disabled (opt-in)")
 
 // startDedicatedI2P creates the eepsite when I2P is enabled AND a provider is
@@ -47583,7 +47596,7 @@ userAgent := fmt.Sprintf("%s-cli/%s", projectName, version)
 
 | Step | Action |
 |------|--------|
-| 1. Discover | CLI's `/api/autodiscover` response includes `cli_versions: { "linux-amd64": {"version": "1.2.3", "sha256": "..."}, ... }` and `cli_min_version` (the value of `update.cli_min_version`; omitted or empty means no minimum is enforced). CLI checks on every start (it's short-lived; no separate poll loop needed) and additionally on `{project_name}-cli --update check`. |
+| 1. Discover | CLI's `/api/autodiscover` response includes `cli_versions: { "linux-amd64": {"version": "1.2.3", "sha256": "..."}, ... }` and `cli_min_version` (the value of `server.update.cli_min_version`; omitted or empty means no minimum is enforced). CLI checks on every start (it's short-lived; no separate poll loop needed) and additionally on `{project_name}-cli --update check`. |
 | 2. Decide | If `current_version < cli_versions[os-arch].version`: prompt the user (interactive) OR auto-update silently (when `update.auto: true` AND non-interactive AND `--update yes` was passed earlier). If `current_version < cli_min_version`: refuse to make further requests until updated; print "this CLI is too old; the server requires {min_version} — run '{project_name}-cli --update yes' to upgrade." |
 | 3. Download | Fetch `{base}/cli/binaries/{project_name}-cli-{os}-{arch}` over HTTPS. Save to a tmp path (`/tmp/{project_org}/{internal_name}-XXXXXX/cli.update.tmp` per the spec's tmp-dir rules). |
 | 4. Verify SHA-256 | Same `verifyChecksum()` from PART 22 — match against the `sha256` from autodiscover. Mismatch → delete temp, abort with stderr error. |
@@ -47606,16 +47619,16 @@ update:
 
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
-| `/api/autodiscover` | GET | None or bearer | Returns `cli_versions` (each entry has `version` + `sha256`) and `cli_min_version` (from `update.cli_min_version`) alongside `name`, `version`, `api`, `urls` and the exposed `onion` and `i2p` addresses |
+| `/api/autodiscover` | GET | None or bearer | Returns `cli_versions` (each entry has `version` + `sha256`) and `cli_min_version` (from `server.update.cli_min_version`) alongside `name`, `version`, `api`, `urls` and the exposed `onion` and `i2p` addresses |
 | `{base}/cli/binaries/{project_name}-cli-{os}-{arch}` | GET | None (public — CLIs are user-distributed) OR bearer if `cli.binary_download.require_auth: true` is set | Streams the binary |
 
 **Why CLI download default is unauthenticated:** the CLI is the entry point for new users. Forcing auth on the download means they need a token before they can install the tool that obtains the token. Operators who run a private deployment can flip `cli.binary_download.require_auth` to `true`.
 
-**Autodiscover response.** `/api/autodiscover` follows the standard envelope like every JSON route (it is unversioned, not unenveloped): `{"ok": true, "data": {...}}`. `data.api.current_version` is the API version prefix the server serves (for example `v1`); `data.cli_versions` and `data.cli_min_version` are described below; the rest of `data` is exactly `name` (the project name), `version` (the running version), `urls` (the public origins, as in "Resolution Order"), and `onion` and `i2p` (the hidden-service addresses, present only when that overlay is enabled with `expose: true`). The server publishes no settings, no config schema and no option list: the CLI carries its own configuration (`cli.yml`). A client, and every test helper, reads these fields under `data`.
+**Autodiscover response.** `/api/autodiscover` follows the standard envelope like every JSON route (it is unversioned, not unenveloped): `{"ok": true, "data": {...}}`. `data.api.current_version` is the API version prefix the server serves (for example `v1`); `data.cli_versions` and `data.cli_min_version` are described below; the rest of `data` is exactly `name` (the project name), `version` (the running version), `urls` (the public origins, as in "Resolution Order"), and `onion` and `i2p` (the hidden-service addresses, present only when that overlay is enabled with `server.tor.expose` / `server.i2p.expose` set to `true`, default `false`). The server publishes no settings, no config schema and no option list: the CLI carries its own configuration (`cli.yml`). A client, and every test helper, reads these fields under `data`.
 
-**CLI binaries: where they come from.** The binaries the server distributes live in `{data_dir}/cli/` (override: `cli.binary_download.dir`) and are provisioned by the OPERATOR, or by the image or package build, by copying the files of a release into it: `{project_name}-cli-{os}-{arch}[.exe]`, `version.txt` and `sha256.txt` (the release already produces all three: "Release Artifacts"). The server never builds, downloads or edits them. At start, and whenever the directory changes, it derives what it publishes itself: the platforms are the `{os}-{arch}` of the files present, `version` is the line of `version.txt`, and `sha256` is read from `sha256.txt` AND recomputed from the file; a file whose hash does not match is not published and a WARN names it. An empty or missing directory publishes `cli_versions: {}`, `/cli/binaries/*` answers `404 NOT_FOUND`, and the CLI reports that no update is available. `cli_min_version` comes only from `update.cli_min_version`.
+**CLI binaries: where they come from.** The binaries the server distributes live in `{data_dir}/cli/` (override: `cli.binary_download.dir`) and are provisioned by the OPERATOR, or by the image or package build, by copying the files of a release into it: `{project_name}-cli-{os}-{arch}[.exe]`, `version.txt` and `sha256.txt` (the release already produces all three: "Release Artifacts"). The server never builds, downloads or edits them. At start, and whenever the directory changes, it derives what it publishes itself: the platforms are the `{os}-{arch}` of the files present, `version` is the line of `version.txt`, and `sha256` is read from `sha256.txt` AND recomputed from the file; a file whose hash does not match is not published and a WARN names it. An empty or missing directory publishes `cli_versions: {}`, `/cli/binaries/*` answers `404 NOT_FOUND`, and the CLI reports that no update is available. `cli_min_version` comes only from `server.update.cli_min_version`.
 
-**Configuration (server `server.yml`):**
+**Configuration (area file `yaml.d/maintenance.yml`, PART 5 "Area Files and Automatic Migration"; never `server.yml`):**
 
 ```yaml
 cli:
@@ -51333,7 +51346,7 @@ make docker
 - [ ] ip-location-db GeoIP database support
 - [ ] Auto-download and update
 - [ ] Country blocking capability
-- [ ] IP lookup API endpoint
+- [ ] IP lookup: no base-template route; a project that exposes one defines its route and response schema in IDEA.md
 - [ ] Graceful degradation if unavailable
 
 **PART 20: Metrics**
