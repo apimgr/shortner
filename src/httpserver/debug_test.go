@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,13 @@ import (
 )
 
 func TestRedactDebugConfigHidesWebhookAndURLCredentials(t *testing.T) {
+	databaseURL := (&url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword("dbuser", "DbPassword"),
+		Host:     "db.example",
+		Path:     "/app",
+		RawQuery: url.Values{"token": {"QueryToken"}, "sslmode": {"require"}}.Encode(),
+	}).String()
 	config := map[string]any{
 		"contact": map[string]any{
 			"admin": map[string]any{
@@ -24,7 +32,7 @@ func TestRedactDebugConfigHidesWebhookAndURLCredentials(t *testing.T) {
 				},
 			},
 		},
-		"database": map[string]any{"url": "postgres://dbuser:DbPassword@db.example/app?token=QueryToken&sslmode=require"},
+		"database": map[string]any{"url": databaseURL},
 	}
 	encoded, err := json.Marshal(redactDebugConfig(config))
 	if err != nil {

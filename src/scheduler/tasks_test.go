@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -45,9 +46,15 @@ func TestDatabaseCheckUsesBothHandleProbeAndRecovers(t *testing.T) {
 }
 
 func TestDatabaseProbeErrorRedactsCredentials(t *testing.T) {
+	credentialedURL := (&url.URL{
+		Scheme: "https",
+		User:   url.UserPassword("user", "secret123"),
+		Host:   "db.example",
+		Path:   "/query",
+	}).String()
 	for _, err := range []error{
 		errors.New("connect failed password=secret123"),
-		errors.New("https://user:secret123@db.example/query failed"),
+		errors.New(credentialedURL + " failed"),
 	} {
 		got := redactDatabaseProbeError(err)
 		if strings.Contains(got, "secret123") || got == "" {
