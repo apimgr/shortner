@@ -7765,7 +7765,7 @@ This applies to:
 - Case-insensitive: `YES`, `yes`, `Yes` all → `true`
 - Internally convert all to `true` or `false`
 - Empty string or unset → use default value
-- Invalid value → error (don't silently default)
+- Invalid value → depends on the input class. CONFIGURATION input (config files, environment variables, flags that configure the server) never errors: `ParseBoolOrDefault` warns once and uses the default, so startup never stops (PART 5 "Invalid → default"). REQUEST input (API query parameters, form fields, JSON body fields) is an error: `ParseBool` returns it and the handler answers a validation error (`400`), never a silent default
 
 **Go Implementation (`src/config/bool.go`):**
 
@@ -7862,13 +7862,21 @@ if config.IsTruthy(flagValue) {
 
 // API request parameters
 func handleRequest(w http.ResponseWriter, r *http.Request) {
-    includeDeleted, _ := config.ParseBool(r.URL.Query().Get("include_deleted"), false)
+    includeDeleted, err := config.ParseBool(r.URL.Query().Get("include_deleted"), false)
+    if err != nil {
+        http.Error(w, t(r, "errors.invalid_format"), http.StatusBadRequest)
+        return
+    }
     // ...
 }
 
 // Form inputs
 func handleForm(w http.ResponseWriter, r *http.Request) {
-    newsletter, _ := config.ParseBool(r.FormValue("subscribe_newsletter"), false)
+    newsletter, err := config.ParseBool(r.FormValue("subscribe_newsletter"), false)
+    if err != nil {
+        http.Error(w, t(r, "errors.invalid_format"), http.StatusBadRequest)
+        return
+    }
     // ...
 }
 
@@ -8924,7 +8932,7 @@ server:
 
     letsencrypt:
       enabled: false
-      email: admin@{fqdn}
+      email: ""
       # http-01, tls-alpn-01, dns-01
       challenge: http-01
       # Use staging server for testing
@@ -12450,7 +12458,7 @@ POST /pastes                       (Authorization: Bearer own_...)
 ```
 The server creates the owner and its primary token (hash + encrypted copy), stores the resource with `owner_id`, and returns the raw token in the creation response so API clients can save it. Browsers get **dual delivery**: the web-form create `POST` sets the owner cookie AND the one-use view cookie (naming `primary`) and answers `303` to the page that shows the resource, where the token appears once with its copy button (the same mechanism as every Reveal), so web management works with JS disabled; JS may additionally save a convenience copy to `localStorage` — never load-bearing. The token is not a "shown once" secret: the server keeps an encrypted copy, so the owner can reveal it again on `/server/preferences/tokens`. What is one-time is each DISPLAY: the page loaded after the creation `303` shows it once, and every later view (a Reveal `POST`) renders the raw value for ONE page load through the one-use view cookie; a reload or a later visit shows it masked until the next explicit Reveal (see "Token Management").
 
-**Naming:** the JSON response field `owner_token` is fixed across all projects — never rename it. Browser storage names are project-unique: both the cookie and the localStorage key are `{project_name}_owner_token_XXXXXXXX`, where `XXXXXXXX` is 8 random LOWERCASE letters (a-z only: no digits, no capitals) generated once at project creation and recorded verbatim in IDEA.md (e.g. `owner_token: pastebin_owner_token_qwhzkfta`) — fixed for the project's lifetime so the server always knows which cookie to read, and unique so apps, forks, or sibling deployments on one domain never collide. The suffix is not a secret (cookie names are visible); it is lowercase letters only so that credential and entropy scanners never read it as one, which makes it the ONE random-looking identifier IDEA.md may contain (the "credential-shaped string" ban of the secret-scanning rule does not apply to it); HttpOnly protects the value. Spec text uses `owner_token` as shorthand for that cookie.
+**Naming:** the JSON response field `owner_token` is fixed across all projects — never rename it. Browser storage names are project-unique: both the cookie and the localStorage key are `{project_name}_owner_token_XXXXXXXX`, where `XXXXXXXX` is 8 random LOWERCASE letters (a-z only: no digits, no capitals) generated once at project creation and recorded verbatim in IDEA.md (e.g. `owner_token: pastebin_owner_token_qwhzkfta`) — fixed for the project's lifetime so the server always knows which cookie to read, and unique so apps, forks, or sibling deployments on one domain never collide. The suffix is not a secret (cookie names are visible); it is lowercase letters only so that credential and entropy scanners never read it as one, which makes it the ONE random-looking identifier IDEA.md may contain (the "credential-shaped string" ban of the secret-scanning rule does not apply to it); HttpOnly protects the value. Spec text uses `owner_token` as shorthand for that cookie. **Grandfathering:** a project whose recorded suffix already breaks the format (an older template allowed digits and capitals) KEEPS it verbatim: the recorded value is the name, because renaming strands persistent cookies and `localStorage` copies. The format rule applies only to a suffix generated now. If the project wants a compliant name anyway, it records the new name in IDEA.md plus the old one as `owner_token_legacy`; the server then reads the new cookie first and the legacy one second, rewrites a legacy value under the new name on first use, and drops the legacy name after `server.tokens.cookie_max_age` has passed.
 
 **Ownership check (every read-of-private / write / delete on a resource):**
 1. Extract `Authorization: Bearer own_...` (API routes), or fall back to the owner cookie (web forms only, see below)
@@ -17238,7 +17246,7 @@ server:
     # NEVER public. Used as the universal fallback when a role-specific
     # address is empty.
     admin:
-      email: "admin@{fqdn}"
+      email: ""
       webhooks:
         # https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id={CHAT}
         telegram: ""
@@ -17317,7 +17325,7 @@ server:
 
 | Role | Resolution |
 |------|------------|
-| `admin` | Required. Default `admin@{fqdn}`; the operator sets the real mailbox in `server.contact.admin.email`. There is no other input for it, so nothing is filled in automatically. Empty → startup warning. |
+| `admin` | Required, with NO default: the operator sets the real mailbox in `server.contact.admin.email`. Nothing is generated or filled in, because an invented address such as `admin@{fqdn}` could silently misroute operational and security messages. Empty → one startup warning and no email notifications until it is set. |
 | `security` | `server.contact.security.email` (default `security@{fqdn}` per RFC 2142). If explicitly set to `""`, falls back to `server.contact.admin.email`. Same fallback for each webhook transport (security.webhooks.telegram → admin.webhooks.telegram). |
 | `abuse` | `server.contact.abuse.email` if set → else `server.contact.general.email` if set → else `server.contact.admin.email`. Same fallback chain for webhooks. Never defaults to `abuse@{fqdn}` automatically — RFC 2142 recommends that address, but the operator must opt in (an unprovisioned mailbox would bounce reports). |
 | `general` | `server.contact.general.email` if set → else `server.contact.admin.email`. Same fallback for webhooks. |
