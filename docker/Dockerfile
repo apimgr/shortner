@@ -4,7 +4,7 @@
 FROM casjaysdev/go:latest AS builder
 
 # Install git and bash (git: required for go mod download; bash: for build scripts)
-RUN apk add --no-cache git bash
+RUN apk upgrade --no-cache && apk add --no-cache git bash
 
 ARG TARGETARCH
 ARG VERSION
