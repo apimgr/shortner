@@ -119,8 +119,8 @@ func ValidVanityPrefix(prefix string) error {
 	if prefix == "" {
 		return errors.New("prefix must not be empty")
 	}
-	if len(prefix) > 16 {
-		return errors.New("prefix longer than 16 characters is not searchable in practical time")
+	if len(prefix) > 6 {
+		return errors.New("prefix longer than 6 characters requires an external GPU-capable tool")
 	}
 	for _, r := range strings.ToLower(prefix) {
 		if (r < 'a' || r > 'z') && (r < '2' || r > '7') {
@@ -148,15 +148,26 @@ type VanityResult struct {
 // across every CPU because the search is embarrassingly parallel and each
 // additional prefix character multiplies the expected work by 32.
 func SearchVanity(ctx context.Context, prefix string) (*VanityResult, error) {
+	return SearchVanityWorkers(ctx, prefix, runtime.NumCPU())
+}
+
+// SearchVanityWorkers bounds CPU use to the requested worker count.
+func SearchVanityWorkers(ctx context.Context, prefix string, workers int) (*VanityResult, error) {
+	return SearchVanityWithProgress(ctx, prefix, workers, nil)
+}
+
+// SearchVanityWithProgress invokes progress with sampled total attempt counts.
+func SearchVanityWithProgress(ctx context.Context, prefix string, workers int, progress func(uint64)) (*VanityResult, error) {
 	if err := ValidVanityPrefix(prefix); err != nil {
 		return nil, err
 	}
-	want := strings.ToLower(prefix)
-
-	workers := runtime.NumCPU()
-	if workers < 1 {
-		workers = 1
+	if ctx.Err() != nil {
+		return nil, ErrVanityNotFound
 	}
+	if workers < 1 || workers > runtime.NumCPU() {
+		return nil, fmt.Errorf("workers must be between 1 and %d", runtime.NumCPU())
+	}
+	want := strings.ToLower(prefix)
 	found := make(chan *VanityResult, workers)
 	var tried atomic.Uint64
 
@@ -174,6 +185,9 @@ func SearchVanity(ctx context.Context, prefix string) (*VanityResult, error) {
 					return
 				}
 				n := tried.Add(1)
+				if progress != nil && n%4096 == 0 {
+					progress(n)
+				}
 				addr := OnionAddressFor(pub)
 				if strings.HasPrefix(addr, want) {
 					select {

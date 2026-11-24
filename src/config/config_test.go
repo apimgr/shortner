@@ -133,6 +133,28 @@ func TestMigrateAreaFilesPreservesValuesAndIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestMigrateTopLevelCLISettingsToMaintenanceArea(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	if err := os.WriteFile(path, []byte("cli:\n  binary_download:\n    dir: /srv/shortner/cli\n    require_auth: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateAreaFiles(path); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "yaml.d", "maintenance.yml"))
+	if err != nil || !strings.Contains(string(data), "cli:") || !strings.Contains(string(data), "require_auth: true") {
+		t.Fatalf("maintenance.yml = %q, err %v", data, err)
+	}
+	cfg, err := Load(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CLI.BinaryDownload.Dir != "/srv/shortner/cli" || !cfg.CLI.BinaryDownload.RequireAuth {
+		t.Fatalf("CLI config = %+v", cfg.CLI.BinaryDownload)
+	}
+}
+
 func TestMigrateAreaFilesRenamesLegacyKeys(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "server.yml")

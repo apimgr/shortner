@@ -1,6 +1,7 @@
 package tor
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -36,6 +37,23 @@ func TestManagerNilReceiver(t *testing.T) {
 	client := m.GetHTTPClient(true)
 	if client == nil {
 		t.Fatal("GetHTTPClient() on nil Manager returned nil")
+	}
+}
+
+func TestManagerVanitySearchLifecycle(t *testing.T) {
+	dirs := Dirs{Config: t.TempDir(), Data: t.TempDir(), Log: t.TempDir()}
+	manager := NewManager(context.Background(), config.DefaultTor(), dirs, nil, nil)
+	if err := manager.StartVanity("abcdef", 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := manager.VanityStatus().State; got != "running" {
+		t.Fatalf("state = %q, want running", got)
+	}
+	if !manager.StopVanity() {
+		t.Fatal("StopVanity() = false for active search")
+	}
+	if manager.StopVanity() {
+		t.Fatal("StopVanity() = true after search stopped")
 	}
 }
 

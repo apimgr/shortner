@@ -157,6 +157,39 @@ func (s *Service) VirtualPort() int {
 	return s.virtualPort
 }
 
+// PID returns the embedded Tor process ID, or zero when unavailable.
+func (s *Service) PID() int {
+	if s == nil || s.cmd == nil || s.cmd.Process == nil {
+		return 0
+	}
+	return s.cmd.Process.Pid
+}
+
+// BootstrapPercent reads the current Tor bootstrap phase from its control port.
+func (s *Service) BootstrapPercent() int {
+	if s == nil || s.ctrl == nil {
+		return 0
+	}
+	values, err := s.ctrl.GetInfo("status/bootstrap-phase")
+	if err != nil {
+		return 0
+	}
+	for _, value := range values {
+		if value.Key != "status/bootstrap-phase" {
+			continue
+		}
+		for _, field := range strings.Fields(value.Val) {
+			if strings.HasPrefix(field, "PROGRESS=") {
+				progress, parseErr := strconv.Atoi(strings.TrimPrefix(field, "PROGRESS="))
+				if parseErr == nil && progress >= 0 && progress <= 100 {
+					return progress
+				}
+			}
+		}
+	}
+	return 0
+}
+
 // BackendPort returns the dedicated loopback port Tor forwards to.
 func (s *Service) BackendPort() int {
 	if s == nil {

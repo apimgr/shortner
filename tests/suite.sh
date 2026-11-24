@@ -290,7 +290,8 @@ __test_health_endpoints() {
 
   __request "$api_url/server/healthz" -H 'Accept: application/json'
   __assert_status "GET /api/$api/server/healthz returns 200" 200
-  __assert_eq "API health status is healthy" "healthy" "$(__json_get '.status // .data.status')"
+  __assert_eq "missing enabled GeoIP datasets degrade health" "degraded" "$(__json_get '.status // .data.status')"
+  __assert_eq "missing GeoIP country database reports an error check" "error" "$(__json_get '.checks.geoip_country // .data.checks.geoip_country')"
 
   __request "$base_url/server/healthz" -H 'Accept: text/plain'
   __assert_status "GET /server/healthz returns 200" 200

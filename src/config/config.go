@@ -22,12 +22,22 @@ type Config struct {
 	Server                Server `yaml:"server"`
 	Web                   Web    `yaml:"web"`
 	Data                  Data   `yaml:"data"`
+	CLI                   CLI    `yaml:"cli"`
 	databaseURLEnv        bool
 	cacheURLEnv           bool
 	databaseURLConfigured bool
 	cacheURLConfigured    bool
 	databaseURLSeeded     bool
 	cacheURLSeeded        bool
+}
+
+// CLI configures server-published client binaries in yaml.d/maintenance.yml.
+type CLI struct {
+	BinaryDownload CLIBinaryDownload `yaml:"binary_download"`
+}
+type CLIBinaryDownload struct {
+	Dir         string `yaml:"dir"`
+	RequireAuth bool   `yaml:"require_auth"`
 }
 
 // Data holds external security database source settings under the top-level

@@ -25,6 +25,26 @@ func testWellKnownDeps(t *testing.T) *wellKnownDeps {
 	}
 }
 
+func TestLLMCustomSectionValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		section config.LLMCustomSection
+		want    bool
+	}{
+		{"valid", config.LLMCustomSection{Title: "Notes", Content: "See [docs](https://example.test/docs)"}, true},
+		{"unsafe link", config.LLMCustomSection{Title: "Notes", Content: "[bad](javascript:alert(1))"}, false},
+		{"relative link", config.LLMCustomSection{Title: "Notes", Content: "[docs](/docs)"}, true},
+		{"title too long", config.LLMCustomSection{Title: strings.Repeat("x", 81)}, false},
+		{"body too long", config.LLMCustomSection{Title: "Notes", Content: strings.Repeat("x", 4097)}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := validLLMCustomSection(tc.section); got != tc.want {
+				t.Fatalf("validLLMCustomSection() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestWellKnownHandlerMethodNotAllowed proves a non-GET/HEAD request gets
 // 405 with the required Allow header, per the namespace contract.
 func TestWellKnownHandlerMethodNotAllowed(t *testing.T) {

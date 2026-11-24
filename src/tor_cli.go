@@ -1,18 +1,18 @@
 // The `tor` subcommand: AI.md PART 31.1 "Tor CLI Commands" — status,
-// validate, restart, regenerate, vanity start/apply and import-keys. The
-// hidden service itself is owned by the running server (src/tor), so the
-// commands that change the on-disk identity refuse to run while the server
-// is up rather than fighting it for the key files.
+// validate, restart, regenerate, vanity start/stop/apply and import-keys.
+// Changes are sent to the server-owned Tor manager through loopback control.
 package main
 
 import (
-	"context"
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
-	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/apimgr/shortner/src/common/pidfile"
@@ -33,31 +33,43 @@ regenerate                            - Generate a brand new .onion address
 
 vanity start <prefix>                 - Search for an address starting with
                                         <prefix> (base32: a-z and 2-7 only)
+vanity stop                           - Cancel the current search
 vanity apply <address>                - Install a previously found address
 
-import-keys <path>                    - Import an existing hs_ed25519_secret_key
+import-keys <path>                    - Import an existing Tor key directory
 
-The hidden service runs inside the server process, so regenerate, vanity
-apply and import-keys require the server to be stopped.
+Mutating commands require the server to be running.
 
 Examples:
-  %[1]s tor status
-  %[1]s tor vanity start shrt
-  %[1]s tor import-keys /backup/hs_ed25519_secret_key
+  %[1]s --maintenance tor status
+  %[1]s --maintenance tor vanity start shrt
+  %[1]s --maintenance tor import-keys /backup/onion-keys
 `
-
-// vanitySearchTimeout bounds an interactive vanity search so the command
-// always terminates on its own; Ctrl-C stops it sooner.
-const vanitySearchTimeout = 30 * time.Minute
 
 // runTor dispatches `tor [COMMAND] [ARGS...]` and returns the process exit
 // code: 0 on success, 1 on failure, 2 on a usage error.
 func runTor(binaryName string, p paths.Paths, args []string) int {
+	assumeYes := false
+	filtered := args[:0]
+	for _, arg := range args {
+		if arg == "--yes" {
+			assumeYes = true
+		} else {
+			filtered = append(filtered, arg)
+		}
+	}
+	args = filtered
 	command := ""
 	rest := args
 	if len(args) > 0 {
 		command = args[0]
 		rest = args[1:]
+	}
+	if command != "" && command != "help" && command != "--help" && command != "-h" {
+		if err := authorizeMaintenance(binaryName, torOperatorToken(p)); err != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+			return 1
+		}
 	}
 
 	switch command {
@@ -71,19 +83,27 @@ func runTor(binaryName string, p paths.Paths, args []string) int {
 	case "restart":
 		return runTorRestart(binaryName, p)
 	case "regenerate":
-		return runTorRegenerate(binaryName, p)
+		return runTorRegenerate(binaryName, p, assumeYes)
 	case "vanity":
-		return runTorVanity(binaryName, p, rest)
+		return runTorVanity(binaryName, p, rest, assumeYes)
 	case "import-keys":
 		if len(rest) == 0 {
 			fmt.Fprintf(os.Stderr, "%s: tor import-keys requires a path to hs_ed25519_secret_key\n", binaryName)
 			return 2
 		}
-		return runTorImportKeys(binaryName, p, rest[0])
+		return runTorImportKeys(binaryName, p, rest[0], assumeYes)
 	default:
 		fmt.Fprintf(os.Stderr, "%s: unknown tor command %q (run '%s tor --help')\n", binaryName, command, binaryName)
 		return 2
 	}
+}
+
+func torOperatorToken(p paths.Paths) string {
+	cfg, err := config.Load(p.ConfigFile, filepath.Join(p.DB, "server.db"))
+	if err != nil {
+		return ""
+	}
+	return cfg.Server.Token
 }
 
 // torDirs builds the src/tor directory set from the resolved paths.
@@ -132,6 +152,21 @@ func confirmOverlay(prompt string) bool {
 // runTorStatus prints the hidden service state from on-disk data, which is
 // what an out-of-process command can observe without an IPC channel.
 func runTorStatus(p paths.Paths) int {
+	if serverRunning(p) {
+		var data map[string]any
+		if torControlRequest(p, http.MethodGet, "status", nil, &data) == nil {
+			fmt.Println("Tor Hidden Service: Connected")
+			if address, ok := data["onion_address"].(string); ok && address != "" {
+				fmt.Printf("  Address: %s\n", address)
+			}
+			if vanity, ok := data["vanity"].(map[string]any); ok {
+				if state, _ := vanity["state"].(string); state != "" && state != "idle" {
+					fmt.Printf("  Vanity Search: %s\n", state)
+				}
+			}
+			return 0
+		}
+	}
 	cfg := torCLIConfig(p).Normalized()
 	address := tor.ReadOnionAddress(p.Data)
 	running := serverRunning(p)
@@ -168,6 +203,25 @@ func runTorStatus(p paths.Paths) int {
 // the binary resolves, the settings are in range, and the directories are
 // creatable.
 func runTorValidate(p paths.Paths) int {
+	if serverRunning(p) {
+		var data struct {
+			Valid  bool `json:"valid"`
+			Errors []struct {
+				Field   string `json:"field"`
+				Message string `json:"message"`
+			} `json:"errors"`
+		}
+		if err := torControlRequest(p, http.MethodPost, "validate", map[string]any{}, &data); err == nil {
+			if data.Valid {
+				fmt.Println("✓ server.tor settings are all in range")
+				return 0
+			}
+			for _, e := range data.Errors {
+				fmt.Printf("✗ %s: %s\n", e.Field, e.Message)
+			}
+			return 1
+		}
+	}
 	raw := torCLIConfig(p)
 	failed := false
 
@@ -205,43 +259,45 @@ func runTorValidate(p paths.Paths) int {
 // src/signal), so there is no signal an external command could send to
 // recycle it — restarting the server is the real answer.
 func runTorRestart(binaryName string, p paths.Paths) int {
-	if serverRunning(p) {
-		fmt.Fprintf(os.Stderr, "%s: the hidden service runs inside the server process\n", binaryName)
-		fmt.Fprintf(os.Stderr, "Restart it with: %s --service restart\n", binaryName)
+	if !serverRunning(p) {
+		return noTorServer(binaryName)
+	}
+	var data map[string]any
+	if err := torControlRequest(p, http.MethodPost, "restart", nil, &data); err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", binaryName, err)
 		return 1
 	}
-	fmt.Println("Tor Hidden Service: Stopped")
-	fmt.Printf("It starts automatically with the server: %s --service start\n", binaryName)
+	fmt.Printf("Tor restarted: %v\n", data["onion_address"])
 	return 0
 }
 
 // runTorRegenerate destroys the current identity so the next server start
 // mints a new one. It confirms first, because the old address cannot be
 // recovered.
-func runTorRegenerate(binaryName string, p paths.Paths) int {
-	if !requireStopped(binaryName, p, "regenerate the .onion address") {
-		return 1
+func runTorRegenerate(binaryName string, p paths.Paths, yesOption ...bool) int {
+	if !serverRunning(p) {
+		return noTorServer(binaryName)
 	}
 	current := tor.ReadOnionAddress(p.Data)
-	if current == "" {
-		fmt.Println("No .onion address exists yet; one is generated on the next start.")
-		return 0
+	if current != "" {
+		fmt.Printf("Current address: %s\n", current)
 	}
-	fmt.Printf("Current address: %s\n", current)
-	if !confirmOverlay("This permanently destroys the current .onion address. Continue? [y/N] ") {
+	assumeYes := len(yesOption) > 0 && yesOption[0]
+	if !assumeYes && !confirmOverlay("This permanently destroys the current .onion address. Continue? [y/N] ") {
 		fmt.Println("Cancelled.")
 		return 1
 	}
-	if err := os.RemoveAll(torDirs(p).SitePath()); err != nil {
+	var data map[string]any
+	if err := torControlRequest(p, http.MethodPost, "regenerate", map[string]any{"confirm": true}, &data); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", binaryName, err)
 		return 1
 	}
-	fmt.Println("Hidden service keys deleted. A new address is generated on the next start.")
+	fmt.Printf("New address: %v\n", data["onion_address"])
 	return 0
 }
 
 // runTorVanity dispatches `tor vanity start|apply`.
-func runTorVanity(binaryName string, p paths.Paths, args []string) int {
+func runTorVanity(binaryName string, p paths.Paths, args []string, yesOption ...bool) int {
 	sub := ""
 	if len(args) > 0 {
 		sub = args[0]
@@ -256,13 +312,38 @@ func runTorVanity(binaryName string, p paths.Paths, args []string) int {
 			fmt.Fprintf(os.Stderr, "%s: tor vanity start requires a prefix\n", binaryName)
 			return 2
 		}
-		return runTorVanityStart(binaryName, p, arg)
+		workers := 0
+		for i := 2; i < len(args); i++ {
+			if args[i] != "--workers" || i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "%s: expected --workers <count>\n", binaryName)
+				return 2
+			}
+			var err error
+			workers, err = strconv.Atoi(args[i+1])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s: workers must be an integer\n", binaryName)
+				return 2
+			}
+			i++
+		}
+		return runTorVanityStart(binaryName, p, arg, workers)
 	case "apply":
 		if arg == "" {
 			fmt.Fprintf(os.Stderr, "%s: tor vanity apply requires an address\n", binaryName)
 			return 2
 		}
-		return runTorVanityApply(binaryName, p, arg)
+		return runTorVanityApply(binaryName, p, arg, yesOption...)
+	case "stop":
+		if !serverRunning(p) {
+			return noTorServer(binaryName)
+		}
+		var data map[string]any
+		if err := torControlRequest(p, http.MethodPost, "vanity/stop", nil, &data); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", binaryName, err)
+			return 1
+		}
+		fmt.Println("Vanity search stopped.")
+		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "%s: unknown vanity command %q (expected start or apply)\n", binaryName, sub)
 		return 2
@@ -272,101 +353,128 @@ func runTorVanity(binaryName string, p paths.Paths, args []string) int {
 // runTorVanityStart searches for an address with the requested prefix and
 // stages the result. The search runs happily while the server is up:
 // nothing is installed until `vanity apply`.
-func runTorVanityStart(binaryName string, p paths.Paths, prefix string) int {
+func runTorVanityStart(binaryName string, p paths.Paths, prefix string, requestedWorkers ...int) int {
 	if err := tor.ValidVanityPrefix(prefix); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", binaryName, err)
 		return 2
 	}
-	fmt.Printf("Searching for an address starting with %q (Ctrl-C to stop)...\n", strings.ToLower(prefix))
-
-	ctx, cancel := context.WithTimeout(context.Background(), vanitySearchTimeout)
-	defer cancel()
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	started := time.Now()
-	res, err := tor.SearchVanity(ctx, prefix)
-	if err != nil {
+	if !serverRunning(p) {
+		return noTorServer(binaryName)
+	}
+	workers := 0
+	if len(requestedWorkers) > 0 {
+		workers = requestedWorkers[0]
+	}
+	var data map[string]any
+	if err := torControlRequest(p, http.MethodPost, "vanity/start", map[string]any{"prefix": strings.ToLower(prefix), "workers": workers}, &data); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", binaryName, err)
 		return 1
 	}
-	dir, err := tor.SaveVanity(p.Data, res)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s: %v\n", binaryName, err)
-		return 1
-	}
-	fmt.Printf("Found %s after %d keys in %s\n", res.Address, res.Tried, time.Since(started).Round(time.Second))
-	fmt.Printf("Saved to %s\n", dir)
-	fmt.Printf("Apply it with: %s tor vanity apply %s\n", binaryName, res.Address)
+	fmt.Printf("Vanity search started for %q in the server process.\n", strings.ToLower(prefix))
 	return 0
 }
 
 // runTorVanityApply installs a staged vanity identity as the live hidden
 // service identity.
-func runTorVanityApply(binaryName string, p paths.Paths, address string) int {
-	if !requireStopped(binaryName, p, "apply a vanity address") {
+func runTorVanityApply(binaryName string, p paths.Paths, address string, yesOption ...bool) int {
+	if !serverRunning(p) {
+		return noTorServer(binaryName)
+	}
+	assumeYes := len(yesOption) > 0 && yesOption[0]
+	if !assumeYes && !confirmOverlay("Applying this address permanently replaces the current .onion address. Continue? [y/N] ") {
+		fmt.Println("Cancelled.")
 		return 1
 	}
-	address = strings.ToLower(strings.TrimSpace(address))
-	if !strings.HasSuffix(address, ".onion") {
-		address += ".onion"
-	}
-	secret, err := os.ReadFile(filepath.Join(tor.VanityDir(p.Data, address), "hs_ed25519_secret_key"))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s: no staged vanity address %q (run '%s tor status' to list them)\n", binaryName, address, binaryName)
-		return 1
-	}
-	if err := installHiddenServiceKey(p, secret); err != nil {
+	var data map[string]any
+	if err := torControlRequest(p, http.MethodPost, "vanity/apply", map[string]any{"address": address, "confirm": true}, &data); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", binaryName, err)
 		return 1
 	}
-	fmt.Printf("Applied %s. It becomes active on the next server start.\n", address)
+	fmt.Printf("Applied %v.\n", data["onion_address"])
 	return 0
 }
 
 // runTorImportKeys installs an existing hs_ed25519_secret_key, validating
 // it first so a malformed file never leaves Tor unable to start.
-func runTorImportKeys(binaryName string, p paths.Paths, path string) int {
-	if !requireStopped(binaryName, p, "import hidden service keys") {
-		return 1
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s: %v\n", binaryName, err)
-		return 1
-	}
-	if err := tor.ValidateSecretKeyFile(data); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: %s is not a valid hs_ed25519_secret_key: %v\n", binaryName, path, err)
-		return 1
+func runTorImportKeys(binaryName string, p paths.Paths, path string, yesOption ...bool) int {
+	if !serverRunning(p) {
+		return noTorServer(binaryName)
 	}
 	if current := tor.ReadOnionAddress(p.Data); current != "" {
 		fmt.Printf("Current address: %s\n", current)
-		if !confirmOverlay("Importing replaces it permanently. Continue? [y/N] ") {
-			fmt.Println("Cancelled.")
-			return 1
-		}
 	}
-	if err := installHiddenServiceKey(p, data); err != nil {
+	assumeYes := len(yesOption) > 0 && yesOption[0]
+	if !assumeYes && !confirmOverlay("Importing Tor identity keys is permanent. Continue? [y/N] ") {
+		fmt.Println("Cancelled.")
+		return 1
+	}
+	var data map[string]any
+	if err := torControlRequest(p, http.MethodPost, "import-keys", map[string]any{"path": path, "confirm": true}, &data); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", binaryName, err)
 		return 1
 	}
-	fmt.Println("Keys imported. The address becomes active on the next server start.")
+	fmt.Printf("Keys imported: %v\n", data["onion_address"])
 	return 0
 }
 
-// installHiddenServiceKey writes a secret key into the hidden service
-// directory, clearing the stale public key and hostname so Tor regenerates
-// them from the new key instead of loading a mismatched pair.
-func installHiddenServiceKey(p paths.Paths, secret []byte) error {
-	dirs := torDirs(p)
-	if err := tor.EnsureDirs(dirs); err != nil {
+func noTorServer(binaryName string) int {
+	fmt.Fprintln(os.Stderr, "Error: no running server detected — start the server first")
+	return 1
+}
+
+func torControlRequest(p paths.Paths, method, endpoint string, body any, result any) error {
+	cfg, err := config.Load(p.ConfigFile, filepath.Join(p.DB, "server.db"))
+	if err != nil {
 		return err
 	}
-	site := dirs.SitePath()
-	for _, stale := range []string{"hs_ed25519_public_key", "hostname"} {
-		if err := os.Remove(filepath.Join(site, stale)); err != nil && !os.IsNotExist(err) {
-			return err
-		}
+	port := strings.Split(cfg.Server.Port, ",")[0]
+	if strings.TrimSpace(port) == "" || port == "0" {
+		return fmt.Errorf("configured server port cannot be resolved")
 	}
-	return tor.WriteHiddenServiceSecret(site, secret)
+	address := strings.TrimSpace(cfg.Server.Listen)
+	if address == "" || address == "0.0.0.0" || address == "::" {
+		address = "127.0.0.1"
+	}
+	if strings.Contains(address, ":") && !strings.HasPrefix(address, "[") {
+		address = "[" + address + "]"
+	}
+	var reader io.Reader
+	if body != nil {
+		data, e := json.Marshal(body)
+		if e != nil {
+			return e
+		}
+		reader = bytes.NewReader(data)
+	}
+	req, err := http.NewRequest(method, "http://"+address+":"+port+"/server/tor/"+endpoint, reader)
+	if err != nil {
+		return err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return fmt.Errorf("no running server detected — start the server first")
+	}
+	defer resp.Body.Close()
+	var envelope struct {
+		OK      bool            `json:"ok"`
+		Data    json.RawMessage `json:"data"`
+		Error   string          `json:"error"`
+		Message string          `json:"message"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&envelope); err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 || !envelope.OK {
+		if envelope.Message != "" {
+			return fmt.Errorf("%s: %s", envelope.Error, envelope.Message)
+		}
+		return fmt.Errorf("tor control request failed with HTTP %d", resp.StatusCode)
+	}
+	if result != nil {
+		return json.Unmarshal(envelope.Data, result)
+	}
+	return nil
 }

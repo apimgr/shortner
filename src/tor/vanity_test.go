@@ -170,7 +170,7 @@ func TestValidateSecretKeyFile(t *testing.T) {
 // (a-z, 2-7), reject the empty and over-long cases, and reject 0/1/8/9
 // specifically because they can never appear in an onion address.
 func TestValidVanityPrefix(t *testing.T) {
-	valid := []string{"a", "z", "abc", "234567", strings.Repeat("a", 16)}
+	valid := []string{"a", "z", "abc", "234567", strings.Repeat("a", 6)}
 	for _, p := range valid {
 		if err := ValidVanityPrefix(p); err != nil {
 			t.Errorf("ValidVanityPrefix(%q) error = %v, want nil", p, err)
@@ -179,7 +179,7 @@ func TestValidVanityPrefix(t *testing.T) {
 
 	invalid := map[string]string{
 		"empty":       "",
-		"too long":    strings.Repeat("a", 17),
+		"too long":    strings.Repeat("a", 7),
 		"digit 0":     "0",
 		"digit 1":     "1",
 		"digit 8":     "8",
@@ -229,7 +229,7 @@ func TestSearchVanityCancelledContext(t *testing.T) {
 
 	// A prefix long enough that it will not be found before the already
 	// cancelled context is observed.
-	_, err := SearchVanity(ctx, "abcdefgh")
+	_, err := SearchVanity(ctx, "abcdef")
 	if !errors.Is(err, ErrVanityNotFound) {
 		t.Errorf("SearchVanity() error = %v, want ErrVanityNotFound", err)
 	}

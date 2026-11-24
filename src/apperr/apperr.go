@@ -16,10 +16,11 @@ import (
 
 // APIResponse is the unified success/error envelope for every API response.
 type APIResponse struct {
-	OK      bool   `json:"ok"`
-	Data    any    `json:"data,omitempty"`
-	Error   string `json:"error,omitempty"`
-	Message string `json:"message,omitempty"`
+	OK      bool           `json:"ok"`
+	Data    any            `json:"data,omitempty"`
+	Error   string         `json:"error,omitempty"`
+	Message string         `json:"message,omitempty"`
+	Details map[string]any `json:"details,omitempty"`
 }
 
 // Code is a stable machine-readable error code, per AI.md PART 9
@@ -211,6 +212,7 @@ func SendError(w http.ResponseWriter, err *AppError) {
 		OK:      false,
 		Error:   string(err.Code),
 		Message: err.Message,
+		Details: err.Details,
 	})
 }
 

@@ -14,6 +14,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"sort"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Security holds `server.security`, per AI.md PART 11 "Cryptographic Keys"
@@ -276,9 +278,6 @@ type WebSecurity struct {
 	// ReportURL is the primary reporting channel: the repository's private
 	// vulnerability reporting form. Listed first in security.txt.
 	ReportURL string `yaml:"report_url"`
-	// Contact is the secondary/CC mailto address. The "mailto:" prefix is
-	// added automatically when rendering security.txt.
-	Contact string `yaml:"contact"`
 	// Expires is the RFC 9116 Expires value. Empty means "auto-calculate
 	// one year from the request", which keeps the file permanently valid
 	// without an operator ever having to touch it.
@@ -309,10 +308,36 @@ type SecurityThanks struct {
 
 // LLMs holds `web.llms`, per AI.md PART 11 "llms.txt (AI Discovery)".
 type LLMs struct {
-	Enabled          bool     `yaml:"enabled"`
-	IncludeEndpoints bool     `yaml:"include_endpoints"`
-	IncludeSchemas   bool     `yaml:"include_schemas"`
-	CustomSections   []string `yaml:"custom_sections"`
+	Enabled          bool              `yaml:"enabled"`
+	IncludeEndpoints bool              `yaml:"include_endpoints"`
+	IncludeSchemas   bool              `yaml:"include_schemas"`
+	CustomSections   LLMCustomSections `yaml:"custom_sections"`
+}
+
+type LLMCustomSections []LLMCustomSection
+
+func (sections *LLMCustomSections) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.SequenceNode {
+		*sections = LLMCustomSections{{}}
+		return nil
+	}
+	var decoded LLMCustomSections
+	for _, item := range node.Content {
+		var section LLMCustomSection
+		if err := item.Decode(&section); err != nil {
+			decoded = append(decoded, LLMCustomSection{})
+			continue
+		}
+		decoded = append(decoded, section)
+	}
+	*sections = decoded
+	return nil
+}
+
+// LLMCustomSection is one operator-authored heading and Markdown body in llms.txt.
+type LLMCustomSection struct {
+	Title   string `yaml:"title"`
+	Content string `yaml:"content"`
 }
 
 // WellKnown holds `web.well_known`, per AI.md PART 11 "Well-Known Support
@@ -524,13 +549,10 @@ func DefaultRobots() Robots {
 
 // DefaultWebSecurity returns the `web.security` defaults. ReportURL points
 // at this repository's private vulnerability reporting form (the primary
-// channel per AI.md PART 11 "Security Reports"); Contact is left empty so
-// it resolves per-request to "security@{fqdn}" from the client's own Host,
-// which is what RFC 2142 and the URL-resolution rule both require.
+// channel per AI.md PART 11 "Security Reports").
 func DefaultWebSecurity() WebSecurity {
 	return WebSecurity{
 		ReportURL:          "https://github.com/apimgr/shortner/security/advisories/new",
-		Contact:            "",
 		Expires:            "",
 		Keyservers:         []string{"https://keys.openpgp.org"},
 		PublishPGPKey:      true,
@@ -546,7 +568,7 @@ func DefaultLLMs() LLMs {
 		Enabled:          true,
 		IncludeEndpoints: true,
 		IncludeSchemas:   false,
-		CustomSections:   []string{},
+		CustomSections:   LLMCustomSections{},
 	}
 }
 

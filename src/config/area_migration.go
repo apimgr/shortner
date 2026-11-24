@@ -99,6 +99,8 @@ func MigrateAreaFiles(path string) error {
 			appendNodeMap(areas["tor"], key, value)
 		case "data":
 			appendNodeMap(areas["security"], key, value)
+		case "cli":
+			appendNodeMap(areas["maintenance"], key, value)
 		default:
 			appendNodeMap(areas["app"], key, value)
 		}

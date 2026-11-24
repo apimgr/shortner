@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -171,6 +172,40 @@ func (m *Manager) Close() error {
 	return nil
 }
 
+// DatasetStatus reports whether a configured dataset was loaded and fresh.
+func (m *Manager) DatasetStatus(name string) string {
+	if m == nil || !m.enabled {
+		return ""
+	}
+	m.mu.RLock()
+	loaded := false
+	switch name {
+	case "asn":
+		loaded = !m.dbs.ASN || m.asn != nil
+	case "country":
+		loaded = !m.dbs.Country || m.country != nil
+	case "city":
+		loaded = (!m.dbs.City || m.cityV4 != nil) && (!m.dbs.City || m.cityV6 != nil)
+	default:
+		m.mu.RUnlock()
+		return "error"
+	}
+	dir := m.dir
+	m.mu.RUnlock()
+	if !loaded {
+		return "error"
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".last_updated"))
+	updated, parseErr := time.Parse(time.RFC3339, strings.TrimSpace(string(data)))
+	if err != nil || parseErr != nil || updated.After(time.Now().Add(time.Minute)) {
+		return "error"
+	}
+	if time.Since(updated) > 21*24*time.Hour {
+		return "degraded"
+	}
+	return "ok"
+}
+
 // Lookup returns everything known about ip. Private/loopback addresses
 // (RFC 1918, RFC 4193, loopback) are never looked up, per AI.md PART 19
 // "Private/internal IPs". A nil ip, a disabled Manager, or a missing/
@@ -308,6 +343,11 @@ func Download(ctx context.Context, dir string, dbs config.GeoIPDatabases) error 
 	for _, name := range files {
 		if err := downloadOne(ctx, dir, name); err != nil && firstErr == nil {
 			firstErr = err
+		}
+	}
+	if firstErr == nil {
+		if err := os.WriteFile(filepath.Join(dir, ".last_updated"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600); err != nil {
+			return fmt.Errorf("geoip: write update timestamp: %w", err)
 		}
 	}
 	return firstErr

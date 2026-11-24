@@ -102,9 +102,6 @@ func (e *pgpEnv) close() {
 // the security.txt contact override, then the RFC 2142 security@ role
 // mailbox, then security@{fqdn}.
 func (e *pgpEnv) identityEmail() string {
-	if c := strings.TrimSpace(e.cfg.Web.Security.Contact); c != "" {
-		return strings.TrimPrefix(c, "mailto:")
-	}
 	if c := strings.TrimSpace(e.cfg.Server.Contact.Security.Email); c != "" {
 		return c
 	}

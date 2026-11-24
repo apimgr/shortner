@@ -158,3 +158,13 @@ func TestTier1ServerSideRendering(t *testing.T) {
 		t.Errorf("stats page is not a complete HTML document")
 	}
 }
+
+func TestDebug500PageUsesThemedRenderer(t *testing.T) {
+	resp, body := get(t, newClient(t), "/debug/error500")
+	if resp.StatusCode != http.StatusInternalServerError || !strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
+		t.Fatalf("GET /debug/error500 = %d %q, want themed HTML 500", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	if !strings.Contains(body, "class=\"page-title\"") || strings.Contains(body, "goroutine ") {
+		t.Fatalf("500 body is not the normal themed error page")
+	}
+}

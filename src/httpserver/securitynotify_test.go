@@ -59,7 +59,8 @@ func TestNotifySecurityReportSendsOneMaintainerNoticeAndMinimalAcknowledgment(t 
 	}
 
 	statusToken := "f1a4d882"
-	if !fd.notifySecurityReportWith(sender, request, "sec_0123456789abcdef", statusToken, form) {
+	acknowledged, notified := fd.notifySecurityReportWith(sender, request, "sec_0123456789abcdef", statusToken, form)
+	if !acknowledged || !notified {
 		t.Fatal("acknowledgment was not accepted by the mail transport")
 	}
 
@@ -105,7 +106,8 @@ func TestNotifySecurityReportAcknowledgmentFailureIsNotReportedAsSent(t *testing
 	cfg.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString(make([]byte, 32))
 	fd := &frontendDeps{cfg: cfg, configDir: t.TempDir(), resolver: NewProxyResolver(nil)}
 	sender := &recordingSecuritySender{enabled: true, err: errors.New("smtp unavailable")}
-	if fd.notifySecurityReportWith(sender, httptest.NewRequest("POST", "https://example.test/", nil), "sec_0123456789abcdef", "token", securityReportForm{Email: "researcher@example.test"}) {
+	acknowledged, notified := fd.notifySecurityReportWith(sender, httptest.NewRequest("POST", "https://example.test/", nil), "sec_0123456789abcdef", "token", securityReportForm{Email: "researcher@example.test"})
+	if acknowledged || notified {
 		t.Fatal("failed acknowledgment was reported as sent")
 	}
 }

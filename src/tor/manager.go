@@ -2,9 +2,13 @@ package tor
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,7 +47,109 @@ type Manager struct {
 	// Err() so /server/healthz can render AI.md PART 13's
 	// "error:{short message}" status vocabulary instead of a bare "error"
 	// with no explanation.
-	lastErr error
+	lastErr          error
+	vanityMu         sync.Mutex
+	vanityCancel     context.CancelFunc
+	vanityStatus     VanityStatus
+	vanityGeneration uint64
+}
+
+// VanityStatus is the live in-process vanity search exposed to the local operator.
+type VanityStatus struct {
+	State          string   `json:"state"`
+	Prefix         string   `json:"prefix,omitempty"`
+	Workers        int      `json:"workers,omitempty"`
+	Attempts       uint64   `json:"attempts,omitempty"`
+	Rate           float64  `json:"rate,omitempty"`
+	ElapsedSeconds float64  `json:"elapsed_seconds,omitempty"`
+	Candidates     []string `json:"candidates"`
+}
+
+// StartVanity runs a search in the server process and stages its result.
+func (m *Manager) StartVanity(prefix string, workers int) error {
+	if err := ValidVanityPrefix(prefix); err != nil {
+		return err
+	}
+	if workers < 1 || workers > runtime.NumCPU() {
+		return fmt.Errorf("workers must be between 1 and %d", runtime.NumCPU())
+	}
+	m.vanityMu.Lock()
+	if m.vanityCancel != nil {
+		running := m.vanityStatus.Prefix
+		m.vanityMu.Unlock()
+		return fmt.Errorf("vanity search already running for %s", running)
+	}
+	ctx, cancel := context.WithCancel(m.ctx)
+	m.vanityCancel = cancel
+	m.vanityGeneration++
+	generation := m.vanityGeneration
+	started := time.Now()
+	m.vanityStatus = VanityStatus{State: "running", Prefix: strings.ToLower(prefix), Workers: workers, Candidates: ListVanity(m.dirs.Data)}
+	m.vanityMu.Unlock()
+	go func() {
+		result, err := SearchVanityWithProgress(ctx, prefix, workers, func(attempts uint64) {
+			m.vanityMu.Lock()
+			defer m.vanityMu.Unlock()
+			if m.vanityGeneration != generation {
+				return
+			}
+			elapsed := time.Since(started).Seconds()
+			m.vanityStatus.Attempts = attempts
+			m.vanityStatus.ElapsedSeconds = elapsed
+			if elapsed > 0 {
+				m.vanityStatus.Rate = float64(attempts) / elapsed
+			}
+		})
+		if err == nil {
+			_, err = SaveVanity(m.dirs.Data, result)
+		}
+		m.vanityMu.Lock()
+		defer m.vanityMu.Unlock()
+		if m.vanityGeneration != generation {
+			return
+		}
+		m.vanityCancel = nil
+		if err == nil {
+			elapsed := time.Since(started).Seconds()
+			rate := float64(result.Tried) / elapsed
+			m.vanityStatus = VanityStatus{State: "found", Prefix: strings.ToLower(prefix), Workers: workers, Attempts: result.Tried, Rate: rate, ElapsedSeconds: elapsed, Candidates: ListVanity(m.dirs.Data)}
+		} else {
+			m.vanityStatus = VanityStatus{State: "idle", Candidates: ListVanity(m.dirs.Data)}
+		}
+	}()
+	return nil
+}
+
+// StopVanity cancels a running search and retains any already staged candidates.
+func (m *Manager) StopVanity() bool {
+	m.vanityMu.Lock()
+	defer m.vanityMu.Unlock()
+	if m.vanityCancel == nil {
+		return false
+	}
+	m.vanityCancel()
+	m.vanityCancel = nil
+	m.vanityGeneration++
+	m.vanityStatus = VanityStatus{State: "idle", Candidates: ListVanity(m.dirs.Data)}
+	return true
+}
+
+// VanityStatus reports current progress and staged candidates.
+func (m *Manager) VanityStatus() VanityStatus {
+	m.vanityMu.Lock()
+	defer m.vanityMu.Unlock()
+	s := m.vanityStatus
+	if s.State == "" {
+		s.State = "idle"
+	}
+	s.Candidates = ListVanity(m.dirs.Data)
+	if s.State == "idle" && len(s.Candidates) > 0 {
+		s.State = "found"
+	}
+	if s.State == "running" && s.ElapsedSeconds > 0 {
+		s.Rate = float64(s.Attempts) / s.ElapsedSeconds
+	}
+	return s
 }
 
 // NewManager creates a Tor manager. serve is invoked for every service
@@ -252,6 +358,53 @@ func (m *Manager) CircuitEstablished() bool {
 	service := m.service
 	m.mu.Unlock()
 	return service.CircuitEstablished()
+}
+
+// PID reports the embedded Tor child process ID, or zero when it is stopped.
+func (m *Manager) PID() int {
+	if m == nil {
+		return 0
+	}
+	m.mu.Lock()
+	service := m.service
+	m.mu.Unlock()
+	return service.PID()
+}
+
+// BootstrapPercent reports Tor's current control-port bootstrap progress.
+func (m *Manager) BootstrapPercent() int {
+	if m == nil {
+		return 0
+	}
+	m.mu.Lock()
+	service := m.service
+	m.mu.Unlock()
+	return service.BootstrapPercent()
+}
+
+// Version reports the installed Tor version without starting another Tor process.
+func (m *Manager) Version() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.Lock()
+	cfg := m.config
+	m.mu.Unlock()
+	binary, err := ResolveBinary(cfg)
+	if err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, binary, "--version").Output()
+	if err != nil {
+		return ""
+	}
+	fields := strings.Fields(string(output))
+	if len(fields) < 3 || fields[0] != "Tor" || fields[1] != "version" {
+		return ""
+	}
+	return strings.TrimSuffix(fields[2], ".")
 }
 
 // Err returns the most recent start/restart failure's message, or an empty

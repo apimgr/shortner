@@ -4,11 +4,13 @@ package httpserver
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -31,6 +33,8 @@ type wellKnownDeps struct {
 	installSecret         string
 	previousInstallSecret string
 }
+
+var llmCustomSectionWarning sync.Once
 
 // wellKnownAllowlist is the complete set of allowlisted `/.well-known`
 // entries, per AI.md PART 11 "Well-Known Support Matrix". Anything not
@@ -277,12 +281,8 @@ func (wd *wellKnownDeps) securityTxt(r *http.Request) string {
 
 // securityContact resolves the CC email address, defaulting to
 // security@{fqdn} for the host this client actually used, per AI.md
-// PART 11's `contact: "security@{fqdn}"` default and its per-request URL
-// resolution rule.
+// PART 12's `server.contact.security.email` setting and its per-request fallback.
 func (wd *wellKnownDeps) securityContact(r *http.Request) string {
-	if c := strings.TrimSpace(wd.cfg.Web.Security.Contact); c != "" {
-		return c
-	}
 	if c := strings.TrimSpace(wd.cfg.Server.Contact.Security.Email); c != "" {
 		return c
 	}
@@ -357,9 +357,15 @@ func (wd *wellKnownDeps) llmsTxt(r *http.Request) string {
 		fmt.Fprintf(&b, "- %s\n", c)
 	}
 
-	for _, section := range cfg.Web.LLMs.CustomSections {
-		fmt.Fprintf(&b, "\n%s\n", section)
+	warned := false
+	for i, section := range cfg.Web.LLMs.CustomSections {
+		if i >= 10 || !validLLMCustomSection(section) {
+			warned = true
+			continue
+		}
+		fmt.Fprintf(&b, "\n## %s\n%s\n", strings.NewReplacer("<", "&lt;", ">", "&gt;").Replace(section.Title), strings.NewReplacer("<", "&lt;", ">", "&gt;").Replace(section.Content))
 	}
+	if warned { llmCustomSectionWarning.Do(func() { log.Printf("well-known: skipped invalid llms.txt custom section") }) }
 
 	b.WriteString("\n## Contact\n")
 	fmt.Fprintf(&b, "Website reports: %s\n", wd.resolver.BuildURL(r, "/server/security"))
@@ -367,6 +373,30 @@ func (wd *wellKnownDeps) llmsTxt(r *http.Request) string {
 		fmt.Fprintf(&b, "Security: %s\n", contact)
 	}
 	return b.String()
+}
+
+func validLLMCustomSection(section config.LLMCustomSection) bool {
+	title, content := strings.TrimSpace(section.Title), section.Content
+	if len([]rune(title)) < 1 || len([]rune(title)) > 80 || strings.ContainsAny(title, "\r\n") || len([]rune(content)) > 4096 {
+		return false
+	}
+	for rest := content; ; {
+		start := strings.Index(rest, "](")
+		if start < 0 {
+			break
+		}
+		rest = rest[start+2:]
+		end := strings.IndexByte(rest, ')')
+		if end < 0 {
+			return false
+		}
+		target := strings.TrimSpace(rest[:end])
+		if !(strings.HasPrefix(target, "https://") || (target != "" && !strings.Contains(target, ":") && !strings.HasPrefix(target, "//"))) {
+			return false
+		}
+		rest = rest[end+1:]
+	}
+	return true
 }
 
 // capabilities lists what this deployment can do, derived from enabled

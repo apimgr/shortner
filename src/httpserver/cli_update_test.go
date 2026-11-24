@@ -29,10 +29,17 @@ func TestCLIAutodiscoverListsAvailableBinariesAndMinimum(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	var doc cliAutodiscoverDocument
-	if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+	var envelope struct {
+		OK   bool                    `json:"ok"`
+		Data cliAutodiscoverDocument `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
 		t.Fatal(err)
 	}
+	if !envelope.OK {
+		t.Fatalf("response envelope not successful: %s", rec.Body.String())
+	}
+	doc := envelope.Data
 	sum := sha256.Sum256(data)
 	if doc.CLIMinVersion != "1.2.0" {
 		t.Errorf("cli_min_version = %q", doc.CLIMinVersion)
@@ -42,6 +49,35 @@ func TestCLIAutodiscoverListsAvailableBinariesAndMinimum(t *testing.T) {
 	}
 	if len(doc.CLIVersions) != 1 {
 		t.Errorf("listed %d binaries, want only the available binary", len(doc.CLIVersions))
+	}
+}
+
+func TestCLIAutodiscoverPublishesOnlyExplicitlyExposedOverlayAddresses(t *testing.T) {
+	cfg := config.Default("")
+	tor := &fakeTorReporter{enabled: true, running: true, healthy: true, address: "hidden.onion"}
+	i2p := &fakeI2PReporter{enabled: true, running: true, healthy: true, address: "hidden.b32.i2p"}
+	d := &cliUpdateDeps{cfg: cfg, version: "1.0.0", resolver: NewProxyResolver(nil), tor: tor, i2p: i2p}
+	read := func() cliAutodiscoverDocument {
+		rec := httptest.NewRecorder()
+		d.autodiscoverHandler(rec, httptest.NewRequest(http.MethodGet, "/api/autodiscover", nil))
+		var envelope struct {
+			OK   bool                    `json:"ok"`
+			Data cliAutodiscoverDocument `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if !envelope.OK {
+			t.Fatalf("response not successful: %s", rec.Body.String())
+		}
+		return envelope.Data
+	}
+	if doc := read(); doc.Onion != "" || doc.I2P != "" {
+		t.Fatalf("unexposed addresses published: %+v", doc)
+	}
+	cfg.Server.Tor.Expose, cfg.Server.I2P.Expose = true, true
+	if doc := read(); doc.Onion != tor.address || doc.I2P != i2p.address {
+		t.Fatalf("exposed addresses = %q/%q", doc.Onion, doc.I2P)
 	}
 }
 

@@ -56,7 +56,7 @@ func TestSystemdUnit(t *testing.T) {
 		"RestartSec=5",
 		"StandardOutput=journal",
 		"StandardError=journal",
-		"ProtectSystem=strict",
+		"ProtectSystem=true",
 		"ProtectHome=yes",
 		"PrivateTmp=yes",
 		"ExecStartPre=+/usr/bin/install -d -m 0755 /etc/apimgr/shortner /var/lib/apimgr/shortner /var/lib/apimgr/shortner/db /var/cache/apimgr/shortner /var/log/apimgr/shortner /var/lib/apimgr/shortner/backups /var/run/apimgr/shortner",

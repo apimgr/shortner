@@ -142,9 +142,6 @@ func (fd *frontendDeps) dpoHandler(w http.ResponseWriter, r *http.Request) {
 // securityContactEmail resolves the CC address the same way security.txt
 // does, defaulting to security@{fqdn} for the host this client used.
 func (fd *frontendDeps) securityContactEmail(r *http.Request) string {
-	if c := fd.cfg.Web.Security.Contact; c != "" {
-		return c
-	}
 	if c := fd.cfg.Server.Contact.Security.Email; c != "" {
 		return c
 	}

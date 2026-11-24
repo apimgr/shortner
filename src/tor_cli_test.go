@@ -166,33 +166,21 @@ func TestRunTorValidateBinaryResolution(t *testing.T) {
 	})
 }
 
-// TestRunTorRestartNotRunning exercises the only serverRunning() branch
-// this environment can reach deterministically (no PID file at all); the
-// "server is running" refusal needs a live process holding the PID file
-// under this binary's own name, which the test binary can never be — see
-// the final report for this documented gap.
+// TestRunTorRestartNotRunning verifies mutating commands require the live
+// server that owns the embedded Tor process.
 func TestRunTorRestartNotRunning(t *testing.T) {
 	p := torTestPaths(t)
-	out, _, code := captureOutput(t, func() int { return runTorRestart("shortner", p) })
-	if code != 0 {
-		t.Errorf("code = %d, want 0", code)
-	}
-	if !strings.Contains(out, "Tor Hidden Service: Stopped") {
-		t.Errorf("stdout = %q, want the stopped message", out)
-	}
-	if !strings.Contains(out, "shortner --service start") {
-		t.Errorf("stdout = %q, want the restart hint", out)
+	_, stderr, code := captureOutput(t, func() int { return runTorRestart("shortner", p) })
+	if code != 1 || !strings.Contains(stderr, "no running server detected") {
+		t.Errorf("result = %d, %q; want no-running-server failure", code, stderr)
 	}
 }
 
 func TestRunTorRegenerateNoAddress(t *testing.T) {
 	p := torTestPaths(t)
-	out, _, code := captureOutput(t, func() int { return runTorRegenerate("shortner", p) })
-	if code != 0 {
-		t.Errorf("code = %d, want 0", code)
-	}
-	if !strings.Contains(out, "No .onion address exists yet") {
-		t.Errorf("stdout = %q, want the no-address message", out)
+	_, stderr, code := captureOutput(t, func() int { return runTorRegenerate("shortner", p) })
+	if code != 1 || !strings.Contains(stderr, "no running server detected") {
+		t.Errorf("result = %d, %q; want no-running-server failure", code, stderr)
 	}
 }
 
@@ -221,37 +209,25 @@ func withPromptAnswer(t *testing.T, answer string) {
 func TestRunTorRegenerateCancelled(t *testing.T) {
 	p := torTestPaths(t)
 	seedOnionAddress(t, p, "existingaddress1234.onion")
-	withPromptAnswer(t, "n")
-
-	out, _, code := captureOutput(t, func() int { return runTorRegenerate("shortner", p) })
-	if code != 1 {
-		t.Errorf("code = %d, want 1", code)
+	_, stderr, code := captureOutput(t, func() int { return runTorRegenerate("shortner", p) })
+	if code != 1 || !strings.Contains(stderr, "no running server detected") {
+		t.Errorf("result = %d, %q; want no-running-server failure", code, stderr)
 	}
-	if !strings.Contains(out, "Cancelled.") {
-		t.Errorf("stdout = %q, want Cancelled.", out)
-	}
-	if _, err := os.Stat(tor.Dirs{Config: p.Config, Data: p.Data, Log: p.Logs}.SitePath()); err != nil {
-		t.Errorf("hidden service dir was removed despite cancellation: %v", err)
+	if address := tor.ReadOnionAddress(p.Data); address != "existingaddress1234.onion" {
+		t.Errorf("address = %q; serverless request changed identity", address)
 	}
 }
-
 func TestRunTorRegenerateConfirmed(t *testing.T) {
 	p := torTestPaths(t)
 	seedOnionAddress(t, p, "existingaddress1234.onion")
-	withPromptAnswer(t, "y")
-
-	out, _, code := captureOutput(t, func() int { return runTorRegenerate("shortner", p) })
-	if code != 0 {
-		t.Errorf("code = %d, want 0", code)
+	_, stderr, code := captureOutput(t, func() int { return runTorRegenerate("shortner", p) })
+	if code != 1 || !strings.Contains(stderr, "no running server detected") {
+		t.Errorf("result = %d, %q; want no-running-server failure", code, stderr)
 	}
-	if !strings.Contains(out, "deleted") {
-		t.Errorf("stdout = %q, want the deletion confirmation", out)
-	}
-	if _, err := os.Stat(tor.Dirs{Config: p.Config, Data: p.Data, Log: p.Logs}.SitePath()); !os.IsNotExist(err) {
-		t.Errorf("hidden service dir still exists after confirmed regeneration: %v", err)
+	if address := tor.ReadOnionAddress(p.Data); address != "existingaddress1234.onion" {
+		t.Errorf("address = %q; serverless request changed identity", address)
 	}
 }
-
 func TestRunTorVanityDispatch(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -292,156 +268,55 @@ func TestRunTorVanityStartInvalidPrefix(t *testing.T) {
 // TestRunTorVanityStartAndApply runs a real 1-character search (fast: a
 // 1-in-32 hit rate) end to end, then applies the result as the live
 // identity.
-func TestRunTorVanityStartAndApply(t *testing.T) {
-	p := torTestPaths(t)
-
-	out, _, code := captureOutput(t, func() int { return runTorVanityStart("shortner", p, "a") })
-	if code != 0 {
-		t.Fatalf("vanity start code = %d, want 0; stdout = %q", code, out)
-	}
-	if !strings.Contains(out, "Found") || !strings.Contains(out, "Saved to") {
-		t.Errorf("stdout = %q, want the found/saved messages", out)
-	}
-
-	var address string
-	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(line, "Found ") {
-			fields := strings.Fields(line)
-			address = fields[1]
-		}
-	}
-	if address == "" {
-		t.Fatalf("could not parse the found address out of %q", out)
-	}
-	if !strings.HasPrefix(strings.ToLower(address), "a") {
-		t.Errorf("address = %q, want to start with the requested prefix", address)
-	}
-	staged := filepath.Join(tor.VanityDir(p.Data, address), "hs_ed25519_secret_key")
-	if _, err := os.Stat(staged); err != nil {
-		t.Errorf("expected staged key at %s: %v", staged, err)
-	}
-
-	out, _, code = captureOutput(t, func() int { return runTorVanityApply("shortner", p, address) })
-	if code != 0 {
-		t.Fatalf("vanity apply code = %d, want 0; stdout = %q", code, out)
-	}
-	if !strings.Contains(out, "Applied "+address) {
-		t.Errorf("stdout = %q, want the applied confirmation", out)
-	}
-	installed := filepath.Join(tor.Dirs{Config: p.Config, Data: p.Data, Log: p.Logs}.SitePath(), "hs_ed25519_secret_key")
-	if _, err := os.Stat(installed); err != nil {
-		t.Errorf("expected the applied key at %s: %v", installed, err)
+func TestRunTorVanityStartRequiresRunningServer(t *testing.T) {
+	_, stderr, code := captureOutput(t, func() int { return runTorVanityStart("shortner", torTestPaths(t), "a") })
+	if code != 1 || !strings.Contains(stderr, "no running server detected") {
+		t.Errorf("result = %d, %q; want no-running-server failure", code, stderr)
 	}
 }
-
-func TestRunTorVanityApplyNonexistent(t *testing.T) {
+func TestRunTorVanityApplyRequiresRunningServer(t *testing.T) {
 	_, stderr, code := captureOutput(t, func() int { return runTorVanityApply("shortner", torTestPaths(t), "doesnotexist") })
-	if code != 1 {
-		t.Errorf("code = %d, want 1", code)
-	}
-	if !strings.Contains(stderr, "no staged vanity address") {
-		t.Errorf("stderr = %q, want the honest no-staged-address message", stderr)
+	if code != 1 || !strings.Contains(stderr, "no running server detected") {
+		t.Errorf("result = %d, %q; want no-running-server failure", code, stderr)
 	}
 }
-
-func TestRunTorImportKeysMissingPath(t *testing.T) {
+func TestRunTorImportKeysRequiresRunningServer(t *testing.T) {
 	p := torTestPaths(t)
-	_, stderr, code := captureOutput(t, func() int {
-		return runTorImportKeys("shortner", p, filepath.Join(p.Data, "no-such-file"))
-	})
-	if code != 1 {
-		t.Errorf("code = %d, want 1", code)
-	}
-	if stderr == "" {
-		t.Error("stderr = empty, want the propagated read error")
+	_, stderr, code := captureOutput(t, func() int { return runTorImportKeys("shortner", p, filepath.Join(p.Data, "missing")) })
+	if code != 1 || !strings.Contains(stderr, "no running server detected") {
+		t.Errorf("result = %d, %q; want no-running-server failure", code, stderr)
 	}
 }
-
 func TestRunTorImportKeysGarbage(t *testing.T) {
 	p := torTestPaths(t)
-	garbage := filepath.Join(t.TempDir(), "garbage-key")
-	if err := os.WriteFile(garbage, []byte("not a key at all"), 0o600); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-
-	_, stderr, code := captureOutput(t, func() int { return runTorImportKeys("shortner", p, garbage) })
-	if code != 1 {
-		t.Errorf("code = %d, want 1", code)
-	}
-	if !strings.Contains(stderr, "is not a valid hs_ed25519_secret_key") {
-		t.Errorf("stderr = %q, want the invalid-key message", stderr)
+	_, stderr, code := captureOutput(t, func() int { return runTorImportKeys("shortner", p, filepath.Join(t.TempDir(), "garbage")) })
+	if code != 1 || !strings.Contains(stderr, "no running server detected") {
+		t.Errorf("result = %d, %q; want no-running-server failure", code, stderr)
 	}
 }
-
 func TestRunTorImportKeysValid(t *testing.T) {
 	p := torTestPaths(t)
 	keyPath := filepath.Join(t.TempDir(), "hs_ed25519_secret_key")
-	secret := validSecretKeyFile(t)
-	if err := os.WriteFile(keyPath, secret, 0o600); err != nil {
+	if err := os.WriteFile(keyPath, validSecretKeyFile(t), 0o600); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
-
-	out, _, code := captureOutput(t, func() int { return runTorImportKeys("shortner", p, keyPath) })
-	if code != 0 {
-		t.Fatalf("code = %d, want 0; stdout = %q", code, out)
-	}
-	if !strings.Contains(out, "Keys imported.") {
-		t.Errorf("stdout = %q, want the import confirmation", out)
-	}
-
-	installed, err := os.ReadFile(filepath.Join(tor.Dirs{Config: p.Config, Data: p.Data, Log: p.Logs}.SitePath(), "hs_ed25519_secret_key"))
-	if err != nil {
-		t.Fatalf("expected the installed key to exist: %v", err)
-	}
-	if string(installed) != string(secret) {
-		t.Error("installed key content does not match the imported file")
+	_, stderr, code := captureOutput(t, func() int { return runTorImportKeys("shortner", p, keyPath) })
+	if code != 1 || !strings.Contains(stderr, "no running server detected") {
+		t.Errorf("result = %d, %q; want no-running-server failure", code, stderr)
 	}
 }
-
 func TestRunTorImportKeysOverExistingAddress(t *testing.T) {
-	newKeyPath := func(t *testing.T) string {
-		t.Helper()
-		path := filepath.Join(t.TempDir(), "hs_ed25519_secret_key")
-		if err := os.WriteFile(path, validSecretKeyFile(t), 0o600); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-		return path
+	p := torTestPaths(t)
+	seedOnionAddress(t, p, "existingaddress1234.onion")
+	keyPath := filepath.Join(t.TempDir(), "hs_ed25519_secret_key")
+	if err := os.WriteFile(keyPath, validSecretKeyFile(t), 0o600); err != nil {
+		t.Fatalf("setup: %v", err)
 	}
-
-	t.Run("cancelled", func(t *testing.T) {
-		p := torTestPaths(t)
-		seedOnionAddress(t, p, "existingaddress1234.onion")
-		withPromptAnswer(t, "no")
-
-		out, _, code := captureOutput(t, func() int { return runTorImportKeys("shortner", p, newKeyPath(t)) })
-		if code != 1 {
-			t.Errorf("code = %d, want 1", code)
-		}
-		if !strings.Contains(out, "Cancelled.") {
-			t.Errorf("stdout = %q, want Cancelled.", out)
-		}
-		address := tor.ReadOnionAddress(p.Data)
-		if address != "existingaddress1234.onion" {
-			t.Errorf("address = %q, want the original address to survive a cancelled import", address)
-		}
-	})
-
-	t.Run("confirmed", func(t *testing.T) {
-		p := torTestPaths(t)
-		seedOnionAddress(t, p, "existingaddress1234.onion")
-		withPromptAnswer(t, "y")
-
-		out, _, code := captureOutput(t, func() int { return runTorImportKeys("shortner", p, newKeyPath(t)) })
-		if code != 0 {
-			t.Fatalf("code = %d, want 0; stdout = %q", code, out)
-		}
-		if !strings.Contains(out, "Keys imported.") {
-			t.Errorf("stdout = %q, want the import confirmation", out)
-		}
-		// installHiddenServiceKey clears the stale hostname so Tor never
-		// starts advertising a hostname that belongs to the old key.
-		if address := tor.ReadOnionAddress(p.Data); address != "" {
-			t.Errorf("address = %q, want the stale hostname cleared", address)
-		}
-	})
+	_, stderr, code := captureOutput(t, func() int { return runTorImportKeys("shortner", p, keyPath) })
+	if code != 1 || !strings.Contains(stderr, "no running server detected") {
+		t.Errorf("result = %d, %q; want no-running-server failure", code, stderr)
+	}
+	if address := tor.ReadOnionAddress(p.Data); address != "existingaddress1234.onion" {
+		t.Errorf("address = %q; serverless import changed identity", address)
+	}
 }

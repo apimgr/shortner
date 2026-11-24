@@ -11,6 +11,7 @@ import (
 // whenever a usable `tor` binary is found on the host. The only way to not
 // run it is to not have Tor installed.
 type Tor struct {
+	Expose bool `yaml:"expose"`
 	// Binary is an explicit path to the `tor` executable. Empty means
 	// auto-detect (well-known paths first, then $PATH).
 	Binary string `yaml:"binary"`
@@ -60,6 +61,7 @@ type Tor struct {
 func DefaultTor() Tor {
 	return Tor{
 		Binary:                    "",
+		Expose:                    false,
 		UseNetwork:                false,
 		MaxCircuits:               32,
 		StartupTimeout:            60,
@@ -119,6 +121,7 @@ func (c Tor) Normalized() Tor {
 // happens — no provider probe, no port allocation, no generated
 // tunnels.conf, and no SAM dial.
 type I2P struct {
+	Expose bool `yaml:"expose"`
 	// Enabled is the opt-in switch. Its config default is false; startup
 	// computes true in containers unless an explicit setting overrides it.
 	Enabled         bool `yaml:"enabled"`
@@ -156,6 +159,7 @@ func (c I2P) MarshalYAML() (any, error) {
 		enabled = &c.Enabled
 	}
 	return struct {
+		Expose           bool   `yaml:"expose"`
 		Enabled          *bool  `yaml:"enabled,omitempty"`
 		Binary           string `yaml:"binary"`
 		SAMAddress       string `yaml:"sam_address"`
@@ -167,6 +171,7 @@ func (c I2P) MarshalYAML() (any, error) {
 		SignatureType    int    `yaml:"signature_type"`
 		BootstrapTimeout int    `yaml:"bootstrap_timeout"`
 	}{
+		Expose:           c.Expose,
 		Enabled:          enabled,
 		Binary:           c.Binary,
 		SAMAddress:       c.SAMAddress,
@@ -185,6 +190,7 @@ func (c I2P) MarshalYAML() (any, error) {
 func DefaultI2P() I2P {
 	return I2P{
 		Enabled:          false,
+		Expose:           false,
 		Binary:           "",
 		SAMAddress:       "127.0.0.1:7656",
 		VirtualPort:      80,

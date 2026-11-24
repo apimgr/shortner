@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -16,7 +17,9 @@ import (
 
 	"github.com/apimgr/shortner/src/apperr"
 	"github.com/apimgr/shortner/src/blocklist"
+	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/db"
+	"github.com/apimgr/shortner/src/geoip"
 	"github.com/apimgr/shortner/src/mode"
 )
 
@@ -198,8 +201,11 @@ type healthDeps struct {
 	commit      string
 	buildDate   string
 	// geoip is true when a GeoIP database is loaded (AI.md PART 19).
-	geoip      bool
-	blocklists *blocklist.Manager
+	geoip        bool
+	geoipDir     string
+	geoipDBs     config.GeoIPDatabases
+	geoipManager *geoip.Manager
+	blocklists   *blocklist.Manager
 	// tor and i2p are nil when that overlay network is not configured at
 	// all, which reads as disabled everywhere in the response.
 	tor       TorReporter
@@ -295,11 +301,25 @@ func (h *healthDeps) buildHealthResponse(ctx context.Context) HealthResponse {
 			datasetChecks = append(datasetChecks, DatasetCheck{Key: "blocklist_" + check.ID, Status: check.Status})
 		}
 	}
+	if h.geoip {
+		for _, dataset := range []struct {
+			name    string
+			enabled bool
+		}{{"asn", h.geoipDBs.ASN}, {"country", h.geoipDBs.Country}, {"city", h.geoipDBs.City}} {
+			if dataset.enabled {
+				status := geoipDatasetStatus(h.geoipDir)
+				if h.geoipManager != nil {
+					status = h.geoipManager.DatasetStatus(dataset.name)
+				}
+				datasetChecks = append(datasetChecks, DatasetCheck{Key: "geoip_" + dataset.name, Status: status})
+			}
+		}
+	}
 
 	status := "healthy"
 	if dbStatus != "ok" || diskStatus != "ok" {
 		status = "unhealthy"
-	} else if torCheck == "degraded" || i2pCheck == "degraded" || h.schedulerHealth() != "ok" || hasUnhealthyDataset(datasetChecks) {
+	} else if torCheck == "degraded" || i2pCheck == "degraded" || h.schedulerHealth() != "ok" || h.cacheHealth(ctx) != "ok" || hasUnhealthyDataset(datasetChecks) {
 		status = "degraded"
 	}
 
@@ -352,6 +372,18 @@ func (h *healthDeps) buildHealthResponse(ctx context.Context) HealthResponse {
 	}
 }
 
+func geoipDatasetStatus(dir string) string {
+	data, err := os.ReadFile(filepath.Join(dir, ".last_updated"))
+	updated, parseErr := time.Parse(time.RFC3339, strings.TrimSpace(string(data)))
+	if err != nil || parseErr != nil || updated.After(time.Now().Add(time.Minute)) {
+		return "error"
+	}
+	if time.Since(updated) > 21*24*time.Hour {
+		return "degraded"
+	}
+	return "ok"
+}
+
 func hasUnhealthyDataset(checks []DatasetCheck) bool {
 	for _, check := range checks {
 		if check.Status != "ok" {
@@ -363,7 +395,10 @@ func hasUnhealthyDataset(checks []DatasetCheck) bool {
 
 func healthCheckStatus(status string) string {
 	if status == "error" {
-		return status
+		return "degraded"
+	}
+	if status == "degraded" {
+		return "degraded"
 	}
 	return "ok"
 }

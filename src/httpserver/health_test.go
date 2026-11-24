@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +28,26 @@ func testHealthDeps(t *testing.T, sqlDB *sql.DB) *healthDeps {
 		version:   "1.2.3",
 		commit:    "abc123",
 		buildDate: "2026-01-01",
+	}
+}
+
+func TestGeoIPDatasetStatusUses21DayTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	if got := geoipDatasetStatus(dir); got != "error" {
+		t.Fatalf("missing timestamp status = %q", got)
+	}
+	marker := filepath.Join(dir, ".last_updated")
+	if err := os.WriteFile(marker, []byte(time.Now().UTC().Add(-22*24*time.Hour).Format(time.RFC3339)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := geoipDatasetStatus(dir); got != "degraded" {
+		t.Fatalf("stale timestamp status = %q", got)
+	}
+	if err := os.WriteFile(marker, []byte(time.Now().UTC().Format(time.RFC3339)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := geoipDatasetStatus(dir); got != "ok" {
+		t.Fatalf("fresh timestamp status = %q", got)
 	}
 }
 

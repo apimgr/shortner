@@ -366,7 +366,7 @@ func TestAutodiscover(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			gotPath = r.URL.Path
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"cli_versions":{"linux-amd64":{"version":"1.2.3","sha256":"abc"}},"cli_min_version":"1.0.0"}`))
+			_, _ = w.Write([]byte(`{"ok":true,"data":{"cli_versions":{"linux-amd64":{"version":"1.2.3","sha256":"abc"}},"cli_min_version":"1.0.0"}}`))
 		}))
 		defer server.Close()
 

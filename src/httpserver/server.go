@@ -29,7 +29,9 @@ import (
 	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/geoip"
 	"github.com/apimgr/shortner/src/metrics"
+	"github.com/apimgr/shortner/src/mode"
 	"github.com/apimgr/shortner/src/notify"
+	"github.com/apimgr/shortner/src/tor"
 )
 
 // Server wraps the chi router and the underlying *http.Server.
@@ -165,20 +167,23 @@ func New(opts Options) *Server {
 	brandState := newBrandingStateStore(cfg)
 
 	hd := &healthDeps{
-		sqlDB:       opts.DB,
-		cacheStatus: opts.CacheHealth,
-		scheduler:   opts.Scheduler,
-		dataDir:     opts.DataDir,
-		startTime:   opts.StartTime,
-		stats:       stats,
-		version:     opts.Version,
-		commit:      opts.CommitID,
-		buildDate:   opts.BuildDate,
-		geoip:       cfg.Server.GeoIP.Enabled,
-		blocklists:  opts.Blocklists,
-		tor:         opts.Tor,
-		i2p:         opts.I2P,
-		branding:    brandState,
+		sqlDB:        opts.DB,
+		cacheStatus:  opts.CacheHealth,
+		scheduler:    opts.Scheduler,
+		dataDir:      opts.DataDir,
+		startTime:    opts.StartTime,
+		stats:        stats,
+		version:      opts.Version,
+		commit:       opts.CommitID,
+		buildDate:    opts.BuildDate,
+		geoip:        cfg.Server.GeoIP.Enabled,
+		geoipDir:     cfg.Server.GeoIP.Dir,
+		geoipDBs:     cfg.Server.GeoIP.Databases,
+		geoipManager: opts.GeoIP,
+		blocklists:   opts.Blocklists,
+		tor:          opts.Tor,
+		i2p:          opts.I2P,
+		branding:     brandState,
 	}
 
 	// /server/healthz itself is registered below by
@@ -219,11 +224,19 @@ func New(opts Options) *Server {
 	if cfg.Server.Compression.Enabled {
 		r.Use(chimw.Compress(cfg.Server.Compression.Level, cfg.Server.Compression.Types...))
 	}
+	if mode.IsDebugEnabled() {
+		r.Get("/debug/error500", func(w http.ResponseWriter, r *http.Request) {
+			sendError(w, r, apperr.New(apperr.CodeServerError))
+		})
+	}
+	if manager, ok := opts.Tor.(torController); ok {
+		registerTorControlRoutes(r, manager, cfg.Server.Tor, tor.Dirs{Config: opts.ConfigDir, Data: opts.DataDir})
+	}
 
 	r.Route("/api", func(api chi.Router) {
 		api.Use(apiResponseFormatMiddleware)
 		api.Get("/healthz", hd.healthHandler())
-		registerCLIUpdateRoutes(api, cfg, opts.Version)
+		registerCLIUpdateRoutes(api, cfg, opts.Version, resolver, opts.DataDir, opts.Tor, opts.I2P)
 		api.Method(http.MethodGet, "/swagger", openAPIHandler(fd))
 		api.Method(http.MethodPost, "/graphql", graphQLHandler(ld, r))
 		api.Method(http.MethodPost, "/mcp", mcpHandler(fd, apiHandler))
@@ -264,7 +277,7 @@ func New(opts Options) *Server {
 		})
 	})
 	r.Method(http.MethodPost, "/mcp", mcpHandler(fd, apiHandler))
-	registerCLIBinaryRoute(r, cfg)
+	registerCLIBinaryRoute(r, cfg, opts.DataDir)
 	RegisterMetricsRoutes(r, cfg.Server.Metrics, opts.Metrics, opts.AccessLog)
 
 	wk := &wellKnownDeps{

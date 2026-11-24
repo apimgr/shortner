@@ -4,6 +4,7 @@
 package httpserver
 
 import (
+	"log"
 	"sync"
 	"time"
 
@@ -59,6 +60,7 @@ type RateLimiter struct {
 	global    map[string]*window
 	lastSweep time.Time
 	backend   rateCounter
+	fallbackWarn sync.Once
 }
 
 // NewRateLimiter builds a RateLimiter from server.yml's rate_limit config.
@@ -98,6 +100,7 @@ func (rl *RateLimiter) Allow(ip string, class rlClass) (allowed bool, retryAfter
 		if allowed, retry, decided := rl.backend.AllowRate(class.String()+":"+ip, ip, limit.Requests, rl.cfg.GlobalBurst, time.Duration(limit.Window)*time.Second, time.Minute); decided {
 			return allowed, retry
 		}
+		rl.fallbackWarn.Do(func() { log.Printf("cache: external rate-limit counter unavailable; using in-process counters") })
 	}
 	rl.mu.Lock()
 	defer rl.mu.Unlock()

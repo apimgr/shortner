@@ -261,6 +261,11 @@ func EnsureDir(path string) error {
 	if err := os.MkdirAll(path, perm); err != nil {
 		return fmt.Errorf("paths: create directory %s: %w", path, err)
 	}
+	if IsPrivileged() {
+		if err := ensureOrganizationParent(path); err != nil {
+			return err
+		}
+	}
 
 	testFile := filepath.Join(path, ".write-test")
 	if err := os.WriteFile(testFile, []byte{}, 0o600); err != nil {
@@ -402,6 +407,35 @@ func isWritable(path string) bool {
 	f.Close()
 	os.Remove(testFile)
 	return true
+}
+
+// ensureOrganizationParent keeps the fixed organization directory traversable
+// while leaving the service's own directory private to its service account.
+func ensureOrganizationParent(appPath string) error {
+	roots := []string{"/etc", "/var/lib", "/var/cache", "/var/log", "/var/run", "/mnt/Backups", "/usr/local/etc", "/var/db", "/var/backups"}
+	for _, root := range roots {
+		if err := ensureOrganizationParentAt(appPath, root); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureOrganizationParentAt(appPath, root string) error {
+	if filepath.Clean(appPath) != filepath.Join(root, internalOrg, internalName) {
+		return nil
+	}
+	orgDir := filepath.Join(root, internalOrg)
+	if err := os.MkdirAll(orgDir, 0o755); err != nil {
+		return fmt.Errorf("paths: create organization directory %s: %w", orgDir, err)
+	}
+	if err := os.Chmod(orgDir, 0o755); err != nil {
+		return fmt.Errorf("paths: set organization directory mode %s: %w", orgDir, err)
+	}
+	if err := os.Chown(orgDir, os.Geteuid(), os.Getegid()); err != nil {
+		return fmt.Errorf("paths: set organization directory owner %s: %w", orgDir, err)
+	}
+	return nil
 }
 
 // systemBackupDir returns the system-level backup directory for the

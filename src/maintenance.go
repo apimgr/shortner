@@ -33,8 +33,9 @@ Commands:
                          Set and persist the application mode
   setup                 Reset server configuration to defaults
   pgp [ACTION]          Manage the security-report PGP key
-  security list|show|update
+  security list|show|update|export
                          Manage coordinated-disclosure reports
+  tor [ACTION]           Manage the Tor hidden service
   secret rotate NAME    Rotate installation_secret or encryption_key
   token list|revoke <PREFIX>
                          List masked owner tokens or revoke a token
@@ -101,6 +102,8 @@ func runMaintenance(binaryName, command string, opts maintenanceOptions) int {
 		return runSecretMaintenance(binaryName, opts.paths, opts.args)
 	case "security":
 		return runSecurityReportMaintenance(binaryName, opts.paths, opts.args)
+	case "tor":
+		return runTor(binaryName, opts.paths, opts.args)
 	case "data":
 		return runDataMaintenance(binaryName, opts.paths, opts.args)
 	case "compliance":

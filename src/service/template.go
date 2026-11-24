@@ -34,7 +34,7 @@ func systemdUnit(p Params) string {
 	b.WriteString("StandardError=journal\n")
 	b.WriteString("\n")
 	b.WriteString("# Security hardening (binary drops privileges after port binding)\n")
-	b.WriteString("ProtectSystem=strict\n")
+	b.WriteString("ProtectSystem=true\n")
 	b.WriteString("ProtectHome=yes\n")
 	b.WriteString("PrivateTmp=yes\n")
 	writePaths := []string{p.ConfigDir, p.DataDir, p.DBDir, p.CacheDir, p.LogDir, p.BackupDir}

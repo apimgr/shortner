@@ -92,6 +92,7 @@ func setup() error {
 	}
 
 	serverCmd = exec.Command(bin,
+		"--debug",
 		"--config", cfgDir,
 		"--address", "0.0.0.0",
 		"--port", port,

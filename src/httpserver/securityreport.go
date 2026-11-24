@@ -243,7 +243,8 @@ func (fd *frontendDeps) securityReportPost(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Steps 4 and 5: maintainer notification and researcher acknowledgment.
-	data.AcknowledgmentSent = fd.notifySecurityReport(r, trackingID, statusToken, data.Form)
+	acknowledged, notified := fd.notifySecurityReport(r, trackingID, statusToken, data.Form)
+	data.AcknowledgmentSent = acknowledged
 
 	// Step 7: metadata only — no researcher PII, no vulnerability content.
 	if fd.audit != nil {
@@ -254,6 +255,7 @@ func (fd *frontendDeps) securityReportPost(w http.ResponseWriter, r *http.Reques
 			Severity: applog.SeverityWarn,
 			Details: map[string]any{
 				"tracking_id": trackingID,
+				"notified":    notified,
 				"severity":    data.Form.Severity,
 				"component":   data.Form.Component,
 			},
@@ -397,12 +399,12 @@ func (fd *frontendDeps) securityReportAPIPost(w http.ResponseWriter, r *http.Req
 		writeError(http.StatusInternalServerError, "report could not be stored", true)
 		return
 	}
-	fd.notifySecurityReport(r, trackingID, statusToken, form)
+	_, notified := fd.notifySecurityReport(r, trackingID, statusToken, form)
 	if fd.audit != nil {
 		_ = fd.audit.Write(applog.Entry{
 			Time: time.Now().UTC(), Event: "security.report_received", Category: "security",
 			Severity: applog.SeverityWarn,
-			Details:  map[string]any{"tracking_id": trackingID, "severity": form.Severity, "component": form.Component},
+			Details:  map[string]any{"tracking_id": trackingID, "notified": notified, "severity": form.Severity, "component": form.Component},
 			Result:   applog.ResultSuccess,
 		})
 	}

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -228,6 +229,32 @@ func TestEnsureDirCreatesAndVerifiesWritable(t *testing.T) {
 	}
 	if info.Mode().Perm() != wantPerm {
 		t.Errorf("dir perm = %v, want %v", info.Mode().Perm(), wantPerm)
+	}
+}
+
+func TestEnsureOrganizationParentRestoresTraversalAndRootOwnership(t *testing.T) {
+	root := t.TempDir()
+	orgDir := filepath.Join(root, internalOrg)
+	appDir := filepath.Join(orgDir, internalName)
+	if err := os.MkdirAll(appDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(orgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureOrganizationParentAt(appDir, root); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(orgDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("organization parent mode = %04o, want 0755", got)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if ok && int(stat.Uid) != os.Geteuid() {
+		t.Fatalf("organization parent uid = %d, want %d", stat.Uid, os.Geteuid())
 	}
 }
 

@@ -99,7 +99,7 @@ func run(args []string) int {
 	statusFlag := fs.Bool("status", false, "Show server status and health")
 	shellFlag := fs.String("shell", "", "Shell integration: completions, init, help")
 	serviceFlag := fs.String("service", "", "Service management: start, restart, stop, reload, --install, --uninstall, --disable, --help")
-	maintenanceFlag := fs.String("maintenance", "", "Maintenance operations: backup, restore, update, mode, setup, pgp, secret, token, data, compliance, --help")
+	maintenanceFlag := fs.String("maintenance", "", "Maintenance operations: backup, restore, update, mode, setup, pgp, security, secret, token, data, compliance, scheduler, email, tor, --help")
 	updateFlag := fs.String("update", "", "Check/perform updates: check, yes, branch, --help")
 	// AI.md PART 21 "Backup Contents": SSL certificates and the data
 	// directory are opt-in additions to every backup.
@@ -202,12 +202,7 @@ func run(args []string) int {
 	if a := fs.Args(); len(a) > 0 && a[0] == "email" {
 		return runEmail(binaryName, p, firstArg(a[1:]), firstArg(a[2:]))
 	}
-	// `tor [COMMAND]` and `i2p [COMMAND]` are positional subcommands for the
-	// same reason (AI.md PART 31.1 / 31.2 spell them as
-	// `{project_name} tor status`).
-	if a := fs.Args(); len(a) > 0 && a[0] == "tor" {
-		return runTor(binaryName, p, a[1:])
-	}
+	// I2P keeps its documented positional operator command.
 	if a := fs.Args(); len(a) > 0 && a[0] == "i2p" {
 		return runI2P(binaryName, p, a[1:])
 	}

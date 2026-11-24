@@ -104,6 +104,18 @@ func TestSendError(t *testing.T) {
 	}
 }
 
+func TestSendErrorIncludesDetails(t *testing.T) {
+	response := httptest.NewRecorder()
+	SendError(response, New(CodeConflict).WithDetails(map[string]any{"candidates": []string{"one.onion", "two.onion"}}))
+	var got APIResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Details["candidates"] == nil {
+		t.Fatalf("details omitted from canonical error: %s", response.Body.String())
+	}
+}
+
 func TestIsRetryable(t *testing.T) {
 	if IsRetryable(nil) {
 		t.Errorf("IsRetryable(nil) = true, want false")

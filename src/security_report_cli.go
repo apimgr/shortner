@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,11 +70,66 @@ func runSecurityReportMaintenance(binaryName string, p paths.Paths, args []strin
 		}
 		fmt.Printf("Tracking ID: %s\nStatus: %s\nSeverity: %s\nComponent: %s\nCreated at: %s\nUpdated at: %s\nResearcher comment: %s\nDisclosure date: %s\n", rep.TrackingID, rep.Status, rep.Severity, rep.Component, rep.ReceivedAt.Format(time.RFC3339), rep.UpdatedAt.Format(time.RFC3339), rep.Comments, formatDisclosureDate(rep.DisclosureAt))
 		return 0
+	case "export":
+		if len(args) != 2 && len(args) != 4 || (len(args) == 4 && args[2] != "--output") {
+			return securityReportUsage(binaryName)
+		}
+		output := args[3]
+		if len(args) == 2 {
+			output = args[1] + ".asc"
+		}
+		return runSecurityReportExport(binaryName, p, sqlDB, args[1], output)
 	case "update":
 		return runSecurityReportUpdate(binaryName, p, cfg, sqlDB, ctx, args[1:])
 	default:
 		return securityReportUsage(binaryName)
 	}
+}
+
+func runSecurityReportExport(binaryName string, p paths.Paths, sqlDB db.Handle, trackingID, output string) int {
+	rep, err := db.GetSecurityReport(context.Background(), sqlDB, trackingID)
+	if err != nil {
+		return securityReportError(binaryName, err)
+	}
+	message := []byte(rep.Sealed)
+	if len(message) == 0 {
+		message = rep.BodyEnc
+	}
+	if len(message) == 0 {
+		return securityReportError(binaryName, fmt.Errorf("encrypted report message is unavailable"))
+	}
+	var dst io.Writer = os.Stdout
+	var file *os.File
+	if output != "-" {
+		file, err = os.OpenFile(output, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return securityReportError(binaryName, err)
+		}
+		dst = file
+	}
+	if _, err := dst.Write(message); err != nil {
+		if file != nil { _ = file.Close() }
+		return securityReportError(binaryName, err)
+	}
+	if file != nil {
+		if err := file.Close(); err != nil { return securityReportError(binaryName, err) }
+	}
+	if err := writeSecurityReportExportAudit(p.Logs, trackingID, time.Now()); err != nil {
+		return securityReportError(binaryName, err)
+	}
+	return 0
+}
+
+func writeSecurityReportExportAudit(logDir, trackingID string, now time.Time) error {
+	if err := paths.EnsureDir(logDir); err != nil {
+		return err
+	}
+	logger, err := applog.Open(filepath.Join(logDir, "security.log"), applog.LevelInfo)
+	if err != nil {
+		return err
+	}
+	defer logger.Close()
+	return logger.WriteLine(applog.LevelInfo, fmt.Sprintf("{\"time\":%q,\"event\":\"security.report_exported\",\"tracking_id\":%q}", now.UTC().Format("2006-01-02T15:04:05.000Z"), trackingID))
 }
 
 func runSecurityReportUpdate(binaryName string, p paths.Paths, cfg *config.Config, sqlDB db.Handle, ctx context.Context, args []string) int {
@@ -190,7 +246,7 @@ func sendSecurityReportStatusNotice(cfg *config.Config, p paths.Paths, rep *db.S
 func stringPointer(value string) *string { return &value }
 
 func securityReportUsage(binaryName string) int {
-	fmt.Fprintf(os.Stderr, "Usage: %s --maintenance security list [--status STATUS] | show TRACKING_ID | update TRACKING_ID [--status STATUS] [--comment TEXT] [--disclosure-date YYYY-MM-DD] [--severity LEVEL]\n", binaryName)
+	fmt.Fprintf(os.Stderr, "Usage: %s --maintenance security list [--status STATUS] | show TRACKING_ID | export TRACKING_ID [--output FILE] | update TRACKING_ID [--status STATUS] [--comment TEXT] [--disclosure-date YYYY-MM-DD] [--severity LEVEL]\n", binaryName)
 	return 2
 }
 

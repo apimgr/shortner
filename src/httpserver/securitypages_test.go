@@ -184,9 +184,8 @@ func TestDpoHandlerRendersWhenLGPDEnabled(t *testing.T) {
 	}
 }
 
-// TestSecurityContactEmailFallsBackToFQDN proves the security@{fqdn}
-// default applies when neither web.security.contact nor
-// server.contact.security.email is configured.
+// TestSecurityContactEmailFallsBackToFQDN proves the configured security
+// contact is used before the security@{fqdn} fallback.
 func TestSecurityContactEmailFallsBackToFQDN(t *testing.T) {
 	fd := testSecurityFrontendDeps(t)
 	req := htmlRequest(http.MethodGet, "/server/security", nil)
@@ -196,8 +195,8 @@ func TestSecurityContactEmailFallsBackToFQDN(t *testing.T) {
 		t.Errorf("securityContactEmail() = %q, want security@shortner.example", got)
 	}
 
-	fd.cfg.Web.Security.Contact = "explicit@example.com"
+	fd.cfg.Server.Contact.Security.Email = "explicit@example.com"
 	if got := fd.securityContactEmail(req); got != "explicit@example.com" {
-		t.Errorf("securityContactEmail() = %q, want the explicit web.security.contact override", got)
+		t.Errorf("securityContactEmail() = %q, want configured server contact", got)
 	}
 }

@@ -16,6 +16,16 @@ func allDBs() config.GeoIPDatabases {
 	return config.GeoIPDatabases{ASN: true, Country: true, City: true}
 }
 
+func TestDatasetStatusRequiresLoadedDatabaseAndTimestamp(t *testing.T) {
+	manager := Open(t.TempDir(), true, allDBs())
+	if got := manager.DatasetStatus("country"); got != "error" {
+		t.Fatalf("missing dataset status = %q, want error", got)
+	}
+	if got := manager.DatasetStatus("unknown"); got != "error" {
+		t.Fatalf("unknown dataset status = %q, want error", got)
+	}
+}
+
 func TestOpenMissingFilesFailsOpen(t *testing.T) {
 	dir := t.TempDir()
 	m := Open(dir, true, allDBs())

@@ -29,47 +29,47 @@ type securityReportSender interface {
 // submission into a visitor-facing error. When no SMTP works at all,
 // notify.Notifier refuses the send outright and nothing is queued — AI.md
 // PART 17 "SMTP Requirement".
-func (fd *frontendDeps) notifySecurityReport(r *http.Request, trackingID, statusToken string, f securityReportForm) bool {
+func (fd *frontendDeps) notifySecurityReport(r *http.Request, trackingID, statusToken string, f securityReportForm) (acknowledged, notified bool) {
 	return fd.notifySecurityReportWith(fd.notifier, r, trackingID, statusToken, f)
 }
 
-func (fd *frontendDeps) notifySecurityReportWith(sender securityReportSender, r *http.Request, trackingID, statusToken string, f securityReportForm) bool {
+func (fd *frontendDeps) notifySecurityReportWith(sender securityReportSender, r *http.Request, trackingID, statusToken string, f securityReportForm) (acknowledged, notified bool) {
 	if sender == nil || !sender.Enabled() {
-		return false
+		return false, false
 	}
-	fd.notifyMaintainerSecurityReport(sender, trackingID, f)
-	return fd.notifyResearcherSecurityReport(sender, r, trackingID, statusToken, f)
+	notified = fd.notifyMaintainerSecurityReport(sender, trackingID, f)
+	acknowledged = fd.notifyResearcherSecurityReport(sender, r, trackingID, statusToken, f)
+	return acknowledged, notified
 }
 
 // notifyMaintainerSecurityReport implements step 4. AI.md requires a
 // PGP-encrypted email to the `security` contact role, "falls back to
 // AES-encrypted attachment + warning if no PGP key is configured. The
 // vulnerability text is never included in the plaintext body.
-func (fd *frontendDeps) notifyMaintainerSecurityReport(sender securityReportSender, trackingID string, f securityReportForm) {
+func (fd *frontendDeps) notifyMaintainerSecurityReport(sender securityReportSender, trackingID string, f securityReportForm) bool {
 	to := strings.TrimSpace(fd.cfg.Server.Contact.Security.Email)
 	if to == "" {
-		return
+		return false
 	}
 	if armored, err := pgp.NewStore(fd.configDir).ReadPublicKey(); err == nil {
 		recipients, err := pgp.ParsePublic(armored)
 		if err != nil {
-			return
+			return false
 		}
 		plaintext, err := json.Marshal(f)
 		if err != nil {
-			return
+			return false
 		}
 		message, err := pgp.EncryptArmored(recipients, plaintext)
 		if err != nil {
-			return
+			return false
 		}
-		_ = sender.SendRaw([]string{to}, fmt.Sprintf("[SECURITY] %s report %s", f.Severity, trackingID), message)
-		return
+		return sender.SendRaw([]string{to}, fmt.Sprintf("[SECURITY] %s report %s", f.Severity, trackingID), message) == nil
 	}
 
 	sealed, err := fd.sealedReportBytes(f)
 	if err != nil {
-		return
+		return false
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "A new security report was received.\n\n")
@@ -84,10 +84,10 @@ func (fd *frontendDeps) notifyMaintainerSecurityReport(sender securityReportSend
 	b.WriteString("your key. Anyone holding that config key can read it.\n\n")
 	b.WriteString("Decrypt the attachment with the same key to read the full report; the\n")
 	b.WriteString("plaintext is never written to disk or to any log.\n\n")
-	_ = sender.SendRawWithAttachments([]string{to},
+	return sender.SendRawWithAttachments([]string{to},
 		fmt.Sprintf("[SECURITY] %s report %s", f.Severity, trackingID), b.String(), []notify.Attachment{{
 			Filename: "security-report-" + trackingID + ".enc", ContentType: "application/octet-stream", Data: sealed,
-		}})
+		}}) == nil
 }
 
 func (fd *frontendDeps) sealedReportBytes(f securityReportForm) ([]byte, error) {
