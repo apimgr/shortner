@@ -22,7 +22,7 @@
 ## QUICK REFERENCE
 - PART 27 is implemented, GitHub Actions only (this repo's sole provider,
   confirmed via `git remote get-url origin`): `.github/workflows/ci.yml`,
-  `release.yml`, `beta.yml`, `daily.yml`, `docker.yml` — verbatim from
+  `release.yml`, `beta.yml`, `devel.yml`, `docker.yml` — verbatim from
   AI.md PART 27's GitHub Actions section, with all third-party Action SHAs
   independently verified against GitHub's tag refs before pinning. All 5
   pass `act --list -W {file}`; the workflow-policy SHA-pin grep passes

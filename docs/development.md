@@ -174,9 +174,9 @@ Workflows live in `.github/workflows/`:
 |----------|---------|------|
 | `ci.yml` | push / PR, plus a weekly Monday cron | `lint`, `secret-scan`, `workflow-policy`, `test` (60% gate), `build`, `vuln-scan`, `image-scan` |
 | `release.yml` | tag push (`v*`) | 8-platform build matrix, SBOM, sha256/sha512 checksums, build provenance attestation, GitHub Release |
-| `beta.yml` | push to `beta` | Prerelease build |
-| `daily.yml` | 3am UTC cron and push to the default branch | Rolling `daily` tag, deleted and recreated each run |
-| `docker.yml` | push / schedule / dispatch | Multi-arch (`linux/amd64`, `linux/arm64`) images pushed to `ghcr.io` |
+| `beta.yml` | timestamped `*-beta` tag push | Prerelease build |
+| `devel.yml` | 3am UTC cron and push to the default branch | Rolling `devel` tag, deleted and recreated each run |
+| `docker.yml` | main push / version or beta tag / schedule / dispatch | Multi-arch (`linux/amd64`, `linux/arm64`) images pushed to `ghcr.io` |
 
 Two rules are non-negotiable in CI:
 

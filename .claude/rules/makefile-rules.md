@@ -7,7 +7,7 @@
 - Build on the host — always Docker (`casjaysdev/go:latest`)
 
 ## CRITICAL - ALWAYS DO
-- Six targets: `dev`, `local`, `build`, `test`, `release`, `docker` (+
+- Targets: `dev`, `local`, `build`, `test`, `release`, `beta`, `docker` (+
   `clean`)
 - Embed build info via `-ldflags`: `Version`, `CommitID`, `BuildDate`,
   `OfficialSite`
