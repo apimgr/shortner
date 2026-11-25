@@ -224,6 +224,7 @@ the host).
 | `make build` | build binaries for all 8 target platforms |
 | `make test` | check version precedence and run the test suite with coverage gate |
 | `make release` | build and package a release |
+| `make beta` | publish a timestamped beta tag from a clean `main` branch |
 | `make docker` | build the Docker image |
 
 ```bash

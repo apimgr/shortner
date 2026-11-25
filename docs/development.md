@@ -67,7 +67,8 @@ All build and test `make` targets run inside `casjaysdev/go:latest` with
 | `make local` | Build a binary for the local OS/arch into `binaries/` |
 | `make build` | Build all 8 target platforms into `binaries/` |
 | `make test` | Check version precedence, then run the Go test suite with the 60% coverage gate |
-| `make release` | Build and package release artifacts into `releases/` |
+| `make release` | Build and package stable release artifacts into `releases/` |
+| `make beta` | Push a timestamped `YYYYMMDDHHMMSS-beta` tag from a clean `main` branch |
 | `make docker` | Build the container image from `docker/Dockerfile` |
 | `make clean` | Remove `binaries/` and `releases/` |
 
@@ -138,7 +139,7 @@ The shell entry points in `tests/` layer integration testing on top:
 
 | Script | Purpose |
 |--------|---------|
-| `tests/run_tests.sh` | Two-phase entry point: runs `make test`, then auto-detects Incus (falls back to Docker) and dispatches |
+| `tests/run_tests.sh` | Docker-only basic suite; runs `tests/docker.sh` and never falls back to Incus |
 | `tests/docker.sh` | Builds in `casjaysdev/go:latest`, checks the project runtime image's required tools, Tor and I2P status, then runs the suite inside a disposable `alpine:latest` container |
 | `tests/incus.sh` | Same suite inside `images:debian/trixie`, plus a real systemd service install/uninstall lifecycle |
 | `tests/suite.sh` | The shared in-container suite (binary info, first run, health, content negotiation, well-known, frontend pages, link CRUD, redirect/410/404, stats, token authorization, the `shortner-cli` client, rate limiting) |
@@ -149,7 +150,7 @@ The shell entry points in `tests/` layer integration testing on top:
 and test data goes to `${TMPDIR:-/tmp}/apimgr/shortner-XXXXXX/` — never the
 project directory.
 
-The e2e suite is tagged so `go test ./...` still builds without a browser:
+`tests/incus.sh` is the explicit Incus full-app suite. The e2e suite is tagged so `go test ./...` still builds without a browser:
 
 ```bash
 bash tests/e2e.sh
@@ -178,12 +179,16 @@ Workflows live in `.github/workflows/`:
 | `devel.yml` | 3am UTC cron and push to the default branch | Rolling `devel` tag, deleted and recreated each run |
 | `docker.yml` | main push / version or beta tag / schedule / dispatch | Multi-arch (`linux/amd64`, `linux/arm64`) images pushed to `ghcr.io` |
 
-Two rules are non-negotiable in CI:
+Equivalent CI/CD pipelines are maintained for GitHub Actions, GitLab CI,
+Gitea Actions, Forgejo Actions, and Jenkins. Each provider runs explicit
+commands rather than Make targets and includes build, test, lint, coverage,
+secret and vulnerability scans, stable and beta releases, devel builds, and
+container image publishing. Third-party CI images and GitHub Actions are
+pinned to immutable digests or full commit SHAs; the maintained
+`casjaysdev/go:latest` toolchain image is the documented exception.
 
-- **Never call `make`** from a workflow — use explicit commands.
-- **Pin every third-party Action to a full commit SHA**, never a tag. The
-  `workflow-policy` job greps for tag-pinned actions and fails the build if
-  it finds any.
+The beta workflow is started by a timestamped `YYYYMMDDHHMMSS-beta` tag. The
+`make beta` target creates and pushes that tag from a clean `main` branch.
 
 ## Code Style
 

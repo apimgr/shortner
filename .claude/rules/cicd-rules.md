@@ -9,8 +9,8 @@
 
 ## CRITICAL - ALWAYS DO
 - `act --list -W {file}` must pass before a workflow file is considered done
-- Mirror workflows in `.github/workflows/` and `.gitea/workflows/` where
-  applicable
+- Provide equivalent build/test/security, release, and toolchain workflows
+  for GitHub, GitLab, Gitea, Forgejo, and Jenkins as required by AI.md PART 27
 - Verify pinned Action SHAs with the 3-point verification process
 
 ## KEY DECISIONS (pre-answered)
@@ -20,13 +20,11 @@
 | Action pinning | full commit SHA, never a tag | global CLAUDE.md, PART 27 |
 
 ## QUICK REFERENCE
-- PART 27 is implemented, GitHub Actions only (this repo's sole provider,
-  confirmed via `git remote get-url origin`): `.github/workflows/ci.yml`,
-  `release.yml`, `beta.yml`, `devel.yml`, `docker.yml` — verbatim from
-  AI.md PART 27's GitHub Actions section, with all third-party Action SHAs
-  independently verified against GitHub's tag refs before pinning. All 5
-  pass `act --list -W {file}`; the workflow-policy SHA-pin grep passes
-  locally. Gitea/Forgejo/GitLab/Jenkins sections do not apply.
+- PART 27 spans all supported providers: GitHub Actions in `.github/workflows/`,
+  GitLab in `.gitlab-ci.yml`, Gitea Actions in `.gitea/workflows/`, Forgejo
+  Actions in `.forgejo/workflows/`, and Jenkins in `Jenkinsfile`.
+- CI commands are explicit and run the same quality, security, build, and
+  release gates; workflows never call Makefile targets.
 
 ---
 For complete details, see AI.md PART 27

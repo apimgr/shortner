@@ -23,9 +23,8 @@
 
 ## QUICK REFERENCE
 - PART 28's `tests/` deliverables are implemented:
-  - `tests/run_tests.sh` — two-phase entry point: phase 1 `make test`
-    (Go suite + 60% gate), phase 2 auto-detects the runtime (Incus when
-    `incus info` succeeds, else Docker) and dispatches
+  - `tests/run_tests.sh` — Docker-only basic entry point; it runs
+    `tests/docker.sh` and never auto-detects or falls back to Incus
   - `tests/docker.sh` — builds in `casjaysdev/go:latest`, runs the full
     suite inside a disposable `alpine:latest` container
   - `tests/incus.sh` — same suite inside `images:debian/trixie`, plus the
@@ -43,8 +42,8 @@
     container; standalone, never invoked by `run_tests.sh`
 - All runtime/test data goes to `${TMPDIR:-/tmp}/apimgr/shortner-XXXXXX/`
   — never the project directory
-- The browser suite is maintained separately from the required test entry
-  points; run `tests/e2e.sh` when validating browser behavior.
+- `tests/incus.sh`, `tests/virt.sh`, and `tests/e2e.sh` are separate explicit
+  entry points. Run `tests/e2e.sh` when validating browser behavior.
 - PART 29 is implemented: root `mkdocs.yml` (Material theme, slate/deep-purple
   dark default, search + minify plugins, the PART 29 nav) and
   `.readthedocs.yaml` (v2, ubuntu-24.04, python 3.12), plus
