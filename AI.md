@@ -791,17 +791,14 @@ Renovate covers `github-actions` SHA updates automatically via `pinDigests: true
 
 ### Public Repository Governance
 
-- The default branch MUST be protected
-- Protected branch rules MUST require:
-  - pull requests for normal changes
-  - passing build/test/security checks before merge
-  - CODEOWNERS review for owned paths
-  - force-push and branch-deletion protection
-- Direct pushes to the default branch are forbidden except explicit maintainer emergency action; emergency bypasses MUST be followed by an audit/fix pass
+- The default branch (`main`) is the ONLY long-lived branch and everything lives on it. Branches are local and temporary: created locally, merged into `main`, deleted, and never pushed to the remote
+- The default branch MUST be protected against force-push and deletion
+- Changes reach it through `gitcommit` pushes; the build, test and security checks run on every push, and a red run is fixed at once
+- Bot branches (dependabot, renovate) are the only other remote branches, and they are merged or closed, never left open
 
 ### Post-Push CI Verification
 
-`act --list` and a local `make test` pass only prove the workflow's syntax/job graph is valid and the code works in the local environment — they are not the real CI build. Every push (normal feature-branch push or an emergency direct push to the default branch) triggers a real CI run on the provider's infrastructure with real secrets, real matrix jobs, and the real `casjaysdev/go:latest` toolchain image; any of those can fail even when every local check passed. Treating "local checks passed" as equivalent to "the build is green" is itself a bug.
+`act --list` and a local `make test` pass only prove the workflow's syntax/job graph is valid and the code works in the local environment — they are not the real CI build. Every push to `main` triggers a real CI run on the provider's infrastructure with real secrets, real matrix jobs, and the real `casjaysdev/go:latest` toolchain image; any of those can fail even when every local check passed. Treating "local checks passed" as equivalent to "the build is green" is itself a bug.
 
 After every push, check the triggered run's status:
 - **GitHub**: `gh run list --branch {branch} --commit {sha} --limit 1` then `gh run watch {run-id}` (or `gh run view {run-id} --json status,conclusion`)
@@ -3379,6 +3376,7 @@ Spec version: {line count or hash}
 |--------|-------------|
 | Full | All tools available |
 | **PROHIBITED** | `git commit`, `git push` (plain git) — denied by sandbox/permission rules. They bypass commit signing AND the unified commit+push wrapper |
+| **Branches** | Local and temporary ONLY. A working branch is created locally, merged into `main` and deleted; it is NEVER pushed to the remote, and everything lives on `main`. Before any commit or push, check `git branch --show-current` is `main`: on any other branch STOP (do not commit, do not copy files in) and report it. A repository found on a non-`main` branch, or with a remote branch other than `main` (bot branches such as dependabot and renovate aside), is a defect to report, never something to continue on |
 | Allowed | `git status`, `git diff`, `git log`, `git branch`, `git add` (read + staging) |
 | Allowed | `gitcommit --dir {project_dir} all` — signs, commits, AND pushes in one step. See "gitcommit Script" |
 | **Required** | Write `{project_dir}/.git/COMMIT_MESS` BEFORE running `gitcommit --dir {project_dir} all`. Re-read it after writing to confirm accuracy |
