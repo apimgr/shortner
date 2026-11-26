@@ -5532,7 +5532,7 @@ curl -L https://api.example.com/server/healthz
 | **No AI/ML** | Smart logic only, no machine learning |
 | **Concise Responses** | Short, descriptive, and helpful |
 | **Everything Configurable** | ALL settings MUST be configurable in the configuration files (`server.yml`, the `yaml.d/` area files and `secrets.yml`) |
-| **Live Reload** | Configuration changes apply without restart (file-watch hot-reload), except the restart-required settings of "Smart Config Reload" (listen port and address, `server.ssl.*`, `server.database.*`, `server.daemonize`, `server.pidfile`), which are logged as a warning and apply at the next start |
+| **Live Reload** | Configuration changes apply without restart (file-watch hot-reload), except the restart-required settings of "Smart Config Reload" (listen port and address, `server.ssl.*` (the TLS listener keys, not `server.ssl.letsencrypt.*`), `server.database.*`, `server.daemonize`, `server.pidfile`), which are logged as a warning and apply at the next start |
 | **Built-in Scheduler** | NEVER use cron, Task Scheduler, or external schedulers (PART 18) |
 
 ### File-Only Configuration
@@ -5556,7 +5556,7 @@ curl -L https://api.example.com/server/healthz
 | **Hot reload** | Application watches for config changes and reloads |
 | **Graceful** | In-flight requests complete before new config applies |
 | **Feedback** | User sees confirmation that changes are active |
-| **Exceptions** | The restart-required settings of "Smart Config Reload" (`server.port`, `server.address`, `server.ssl.*`, `server.daemonize`, `server.pidfile`, `server.database.*`) apply at the next start, with a clear warning; the graceful-reload settings apply without downtime |
+| **Exceptions** | The restart-required settings of "Smart Config Reload" (`server.port`, `server.address`, `server.ssl.*` (the TLS listener keys, not `server.ssl.letsencrypt.*`), `server.daemonize`, `server.pidfile`, `server.database.*`) apply at the next start, with a clear warning; the graceful-reload settings apply without downtime |
 
 **What MUST live reload:**
 - Branding (title, tagline, description)
@@ -5572,7 +5572,7 @@ curl -L https://api.example.com/server/healthz
 
 **What requires restart (with warning), exactly the "Requires Restart" list of "Smart Config Reload":**
 - Listen address and port number
-- `server.ssl.*` (the TLS listener)
+- `server.ssl.*` (the TLS listener keys: `enabled`, `cert`, `key`, `min_version`; the `server.ssl.letsencrypt.*` settings apply without a restart, the ACME client reads them at its next issuance or renewal)
 - `server.daemonize`
 - `server.pidfile` (PID file creation and checking)
 - `server.database.*` (connection pool and driver)
@@ -6574,7 +6574,8 @@ cd /path/to/project && docker build -f docker/Dockerfile .
 | OS | Required |
 |----|----------|
 | Linux | YES |
-| BSD (FreeBSD, OpenBSD, etc.) | YES |
+| FreeBSD | YES (amd64 and arm64 are the required build targets) |
+| OpenBSD, NetBSD | No required build: the BSD paths and `doas` rules apply to a build someone makes for them, and no architecture is required |
 | macOS (Intel and Apple Silicon) | YES |
 | Windows | YES |
 
@@ -10627,7 +10628,7 @@ One table for every binary and script of every project. Codes `65`-`78` are the 
 | `69` | `EX_UNAVAILABLE` | A service or capability the command needs is unavailable | server unreachable, a port that cannot be bound, a required tool or hypervisor that is missing |
 | `74` | `EX_IOERR` | I/O error on a file or device | disk full, unreadable database file |
 | `75` | `EX_TEMPFAIL` | Temporary failure; a retry or a restart will help | a staged update waiting for the privileged restart |
-| `77` | `EX_NOPERM` | Permission denied or authentication failed | not root for `--service --install`, an invalid token |
+| `77` | `EX_NOPERM` | Permission denied or authentication failed | an invalid token, or a `--service` action on a system service by a caller who is not root (a non-root `--service --install` is not an error: it installs a user service, PART 23) |
 | `78` | `EX_CONFIG` | Configuration is invalid or missing | a bad `server.yml`, a failing `--config-test` |
 
 | Rule | Requirement |
@@ -12076,7 +12077,7 @@ The app automatically watches config files and hot-reloads what it can. Settings
 |---------|-----|
 | `server.port` | Bound socket cannot change |
 | `server.address` | Bound socket cannot change |
-| `server.ssl.*` | TLS listener must be recreated |
+| `server.ssl.*` except `server.ssl.letsencrypt.*` | TLS listener must be recreated |
 | `server.daemonize` | Process mode cannot change |
 | `server.pidfile` | The PID file steps run once at start, before the full configuration loads |
 | `server.database.*` | Connection pool must be recreated |
@@ -12354,6 +12355,7 @@ CREATE TABLE IF NOT EXISTS scheduler_tasks (
 
 CREATE TABLE IF NOT EXISTS scheduler_history (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Logical foreign key to scheduler_tasks.id: no database constraint (an existing table cannot gain one without a rebuild)
     task_id     TEXT NOT NULL,
     started_at  INTEGER NOT NULL,
     finished_at INTEGER,
@@ -12718,12 +12720,15 @@ On startup, merge all sources. ConfigManager watches server.yml, yaml.d/ and sec
 
 ```go
 // Settings that require restart — prefix-matched, so trailing-dot
-// entries cover their whole section (ssl.*, database.*)
+// entries cover their whole section (ssl.enabled, database.*)
 var restartRequiredSettings = []string{
     "server.port",
     "server.address",
     "server.daemonize",
-    "ssl.",
+    "ssl.enabled",
+    "ssl.cert",
+    "ssl.key",
+    "ssl.min_version",
     "database.",
 }
 
@@ -13867,6 +13872,7 @@ Error with structured context (validation, etc.):
 | `TOKEN_EXPIRED` | 401 | "Token has expired" |
 | `TOKEN_INVALID` | 401 | "Invalid token" |
 | `FORBIDDEN` | 403 | "Permission denied" |
+| `CSRF_FAILED` | 403 | "CSRF token validation failed" |
 | `ACCOUNT_LOCKED` | 403 | "Account locked" |
 | `CSRF_FAILED` | 403 | "CSRF token validation failed" |
 | `NOT_FOUND` | 404 | "Resource not found" |
@@ -13885,6 +13891,8 @@ type APIResponse struct {
     Data    any             `json:"data,omitempty"`
     Error   string          `json:"error,omitempty"`
     Message string          `json:"message,omitempty"`
+    // The canonical error object carries "details" (PART 14); empty when the error has none
+    Details map[string]any  `json:"details,omitempty"`
 }
 
 // SendAPIResponseOK sends success response
@@ -14332,7 +14340,7 @@ func (p *Paste) SetSlug(slug string) {
 
 ### Canonical Column Renames (names this specification defines)
 
-**When this specification renames one of its own columns to the canonical name (for example the scheduler tables: in `scheduler_tasks`, `task_id` becomes `id` and `task_name` becomes `name`; in `scheduler_history`, `ran_at` becomes `started_at` while its `task_id` stays, being the foreign key to `scheduler_tasks.id`), a database created with the old name is upgraded in place by the schema step.** The step runs `ALTER TABLE ... RENAME COLUMN old TO new` only when the table's column list shows the old name and not the new one, so it is idempotent. SQLite and libSQL both support `RENAME COLUMN`, and the column list comes from `PRAGMA table_info`. Data is kept, nothing is dropped and no alias or duplicate column remains, so "Canonical Terms Only" (PART 0) and "Never destructive" both hold. A column that is missing after the rename (for example `finished_at` on an old history table) is added with the plain `ADD COLUMN` rule. This exception covers only columns whose canonical name this specification defines; a project's own columns follow "Handling Column Renames".
+**When this specification renames one of its own columns to the canonical name (for example the scheduler tables: in `scheduler_tasks`, `task_id` becomes `id` and `task_name` becomes `name`; in `scheduler_history`, `ran_at` becomes `started_at` while its `task_id` stays, being the logical foreign key to `scheduler_tasks.id`), a database created with the old name is upgraded in place by the schema step.** The step runs `ALTER TABLE ... RENAME COLUMN old TO new` only when the table's column list shows the old name and not the new one, so it is idempotent. SQLite and libSQL both support `RENAME COLUMN`, and the column list comes from `PRAGMA table_info`. Data is kept, nothing is dropped and no alias or duplicate column remains, so "Canonical Terms Only" (PART 0) and "Never destructive" both hold. A column that is missing after the rename (for example `finished_at` on an old history table) is added with the plain `ADD COLUMN` rule. This exception covers only columns whose canonical name this specification defines; a project's own columns follow "Handling Column Renames".
 
 **A primary key is never converted by the schema step.** `admins.id` is `INTEGER PRIMARY KEY AUTOINCREMENT` from the first release of a project built on this template, so there is no type to migrate; the schema step never rebuilds a table, which keeps "Never destructive" true. An existing table keeps its key, and code treats `admins.id` as an opaque value it only compares. The ONLY exception to "No migration files" is a one-time adoption step for an installation that predates this template: the adopting project writes it in its own code (never in this template), the maintainer runs it ONCE, by hand, before the first start on the new binary (it is not part of startup, not versioned and never repeated), and it adopts the canonical key like this: a backup first, then one transaction that creates the new table, copies every row with its references remapped, swaps the tables and re-checks the foreign keys (`PRAGMA foreign_key_check`).
 
@@ -16313,7 +16321,7 @@ server:
 | `event` | String | Event type (e.g., `config.updated`) |
 | `category` | String | Event category (e.g., `authentication`) |
 | `severity` | String | `info`, `warn`, `error`, `critical` |
-| `actor` | Object | Who performed the action: `type` (`owner`, `operator`, `anonymous` or `system`), `id` (the owner id, or `server` or `scheduler`) and `ip` when the event arrived over the network. Autonomous events (startup, shutdown, backups, scheduler tasks) have `type: system` and no `ip` |
+| `actor` | Object | Who performed the action: `type` (`owner`, `operator`, `anonymous` or `system`), `id` (the owner id; omitted for `system` and `anonymous` actors, never a placeholder such as `server` or `scheduler`) and `ip` when the event arrived over the network. Autonomous events (startup, shutdown, backups, scheduler tasks) have `type: system` and no `ip` |
 | `result` | String | `success` or `failure` |
 | `prev` | String | Lowercase hex SHA-256 of the previous entry's line (hash chain, see "Audit Log Integrity") |
 
@@ -20468,7 +20476,7 @@ func renderNoJSHTML(w http.ResponseWriter, data interface{}) {
 | Rule | Description |
 |------|-------------|
 | **Sync with project** | Both MUST reflect current project API at all times |
-| **Sync with each other** | Both describe the same API: GraphQL is query-only (reads, per the route contract), so every read operation a client may call appears in both, while write operations (POST, PUT, PATCH, DELETE) exist in REST and Swagger only. Not every read is a GraphQL field: a route declared `Binary` (an image or a file, which a GraphQL response cannot carry) appears as its metadata and URL only, and the `service`-auth and INTERNAL-ONLY routes (metrics, debug) are in neither GraphQL nor MCP |
+| **Sync with each other** | Both describe the same API: GraphQL is query-only (reads, per the route contract), so every read operation a client may call appears in both, while write operations (POST, PUT, PATCH, DELETE) exist in REST and Swagger only. Not every read is a GraphQL field: a route declared `Binary` (an image or a file, which a GraphQL response cannot carry) appears as its metadata and URL only, and the `service`-auth routes and the routes with `Internal` set (metrics, debug) are in neither GraphQL nor MCP |
 | **Auto-generated** | Both specs generated from code (annotations, comments, or schema) |
 | **Never manual** | NEVER manually edit OpenAPI JSON or GraphQL schema |
 | **Build-time generation** | Specs regenerated on every build |
@@ -25741,6 +25749,8 @@ type APIResponse struct {
     Data    json.RawMessage `json:"data,omitempty"`
     Error   string          `json:"error,omitempty"`
     Message string          `json:"message,omitempty"`
+    // The canonical error object carries "details" (PART 14); empty when the error has none
+    Details map[string]any  `json:"details,omitempty"`
 }
 
 func ParseAPIResponse(body []byte) (*APIResponse, error) {
@@ -25907,8 +25917,10 @@ type Route struct {
     Auth string
     // Listed in llms.txt and Swagger (public and authenticated routes; never operator-only or service ones). Listed does NOT limit MCP:
     // the MCP tool list is generated from the registry for every route the caller's token may call, and the operator token also sees
-    // the operator-only tools (never the service and INTERNAL-ONLY routes)
+    // the operator-only tools (never the service routes and the routes with `Internal` set)
     Listed bool
+    // Internal-only (the debug and diagnostics routes of the debug flag, PART 6): in neither llms.txt, Swagger, GraphQL nor MCP, whatever Listed and Auth say; registered only while the debug flag is on
+    Internal bool
     // Request and response models; the response struct's declared field order is the text output order
     Request, Response any
     // Name of the response field returned bare in text output; empty means none
@@ -26253,7 +26265,7 @@ func RecoverMiddleware(next http.Handler) http.Handler {
 // It MUST NOT depend on the template engine, theme system, or any state
 // that could itself panic or fail — plain strings only.
 // It is the ONE page exempt from the shared page shell and chrome (PART 16 "Same chrome everywhere"):
-// a constant with no header, footer, consent banner or theme, used only when the themed page cannot be
+// a constant with no header, footer, consent banner or theme, and no translation lookup (its text is fixed English, `http.StatusText` and "Home", because it runs when the template and i18n machinery itself failed), used only when the themed page cannot be
 // rendered. It is still valid HTML: a doctype, a title, one main and one h1, and a link home.
 func renderFallbackError(w http.ResponseWriter, r *http.Request, status int) {
 	if strings.Contains(r.Header.Get("Accept"), "application/json") {
@@ -33034,7 +33046,7 @@ groups:
 |--------|---------|
 | Algorithm | AES-256-GCM |
 | Key Derivation | Argon2id (password → encryption key) |
-| Encrypted archive format | A cleartext header, then the AES-256-GCM ciphertext. Header, in this fixed order and encoding: magic `BKUP1` (5 bytes), `salt` (16 random bytes, new for every archive), `m`, `t`, `p` (each a uint32, big-endian: memory in KiB, iterations, parallelism), the 12-byte `nonce`, `key_id` (8 ASCII lowercase hex characters), then `base_len` (uint16, big-endian; 0 for a full backup) followed by `base_len` bytes of the base file's name (UTF-8, at most 255 bytes, no path separators). The header is exactly the concatenation of these fields (55 bytes plus the name), and a reader rejects a `base_len` above 255 or a header that ends early before it derives any key. Retention and base protection use only this header and the file names, never a password. The whole header is bound to the ciphertext as AES-GCM additional data, so any change to it fails decryption. It holds no password and no key material |
+| Encrypted archive format | A cleartext header, then the AES-256-GCM ciphertext. Header, in this fixed order and encoding: magic `BKUP1` (5 bytes), `salt` (16 random bytes, new for every archive), `m`, `t`, `p` (each a uint32, big-endian: memory in KiB, iterations, parallelism), the 12-byte `nonce`, `key_id` (8 ASCII lowercase hex characters), then `base_len` (uint16, big-endian; 0 for a full backup) followed by `base_len` bytes of the base file's name (UTF-8, at most 255 bytes, no path separators). The header is exactly the concatenation of these fields (55 bytes plus the name), and a reader rejects a `base_len` above 255 or a header that ends early before it derives any key. Retention and base protection use only this header and the file names, never a password. The whole header is bound to the ciphertext as AES-GCM additional data, so any change to it fails decryption. It holds no password and no key material. `m`, `t` and `p` are attacker-controlled until the archive authenticates, so a reader enforces ceilings BEFORE it derives any key: `m` from 8192 to 1048576 KiB, `t` from 1 to 10, `p` from 1 to 16 (and `m` at least `8 × p`); a value outside them rejects the archive as corrupt without running Argon2id. The writer uses `m` = 65536, `t` = 3, `p` = 4 |
 | `key_id` | The first 8 hex characters of `HMAC-SHA256(derived_key, "key-id")`, where `derived_key` is Argon2id over the password with THAT archive's own salt and parameters. The same password gives the same `key_id` only when derived with the same salt, so comparing against another archive means re-deriving with that archive's salt and parameters |
 | File Extension | `.tar.gz` (unencrypted) or `.tar.gz.enc` (encrypted) |
 | Password Storage | Held only as the `server.backup.encryption_password` config value, so scheduled backups can run unattended. Never written to the database, a log, a manifest or an archive; never returned by any API; never hashed (it is key material, not a login verifier). Restore never reads it: the operator supplies the password |
@@ -34569,7 +34581,7 @@ dscl . -create /Users/{internal_name} UniqueID {id}
 dscl . -create /Users/{internal_name} PrimaryGroupID {id}
 dscl . -create /Users/{internal_name} UserShell /usr/bin/false
 dscl . -create /Users/{internal_name} RealName "{internal_name} service account"
-dscl . -create /Users/{internal_name} NFSHomeDirectory /usr/local/var/{internal_org}/{internal_name}
+dscl . -create /Users/{internal_name} NFSHomeDirectory /Library/Application Support/{internal_org}/{internal_name}/data
 dscl . -create /Users/{internal_name} Password "*"
 
 # Hide user from login window
@@ -34599,22 +34611,22 @@ dscl . -create /Users/{internal_name} IsHidden 1
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/var/log/{internal_org}/{internal_name}/stdout.log</string>
+    <string>/Library/Logs/{internal_org}/{internal_name}/stdout.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/var/log/{internal_org}/{internal_name}/stderr.log</string>
+    <string>/Library/Logs/{internal_org}/{internal_name}/stderr.log</string>
 </dict>
 </plist>
 ```
 
-**macOS Directory Structure:**
+**macOS Directory Structure (the privileged paths of "Privileged (root/sudo)" above, the one canonical set; the service account's home is the data directory):**
 
 | Directory | Path | Purpose |
 |-----------|------|---------|
 | Binary | `/usr/local/bin/{project_name}` | Executable |
-| Config | `/usr/local/etc/{internal_org}/{internal_name}/` | Configuration files |
-| Data | `/usr/local/var/{internal_org}/{internal_name}/` | Application data |
-| Logs | `/usr/local/var/log/{internal_org}/{internal_name}/` | Log files |
+| Config | `/Library/Application Support/{internal_org}/{internal_name}/` | Configuration files |
+| Data | `/Library/Application Support/{internal_org}/{internal_name}/data/` | Application data |
+| Logs | `/Library/Logs/{internal_org}/{internal_name}/` | Log files |
 | launchd plist | `/Library/LaunchDaemons/{plist_name}.plist` | Service definition |
 
 **Go Implementation (macOS):**
@@ -47158,7 +47170,7 @@ Tor Hidden Service: Connected
 **Key Architecture Points:**
 - **Opt-in outside containers, on by default in a container** — when disabled there is no eepsite, no port, no `i2pd.conf` and no SAM session.
 - **Server binary owns the provider** — Model A: full i2pd process lifecycle; Model B: the SAM session lifecycle.
-- **Dedicated backend port** — the eepsite maps `.b32.i2p:{virtual_port}` → `127.0.0.1:{i2p_backend_port}`, a random-unused loopback port. **Unlike Tor, there is no PROXY-protocol header** (SAM/i2pd do not prepend one), so the backend is a **plain loopback listener**, separate from the clearnet port.
+- **Dedicated backend port** — the eepsite maps `.b32.i2p:{virtual_port}` → `127.0.0.1:{i2p_backend_port}`, a random-unused loopback port. SAM `STREAM FORWARD` takes only the backend `PORT`: the router forwards every incoming stream to it whatever destination port the client names, so `virtual_port` only fixes the port shown in the address and URL (default 80, the port a client uses by convention). **Unlike Tor, there is no PROXY-protocol header** (SAM/i2pd do not prepend one), so the backend is a **plain loopback listener**, separate from the clearnet port.
 - **Destination identity persists** — the key lives under `{data_dir}/i2p/site/` (one SAM `PRIV` line, written by the app for both models); the `.b32.i2p` address survives restarts. `i2pd.conf` is derived state, regenerated each run.
 - **Server enforces permissions** — creates all dirs/files with correct owner/group/perms (0700 dirs, 0600 keys).
 
@@ -47854,7 +47866,7 @@ func loadOrCreateDestination(conn net.Conn, r *bufio.Reader, keysPath string, si
         return "", fmt.Errorf("DEST GENERATE returned an unusable key")
     }
     tmp := keysPath + ".tmp"
-    if err := os.WriteFile(tmp, []byte(priv+"\n"), 0600); err != nil {
+    if err := os.WriteFile(tmp, []byte(priv), 0600); err != nil {
         return "", err
     }
     if err := os.Rename(tmp, keysPath); err != nil {
@@ -48310,7 +48322,7 @@ cli:
 | Event | Producer | Description |
 |-------|----------|-------------|
 | `cli.update_started` | Server | A CLI binary download was served: logged with the OS-arch, the served version and the client IP |
-| `cli.token_revoked_detected` | Server | The server answered `401 TOKEN_REVOKED` to a CLI request (User-Agent `{project_name}-cli/...`): logged with the token prefix, never the token |
+| `cli.token_rejected` | Server | The server answered the generic `401` (the same response as for a missing token, so a revoked token is never distinguishable from an unknown one) to a CLI request (User-Agent `{project_name}-cli/...`): logged with the token prefix, never the token |
 | `cli.update_completed` | CLI | The CLI restarted on the new version (old version, new version, OS-arch) |
 | `cli.update_checksum_invalid` | CLI | The SHA-256 did not match the published checksum (versions, OS-arch) |
 | `cli.update_forced` | CLI | The CLI is below `cli_min_version` and refuses further requests (current version, minimum) |
