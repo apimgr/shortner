@@ -8554,12 +8554,12 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 
    **Note:** Windows doesn't drop privileges (uses Virtual Service Account instead), so this pattern only applies to Unix-like systems.
 
-6. **Error message when user cannot escalate:**
+6. **Error message when a SYSTEM-service action needs escalation the user does not have** (used for `--service --uninstall/start/stop/restart/reload/--disable` on an installed system service; never for `--service --install`, which installs a user service instead):
    ```
-   Error: Service installation requires administrator privileges.
+   Error: Managing the system service requires administrator privileges.
 
    You do not have sudo access on this system.
-   Contact your system administrator to install the service.
+   Contact your system administrator to manage the service.
    ```
 
 7. **Error message for port when not escalating:**
@@ -8892,8 +8892,10 @@ chmod 755 /var/log/{internal_org}/{internal_name}/
 |----------|--------------|---------------|
 | Linux with systemd | `systemd --user` unit | `~/.config/systemd/user/{internal_name}.service` |
 | macOS | launchd LaunchAgent (loaded at user login) | `~/Library/LaunchAgents/{plist_name}.plist` |
-| Windows | Task Scheduler task that runs at the user's logon (no admin rights needed) | task `{internal_name}` created with `schtasks /Create /SC ONLOGON` |
+| Windows | Task Scheduler task that runs at the user's logon (no admin rights needed; used only to start the server, never to schedule application tasks) | task `{internal_name}` created with `schtasks /Create /SC ONLOGON` |
 | Linux with OpenRC, runit, s6 or SysVinit, and BSD | No per-user service manager exists: nothing is installed, the command prints that no user service is available on this platform and how to start the server (`{project_name} --daemon`, or ask an administrator to install the system service), and exits `0` |
+
+A user service always runs with the per-user paths of "User (non-privileged)" for its platform (on Windows `%AppData%` and `%LocalAppData%`, never `%ProgramData%`), so its writable-path validation passes without elevation.
 
 ### Port Display Rules
 
@@ -12463,6 +12465,8 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_active   ON api_tokens(revoked_at) WHE
 -- and an index on it; ownership checks compare resource.owner_id to token.owner_id.
 
 ```
+
+**Existing resource tables (upgrades).** A table created by this specification carries `owner_id TEXT NOT NULL REFERENCES owners(id)`. A resource table that already exists without the column gains `owner_id TEXT REFERENCES owners(id)` through `ADD COLUMN`: nullable with a NULL default, because SQLite only allows an added `REFERENCES` column to default to NULL and a table is never rebuilt ("Schema Update Rules"). The same migration step backfills every existing row with the reserved `system` owner in one statement, and from then on the code treats `owner_id` as required: it never writes NULL and a NULL read is a defect, so `NOT NULL` is enforced by the application for such a table.
 
 **`audit_log` is a queryable mirror, `audit.log` is the authoritative record ("Audit Logging"):** every event is appended to the append-only `audit.log` FIRST (ULID `id`, hash chain, fsync), then inserted into `audit_log` on a best-effort basis; the entry's ULID is kept inside `details` as `audit_id` and the table `id` is only a local row number. A failed insert is logged (`audit.mirror_failed`) and never blocks or drops the event. Rotation of the file deletes no rows, rows are removed only by the retention cleanup, and the file is never edited from the table. When the two disagree the file wins; the table may be dropped at any time and refills from new events.
 
@@ -20502,7 +20506,7 @@ func renderNoJSHTML(w http.ResponseWriter, data interface{}) {
 | **Optional routes** | The embedded build-time spec is the full SUPERSET of routes, and every route that depends on a flag or a setting (the `/debug/*` routes, `/metrics`, the root aliases, optional well-known files) carries `x-mounted-when` naming its condition (for example `--debug` or `server.metrics.root.enabled`). At startup the server derives the SERVED spec from the embedded one by removing every operation whose condition is false for this run, so the spec a client reads always matches the routes that are actually mounted. The drift test compares the superset with the route table |
 | **JSON only** | OpenAPI spec uses JSON format only (NO YAML) |
 | **Source of truth** | AI.md defines the TEMPLATE routes and the `### API routes` inventory in IDEA.md defines EVERY project-defined route, including any native or compatibility API of the project; together they are the API CONTRACT: routes, methods, auth and shapes. AI.md never enumerates project routes. The code and its annotations implement that contract, and the specs are GENERATED from the code, so they are artifacts, never edited by hand. Drift is detected by a test with three legs: the generated OpenAPI route and method list, the router's registered routes, and the union of the AI.md template routes and the IDEA.md `### API routes` inventory. A route present in one leg and missing from another fails the build, naming the route and the missing place; a project whose IDEA.md has no `### API routes` subsection fails with that message instead of passing vacuously. A deliberate change is made in AI.md or IDEA.md first, then the code, then the specs are regenerated |
-| **Template route inventory** | The template leg of the drift test is read from the project's own `AI.md` at test time, deterministically: a template route is a row of a Markdown table whose header row has a path column (`Endpoint` or `Path`) and a method column (`Method` or `Methods`), in any order and with any other columns (rows are read by those headers, never by column position): the path cell is exactly one backticked path starting with `/` and the method cell lists one or more HTTP methods, and the method is always explicit (a row without one is not a route) (`GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`) separated by `/` or `,` (each method of the path is its own route); a path cell with an alias lists each path as its own route; optional-segment brackets such as `/metrics[/{service}]` expand to two routes, the path without and the path with the bracketed segment. A row in a fenced code block or in a table introduced as an illustrative example (for example the generic REST row `/api/{api_version}/{resource}`) is not a template route. `{api_version}` is the API version in use, `{admin_path}` the configured admin path, any other `{name}` segment matches a path parameter. A row under a section marked OPTIONAL counts only when the project enables that feature (its `x-mounted-when` condition). A route table in any other form is not a route inventory: a new template route is added to AI.md in this form, and nothing is copied into a project |
+| **Template route inventory** | The template leg of the drift test is read from the project's own `AI.md` at test time, deterministically: a template route is a row of a Markdown table whose header row has a path column (`Endpoint` or `Path`) and a method column (`Method` or `Methods`), in any order and with any other columns (rows are read by those headers, never by column position): the path cell is exactly one backticked path starting with `/` and the method cell lists one or more HTTP methods, and the method is always explicit (a row without one is not a route) (`GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`) separated by `/` or `,` (each method of the path is its own route); a path cell with an alias lists each path as its own route; optional-segment brackets such as `/metrics[/{service}]` expand to two routes, the path without and the path with the bracketed segment. A row in a fenced code block or in a table introduced as an illustrative example (for example the generic REST row `/api/{api_version}/{resource}`) is not a template route. `{api_version}` is the API version in use, `{admin_path}` the configured admin path, any other `{name}` segment matches a path parameter. A row under a section marked OPTIONAL counts only when the project enables that feature (its `x-mounted-when` condition). A table without a method column (the frontend page lists, static files, the well-known support matrix) is not a route inventory either: those are `GET`/`HEAD` pages covered by the page registry and conformance tests, not by the drift parser, and any route that accepts a `POST` form is listed in an inventory table with an explicit `POST` row. A route table in any other form is not a route inventory: a new template route is added to AI.md in this form, and nothing is copied into a project |
 | **Match site theme** | Both UIs styled to match site theme (light/dark/auto) |
 | **Standardized locations** | ALWAYS `src/swagger/` and `src/graphql/` (NEVER in root `.`) |
 
@@ -33022,7 +33026,7 @@ groups:
 | `{config_dir}/secrets.yml` | ✓ If exists | Secrets (encryption key, credentials); `server.token` is blanked in the backup copy |
 | `{config_dir}/assets/` | ✓ If exists | Branding image files |
 | `server.db` | ✓ When the local file exists | The local SQLite database: the main database with the SQLite driver (settings, rate limits, audit log); with the libSQL driver, the local cache file when `server.database.cache.enabled` is true. A remote database is never part of a backup (see below) |
-| `app_secrets.json` | ✓ Always | The `app_secrets` rows (`installation_secret`, `cookie_signing_key`, `csrf_token_secret` and their `{name}_previous` rows), exported by the server whether the database is local or remote, so a restore can decrypt the PGP private key (PART 11) even when the database is remote with no local cache. A restore writes them back and replaces rows that exist |
+| `app_secrets.json` | ✓ Always | EVERY `app_secrets` row (`installation_secret`, `cookie_signing_key`, `csrf_token_secret`, and all `{name}_previous` and `{name}_previous_until` rows, including `encryption_key_previous` and `encryption_key_previous_until` during the 30-day grace period, so a restore inside it can still decrypt data that depends on the previous key), exported by the server whether the database is local or remote, so a restore can decrypt the PGP private key (PART 11) even when the database is remote with no local cache. A restore writes them back and replaces rows that exist |
 | `{config_dir}/template/` | ✓ If exists | Custom email templates |
 | `{config_dir}/ssl/` | Optional | SSL certificates (flag: `--include-ssl`) |
 | Connection TLS files | ✓ Always, when referenced | The files named by `tls_ca`, `tls_cert`, `tls_key` (cache), even without `--include-ssl`; only those files, not the whole `ssl/` directory ("Connection Strings") |
@@ -33474,7 +33478,7 @@ backup only: highest priority wins, and it consumes no monthly, weekly or daily 
 | **First run** | No previous full: skip the daily incremental |
 | **Password change** | The base full's `key_id` is read from its cleartext header ("Encrypted archive format", PART 21), never from the encrypted manifest, so it is readable whatever password is configured. The run re-derives a key from the CURRENT password with the base's own salt and Argon2id parameters, computes `key_id` and compares: equal = same password, different = the password changed. A header that does not parse (bad magic or parameters) is a corrupt base, not a change. Either way the run skips the daily incremental (as on the first run), creates a new full under the current password and logs it (INFO for a change, WARN for a corrupt base); the integrity of the old base is the job of `--maintenance backup test`. A restorable pair is one full plus the incremental based on it, and a pair always shares ONE password. The server stores only the CURRENT password, so verifying (`--maintenance backup test`) or restoring an archive made under an older password needs the operator to supply that password. After a change there are two pairs: the old full with its old incremental (old password) until the old full ages out of retention, and the new full (new password) alone until the next run writes an incremental based on it, which then replaces the old incremental |
 
-**Restore (`--maintenance restore <file>`):**
+**Restore (`--maintenance restore [file]`):** the file is optional; with none, the newest full backup in `{backup_dir}` ("Default archive selection") is restored after a typed confirmation.
 
 | Given | Behavior |
 |-------|----------|
@@ -33487,7 +33491,8 @@ All restore limits (`server.restore.*`) apply to the combined base + incremental
 ## Restore Command
 
 ```bash
-{project_name} --maintenance restore <backup-file>
+# the file is optional: no file restores the newest full backup in {backup_dir} after a typed confirmation
+{project_name} --maintenance restore [backup-file]
 ```
 
 ### Restore Authorization
@@ -34210,7 +34215,7 @@ Application user creation **REQUIRES** privilege escalation. If the user cannot 
 **IMPORTANT: See PART 5 "Privileged Port Binding (<1024)" → "Binary Implementation" (item 3, "Smart escalation flow") for the complete escalation flow:**
 - Binary first checks if already root/admin → skips escalation prompt entirely
 - Only prompts if user CAN actually escalate (is in sudoers/wheel/admin group)
-- Never prompts if user cannot escalate → shows informative error instead
+- Never prompts if user cannot escalate → `--service --install` installs a user service; an action that has no user-service path (managing an installed system service, binding a privileged port) shows an informative error instead
 
 ## Escalation Detection by OS
 
@@ -34454,6 +34459,8 @@ Current:
 | Gecos | `{internal_name} service account` |
 
 **Legacy macOS accounts.** Earlier implementations created the macOS account as `_{internal_name}` (the underscore convention). Startup never renames, deletes or edits it. When it exists, startup still creates the canonical `{internal_name}` account and group as above, re-owns the application directories (`{config_dir}`, `{data_dir}`, `{log_dir}`, `{cache_dir}`) once from the legacy user to the canonical one, and logs one `warn` naming the legacy account, which the operator removes by hand when it is no longer needed. The server never runs as the legacy account.
+
+**Existing account with the same name.** An account named `{internal_name}` that already exists (for example the stock `mail` account when `internal_name` is `mail`) is reused exactly as it is: the 200-899 range and the equal UID/GID rule apply only to an account the application creates, and startup never changes an existing account's IDs, shell or home. It is reused only when it is a system account (UID below 1000 and a `nologin` or `false` shell); an existing human account (UID 1000 or higher, or a login shell) is never taken over: startup fails with one error naming the account and the conflict.
 
 ### UID/GID Selection Logic
 
@@ -42869,7 +42876,7 @@ The table is illustrative — the rule is universal: enumerate IDEA.md's feature
 - **Responsive**: 375×812 viewport — no horizontal scroll, navigation usable (PART 16 mobile rules)
 - **i18n (PART 30)**: switching language changes rendered strings
 - **Forms**: validation errors render server-side (Tier 2) and inline (Tier 3); CSRF token present and enforced (PART 16 → "CSRF Protection")
-- **Error pages**: 404 and 500 render the PART 16 themed error pages, not blank bodies or stack traces; the suite starts the server with `--debug` and triggers the 500 with `GET /debug/error500`, which exists only while the debug flag is on (production has no such route)
+- **Error pages**: 404 and 500 render the PART 16 themed error pages, not blank bodies or stack traces; the suite starts the server with `--debug` and triggers the 500 with `GET /debug/error500`, sending `Authorization: Bearer {operator token}` (the `server.token` read from the test server's `secrets.yml`) as an extra header for that one request (chromedp: `network.SetExtraHTTPHeaders`; thirtyfour: the DevTools command `Network.setExtraHTTPHeaders`), because the debug route stays operator-token protected, which exists only while the debug flag is on (production has no such route)
 - **Static assets**: every referenced CSS/JS/image/font loads with 200
 - **Console**: zero JavaScript errors on every page visited (Tier 3)
 
@@ -48482,8 +48489,8 @@ display:
 | Interactive terminal + no command, no display (or GUI not built in) | TUI mode |
 | Interactive terminal + config flags only, no display (or GUI not built in) | TUI mode |
 | Interactive terminal + command/args | CLI mode |
-| Piped/redirected output | Plain output (no TUI) |
-| Non-interactive (cron, scripts) | Plain output |
+| Piped/redirected output, with a command | Plain output (no TUI) |
+| Non-interactive (cron, scripts), with a command | Plain output; without a command it is DisplayModeHeadless: usage error, exit `2` |
 
 **Exit-immediately flags (NEVER launch TUI):**
 ```bash
@@ -48584,7 +48591,7 @@ if env.IsAutoDetectDisplayModeGUI() {
 } else if env.IsAutoDetectDisplayModeCLI() {
     // Text output with colors
 } else {
-    // DisplayModeHeadless - error for CLI (requires interaction)
+    // DisplayModeHeadless (no display, no TTY, no command given) - usage error, exit 2: the interactive app cannot run
 }
 ```
 
@@ -48595,7 +48602,7 @@ if env.IsAutoDetectDisplayModeGUI() {
 | **DisplayModeGUI** | 1 | Native display, no remote | Launch native GUI (`gogpu/ui`) in the separate `gui` build; the default static client uses the TUI ("GUI build separation") |
 | **DisplayModeTUI** | 2 | Interactive terminal | Launch bubbletea TUI |
 | **DisplayModeCLI** | 3 | Command provided or piped | Text output with colors |
-| **DisplayModeHeadless** | 4 | No display, no TTY | Error (CLI requires interaction) |
+| **DisplayModeHeadless** | 4 | No display, no TTY and NO command given | Error with the usage text, exit `2` (the interactive app cannot run); when a command is given, a headless run is DisplayModeCLI and prints plain output |
 
 ### Mode Selection by Binary
 
