@@ -202,6 +202,20 @@ Archives are tar+gzip containing a `manifest.json`. When a password is
 configured the whole archive is sealed with AES-256-GCM under a key
 derived with Argon2id, and the filename gains a `.enc` suffix.
 
+Backups include the server configuration, local database, and existing
+`secrets.yml` (with `server.token` blanked in the archive copy), plus existing
+drop-ins, templates, themes, HTML, and assets. Referenced cache TLS files and
+manually configured server certificates outside `ssl/` are included even
+without `--include-ssl`; those external keys are restored with mode `0600` and
+the config paths are rewritten to the restored files. `--include-ssl` adds the
+entire `ssl/` directory. Restore enforces the configured archive size,
+expanded size, file count, individual file size, and expansion-ratio limits.
+
+The scheduled backup task creates a full backup and a daily incremental when a
+previous full exists. Hourly incrementals are created when enabled. Each
+incremental is tied to its base full and restore applies the base before the
+incremental changes and deletions.
+
 **The password is only ever read from an interactive prompt.** There is no
 password flag, so it cannot end up in shell history or a process listing.
 `server.backup.encryption.hint` stores a non-secret reminder.

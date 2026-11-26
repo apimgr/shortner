@@ -317,7 +317,7 @@ convenience only and is never the enforcement point.
 ## Transport
 
 Built-in ACME issuance supports HTTP-01 and TLS-ALPN-01 through autocert.
-When `server.ssl.dns_provider` is set, the server uses lego's DNS-01
+When `server.ssl.letsencrypt.dns_provider` is set, the server uses lego's DNS-01
 provider registry, including wildcard certificate requests. DNS credentials
 are supplied as a flat map of lego environment-variable names and encrypted
 with AES-256-GCM under `server.security.encryption_key` before the config is

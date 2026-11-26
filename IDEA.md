@@ -41,7 +41,7 @@ owner_token: shortner_owner_token_zgnygola
   expiration or delete any link belonging to that anonymous owner. The primary token
   also manages linked tokens and can restore browser access. There are no accounts or
   passwords; the token is the owner's credential.
-- **Operator** (holds `server.token` from `server.yml`): global access — may moderate/
+- **Operator** (holds `server.token` from `secrets.yml`): global access — may moderate/
   delete any link and revoke an owner's primary token, which revokes all its tokens
   (`--maintenance token revoke <prefix>` / `token list`, PART 8/11).
 - No other roles exist; no admin web UI (PART 16 public-nav rule — nav is app-focused

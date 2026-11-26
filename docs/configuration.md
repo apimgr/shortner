@@ -134,8 +134,6 @@ never consent or credential cookies.
 
 ```yaml
 server:
-  # Operator API token; generated on first run
-  token: "adm_..."
   address: "[::]"
   port: "8090"
   daemonize: false
@@ -144,12 +142,27 @@ server:
 ```
 
 `server.port` accepts one port or an HTTP,HTTPS pair such as `"80,443"`.
+The operator token is generated into `secrets.yml`, not `server.yml`.
 `server.daemonize` is a startup-only setting for manual starts; `--daemon`
 overrides it, and service-managed or container starts remain in the foreground.
 In dual-port mode the first listener serves HTTP (including ACME HTTP-01
 challenges) and the second serves HTTPS; the startup banner prints both
 URLs. A single port of `443` enables TLS automatically. With a single
 non-443 port, set `server.ssl.enabled: true` to serve HTTPS on that port.
+Manual certificate paths override automatic certificate selection and are
+resolved relative to the configuration directory unless absolute:
+
+```yaml
+server:
+  ssl:
+    enabled: true
+    cert: ssl/local/cert.pem
+    key: ssl/local/key.pem
+    min_version: "TLS1.2"
+```
+
+Configure both `cert` and `key` together. `min_version` accepts `TLS1.2` or
+`TLS1.3` and defaults to `TLS1.2`.
 
 The default address `[::]` listens on IPv4 and IPv6. If the kernel does not
 support IPv6 sockets, Shortner falls back to `0.0.0.0` and logs one warning.
@@ -336,9 +349,10 @@ server:
     enabled: false
     cert: ""
     key: ""
-    min_version: TLS1.2
-    dns_provider: ""
-    dns_credentials: {}
+    min_version: "TLS1.2"
+    letsencrypt:
+      dns_provider: ""
+      dns_credentials: {}
 ```
 
 When enabled, certificates are obtained automatically via ACME using the
@@ -348,8 +362,10 @@ Set `cert` and `key` together to use a manually managed certificate. Paths
 inside `config_dir/ssl/` are preserved by backup; paths outside it are backed
 up under `ssl-external/` and rewritten into `config_dir/ssl/` on restore.
 
-For DNS-01, set the lego provider name and a flat map of that provider's
-environment variable names to values. For example, Cloudflare accepts
+For DNS-01, set `server.ssl.letsencrypt.dns_provider` to the lego provider
+name and put a flat map of that provider's environment variable names under
+`server.ssl.letsencrypt.dns_credentials`. Credential values are encrypted at
+rest in `secrets.yml`. For example, Cloudflare accepts
 `CF_DNS_API_TOKEN`; credentials are stored in `secrets.yml` and never
 exposed by an API or view.
 The complete provider list and each provider's variable names are maintained
@@ -719,6 +735,12 @@ server:
       keep_yearly: 0
       max_total_size: "10%"
     disk_threshold: 90
+  restore:
+    max_archive_size: "1G"
+    max_expanded_size: "4G"
+    max_files: 10000
+    max_file_size: "512M"
+    max_ratio: 100
 ```
 
 `encryption.enabled` is set automatically when a password is configured —
@@ -732,6 +754,15 @@ daily. The newest backups within each category fill that category's retention
 limit; an older backup that exceeds its category limit is deleted rather than
 reclassified into another category. A backup is skipped when disk usage
 exceeds `disk_threshold` percent. See [CLI Reference](cli.md#backup-and-restore).
+
+The restore limits apply before extraction and while streaming archive content.
+The compressed archive, combined expanded contents (including an incremental's
+base), file count, single-file size, and expansion ratio are all bounded.
+Backups always contain `server.yml`, the local database, and `secrets.yml` when
+present; the backup copy blanks `server.token`. Drop-ins, templates, themes,
+HTML, and assets are included when present. Referenced cache TLS files and
+manual server certificates outside `ssl/` are included automatically; the
+`--include-ssl` flag includes the full `ssl/` directory.
 
 ## Updates
 
