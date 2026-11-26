@@ -18610,7 +18610,7 @@ type FeaturesInfo struct {
     // PART 31.1: Tor Hidden Service
     Tor TorInfo `json:"tor"`
 
-    // PART 31.2: I2P Eepsite (OPTIONAL - opt-in outside containers)
+    // PART 31.2: I2P Eepsite (built in; opt-in at runtime outside containers)
     I2P I2PInfo `json:"i2p"`
 
     // PART 19: GeoIP
@@ -47076,13 +47076,13 @@ Tor Hidden Service: Connected
 
 ---
 
-## PART 31.2: I2P Eepsite (OPTIONAL — opt-in outside containers)
+## PART 31.2: I2P Eepsite (REQUIRED in the build — opt-in at runtime outside containers)
 
 > **Trust chain integration:** an `.b32.i2p` request is trusted for FQDN resolution exactly like a `.onion` request — the eepsite host is served by the app's own I2P provider, so no reverse-proxy header or IP check applies. See **PART 12 → overlay HTTP semantics** for request detection, `BuildURL` / `GetURLVars` behavior, and the privacy rules (no HTTPS upgrade, no HSTS, no cert).
 
 ### Overview
 
-**I2P support is OPTIONAL. On bare metal and in a VM it is opt-in and off by default; in a container it is ON by default.** A container image is isolated and always ships `i2pd` (the image contract), so there is nothing to protect by asking; a host may already run its own router or SAM bridge, so the operator opts in there. This is the difference from Tor (PART 31.1), which is auto-enabled whenever the `tor` binary is found. The eepsite is created **only** when I2P is enabled (`server.i2p.enabled: true` / `I2P_ENABLED=true` / `--i2p`, or the computed default of `true` inside a container) **and** a provider is available.
+**I2P support is always built in (code, image and tests); it is its ACTIVATION that is opt-in. On bare metal and in a VM it is off by default; in a container it is ON by default.** A container image is isolated and always ships `i2pd` (the image contract), so there is nothing to protect by asking; a host may already run its own router or SAM bridge, so the operator opts in there. This is the difference from Tor (PART 31.1), which is auto-enabled whenever the `tor` binary is found. The eepsite is created **only** when I2P is enabled (`server.i2p.enabled: true` / `I2P_ENABLED=true` / `--i2p`, or the computed default of `true` inside a container) **and** a provider is available.
 
 **I2P provides one capability here:**
 1. **Eepsite** — server-side `.b32.i2p` hosting over the I2P network.
@@ -52061,7 +52061,7 @@ make docker
   - [ ] `features.tor.status` (disabled/starting/healthy/unavailable)
   - [ ] `features.tor.hostname` ({onion_address})
 
-**PART 31.2: I2P Eepsite (OPTIONAL — opt-in outside containers)**
+**PART 31.2: I2P Eepsite (REQUIRED in the build — opt-in at runtime outside containers)**
 - [ ] Off by default on bare metal and in a VM (opt-in via `server.i2p.enabled` / `I2P_ENABLED=true` / `--i2p`); ON by default in a container (computed default; the image sets no `I2P_ENABLED`)
 - [ ] Provider resolution: i2pd binary preferred, external SAM bridge fallback
 - [ ] Dedicated i2pd process (Model A, not a system router) when i2pd found
