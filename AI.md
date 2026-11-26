@@ -5297,7 +5297,7 @@ sudo mv {project_name}-cli-linux-amd64 /usr/local/bin/{project_name}-cli
 Configuration is auto-generated on first run: `server.yml` holds this node's settings, and everything else is built in until an area file in `yaml.d/` exists. Edit the files directly.
 
 Key settings:
-- `server.port` - Listen port (default: random 64xxx)
+- `server.port` - Listen port (default: random 64xxx). `0` is NOT a valid value: it is replaced like any invalid port, and there is no OS-assigned-port mode
 - `server.mode` - production or development
 
 ## API
@@ -15657,7 +15657,7 @@ web:
 | Rate limiting, audit | The same limiters and audit events as the API; the audit entry's top-level `source` field (PART 11 → "Audit Log Format") is `mcp` so MCP traffic is distinguishable |
 | Owner and linked tokens | Owner tokens exist in EVERY project (PART 8 → "API Token Model") and every caller can obtain one: on a first resource creation, or on request from `/server/preferences/tokens` or `POST /api/{api_version}/server/preferences/tokens/primary`, so every MCP client can always hold the credential MCP requires. Owner and linked tokens both work as the Bearer token. A tool call sees exactly what the token's owner owns and runs the API's ownership check. **A linked token is the intended credential for MCP clients**: create one named for the client on `/server/preferences/tokens`; it is revoked, rotated and expired on its own, rotating it never changes the primary or the other linked tokens, and rotating the primary never changes the linked tokens |
 | Operator token | `server.token` works as Bearer and sees operator-only tools; for any other caller those tools are absent from `tools/list` AND rejected on `tools/call` |
-| MCP clients | Give each MCP client its own linked token (never the primary, never `server.token` — that is full operator access). |
+| MCP clients | Give each MCP client its own linked token (never the primary, never `server.token` — that is full operator access). The tiers: the operator token (`server.token`) IS accepted by MCP and also sees the operator-only tools; an owner or linked token sees every tool its scope may call and never an operator-only one. A standing MCP client uses a linked token; the operator token is for the operator's own tooling. |
 | Token management | **Never exposed as tools.** Reveal, rotate, create, revoke and restore of tokens exist only on `/server/preferences/tokens` and its API mirror, never over MCP |
 | Token issuance | **Never a tool.** A new owner and its token are issued only by the REST API or the web form, never inside a tool result: tool results enter the model's context and the provider's logs. An MCP client always starts from a token it was given |
 
@@ -30937,6 +30937,7 @@ server:
 | `@monthly` | `@monthly` | First day of month at 00:00 |
 | `@every Xm` | `@every 5m` | Every X minutes |
 | `@every Xh` | `@every 2h` | Every X hours |
+| `@every Xs` | `@every 30s` | Every X seconds (10 or more): the cluster heartbeat and other pollers that run more often than every minute |
 
 ### Scheduler State (Persistent)
 
