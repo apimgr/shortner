@@ -30149,7 +30149,7 @@ server:
 | Feature | Behavior |
 |---------|----------|
 | Security alerts | Not sent, not attempted |
-| All notifications | Not sent, not attempted |
+| All email notifications | Not sent, not attempted (in-app notifications are unaffected: they are stored in the database, not sent by email) |
 
 **DO NOT:**
 - ❌ Attempt to send emails without valid SMTP
