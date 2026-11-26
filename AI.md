@@ -3094,6 +3094,30 @@ Getting code correct on the first try is much harder than iterating with feedbac
 **Reference:** based on published guidance about AI coding agent self-validation (Eivind Kjosbakken, Towards Data Science, 2026) — when an AI agent is given verification tools (output diffing, browser MCP, test runners) and allowed to iterate, one-shot success rate, run length, and task complexity all improve substantially.
 
 
+## Definition of Done
+
+**A unit of work is done only when it is committed and pushed. Edited files are not done, and neither is a clean diff left in the working tree.**
+
+| Step | Requirement |
+|------|-------------|
+| 1. Review | The main instance reads the full diff, so the commit says what the diff really does |
+| 2. Gates | The project's test and lint gates run once, after the full diff is reviewed (never by a subagent). A failing gate is fixed, never skipped or overridden |
+| 3. TODO | `TODO.AI.md` is made true in the same change ("TODO Hygiene") |
+| 4. Message | `.git/COMMIT_MESS` is written and re-read |
+| 5. Commit | `gitcommit --dir {project_dir} all`, after the branch gate passes |
+| 6. Verify | The committed scope is clean in `git status --porcelain`, the push succeeded, and CI for the pushed commit is green. Never report done while it is red or still running |
+
+**Subagents.** A subagent's report is a hand-back, never completion. The main instance runs steps 1-6 right after the report arrives, without waiting for the user to ask. An instance that was itself started as an agent is the main instance for this purpose and runs the steps too.
+
+**The ONLY reasons to stop before step 5, each reported by name with the exact detail:**
+- the branch gate failed (not on `main`)
+- a gate or a hook fails or blocks the commit and the cause cannot be fixed within the task: report the failing check, its output and what was tried (a hook block is never bypassed automatically)
+- a contradiction or unclear requirement that only the user can decide: ask the one specific question
+- the user said to wait, or the rule needs explicit approval first (for example a proposed rewrite of an existing file)
+- a destructive or irreversible action that needs confirmation
+
+**Never stop at "edits finished", at "ready for review", or with a message that tells the user to commit.**
+
 ## TODO.AI.md Completion
 
 **When ALL items in TODO.AI.md are completed:**
@@ -32988,7 +33012,7 @@ groups:
 |--------|---------|
 | Algorithm | AES-256-GCM |
 | Key Derivation | Argon2id (password → encryption key) |
-| Encrypted archive format | A cleartext header, then the AES-256-GCM ciphertext. Header: magic `BKUP1`, `salt` (16 random bytes, new for every archive), the Argon2id parameters (`m`, `t`, `p`), the 12-byte `nonce`, `key_id` and, for an incremental, `base_backup` (the base file's name). Retention and base protection use only this header and the file names, never a password. The whole header is bound to the ciphertext as AES-GCM additional data, so any change to it fails decryption. It holds no password and no key material |
+| Encrypted archive format | A cleartext header, then the AES-256-GCM ciphertext. Header, in this fixed order and encoding: magic `BKUP1` (5 bytes), `salt` (16 random bytes, new for every archive), `m`, `t`, `p` (each a uint32, big-endian: memory in KiB, iterations, parallelism), the 12-byte `nonce`, `key_id` (8 ASCII lowercase hex characters), then `base_len` (uint16, big-endian; 0 for a full backup) followed by `base_len` bytes of the base file's name (UTF-8, at most 255 bytes, no path separators). The header is exactly the concatenation of these fields (55 bytes plus the name), and a reader rejects a `base_len` above 255 or a header that ends early before it derives any key. Retention and base protection use only this header and the file names, never a password. The whole header is bound to the ciphertext as AES-GCM additional data, so any change to it fails decryption. It holds no password and no key material |
 | `key_id` | The first 8 hex characters of `HMAC-SHA256(derived_key, "key-id")`, where `derived_key` is Argon2id over the password with THAT archive's own salt and parameters. The same password gives the same `key_id` only when derived with the same salt, so comparing against another archive means re-deriving with that archive's salt and parameters |
 | File Extension | `.tar.gz` (unencrypted) or `.tar.gz.enc` (encrypted) |
 | Password Storage | Held only as the `server.backup.encryption_password` config value, so scheduled backups can run unattended. Never written to the database, a log, a manifest or an archive; never returned by any API; never hashed (it is key material, not a login verifier). Restore never reads it: the operator supplies the password |
@@ -49855,6 +49879,7 @@ defaults:
 | Scenario | Result |
 |----------|--------|
 | `--server` flag used | Use that server, **save to `server.primary` in cli.yml only if empty/invalid** |
+| `{PROJECT_NAME}_SERVER_PRIMARY` set (and no `--server`) | Use that server; nothing is saved |
 | `server.primary` in cli.yml | Use configured primary server |
 | Project has `{official_site}` | Use official site as default |
 | No server available | Error with setup instructions |

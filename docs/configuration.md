@@ -525,7 +525,9 @@ extend their built-in content.
 server:
   pages:
     help:
-      content: ""
+      content:
+        default: ""
+        es: ""
       mcp: ""
     contact:
       enabled: true
