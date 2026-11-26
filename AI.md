@@ -5799,9 +5799,9 @@ jobs:
           # Verify no GPL/AGPL/LGPL licenses (go-licenses pre-installed in build image)
           # Capture first — a scanner failure must fail the step, never read as "no match"
           set -o pipefail
-          IGNORE=$(awk 'NF { printf " --ignore %s", $1 }' .github/license-overrides.txt 2>/dev/null || true)
+          IGNORE=$(awk 'NF && $1 !~ /^#/ { printf " --ignore %s", $1 }' .github/license-overrides.txt 2>/dev/null || true)
           licenses=$(go-licenses csv ./src/... $IGNORE)
-          licenses="$licenses"$'\n'"$(awk 'NF { print $1 "," $2 }' .github/license-overrides.txt 2>/dev/null || true)"
+          licenses="$licenses"$'\n'"$(awk 'NF && $1 !~ /^#/ { print $1 "," $2 }' .github/license-overrides.txt 2>/dev/null || true)"
           if echo "$licenses" | grep -iE 'GPL|AGPL|LGPL'; then
             echo "ERROR: Copyleft license detected!" >&2
             exit 1
@@ -5809,13 +5809,13 @@ jobs:
 
       - name: Save license report
         run: |
-          IGNORE=$(awk 'NF { printf " --ignore %s", $1 }' .github/license-overrides.txt 2>/dev/null || true)
+          IGNORE=$(awk 'NF && $1 !~ /^#/ { printf " --ignore %s", $1 }' .github/license-overrides.txt 2>/dev/null || true)
           go-licenses save ./src/... $IGNORE --save_path="${RUNNER_TEMP}/third_party_licenses"
 ```
 
 ### License Verification Script
 
-**Scan scope and reviewed overrides.** The scan covers the packages of the shipped binaries, `./src/...`; `tests/` and tooling are not shipped and are not scanned. A dependency whose license the scanner cannot classify (`Unknown`, for example a BSD-3-Clause text with a non-standard copyright line) is resolved by a reviewed override, never by skipping the check: `.github/license-overrides.txt` holds one line per module, `{module path} {SPDX id} {reviewer note}`, added only after a person read that module's LICENSE file. The scan ignores that one module and the override's SPDX id takes its place in the report, so the copyleft check still sees it; a module not listed, and any copyleft id, still fails the scan, and a missing file means no overrides.
+**Scan scope and reviewed overrides.** The scan covers the packages of the shipped binaries, `./src/...`; `tests/` and tooling are not shipped and are not scanned. A dependency whose license the scanner cannot classify (`Unknown`, for example a BSD-3-Clause text with a non-standard copyright line) is resolved by a reviewed override, never by skipping the check: `.github/license-overrides.txt` holds one line per module, `{module path} {SPDX id} {reviewer note}`, added only after a person read that module's LICENSE file. The scan ignores that one module and the override's SPDX id takes its place in the report, so the copyleft check still sees it; a module not listed, and any copyleft id, still fails the scan, and a missing file means no overrides. The scanner reads only the first two fields; everything after them is the reviewer note (free text: who read which file, and when), which stays in the committed file as the review record, and a line starting with `#` is a comment. A module whose archive has NO LICENSE file gives a person nothing to read, so it is never overridden on a guess: either its repository states the license in another file (README, COPYING, NOTICE), which the note then names and the SPDX id is recorded the same way, or the license cannot be established and the dependency is replaced or removed.
 
 **Include in project repository:**
 
@@ -5836,9 +5836,9 @@ command -v go-licenses >/dev/null 2>&1 || {
 # Check for copyleft licenses
 # Capture first — a scanner failure must abort (set -e), never read as "no match"
 echo "Scanning dependencies..."
-IGNORE=$(awk 'NF { printf " --ignore %s", $1 }' .github/license-overrides.txt 2>/dev/null || true)
+IGNORE=$(awk 'NF && $1 !~ /^#/ { printf " --ignore %s", $1 }' .github/license-overrides.txt 2>/dev/null || true)
 licenses=$(go-licenses csv ./src/... $IGNORE)
-licenses="$licenses"$'\n'"$(awk 'NF { print $1 "," $2 }' .github/license-overrides.txt 2>/dev/null || true)"
+licenses="$licenses"$'\n'"$(awk 'NF && $1 !~ /^#/ { print $1 "," $2 }' .github/license-overrides.txt 2>/dev/null || true)"
 if echo "$licenses" | grep -iE 'GPL|AGPL|LGPL'; then
     echo "ERROR: Copyleft license detected!" >&2
     echo "Remove the dependency or find an alternative." >&2
@@ -39167,6 +39167,21 @@ image-scan:
   rules:
     - exists:
         - docker/Dockerfile
+
+# =============================================================================
+# BUILD GATE (every main push and merge request: explicit go build, nothing published)
+# =============================================================================
+
+build:check:
+  <<: *go-build
+  stage: build
+  script:
+    - go build -buildvcs=false -trimpath -o /dev/null ./src
+    - if [ -d "src/client" ]; then go build -buildvcs=false -trimpath -o /dev/null ./src/client; fi
+    - if [ -d "src/agent" ]; then go build -buildvcs=false -trimpath -o /dev/null ./src/agent; fi
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
 
 # =============================================================================
 # RELEASE BUILDS (Tag Push: v* or semver)
