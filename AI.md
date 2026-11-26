@@ -4100,7 +4100,7 @@ User preferences like theme, language, and UI settings can be stored client-side
 
 | Storage | Use Case | Persistence |
 |---------|----------|-------------|
-| Cookies | Theme, language, consent flags — anything the server reads to render pages; plus the `owner_token` cookie (HttpOnly + Secure + SameSite=Strict) set when an owner is issued (web-form resource creation or the New token button) or restored on `/server/preferences/tokens`, so token-gated web management works with JS disabled | Configurable expiry |
+| Cookies | Theme, language, consent flags — anything the server reads to render pages; plus the `owner_token` cookie (HttpOnly + Secure + SameSite=Strict; no `Secure` on an I2P request) set when an owner is issued (web-form resource creation or the New token button) or restored on `/server/preferences/tokens`, so token-gated web management works with JS disabled | Configurable expiry |
 | `localStorage` | Optional JS-enhancement copy of the owner API token, and pure client-only state — never load-bearing; every flow must also work via the `owner_token` cookie with JS disabled | Until cleared |
 
 ## AI Implementation Process
@@ -12449,7 +12449,7 @@ server:
 | Ownership | Resources store `owner_id`. Tokens resolve to an `owner_id`. A resource is never bound to a token hash, so rotating a token, or revoking a linked token, never touches resource rows (revoking a primary deletes the whole owner: see "Revoking a primary token") |
 | One primary per owner | Created with the owner; **never expires and never disappears** — not when resources expire or are deleted, not when the owner has none left. Rotating it replaces its value in place (same row, same owner) and never ends it. It ends only when its owner is deleted: by revoking the primary (the owner on the tokens page or the API, or the operator on the CLI) or by the optional idle purge below |
 | Reuse | A caller presenting a valid token (Bearer header, or cookie on web forms) creates new resources under the same owner and receives no new token. The `owner_token` response field is present only when a NEW owner was issued |
-| Cookie | `{project_name}_owner_token_XXXXXXXX` holds the primary token (HttpOnly + Secure + SameSite=Strict + Path=/). Max-Age `server.tokens.cookie_max_age` (default `1y`), **sliding** — refreshed on every valid use. An invalid or revoked cookie is cleared on the next response |
+| Cookie | `{project_name}_owner_token_XXXXXXXX` holds the primary token (HttpOnly + Secure + SameSite=Strict + Path=/; `Secure` is omitted on an I2P request, PART 12 Tor and I2P semantics). Max-Age `server.tokens.cookie_max_age` (default `1y`), **sliding** — refreshed on every valid use. An invalid or revoked cookie is cleared on the next response |
 | Lost cookie / new device | Paste the primary token into "Use an existing token" on `/server/preferences/tokens` (restore). Valid → cookie set, identity restored. Linked tokens cannot restore an identity |
 | Idle purge | `server.tokens.idle_purge_days` (default `0` = never). When greater than 0, an owner with **zero resources** and no token use for that many days is deleted with its tokens. Owners with resources are never purged |
 | No guessing aid | Invalid/revoked/expired tokens and non-owned resources return the same response as a missing resource — no existence hints (see "Ownership check") |
@@ -12601,7 +12601,7 @@ PHONE (<768)              TABLET (768-1023)             DESKTOP (>=1024)
 
 **Behavior rules:** each action is its own small `POST` form with its own CSRF token (above); after any action the `303` redirect returns to `#token-{id}` (or `#primary`) so the page does not jump; Reveal re-renders only that card with the full value in `.copy-value` plus a Copy button and the note "Shown once, on this page load"; a toast confirms Rotate, Create, Rename and Revoke; the masked value uses `.copy-value`, never wraps and never widens the page (see "Layout Integrity & Polish Contract").
 
-**Token delivery (the `303` stays, and the token never travels in a URL).** Every action that shows a raw token (New token, Rotate, Create linked token, Reveal) keeps the `303`. The POST handler sets a one-use view cookie `{project_name}_token_view` (`HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/server/preferences/tokens`, `Max-Age=60`) whose value names the card (`primary` or the token id), never the token, and redirects to that card's anchor. The next `GET` of the page reads the cookie, clears it (`Max-Age=0`), decrypts that ONE card's value from `token_enc` and renders it in `.copy-value` with Copy and the note "Shown once, on this page load", with `Cache-Control: no-store`. A reload or any later visit shows the masked value; a cookie that is missing or names a token the caller does not own adds nothing; a list or page load never decrypts anything by itself. The API mirrors have no redirect: they return the token in the JSON response body.
+**Token delivery (the `303` stays, and the token never travels in a URL).** Every action that shows a raw token (New token, Rotate, Create linked token, Reveal) keeps the `303`. The POST handler sets a one-use view cookie `{project_name}_token_view` (`HttpOnly`, `Secure` (omitted on an I2P request), `SameSite=Strict`, `Path=/server/preferences/tokens`, `Max-Age=60`) whose value names the card (`primary` or the token id), never the token, and redirects to that card's anchor. The next `GET` of the page reads the cookie, clears it (`Max-Age=0`), decrypts that ONE card's value from `token_enc` and renders it in `.copy-value` with Copy and the note "Shown once, on this page load", with `Cache-Control: no-store`. A reload or any later visit shows the masked value; a cookie that is missing or names a token the caller does not own adds nothing; a list or page load never decrypts anything by itself. The API mirrors have no redirect: they return the token in the JSON response body.
 
 **Config (`server.yml`):**
 ```yaml
@@ -25037,7 +25037,7 @@ async function checkLocationPermission() {
 
 | Storage | Use Case | Cleared |
 |---------|----------|---------|
-| **Cookies** | `owner_token` (HttpOnly + Secure + SameSite=Strict) — primary browser storage; enables no-JS web management. UI preferences (theme, lang) | Expiry/revocation |
+| **Cookies** | `owner_token` (HttpOnly + Secure + SameSite=Strict; no `Secure` on an I2P request) — primary browser storage; enables no-JS web management. UI preferences (theme, lang) | Expiry/revocation |
 | **localStorage** | API token — optional JS convenience copy (copy button, pre-fill); never load-bearing | Manual/revocation |
 | **IndexedDB** | Offline data, cached responses | Manual/revocation |
 
@@ -31200,11 +31200,11 @@ All databases come from [sapics/ip-location-db](https://github.com/sapics/ip-loc
 | Category | Package / File | CDN URL | Fields |
 |----------|-----------------|---------|--------|
 | ASN | `iptoasn-asn` → `iptoasn-asn.mmdb` | `https://github.com/sapics/ip-location-db/releases/download/latest/iptoasn-asn.mmdb` | `autonomous_system_number`, `autonomous_system_organization` |
-| Country | `iptoasn-country` → `iptoasn-country.mmdb` | `https://github.com/sapics/ip-location-db/releases/download/latest/iptoasn-country.mmdb` | `country_code` |
+| Country | `iptoasn-country` → `iptoasn-country.mmdb` | `https://github.com/sapics/ip-location-db/releases/download/latest/iptoasn-country.mmdb` | `country.iso_code` (the GeoLite2 record layout the upstream Country and ASN MMDB files use; the deprecated top-level `country_code` is read only as a fallback when `country.iso_code` is absent) |
 | City (IPv4) | `dbip-city` → `dbip-city-ipv4.mmdb` | `https://github.com/sapics/ip-location-db/releases/download/latest/dbip-city-ipv4.mmdb` | `city`, `country_code`, `state1`, `state2`, `postcode`, `latitude`, `longitude`, `timezone` |
 | City (IPv6) | `dbip-city` → `dbip-city-ipv6.mmdb` | `https://github.com/sapics/ip-location-db/releases/download/latest/dbip-city-ipv6.mmdb` | (same fields as City IPv4) |
 
-**No separate "WHOIS" database.** Earlier drafts of this spec described a combined WHOIS lookup exposing a `registrant_org` field — no such dataset exists in ip-location-db. The Country file (`iptoasn-country`) exposes only `country_code`, derived upstream from iptoasn.com's IP-to-ASN data. Organization-name data available to this project comes solely from the ASN database's `autonomous_system_organization` field (a BGP/RIR-derived AS holder name, not an RDAP/WHOIS registrant record) — use that field directly and do not label it "WHOIS" anywhere in code, config, or docs.
+**No separate "WHOIS" database.** Earlier drafts of this spec described a combined WHOIS lookup exposing a `registrant_org` field — no such dataset exists in ip-location-db. The Country file (`iptoasn-country`) exposes only the country code (`country.iso_code`), derived upstream from iptoasn.com's IP-to-ASN data. Organization-name data available to this project comes solely from the ASN database's `autonomous_system_organization` field (a BGP/RIR-derived AS holder name, not an RDAP/WHOIS registrant record) — use that field directly and do not label it "WHOIS" anywhere in code, config, or docs.
 
 **Do not use MaxMind GeoLite2 as an alternative or fallback.** GeoLite2 requires acceptance of the MaxMind GeoLite2 EULA in addition to CC BY-SA 4.0 attribution — stricter terms (e.g. redistribution and update-frequency restrictions) than the DB-IP and iptoasn sources above. It is not zero-config-compatible with this project's "first run works with zero config, no account required" rule.
 
@@ -32988,6 +32988,7 @@ When compliance mode is on:
 | Set during initial config | `server.backup.encryption_password` in `secrets.yml` | Optional (unless compliance mode is on) |
 | Set later | `server.backup.encryption_password` in config file | Hot-reloaded; no restart needed |
 | Change password | `server.backup.encryption_password` in config file | New backups use new password |
+| Storage | `secrets.yml`, key `server.backup.encryption_password` (PART 5), never `server.yml` | The wizard and the admin page write it there; a project without an admin panel edits `secrets.yml` itself |
 | Remove encryption | Only while compliance mode is off | Cannot remove while compliance mode is on |
 
 **Important:**
@@ -33547,9 +33548,9 @@ server:
 
 **Stage, restart, swap (started as root):**
 
-1. The `update_check` task, running as the service user, performs steps 1 to 3 of the Update Flow into `{data_dir}/update/` (`{project_name}.new` and its SHA256) and records `update.staged` (version only).
+1. The `update_check` task, running as the service user, performs steps 1 to 3 of the Update Flow into `{data_dir}/update/` (`{project_name}.new`; its SHA256 file is informational only) and records `update.staged` (version only).
 2. The server shuts down gracefully (PART 8 → shutdown) and exits with code `75` (`EX_TEMPFAIL`), a failure exit, so the supervisor restarts it.
-3. The restart runs as root. Startup step 7b verifies the SHA256 again, checks that the staged version is newer than the running one, runs `replaceBinary()` (step 4), deletes `{data_dir}/update/` and re-executes the new binary (step 5), which continues at step 6 as the new version.
+3. The restart runs as root. Startup step 7b computes the SHA-256 of the staged `{project_name}.new` and compares it with the digest the root phase itself re-fetches for that version from the official release URL over HTTPS (TLS verified, short timeout, never from `{data_dir}/update/`: the service account can write every file there, so a staged digest proves nothing). A fetch failure or a mismatch is a failure (item 4, fail closed). It then checks that the staged version is newer than the running one, runs `replaceBinary()` (step 4), deletes `{data_dir}/update/` and re-executes the new binary (step 5), which continues at step 6 as the new version.
 4. Any failure (bad checksum, rename error): the staged files are deleted, the old binary keeps running, `update.failed` is recorded and the Server Admins get the `update_failed` notification. The same version is not staged again until the next release.
 
 **Restart support:** systemd (`Restart=on-failure`), launchd (`KeepAlive`), runit, s6 and rc.d (`daemon -r` restarts the server whenever it exits) restart the service after exit `75`. OpenRC and SysV do not supervise it: the staged update waits for the next start (boot or `--service restart`) and the Server Admins get the `update_staged` notification (restart to apply).
@@ -41763,7 +41764,7 @@ fi
 
 #### Testing Operator-Token Routes
 
-**Every operator route (`server.token`, `adm_`) is tested with five requests, in `docker.sh` and `incus.sh` alike:** no `Authorization` header → `401`; a wrong token → `401`; an owner or linked token (`own_`) → `403`; the real `server.token` read from `secrets.yml` inside the test container → `200`; and the same route with the token in a query string → `401` (a URL is never a credential). The token value is never echoed: scripts pass it through a variable and print only the route and the status.
+**Every operator route (`server.token`, `adm_`) is tested with five requests, in `docker.sh` and `incus.sh` alike:** no `Authorization` header → `401`; a wrong token → `401`; an owner or linked token (`own_`) → `403`; the real `server.token` read from `secrets.yml` inside the test container → `200`, meaning authentication succeeds (a route that deliberately answers with another status keeps its own documented status, for example `/debug/error500` answers `500` after authenticating, and the suite asserts that status for it); and the same route with the token in a query string → `401` (a URL is never a credential). The token value is never echoed: scripts pass it through a variable and print only the route and the status.
 
 **CLI full functionality:** the built client runs against the running server with a linked API token (not just `--help`): `--version`, a status or health command, one read command and one write command, each checked for exit code `0` and expected output, plus one failure case (bad token → non-zero exit and a clear message).
 
