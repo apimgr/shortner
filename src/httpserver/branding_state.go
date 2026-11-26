@@ -58,6 +58,7 @@ func makeBrandingSettings(cfg *config.Config) *brandingSettings {
 
 func copyOperatorPageContent(content config.OperatorPageContent) config.OperatorPageContent {
 	content.Body.Values = cloneStringMap(content.Body.Values)
+	content.Body.Order = append([]string(nil), content.Body.Order...)
 	return content
 }
 

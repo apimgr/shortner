@@ -216,13 +216,8 @@ var createStatements = []string{
 	`CREATE TABLE IF NOT EXISTS app_secrets (
 		name       TEXT PRIMARY KEY,
 		value      TEXT NOT NULL,
-		created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-		rotated_at INTEGER
-	)`,
-	`CREATE TABLE IF NOT EXISTS app_secret_grace (
-		name TEXT PRIMARY KEY,
-		value TEXT NOT NULL,
-		expires_at INTEGER NOT NULL
+		version    INTEGER NOT NULL DEFAULT 1,
+		updated_at TEXT NOT NULL
 	)`,
 	`CREATE TABLE IF NOT EXISTS captcha_challenges (
 		id VARCHAR(32) PRIMARY KEY,
@@ -321,6 +316,9 @@ var createStatements = []string{
 // after createStatements, per AI.md PART 10 "Schema Updates". New entries
 // are appended here (never edited in place) as the schema grows.
 var schemaUpdates = []string{
+	`ALTER TABLE app_secrets ADD COLUMN version INTEGER NOT NULL DEFAULT 1`,
+	`ALTER TABLE app_secrets ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`,
+	`UPDATE app_secrets SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE updated_at = ''`,
 	`ALTER TABLE security_reports ADD COLUMN closed_at INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE security_reports ADD COLUMN last_viewed_at INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE security_reports ADD COLUMN disclosure_at INTEGER NOT NULL DEFAULT 0`,

@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -85,7 +86,7 @@ type Server struct {
 	Logs           Logs           `yaml:"logs"`
 	Cache          CacheConfig    `yaml:"cache"`
 	Healthz        Healthz        `yaml:"healthz"`
-	TLS            TLS            `yaml:"tls"`
+	TLS            TLS            `yaml:"ssl"`
 	CORS           CORS           `yaml:"cors"`
 	CSRF           CSRF           `yaml:"csrf"`
 	Branding       Branding       `yaml:"branding"`
@@ -96,6 +97,7 @@ type Server struct {
 	GeoIP          GeoIP          `yaml:"geoip"`
 	Metrics        Metrics        `yaml:"metrics"`
 	Backup         Backup         `yaml:"backup"`
+	Restore        RestoreLimits  `yaml:"restore"`
 	Compliance     Compliance     `yaml:"compliance"`
 	Update         Update         `yaml:"update"`
 	Security       Security       `yaml:"security"`
@@ -192,6 +194,14 @@ type Backup struct {
 	// "Backup Creation Flow" step 2 ("disk usage > disk_threshold (default
 	// 90%)").
 	DiskThreshold int `yaml:"disk_threshold"`
+}
+
+type RestoreLimits struct {
+	MaxArchiveSize  string `yaml:"max_archive_size"`
+	MaxExpandedSize string `yaml:"max_expanded_size"`
+	MaxFiles        int    `yaml:"max_files"`
+	MaxFileSize     string `yaml:"max_file_size"`
+	MaxRatio        int    `yaml:"max_ratio"`
 }
 
 // BackupEncryption holds `server.backup.encryption`, per AI.md PART 21
@@ -424,6 +434,7 @@ type OperatorPageContent struct {
 type LocalizedPageBody struct {
 	Plain  string
 	Values map[string]string
+	Order  []string
 	Has    bool
 }
 
@@ -431,6 +442,7 @@ func (body *LocalizedPageBody) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
 		body.Plain = node.Value
 		body.Values = nil
+		body.Order = nil
 		body.Has = true
 		return nil
 	}
@@ -438,16 +450,53 @@ func (body *LocalizedPageBody) UnmarshalYAML(node *yaml.Node) error {
 		return fmt.Errorf("page body must be a string or language map")
 	}
 	values := make(map[string]string, len(node.Content)/2)
+	order := make([]string, 0, len(node.Content)/2)
 	for index := 0; index+1 < len(node.Content); index += 2 {
 		key, value := node.Content[index], node.Content[index+1]
 		if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
 			return fmt.Errorf("page body language %q must be a string", key.Value)
 		}
 		values[key.Value] = value.Value
+		order = append(order, key.Value)
 	}
 	body.Values = values
+	body.Order = order
 	body.Has = true
 	return nil
+}
+
+func (body LocalizedPageBody) MarshalYAML() (any, error) {
+	if !body.Has {
+		return "", nil
+	}
+	if body.Values == nil {
+		return body.Plain, nil
+	}
+	keys := append([]string(nil), body.Order...)
+	seen := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		seen[key] = true
+	}
+	remaining := make([]string, 0, len(body.Values)-len(keys))
+	for key := range body.Values {
+		if !seen[key] {
+			remaining = append(remaining, key)
+		}
+	}
+	sort.Strings(remaining)
+	keys = append(keys, remaining...)
+	node := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	for _, key := range keys {
+		value, ok := body.Values[key]
+		if !ok {
+			continue
+		}
+		node.Content = append(node.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value},
+		)
+	}
+	return node, nil
 }
 
 func (body LocalizedPageBody) Resolve(language string) (string, bool) {
@@ -461,7 +510,17 @@ func (body LocalizedPageBody) Resolve(language string) (string, bool) {
 		return value, true
 	}
 	value, ok := body.Values["default"]
-	return value, ok
+	if ok {
+		return value, true
+	}
+	if len(body.Order) > 0 {
+		value, ok = body.Values[body.Order[0]]
+		return value, ok
+	}
+	for _, value := range body.Values {
+		return value, true
+	}
+	return "", false
 }
 
 // SEO holds `server.seo`, per AI.md PART 16.
@@ -713,8 +772,8 @@ type Pages struct {
 
 // PageContent is the Markdown source for server-rendered help content.
 type PageContent struct {
-	Content string `yaml:"content"`
-	MCP     string `yaml:"mcp"`
+	Content LocalizedPageBody `yaml:"content"`
+	MCP     string            `yaml:"mcp"`
 }
 
 // ContactPage holds `server.pages.contact`.
@@ -726,19 +785,23 @@ type ContactPage struct {
 	SuccessMessage   string `yaml:"success_message"`
 }
 
-// TLS holds `server.tls`, per AI.md PART 15 "Built-in Let's Encrypt
-// Support". DNSCredentials stores the flat lego environment-name map;
-// SealDNSCredentials encrypts every value before it is written to YAML.
+// TLS holds `server.ssl`, per AI.md PART 15 "Built-in Let's Encrypt Support".
 type TLS struct {
 	// Enabled turns on HTTPS/ACME certificate handling for the resolved
 	// FQDN. When false (default), the server is HTTP-only.
-	Enabled bool `yaml:"enabled"`
-	// DNSProvider selects a DNS-01 provider (e.g. "cloudflare", "route53")
-	// for certificate issuance when configured.
+	Enabled     bool           `yaml:"enabled"`
+	Cert        string         `yaml:"cert"`
+	Key         string         `yaml:"key"`
+	MinVersion  string         `yaml:"min_version"`
+	LetsEncrypt LetsEncryptTLS `yaml:"letsencrypt"`
+}
+
+// LetsEncryptTLS holds ACME DNS-01 provider configuration.
+type LetsEncryptTLS struct {
+	// DNSProvider is a lego provider name, such as cloudflare or route53.
 	DNSProvider string `yaml:"dns_provider"`
-	// DNSCredentials is the flat map of lego environment variable names to
-	// encrypted values, per AI.md PART 15 "DNS-01 credential contract".
-	DNSCredentials map[string]string `yaml:"dns_credentials"`
+	// DNSCredentials maps lego environment variable names to encrypted values.
+	DNSCredentials map[string]string `yaml:"dns_credentials,omitempty"`
 }
 
 // Database holds the `server.database` block.
@@ -946,7 +1009,8 @@ func Default(dbPath string) *Config {
 				TTL:      "1h",
 			},
 			TLS: TLS{
-				Enabled: false,
+				Enabled:    false,
+				MinVersion: "TLS1.2",
 			},
 			CORS: CORS{
 				AllowedOrigins:   []string{"*"},
@@ -1035,6 +1099,7 @@ func Default(dbPath string) *Config {
 				},
 				DiskThreshold: 90,
 			},
+			Restore:    RestoreLimits{MaxArchiveSize: "1G", MaxExpandedSize: "4G", MaxFiles: 10000, MaxFileSize: "512M", MaxRatio: 100},
 			Compliance: Compliance{Enabled: false},
 			// AI.md PART 22 "Update Configuration": stable channel,
 			// notify-only, no defer window.
@@ -1651,7 +1716,7 @@ func Save(path string, cfg *Config) (resultErr error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("config: create dir for %s: %w", path, err)
 	}
-	if cfg.Server.Token != "" || cfg.Server.Security.EncryptionKey != "" || cfg.Server.Database.Token != "" || cfg.Server.Metrics.Auth.Tokens.Prometheus != "" || cfg.Server.Metrics.Auth.Tokens.Grafana != "" || cfg.Server.Metrics.Auth.Tokens.Loki != "" || cfg.Data.CVE.APIKey != "" || hasWebhookCredentials(cfg) || hasPersistedWebhookCredentials(path) || ((!cfg.databaseURLEnv || cfg.databaseURLSeeded) && connectionHasCredentials(cfg.Server.Database.URL)) || ((!cfg.cacheURLEnv || cfg.cacheURLSeeded) && connectionHasCredentials(cfg.Server.Cache.URL)) {
+	if cfg.Server.Token != "" || cfg.Server.Security.EncryptionKey != "" || cfg.Server.Database.Token != "" || cfg.Server.Metrics.Auth.Tokens.Prometheus != "" || cfg.Server.Metrics.Auth.Tokens.Grafana != "" || cfg.Server.Metrics.Auth.Tokens.Loki != "" || cfg.Data.CVE.APIKey != "" || len(cfg.Server.TLS.LetsEncrypt.DNSCredentials) > 0 || hasWebhookCredentials(cfg) || hasPersistedWebhookCredentials(path) || ((!cfg.databaseURLEnv || cfg.databaseURLSeeded) && connectionHasCredentials(cfg.Server.Database.URL)) || ((!cfg.cacheURLEnv || cfg.cacheURLSeeded) && connectionHasCredentials(cfg.Server.Cache.URL)) {
 		if err := SaveSecrets(path, cfg); err != nil {
 			return err
 		}
@@ -1663,6 +1728,7 @@ func Save(path string, cfg *Config) (resultErr error) {
 	fileConfig.Server.Token = ""
 	fileConfig.Server.Security.EncryptionKey = ""
 	fileConfig.Server.Database.Token = ""
+	fileConfig.Server.TLS.LetsEncrypt.DNSCredentials = nil
 	fileConfig.Data.CVE.APIKey = ""
 	fileConfig.Server.Contact.Admin = configFileContactRecipient(fileConfig.Server.Contact.Admin)
 	fileConfig.Server.Contact.General = configFileContactRecipient(fileConfig.Server.Contact.General)
@@ -1854,6 +1920,26 @@ func SaveSecrets(configPath string, cfg *Config) error {
 		server["contact"] = contact
 	} else {
 		delete(server, "contact")
+	}
+	if credentials := cfg.Server.TLS.LetsEncrypt.DNSCredentials; len(credentials) > 0 {
+		ssl, _ := server["ssl"].(map[string]any)
+		if ssl == nil {
+			ssl = map[string]any{}
+		}
+		letsencrypt, _ := ssl["letsencrypt"].(map[string]any)
+		if letsencrypt == nil {
+			letsencrypt = map[string]any{}
+		}
+		stored, _ := letsencrypt["dns_credentials"].(map[string]any)
+		if stored == nil {
+			stored = map[string]any{}
+		}
+		for name, value := range credentials {
+			stored[name] = value
+		}
+		letsencrypt["dns_credentials"] = stored
+		ssl["letsencrypt"] = letsencrypt
+		server["ssl"] = ssl
 	}
 	metrics, _ := server["metrics"].(map[string]any)
 	if metrics == nil {

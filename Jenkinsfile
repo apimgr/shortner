@@ -60,7 +60,7 @@ pipeline {
                         // Release build (tag push) - matches release.yml
                         env.BUILD_TYPE = 'release'
                         env.VERSION = env.TAG_NAME.replaceFirst('^v', '')
-                    } else if (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'master') {
+                    } else if (env.BRANCH_NAME == 'main') {
                         // Devel build - matches devel.yml
                         // Devel identity is the commit being built, not a timestamp
                         env.BUILD_TYPE = 'devel'
@@ -92,7 +92,7 @@ pipeline {
                     steps {
                         sh '''
                             docker run --rm --no-healthcheck \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                                 -v ${GO_BUILD}:/usr/local/share/go/cache \
@@ -110,7 +110,7 @@ pipeline {
                     steps {
                         sh '''
                             docker run --rm --no-healthcheck \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                                 -v ${GO_BUILD}:/usr/local/share/go/cache \
@@ -129,7 +129,7 @@ pipeline {
                     steps {
                         sh '''
                             docker run --rm --no-healthcheck \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                                 -v ${GO_BUILD}:/usr/local/share/go/cache \
@@ -147,7 +147,7 @@ pipeline {
                     steps {
                         sh '''
                             docker run --rm --no-healthcheck \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                                 -v ${GO_BUILD}:/usr/local/share/go/cache \
@@ -166,7 +166,7 @@ pipeline {
                     steps {
                         sh '''
                             docker run --rm --no-healthcheck \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                                 -v ${GO_BUILD}:/usr/local/share/go/cache \
@@ -184,7 +184,7 @@ pipeline {
                     steps {
                         sh '''
                             docker run --rm --no-healthcheck \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                                 -v ${GO_BUILD}:/usr/local/share/go/cache \
@@ -203,7 +203,7 @@ pipeline {
                     steps {
                         sh '''
                             docker run --rm --no-healthcheck \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                                 -v ${GO_BUILD}:/usr/local/share/go/cache \
@@ -221,7 +221,7 @@ pipeline {
                     steps {
                         sh '''
                             docker run --rm --no-healthcheck \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                                 -v ${GO_BUILD}:/usr/local/share/go/cache \
@@ -248,7 +248,7 @@ pipeline {
                     steps {
                         sh '''
                             docker run --rm --no-healthcheck \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                                 -v ${GO_BUILD}:/usr/local/share/go/cache \
@@ -266,7 +266,7 @@ pipeline {
                     steps {
                         sh '''
                             docker run --rm --no-healthcheck \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                                 -v ${GO_BUILD}:/usr/local/share/go/cache \
@@ -284,7 +284,7 @@ pipeline {
                     steps {
                         sh '''
                             docker run --rm --no-healthcheck \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                                 -v ${GO_BUILD}:/usr/local/share/go/cache \
@@ -302,7 +302,7 @@ pipeline {
                     steps {
                         sh '''
                             docker run --rm --no-healthcheck \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                                 -v ${GO_BUILD}:/usr/local/share/go/cache \
@@ -320,7 +320,7 @@ pipeline {
                     steps {
                         sh '''
                             docker run --rm --no-healthcheck \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                                 -v ${GO_BUILD}:/usr/local/share/go/cache \
@@ -338,7 +338,7 @@ pipeline {
                     steps {
                         sh '''
                             docker run --rm --no-healthcheck \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                                 -v ${GO_BUILD}:/usr/local/share/go/cache \
@@ -356,7 +356,7 @@ pipeline {
                     steps {
                         sh '''
                             docker run --rm --no-healthcheck \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                                 -v ${GO_BUILD}:/usr/local/share/go/cache \
@@ -374,7 +374,7 @@ pipeline {
                     steps {
                         sh '''
                             docker run --rm --no-healthcheck \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                                 -v ${GO_BUILD}:/usr/local/share/go/cache \
@@ -398,7 +398,7 @@ pipeline {
                 sh '''
                     for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
                         os=${t%/*}; arch=${t#*/}; ext=""; [ "$os" = windows ] && ext=".exe"
-                        docker run --rm --no-healthcheck --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -v ${WORKSPACE}:/app -v ${GO_CACHE}:/usr/local/share/go/pkg/mod -v ${GO_BUILD}:/usr/local/share/go/cache -w /app -e CGO_ENABLED=0 -e GOOS=$os -e GOARCH=$arch casjaysdev/go:latest \
+                        docker run --rm --no-healthcheck --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v ${WORKSPACE}:/app -v ${GO_CACHE}:/usr/local/share/go/pkg/mod -v ${GO_BUILD}:/usr/local/share/go/cache -w /app -e CGO_ENABLED=0 -e GOOS=$os -e GOARCH=$arch casjaysdev/go:latest \
                             go build -buildvcs=false -trimpath -tags gui -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-gui-${os}-${arch}${ext} ./src/client
                     done
                 '''
@@ -411,7 +411,7 @@ pipeline {
                 sh '''
                     docker run --rm \
                         --no-healthcheck \
-                        --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                        --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                         -v ${WORKSPACE}:/app \
                         -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                         -v ${GO_BUILD}:/usr/local/share/go/cache \
@@ -429,8 +429,8 @@ pipeline {
                     mkdir -p "/tmp/${PROJECT_ORG}"
                     COVDIR=$(mktemp -d "/tmp/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX")
                     trap 'rm -rf -- "$COVDIR"' EXIT
-                    docker run --rm --no-healthcheck --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -v ${WORKSPACE}:/app -v ${COVDIR}:/cov -v ${GO_CACHE}:/usr/local/share/go/pkg/mod -v ${GO_BUILD}:/usr/local/share/go/cache -w /app casjaysdev/go:latest sh -c 'mkdir -p /cov/data && go test -v -cover ./... -args -test.gocoverdir=/cov/data && go tool covdata textfmt -i=/cov/data -o=/cov/coverage.out'
-                    PCT=$(docker run --rm --no-healthcheck --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -v ${WORKSPACE}:/app -v ${COVDIR}:/cov -w /app casjaysdev/go:latest go tool cover -func=/cov/coverage.out | awk '/^total:/ {gsub("%","",$3); print int($3)}')
+                    docker run --rm --no-healthcheck --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v ${WORKSPACE}:/app -v ${COVDIR}:/cov -v ${GO_CACHE}:/usr/local/share/go/pkg/mod -v ${GO_BUILD}:/usr/local/share/go/cache -w /app casjaysdev/go:latest sh -c 'mkdir -p /cov/data && go test -v -cover ./... -args -test.gocoverdir=/cov/data && go tool covdata textfmt -i=/cov/data -o=/cov/coverage.out'
+                    PCT=$(docker run --rm --no-healthcheck --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v ${WORKSPACE}:/app -v ${COVDIR}:/cov -w /app casjaysdev/go:latest go tool cover -func=/cov/coverage.out | awk '/^total:/ {gsub("%","",$3); print int($3)}')
                     rm -rf "$COVDIR"
                     [ "$PCT" -ge 60 ] || { echo "coverage ${PCT}% < 60%"; exit 1; }
                 '''
@@ -444,7 +444,7 @@ pipeline {
                     agent { label 'amd64' }
                     steps {
                         sh '''
-                            docker run --rm --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -v ${WORKSPACE}:/repo -w /repo trufflesecurity/trufflehog@sha256:9c7a8325d43a4af2960d3f21d61a08981d8a1bf0542e007efa2e47097e386452 \
+                            docker run --rm --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v ${WORKSPACE}:/repo -w /repo trufflesecurity/trufflehog@sha256:9c7a8325d43a4af2960d3f21d61a08981d8a1bf0542e007efa2e47097e386452 \
                                 git file://. --results=verified --exclude-paths=.github/trufflehog-exclude.txt --fail
                         '''
                     }
@@ -467,7 +467,7 @@ pipeline {
                         sh '''
                             docker run --rm \
                                 --no-healthcheck \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                                --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
                                 -v ${GO_BUILD}:/usr/local/share/go/cache \
@@ -483,7 +483,7 @@ pipeline {
                     steps {
                         sh '''
                             docker build -t local/scan-target:ci -f docker/Dockerfile .
-                            docker run --rm --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb \
+                            docker run --rm --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb \
                                 image --exit-code 1 --severity CRITICAL,HIGH local/scan-target:ci
                         '''
                     }
@@ -519,7 +519,7 @@ pipeline {
                 // SBOM tooling lives in the build image - never install it on the agent
                 sh '''
                     docker run --rm --no-healthcheck \
-                        --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                        --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                         -v ${WORKSPACE}:/app \
                         -w /app \
                         -e GOFLAGS=-buildvcs=false \
@@ -559,7 +559,7 @@ pipeline {
                 // SBOM tooling lives in the build image - never install it on the agent
                 sh '''
                     docker run --rm --no-healthcheck \
-                        --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                        --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                         -v ${WORKSPACE}:/app \
                         -w /app \
                         -e GOFLAGS=-buildvcs=false \
@@ -576,7 +576,7 @@ pipeline {
             }
         }
 
-        // Devel Release - matches devel.yml (main/master + scheduled)
+        // Devel Release - matches devel.yml (main + scheduled)
         stage('Release: Devel') {
             agent { label 'amd64' }
             when {
@@ -599,7 +599,7 @@ pipeline {
                 // SBOM tooling lives in the build image - never install it on the agent
                 sh '''
                     docker run --rm --no-healthcheck \
-                        --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+                        --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                         -v ${WORKSPACE}:/app \
                         -w /app \
                         -e GOFLAGS=-buildvcs=false \
@@ -694,18 +694,18 @@ pipeline {
             }
         }
 
-        // Docker Devel - matches docker.yml build-devel job (main/master push + daily cron, never the main Docker stage)
+        // Docker Devel - matches docker.yml build-devel job (main push + daily cron, never the main Docker stage)
         stage('Docker: Devel') {
             agent { label 'amd64' }
             when {
                 allOf {
-                    anyOf { branch 'main'; branch 'master' }
+                    branch 'main'
                     not { changeRequest() }
                 }
             }
             steps {
                 script {
-                    // Runs on every push to main/master (this pipeline's global cron trigger above
+                    // Runs on every push to main (this pipeline's global cron trigger above
                     // also fires it devel) and always builds Dockerfile.dev with a
                     // single static :devel tag - MODE=development is baked into
                     // Dockerfile.dev via ENV, no extra build-arg needed here.

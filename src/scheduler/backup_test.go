@@ -171,9 +171,9 @@ func TestBackupDailyTaskCreatesAndAudits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	// One dated full plus the always-replaced daily incremental.
-	if len(files) != 2 {
-		t.Fatalf("backup dir holds %d file(s), want 2", len(files))
+	// The first run has no full to use as a base, so only the full is written.
+	if len(files) != 1 {
+		t.Fatalf("backup dir holds %d file(s), want 1 on the first run", len(files))
 	}
 	var sawFull, sawDaily bool
 	for _, f := range files {
@@ -184,13 +184,37 @@ func TestBackupDailyTaskCreatesAndAudits(t *testing.T) {
 			sawDaily = true
 		}
 	}
-	if !sawFull || !sawDaily {
-		t.Errorf("kinds written = %+v, want a full and a daily incremental", files)
+	if !sawFull || sawDaily {
+		t.Errorf("kinds written = %+v, want only a full on the first run", files)
 	}
 
-	if !rec.has(backup.EventCreated) || !rec.has(backup.EventDailyUpdated) {
-		t.Errorf("audit events = %v, want backup.created and backup.daily_updated", rec.events())
+	if !rec.has(backup.EventCreated) || rec.has(backup.EventDailyUpdated) {
+		t.Errorf("audit events = %v, want backup.created without backup.daily_updated on first run", rec.events())
 	}
+
+	if err := backupDailyTask(Deps{Backup: deps})(context.Background()); err != nil {
+		t.Fatalf("second backup_daily: %v", err)
+	}
+	files, err = backup.List(deps.Dir, deps.Prefix)
+	if err != nil {
+		t.Fatalf("List after second run: %v", err)
+	}
+	for _, f := range files {
+		if f.Kind == backup.KindDaily {
+			manifest, err := backup.LoadManifest(f.Path, "")
+			if err != nil {
+				t.Fatalf("load daily manifest: %v", err)
+			}
+			if manifest.BaseBackup == "" {
+				t.Error("daily incremental has no base_backup")
+			}
+			if !rec.has(backup.EventDailyUpdated) {
+				t.Errorf("audit events = %v, want backup.daily_updated on second run", rec.events())
+			}
+			return
+		}
+	}
+	t.Fatal("second run did not create a daily incremental")
 }
 
 func TestBackupDailyTaskEncrypted(t *testing.T) {
@@ -283,25 +307,25 @@ func TestBackupHourlyTaskDiffsAgainstNewestFull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadManifest: %v", err)
 	}
-	if manifest.Kind != backup.KindHourly {
-		t.Errorf("Kind = %q, want %q", manifest.Kind, backup.KindHourly)
+	if manifest.Type != "incremental" {
+		t.Errorf("Type = %q, want incremental", manifest.Type)
 	}
 	// Recording the full backup in server.db changes the database after the
 	// full snapshot, so the incremental must carry the new database snapshot.
 	if manifest.BaseChecksum == "" {
 		t.Error("BaseChecksum is empty — the hourly was not diffed against the full")
 	}
-	if _, ok := manifest.Files["server.db"]; !ok {
+	if !manifest.HasFile("server.db") {
 		t.Errorf("Files = %v, want server.db because backup history changed", manifest.Files)
 	}
 }
 
-func TestNewestManifestTolerates(t *testing.T) {
+func TestNewestFullTolerates(t *testing.T) {
 	deps := newBackupDeps(t, nil)
 
 	// No backups at all.
-	if m := newestManifest(deps, nil); m != nil {
-		t.Errorf("newestManifest with no files = %+v, want nil", m)
+	if m, name := newestFull(deps, nil); m != nil || name != "" {
+		t.Errorf("newestFull with no files = (%+v,%q), want (nil, empty)", m, name)
 	}
 
 	// A file that is not a readable archive must not abort the run.
@@ -313,7 +337,7 @@ func TestNewestManifestTolerates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if m := newestManifest(deps, files); m != nil {
-		t.Errorf("newestManifest over an unreadable archive = %+v, want nil", m)
+	if m, name := newestFull(deps, files); m != nil || name != "" {
+		t.Errorf("newestFull over an unreadable archive = (%+v,%q), want (nil, empty)", m, name)
 	}
 }

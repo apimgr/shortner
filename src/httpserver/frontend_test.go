@@ -31,7 +31,7 @@ func testFrontendDeps(t *testing.T) (*frontendDeps, *linkDeps) {
 		t.Fatalf("open contact test store: %v", err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	fd := &frontendDeps{cfg: cfg, version: "test", buildDate: "2026-01-01", ld: ld, resolver: NewProxyResolver(nil), store: store, installSecret: "test-install-secret"}
+	fd := &frontendDeps{cfg: cfg, version: "test", buildDate: "2026-01-01", ld: ld, resolver: NewProxyResolver(nil), store: store, installSecret: "test-install-secret", secretKeys: security.NewSecretKeyring(make([]byte, 32), nil, make([]byte, 32), nil)}
 	fd.routeMatch = func(path string) (string, map[string]string, bool) {
 		if path == "/server/about" {
 			return "/server/about", nil, true

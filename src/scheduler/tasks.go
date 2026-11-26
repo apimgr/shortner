@@ -66,6 +66,7 @@ type Deps struct {
 	// "no SMTP = no email, ever" behaviour.
 	Notifier *notify.Notifier
 	Logger   *applog.Logger
+	MaintainSecrets func(context.Context) error
 	// Tor and I2P feed tor_health and i2p_health (AI.md PART 18, PART 31).
 	// Nil means that overlay network is not configured at all, in which
 	// case the task registers and honestly skips.
@@ -427,6 +428,11 @@ func cveUpdateTask(deps Deps) TaskFunc {
 
 func securityCleanupTask(deps Deps) TaskFunc {
 	return func(ctx context.Context) error {
+		if deps.MaintainSecrets != nil {
+			if err := deps.MaintainSecrets(ctx); err != nil {
+				return fmt.Errorf("security_cleanup: maintain project secrets: %w", err)
+			}
+		}
 		retentionDays := deps.SecurityReportRetentionDays
 		if retentionDays <= 0 {
 			retentionDays = 365
@@ -434,6 +440,10 @@ func securityCleanupTask(deps Deps) TaskFunc {
 		deleted, err := db.DeleteClosedSecurityReportsBefore(ctx, deps.DB, time.Now().UTC().AddDate(0, 0, -retentionDays))
 		if err != nil {
 			return err
+		}
+		retiredSecrets, err := db.CleanupExpiredPreviousSecrets(ctx, deps.DB)
+		if err != nil {
+			return fmt.Errorf("security_cleanup: retire previous secrets: %w", err)
 		}
 		rotationRemoved := false
 		if deps.PGPStore != nil {
@@ -447,8 +457,8 @@ func securityCleanupTask(deps Deps) TaskFunc {
 				return err
 			}
 		}
-		if deps.Logger != nil && (deleted > 0 || rotationRemoved) {
-			_ = deps.Logger.WriteLine(applog.LevelInfo, fmt.Sprintf("security_cleanup: deleted %d expired reports; retired PGP key removed=%t\n", deleted, rotationRemoved))
+		if deps.Logger != nil && (deleted > 0 || rotationRemoved || retiredSecrets > 0) {
+			_ = deps.Logger.WriteLine(applog.LevelInfo, fmt.Sprintf("security_cleanup: deleted %d expired reports; retired secrets=%d; retired PGP key removed=%t\n", deleted, retiredSecrets, rotationRemoved))
 		}
 		return nil
 	}

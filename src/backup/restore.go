@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/apimgr/shortner/src/db"
+	"gopkg.in/yaml.v3"
 )
 
 // Authorization is the outcome of AI.md PART 21 "Restore Authorization".
@@ -122,6 +123,7 @@ type RestoreOptions struct {
 	DataDir    string
 
 	AppVersion string
+	Limits     ArchiveLimits
 }
 
 // RestoreResult reports what a completed restore did.
@@ -144,7 +146,30 @@ type RestoreResult struct {
 // only the caller knows whether the operator confirmed or supplied a
 // valid token.
 func Restore(opts RestoreOptions) (result *RestoreResult, resultErr error) {
-	manifest, warnings, err := VerifyForRestore(opts.Path, opts.Password, opts.AppVersion)
+	limits := opts.Limits
+	if limits.MaxArchiveSize == 0 {
+		limits.MaxArchiveSize = 1 << 30
+	}
+	if limits.MaxExpandedSize == 0 {
+		limits.MaxExpandedSize = 4 << 30
+	}
+	if limits.MaxFiles == 0 {
+		limits.MaxFiles = 10000
+	}
+	if limits.MaxFileSize == 0 {
+		limits.MaxFileSize = 512 << 20
+	}
+	if limits.MaxRatio == 0 {
+		limits.MaxRatio = 100
+	}
+	info, statErr := os.Stat(opts.Path)
+	if statErr != nil {
+		return nil, statErr
+	}
+	if info.Size() > limits.MaxArchiveSize {
+		return nil, fmt.Errorf("backup: archive exceeds maximum size %d", limits.MaxArchiveSize)
+	}
+	manifest, warnings, err := VerifyForRestoreWithLimits(opts.Path, opts.Password, opts.AppVersion, limits)
 	if err != nil {
 		return nil, err
 	}
@@ -164,17 +189,75 @@ func Restore(opts RestoreOptions) (result *RestoreResult, resultErr error) {
 		}
 	}()
 
-	if _, _, err := extractArchive(raw, stage); err != nil {
+	usage := &expansionUsage{}
+	if manifest.Kind.Incremental() {
+		basePath := filepath.Join(filepath.Dir(opts.Path), filepath.Base(manifest.BaseBackup))
+		baseInfo, statErr := os.Stat(basePath)
+		if statErr != nil {
+			return nil, fmt.Errorf("backup: incremental base missing: %w", statErr)
+		}
+		if baseInfo.Size() > limits.MaxArchiveSize {
+			return nil, fmt.Errorf("backup: base archive exceeds maximum size %d", limits.MaxArchiveSize)
+		}
+		if err := verifyWithLimits(basePath, opts.Password, limits); err != nil {
+			return nil, fmt.Errorf("backup: invalid incremental base: %w", err)
+		}
+		baseRaw, err := readBackupPayload(basePath, opts.Password)
+		if err != nil {
+			return nil, err
+		}
+		if _, _, err := extractArchiveLimited(baseRaw, stage, limits, usage); err != nil {
+			return nil, err
+		}
+	}
+	if _, _, err := extractArchiveLimited(raw, stage, limits, usage); err != nil {
+		return nil, err
+	}
+	if err := rewriteExternalTLSPaths(stage, opts.ConfigDir); err != nil {
 		return nil, err
 	}
 
-	names := make([]string, 0, len(manifest.Files))
-	for name := range manifest.Files {
-		names = append(names, name)
+	var names []string
+	deletedSet := make(map[string]bool, len(manifest.Deleted))
+	for _, name := range manifest.Deleted {
+		deletedSet[name] = true
+	}
+	if err := filepath.WalkDir(stage, func(filePath string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || filepath.Clean(filePath) == filepath.Clean(stage) {
+			return nil
+		}
+		rel, err := filepath.Rel(stage, filePath)
+		if err != nil {
+			return err
+		}
+		name := filepath.ToSlash(rel)
+		if name != ManifestName && !deletedSet[name] {
+			names = append(names, name)
+		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("backup: enumerate staged restore: %w", err)
 	}
 	sort.Strings(names)
 
 	var restored []string
+	deleted := append([]string(nil), manifest.Deleted...)
+	sort.Strings(deleted)
+	for _, name := range deleted {
+		dest, err := opts.destinationFor(name)
+		if err != nil {
+			return nil, err
+		}
+		if dest == "" {
+			continue
+		}
+		if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("backup: delete restored path %s: %w", name, err)
+		}
+	}
 	for _, name := range names {
 		dest, err := opts.destinationFor(name)
 		if err != nil {
@@ -183,13 +266,72 @@ func Restore(opts RestoreOptions) (result *RestoreResult, resultErr error) {
 		if dest == "" {
 			continue
 		}
-		if err := placeFile(filepath.Join(stage, filepath.FromSlash(name)), dest); err != nil {
+		mode := os.FileMode(0)
+		if strings.HasPrefix(name, "ssl-external/key/") {
+			mode = 0o600
+		}
+		if err := placeFile(filepath.Join(stage, filepath.FromSlash(name)), dest, mode); err != nil {
 			return nil, err
 		}
 		restored = append(restored, name)
 	}
 
 	return &RestoreResult{Manifest: *manifest, Warnings: warnings, Restored: restored}, nil
+}
+
+func rewriteExternalTLSPaths(stage, configDir string) error {
+	if configDir == "" {
+		return nil
+	}
+	serverPath := filepath.Join(stage, "server.yml")
+	data, err := os.ReadFile(serverPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return fmt.Errorf("backup: parse restored server.yml: %w", err)
+	}
+	if len(root.Content) == 0 {
+		return nil
+	}
+	server := yamlMapValue(root.Content[0], "server")
+	ssl := yamlMapValue(server, "ssl")
+	changed := false
+	for _, field := range []string{"cert", "key"} {
+		node := yamlMapValue(ssl, field)
+		if node == nil || node.Kind != yaml.ScalarNode || strings.TrimSpace(node.Value) == "" {
+			continue
+		}
+		archiveName := path.Join("ssl-external", field, filepath.Base(node.Value))
+		if _, err := os.Stat(filepath.Join(stage, filepath.FromSlash(archiveName))); err == nil {
+			node.Value = filepath.Join(configDir, "ssl", field, filepath.Base(node.Value))
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	var output strings.Builder
+	if err := yaml.NewEncoder(&output).Encode(&root); err != nil {
+		return err
+	}
+	return os.WriteFile(serverPath, []byte(output.String()), 0o600)
+}
+
+func yamlMapValue(node *yaml.Node, key string) *yaml.Node {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
+	}
+	return nil
 }
 
 // destinationFor maps an archive-relative name back to the live path it
@@ -204,6 +346,11 @@ func (o RestoreOptions) destinationFor(name string) (string, error) {
 	switch clean {
 	case "server.yml":
 		return o.ConfigFile, nil
+	case "secrets.yml":
+		if o.ConfigDir == "" {
+			return "", nil
+		}
+		return filepath.Join(o.ConfigDir, "secrets.yml"), nil
 	case "server.db":
 		return o.DBPath, nil
 	}
@@ -215,9 +362,12 @@ func (o RestoreOptions) destinationFor(name string) (string, error) {
 	rel := filepath.FromSlash(path.Clean(rest))
 
 	switch top {
-	case "template", "theme", "ssl":
+	case "template", "theme", "ssl", "ssl-external", "yaml.d", "html", "assets":
 		if o.ConfigDir == "" {
 			return "", nil
+		}
+		if top == "ssl-external" {
+			return filepath.Join(o.ConfigDir, "ssl", rel), nil
 		}
 		return filepath.Join(o.ConfigDir, top, rel), nil
 	case "data":
@@ -232,7 +382,7 @@ func (o RestoreOptions) destinationFor(name string) (string, error) {
 
 // placeFile moves src over dest atomically, preserving src's permissions
 // and creating dest's parent directories.
-func placeFile(src, dest string) (resultErr error) {
+func placeFile(src, dest string, requiredMode os.FileMode) (resultErr error) {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
 		return fmt.Errorf("backup: create dir for %s: %w", dest, err)
 	}
@@ -268,7 +418,11 @@ func placeFile(src, dest string) (resultErr error) {
 		}
 	}()
 
-	if err := tmp.Chmod(info.Mode().Perm()); err != nil {
+	mode := info.Mode().Perm()
+	if requiredMode != 0 {
+		mode = requiredMode
+	}
+	if err := tmp.Chmod(mode); err != nil {
 		return fmt.Errorf("backup: chmod %s: %w", tmpName, err)
 	}
 	if _, err := io.Copy(tmp, in); err != nil {

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -195,6 +196,89 @@ func TestRestoreEncrypted(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(env.configFile); string(got) != "server:\n  port: 8080\n" {
 		t.Errorf("config = %q, want the backed-up contents", got)
+	}
+}
+
+func TestRestoreIncrementalAppliesChangesAndDeletions(t *testing.T) {
+	env := newTestEnv(t)
+	fullOpts := env.options()
+	fullOpts.IncludeData = true
+	full, err := Create(fullOpts)
+	if err != nil {
+		t.Fatalf("Create full: %v", err)
+	}
+	writeFile(t, filepath.Join(env.configDir, "theme", "dark.css"), "changed\n")
+	if err := os.Remove(filepath.Join(env.dataDir, "notes.txt")); err != nil {
+		t.Fatal(err)
+	}
+	incOpts := env.options()
+	incOpts.Kind, incOpts.Base, incOpts.BaseName, incOpts.IncludeData = KindDaily, &full.Manifest, full.Name, true
+	inc, err := Create(incOpts)
+	if err != nil {
+		t.Fatalf("Create incremental: %v", err)
+	}
+	writeFile(t, env.configFile, "overwritten\n")
+	if err := os.MkdirAll(env.dataDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(env.dataDir, "notes.txt"), "stale\n")
+
+	if _, err := Restore(RestoreOptions{Path: inc.Path, ConfigFile: env.configFile, DBPath: env.dbPath, ConfigDir: env.configDir, DataDir: env.dataDir}); err != nil {
+		t.Fatalf("Restore incremental: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(env.configDir, "theme", "dark.css"))
+	if err != nil || string(got) != "changed\n" {
+		t.Errorf("restored theme = %q, %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(env.dataDir, "notes.txt")); !os.IsNotExist(err) {
+		t.Errorf("deleted path still exists: %v", err)
+	}
+}
+
+func TestRestoreExternalTLSFilesAndRewritesPaths(t *testing.T) {
+	env := newTestEnv(t)
+	cert := filepath.Join(env.root, "provided", "cert.pem")
+	key := filepath.Join(env.root, "provided", "private.pem")
+	writeFile(t, cert, "certificate bytes\n")
+	writeFile(t, key, "private key bytes\n")
+	writeFile(t, env.configFile, "server:\n  ssl:\n    cert: "+cert+"\n    key: "+key+"\n")
+	opts := env.options()
+	res, err := Create(opts)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := os.Remove(cert); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(key); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Restore(RestoreOptions{Path: res.Path, ConfigFile: env.configFile, DBPath: env.dbPath, ConfigDir: env.configDir, DataDir: env.dataDir}); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	restoredCert := filepath.Join(env.configDir, "ssl", "cert", "cert.pem")
+	restoredKey := filepath.Join(env.configDir, "ssl", "key", "private.pem")
+	if got, err := os.ReadFile(restoredCert); err != nil || string(got) != "certificate bytes\n" {
+		t.Fatalf("restored certificate = %q, %v", got, err)
+	}
+	if got, err := os.ReadFile(restoredKey); err != nil || string(got) != "private key bytes\n" {
+		t.Fatalf("restored key = %q, %v", got, err)
+	}
+	info, err := os.Stat(restoredKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("restored key mode = %v, want 0600", info.Mode().Perm())
+	}
+	configData, err := os.ReadFile(env.configFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{restoredCert, restoredKey} {
+		if !strings.Contains(string(configData), path) {
+			t.Errorf("restored config does not reference %s: %s", path, configData)
+		}
 	}
 }
 

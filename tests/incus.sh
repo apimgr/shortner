@@ -68,7 +68,7 @@ incus launch "$incus_test_image" "$container_name" >/dev/null
 # touching apt — a freshly launched container is not immediately usable.
 booted=0
 for _ in $(seq 1 60); do
-  if __csh 'systemctl is-system-running --wait >/dev/null 2>&1 || systemctl is-system-running 2>/dev/null | grep -qE -- "running|degraded"' >/dev/null 2>&1; then
+  if __csh 'systemctl is-system-running --wait >/dev/null 2>&1 || systemctl is-system-running 2>/dev/null | grep -E -- "running|degraded" >/dev/null' >/dev/null 2>&1; then
     booted=1
     break
   fi

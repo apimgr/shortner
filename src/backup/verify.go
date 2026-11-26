@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/apimgr/shortner/src/db"
@@ -57,6 +58,10 @@ func failed(path string, check Check, err error) error {
 // check, because PART 21 demands "backups must be 100% working" rather
 // than merely well-formed.
 func Verify(path, password string) (resultErr error) {
+	return verifyWithLimits(path, password, ArchiveLimits{})
+}
+
+func verifyWithLimits(path, password string, limits ArchiveLimits) (resultErr error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return failed(path, CheckFileExists, err)
@@ -64,13 +69,22 @@ func Verify(path, password string) (resultErr error) {
 	if info.Size() == 0 {
 		return failed(path, CheckSizeNonZero, errors.New("backup file is empty"))
 	}
+	if limits.MaxArchiveSize > 0 && info.Size() > limits.MaxArchiveSize {
+		return failed(path, CheckSizeNonZero, fmt.Errorf("archive exceeds maximum size %d", limits.MaxArchiveSize))
+	}
 
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return failed(path, CheckFileExists, err)
 	}
 
+	var encryptionHeader *EncryptionHeader
 	if IsEncryptedName(path) {
+		header, headerErr := ParseEncryptionHeader(raw)
+		if headerErr != nil {
+			return failed(path, CheckFormat, headerErr)
+		}
+		encryptionHeader = &header
 		raw, err = Decrypt(raw, password)
 		if err != nil {
 			return failed(path, CheckDecrypt, err)
@@ -87,7 +101,7 @@ func Verify(path, password string) (resultErr error) {
 		}
 	}()
 
-	manifest, digests, err := extractArchive(raw, tmpDir)
+	manifest, digests, err := extractArchiveLimited(raw, tmpDir, limits, &expansionUsage{})
 	if err != nil {
 		check := CheckExtraction
 		if errors.Is(err, errUnsafeEntry) || errors.Is(err, errInvalidFormat) {
@@ -98,17 +112,45 @@ func Verify(path, password string) (resultErr error) {
 	if manifest.Version == "" {
 		return failed(path, CheckManifest, errors.New("manifest has no version"))
 	}
+	if encryptionHeader != nil && encryptionHeader.BaseName != manifest.BaseBackup {
+		return failed(path, CheckManifest, errors.New("encrypted header base filename does not match manifest"))
+	}
 
 	if got := checksumOf(digests); got != manifest.Checksum {
 		return failed(path, CheckChecksum, fmt.Errorf("extracted contents hash to %s, manifest says %s", got, manifest.Checksum))
 	}
-	for name, want := range manifest.Files {
+	for _, file := range manifest.Files {
+		name, want := file.Path, file.SHA256
 		got, ok := digests[name]
 		if !ok {
 			return failed(path, CheckExtraction, fmt.Errorf("manifest lists %s but the archive does not contain it", name))
 		}
-		if got != want {
+		if strings.TrimPrefix(got, "sha256:") != strings.TrimPrefix(want, "sha256:") {
 			return failed(path, CheckChecksum, fmt.Errorf("%s hashes to %s, manifest says %s", name, got, want))
+		}
+	}
+	if manifest.Kind.Incremental() {
+		if manifest.BaseBackup == "" || manifest.BaseSHA256 == "" {
+			return failed(path, CheckManifest, errors.New("incremental manifest is missing its base"))
+		}
+		if filepath.Base(manifest.BaseBackup) != manifest.BaseBackup || strings.ContainsAny(manifest.BaseBackup, `/\\`) {
+			return failed(path, CheckManifest, errors.New("incremental base must be a filename in the backup directory"))
+		}
+		basePath := filepath.Join(filepath.Dir(path), manifest.BaseBackup)
+		baseInfo, statErr := os.Stat(basePath)
+		if statErr != nil {
+			return failed(path, CheckManifest, fmt.Errorf("incremental base %s: %w", manifest.BaseBackup, statErr))
+		}
+		if limits.MaxArchiveSize > 0 && baseInfo.Size() > limits.MaxArchiveSize {
+			return failed(path, CheckSizeNonZero, fmt.Errorf("incremental base exceeds maximum archive size %d", limits.MaxArchiveSize))
+		}
+		base, baseErr := LoadManifest(basePath, password)
+		if baseErr != nil {
+			return failed(path, CheckManifest, fmt.Errorf("incremental base %s: %w", manifest.BaseBackup, baseErr))
+		}
+		baseSHA := strings.TrimPrefix(base.SHA256, "sha256:")
+		if baseSHA != strings.TrimPrefix(manifest.BaseSHA256, "sha256:") {
+			return failed(path, CheckChecksum, errors.New("incremental base checksum mismatch"))
 		}
 	}
 
@@ -159,7 +201,11 @@ func checkSQLiteIntegrity(dbFile string) (resultErr error) {
 // warnings. A version mismatch is a warning, never a failure: PART 21
 // "Version mismatch | Warning shown, schema updates applied if needed".
 func VerifyForRestore(path, password, appVersion string) (*Manifest, []string, error) {
-	if err := Verify(path, password); err != nil {
+	return VerifyForRestoreWithLimits(path, password, appVersion, ArchiveLimits{})
+}
+
+func VerifyForRestoreWithLimits(path, password, appVersion string, limits ArchiveLimits) (*Manifest, []string, error) {
+	if err := verifyWithLimits(path, password, limits); err != nil {
 		return nil, nil, err
 	}
 	manifest, err := LoadManifest(path, password)

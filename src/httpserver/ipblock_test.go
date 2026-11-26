@@ -85,7 +85,7 @@ func TestBlocklistMiddlewareRejectsDownloadedIPAndDomain(t *testing.T) {
 // IPs and carries its configured reason.
 func TestBlockStorePermanentBlock(t *testing.T) {
 	s := NewBlockStore([]config.BlockedIPEntry{
-		{CIDR: "203.0.113.0/24", Reason: "known spammer"},
+		{CIDR: "203.0.113.0/24", Description: "known spammer"},
 	}, nil)
 
 	block, blocked := s.Blocked("203.0.113.5", time.Now())

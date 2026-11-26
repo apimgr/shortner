@@ -74,8 +74,8 @@ type AllowlistEntry struct {
 
 // BlockedIPEntry is one permanently blocked IP/CIDR.
 type BlockedIPEntry struct {
-	CIDR   string `yaml:"cidr" json:"cidr"`
-	Reason string `yaml:"reason" json:"reason"`
+	CIDR        string `yaml:"cidr" json:"cidr"`
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 }
 
 // AbuseDetection holds `server.security.abuse_detection`, per AI.md

@@ -303,8 +303,12 @@ func runBackupRestore(binaryName string, p paths.Paths, file string) int {
 		DataDir:    p.Data,
 		AppVersion: version.String(),
 	}
+	maxArchive, _ := config.ParseSize(env.cfg.Server.Restore.MaxArchiveSize, 1<<30)
+	maxExpanded, _ := config.ParseSize(env.cfg.Server.Restore.MaxExpandedSize, 4<<30)
+	maxFile, _ := config.ParseSize(env.cfg.Server.Restore.MaxFileSize, 512<<20)
+	options.Limits = backup.ArchiveLimits{MaxArchiveSize: maxArchive, MaxExpandedSize: maxExpanded, MaxFiles: env.cfg.Server.Restore.MaxFiles, MaxFileSize: maxFile, MaxRatio: env.cfg.Server.Restore.MaxRatio}
 	fmt.Print("Verifying backup integrity... ")
-	if _, _, err := backup.VerifyForRestore(options.Path, options.Password, options.AppVersion); err != nil {
+	if _, _, err := backup.VerifyForRestoreWithLimits(options.Path, options.Password, options.AppVersion, options.Limits); err != nil {
 		fmt.Println("FAILED")
 		backup.AuditFailure(env.audit, filepath.Base(path), err)
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())

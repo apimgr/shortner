@@ -20,6 +20,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -78,7 +79,8 @@ type Options struct {
 	// Base is the full backup an incremental diffs against. Nil produces a
 	// self-contained incremental (every file included), which is what the
 	// very first run must do.
-	Base *Manifest
+	Base     *Manifest
+	BaseName string
 }
 
 // Result describes a created, verified backup.
@@ -139,29 +141,74 @@ func Create(opts Options) (result *Result, resultErr error) {
 		return nil, err
 	}
 	if opts.Kind.Incremental() && opts.Base != nil {
-		files = changedSince(files, opts.Base.Files)
+		baseFiles := make(map[string]FileEntry, len(opts.Base.Files))
+		for _, entry := range opts.Base.Files { baseFiles[entry.Path] = entry }
+		files = changedSince(files, baseFiles)
 	}
 
 	included := filesMap(files)
+	manifestSHA := checksumOf(included)
+	typeName := "full"
+	if opts.Kind.Incremental() {
+		typeName = "incremental"
+	}
 	manifest := Manifest{
-		Version:    ManifestVersion,
-		CreatedAt:  opts.Now,
-		CreatedBy:  opts.CreatedBy,
-		AppVersion: opts.AppVersion,
-		Contents:   contentsOf(files),
-		Encrypted:  opts.Encrypt,
-		Checksum:   checksumOf(included),
-		Kind:       opts.Kind,
-		Files:      included,
+		Version:     ManifestVersion,
+		CreatedAt:   opts.Now,
+		SnapshotAt:  opts.Now,
+		CreatedBy:   opts.CreatedBy,
+		AppVersion:  opts.AppVersion,
+		Contents:    contentsOf(files),
+		Encrypted:   opts.Encrypt,
+		Checksum:    manifestSHA,
+		SHA256:      strings.TrimPrefix(manifestSHA, "sha256:"),
+		Type:        typeName,
+		Kind:        opts.Kind,
+		Files:       fileEntries(files),
+		FileDigests: included,
 	}
 	if opts.Encrypt {
 		manifest.EncryptionMethod = EncryptionMethod
 	}
 	if opts.Kind.Incremental() && opts.Base != nil {
 		manifest.BaseChecksum = opts.Base.Checksum
+		if manifest.BaseChecksum == "" {
+			manifest.BaseChecksum = "sha256:" + strings.TrimPrefix(opts.Base.SHA256, "sha256:")
+		}
+		manifest.BaseSHA256 = strings.TrimPrefix(opts.Base.SHA256, "sha256:")
+		manifest.BaseBackup = opts.BaseName
+		for name := range opts.Base.FileDigests {
+			if _, present := included[name]; !present {
+				manifest.Deleted = append(manifest.Deleted, name)
+			}
+		}
+		sort.Strings(manifest.Deleted)
 	}
 
 	target := opts.targetPath()
+	if opts.Name == "" && !opts.Kind.Incremental() {
+		if _, statErr := os.Stat(target); statErr == nil {
+			stamp := opts.Now
+			for {
+				opts.Name = FileName(opts.Prefix, KindManual, stamp, opts.Encrypt)
+				target = opts.targetPath()
+				if _, statErr := os.Stat(target); errors.Is(statErr, os.ErrNotExist) {
+					break
+				} else if statErr != nil {
+					return nil, fmt.Errorf("backup: check destination %s: %w", target, statErr)
+				}
+				stamp = stamp.Add(time.Second)
+			}
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return nil, fmt.Errorf("backup: check destination %s: %w", target, statErr)
+		}
+	} else if _, statErr := os.Stat(target); statErr == nil {
+		if !opts.Kind.Incremental() {
+			return nil, fmt.Errorf("backup: destination already exists: %s", target)
+		}
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return nil, fmt.Errorf("backup: check destination %s: %w", target, statErr)
+	}
 	succeeded := false
 	defer func() {
 		if !succeeded {
@@ -313,10 +360,11 @@ func NormalizeName(name string, encrypted bool) string {
 // changedSince returns the subset of files whose content digest differs
 // from (or is absent from) base — the "changes since full" an incremental
 // carries, per AI.md PART 21 "Backup Files Created".
-func changedSince(files []sourceFile, base map[string]string) []sourceFile {
+func changedSince(files []sourceFile, base map[string]FileEntry) []sourceFile {
 	var changed []sourceFile
 	for _, f := range files {
-		if base[f.Name] != f.Digest {
+		entry, exists := base[f.Name]
+		if !exists || entry.Size != f.Size || entry.MTime != f.ModTime.Unix() || strings.TrimPrefix(entry.SHA256, "sha256:") != strings.TrimPrefix(f.Digest, "sha256:") {
 			changed = append(changed, f)
 		}
 	}
@@ -358,7 +406,7 @@ func writeBackupFile(target string, manifest Manifest, files []sourceFile, opts 
 		if err := writeArchive(&buf, manifest, files); err != nil {
 			return err
 		}
-		sealed, err := Encrypt(buf.Bytes(), opts.Password)
+		sealed, err := Encrypt(buf.Bytes(), opts.Password, opts.BaseName)
 		buf.Reset()
 		if err != nil {
 			return err

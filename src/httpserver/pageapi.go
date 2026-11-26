@@ -19,7 +19,8 @@ func (fd *frontendDeps) pageContentAPIHandler(page string) http.HandlerFunc {
 			title = t(r, "about.title")
 			content, format, _ = fd.operatorContentSource(r, "about")
 		case "help":
-			title, content = t(r, "help.title"), fd.cfg.Server.Pages.Help.Content
+			title = t(r, "help.title")
+			content, _ = fd.cfg.Server.Pages.Help.Content.Resolve(langFromContext(r))
 		case "terms":
 			title = t(r, "terms.title")
 			var configured bool

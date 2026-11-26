@@ -279,7 +279,7 @@ test:
     - rm -rf -- "$COVDIR"
   rules:
     - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
-    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"
+    - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_TAG =~ /-beta$/
 
 # =============================================================================
@@ -421,7 +421,7 @@ build:beta:
     - if: $CI_COMMIT_TAG =~ /-beta$/
 
 # =============================================================================
-# DEVEL BUILDS (Scheduled + main/master push) - All 8 platforms
+# DEVEL BUILDS (Scheduled + main push) - All 8 platforms
 # =============================================================================
 
 build:devel:
@@ -471,7 +471,7 @@ build:devel:
     expire_in: 1 day
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
-    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"
+    - if: $CI_COMMIT_BRANCH == "main"
       when: manual
       allow_failure: true
 
@@ -529,7 +529,7 @@ sbom:devel:
     expire_in: 1 day
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
-    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"
+    - if: $CI_COMMIT_BRANCH == "main"
       when: manual
       allow_failure: true
 
@@ -665,7 +665,7 @@ release:devel:
           url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_SHA}/raw/sha512.txt?job=release:devel"
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
-    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"
+    - if: $CI_COMMIT_BRANCH == "main"
       when: manual
       allow_failure: true
 
@@ -740,14 +740,14 @@ docker:build:
         .
   rules:
     - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
-    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"
+    - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_TAG =~ /-beta$/
 
 # =============================================================================
-# DEVEL IMAGE BUILD (own job — push to main/master + daily schedule)
+# DEVEL IMAGE BUILD (own job — push to main + daily schedule)
 # =============================================================================
 # :devel is never built by docker:build above — Dockerfile.dev is built here,
-# on every push to main/master and once daily via a scheduled pipeline on main, so a
+# on every push to main and once daily via a scheduled pipeline on main, so a
 # broken Dockerfile.dev can never block the release docker:build job. MODE=development
 # is baked into Dockerfile.dev via ENV — no extra build-arg needed here.
 
@@ -803,4 +803,4 @@ docker:devel:
   rules:
     - if: $CI_COMMIT_TAG
       when: never
-    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"
+    - if: $CI_COMMIT_BRANCH == "main"

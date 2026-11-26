@@ -1,8 +1,13 @@
 package httpserver
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -15,6 +20,7 @@ import (
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/db"
+	"github.com/apimgr/shortner/src/security"
 )
 
 const (
@@ -54,8 +60,9 @@ func (fd *frontendDeps) tokenPageHandler(w http.ResponseWriter, r *http.Request)
 	owner, primary, ok := fd.webPrimaryOwner(w, r)
 	data := tokenPageData{Base: fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "token_page.title"), fd.cfg.Server.Branding.Description), Restore: !ok, ResourceLabel: "items"}
 	view, cookieErr := r.Cookie(tokenViewCookieName)
-	hasView := cookieErr == nil
-	if hasView {
+	viewCard := ""
+	if cookieErr == nil {
+		viewCard = verifyTokenViewCookie(fd.secretKeys, view.Value)
 		clearTokenViewCookie(w)
 	}
 	if ok {
@@ -75,12 +82,12 @@ func (fd *frontendDeps) tokenPageHandler(w http.ResponseWriter, r *http.Request)
 				data.Linked = append(data.Linked, tokenCardFor(&item, "", fd.ld.tokenKey))
 			}
 		}
-		if hasView {
-			if view.Value == "primary" {
+		if viewCard != "" {
+			if viewCard == "primary" {
 				if raw, err := db.RevealToken(primary, fd.ld.tokenKey); err == nil {
 					data.Primary.Revealed = raw
 				}
-			} else if id, err := strconv.ParseInt(view.Value, 10, 64); err == nil && id > 0 {
+			} else if id, err := strconv.ParseInt(viewCard, 10, 64); err == nil && id > 0 {
 				if token, err := db.GetTokenByID(r.Context(), fd.ld.sqlDB, id); err == nil && token.OwnerID == owner.ID && token.Kind == "linked" {
 					if raw, err := db.RevealToken(token, fd.ld.tokenKey); err == nil {
 						for i := range data.Linked {
@@ -133,7 +140,7 @@ func (fd *frontendDeps) tokenIssueHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 	setOwnerTokenCookie(w, r, fd.cfg, fd.resolver, raw)
-	setTokenViewCookie(w, "primary")
+	setTokenViewCookie(w, fd.secretKeys, "primary")
 	fd.auditToken(r, "token.created", ownerID, token.TokenPrefix, applog.ResultSuccess, "issue")
 	fd.tokenRedirect(w, r, "/server/preferences/tokens#primary")
 }
@@ -175,7 +182,7 @@ func (fd *frontendDeps) tokenPrimaryRevealHandler(w http.ResponseWriter, r *http
 		return
 	}
 	fd.auditToken(r, "token.revealed", owner.ID, tok.TokenPrefix, applog.ResultSuccess)
-	setTokenViewCookie(w, "primary")
+	setTokenViewCookie(w, fd.secretKeys, "primary")
 	fd.tokenRedirect(w, r, "/server/preferences/tokens#primary")
 }
 
@@ -194,9 +201,13 @@ func (fd *frontendDeps) tokenPrimaryRotateHandler(w http.ResponseWriter, r *http
 		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
 		return
 	}
+	if err := fd.refreshProjectSecretKeys(r); err != nil {
+		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
+		return
+	}
 	setOwnerTokenCookie(w, r, fd.cfg, fd.resolver, raw)
 	fd.auditToken(r, "token.rotated", owner.ID, next.TokenPrefix, applog.ResultSuccess)
-	setTokenViewCookie(w, "primary")
+	setTokenViewCookie(w, fd.secretKeys, "primary")
 	fd.tokenRedirect(w, r, "/server/preferences/tokens#primary")
 }
 
@@ -226,7 +237,7 @@ func (fd *frontendDeps) tokenCreateHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	fd.auditToken(r, "token.created", owner.ID, tok.TokenPrefix, applog.ResultSuccess)
-	setTokenViewCookie(w, strconv.FormatInt(tok.ID, 10))
+	setTokenViewCookie(w, fd.secretKeys, strconv.FormatInt(tok.ID, 10))
 	fd.tokenRedirect(w, r, "/server/preferences/tokens#token-"+strconv.FormatInt(tok.ID, 10))
 }
 
@@ -248,7 +259,7 @@ func (fd *frontendDeps) tokenLinkedRevealHandler(w http.ResponseWriter, r *http.
 		return
 	}
 	fd.auditToken(r, "token.revealed", owner.ID, tok.TokenPrefix, applog.ResultSuccess)
-	setTokenViewCookie(w, strconv.FormatInt(id, 10))
+	setTokenViewCookie(w, fd.secretKeys, strconv.FormatInt(id, 10))
 	fd.tokenRedirect(w, r, "/server/preferences/tokens#token-"+strconv.FormatInt(id, 10))
 }
 
@@ -268,8 +279,12 @@ func (fd *frontendDeps) tokenLinkedRotateHandler(w http.ResponseWriter, r *http.
 		sendError(w, r, apperr.New(apperr.CodeNotFound))
 		return
 	}
+	if err := fd.refreshProjectSecretKeys(r); err != nil {
+		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
+		return
+	}
 	fd.auditToken(r, "token.rotated", owner.ID, tok.TokenPrefix, applog.ResultSuccess)
-	setTokenViewCookie(w, strconv.FormatInt(id, 10))
+	setTokenViewCookie(w, fd.secretKeys, strconv.FormatInt(id, 10))
 	fd.tokenRedirect(w, r, "/server/preferences/tokens#token-"+strconv.FormatInt(id, 10))
 }
 
@@ -460,6 +475,10 @@ func (fd *frontendDeps) tokenAPIActionHandler(w http.ResponseWriter, r *http.Req
 			sendError(w, r, apperr.New(apperr.CodeNotFound))
 			return
 		}
+		if err := fd.refreshProjectSecretKeys(r); err != nil {
+			sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
+			return
+		}
 		fd.auditToken(r, "token.rotated", owner.ID, next.TokenPrefix, applog.ResultSuccess)
 		w.Header().Set("Cache-Control", "no-store")
 		apperr.SendOK(w, map[string]string{"token": raw})
@@ -624,12 +643,82 @@ func clearLegacyOwnerTokenCookie(w http.ResponseWriter) {
 	w.Header().Add("Set-Cookie", (&http.Cookie{Name: legacyOwnerTokenCookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode}).String())
 }
 
-func setTokenViewCookie(w http.ResponseWriter, card string) {
-	w.Header().Add("Set-Cookie", (&http.Cookie{Name: tokenViewCookieName, Value: card, Path: "/server/preferences/tokens", MaxAge: 60, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode}).String())
+func setTokenViewCookie(w http.ResponseWriter, keys *security.SecretKeyring, card string) {
+	current, _ := keys.CookieKeys()
+	if len(current) == 0 {
+		return
+	}
+	mac := hmac.New(sha256.New, current)
+	_, _ = mac.Write([]byte(card))
+	value := card + "." + hex.EncodeToString(mac.Sum(nil))
+	w.Header().Add("Set-Cookie", (&http.Cookie{Name: tokenViewCookieName, Value: value, Path: "/server/preferences/tokens", MaxAge: 60, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode}).String())
+}
+
+func verifyTokenViewCookie(keys *security.SecretKeyring, value string) string {
+	index := strings.LastIndexByte(value, '.')
+	if index <= 0 {
+		return ""
+	}
+	provided, err := hex.DecodeString(value[index+1:])
+	if err != nil || len(provided) != sha256.Size {
+		return ""
+	}
+	card := value[:index]
+	current, previous := keys.CookieKeys()
+	for _, key := range [][]byte{current, previous} {
+		if len(key) == 0 {
+			continue
+		}
+		mac := hmac.New(sha256.New, key)
+		_, _ = mac.Write([]byte(card))
+		if subtle.ConstantTimeCompare(provided, mac.Sum(nil)) == 1 {
+			return card
+		}
+	}
+	return ""
 }
 
 func clearTokenViewCookie(w http.ResponseWriter) {
 	w.Header().Add("Set-Cookie", (&http.Cookie{Name: tokenViewCookieName, Value: "", Path: "/server/preferences/tokens", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode}).String())
+}
+
+func (fd *frontendDeps) refreshProjectSecretKeys(r *http.Request) error {
+	if _, _, _, err := db.EnsureCoreSecrets(r.Context(), fd.ld.sqlDB); err != nil {
+		return err
+	}
+	read := func(name string) ([]byte, []byte, error) {
+		encoded, err := db.GetSecret(r.Context(), fd.ld.sqlDB, name)
+		if err != nil {
+			return nil, nil, err
+		}
+		current, err := base64.RawStdEncoding.DecodeString(encoded)
+		if err != nil || len(current) != 32 {
+			return nil, nil, fmt.Errorf("invalid project secret")
+		}
+		previousEncoded, err := db.GetPreviousSecret(r.Context(), fd.ld.sqlDB, name, nil)
+		if err != nil && !errors.Is(err, db.ErrNotFound) {
+			return nil, nil, err
+		}
+		var previous []byte
+		if err == nil {
+			previous, err = base64.RawStdEncoding.DecodeString(previousEncoded)
+			if err != nil || len(previous) != 32 {
+				return nil, nil, fmt.Errorf("invalid previous project secret")
+			}
+		}
+		return current, previous, nil
+	}
+	return fd.secretKeys.Refresh(func() ([]byte, []byte, []byte, []byte, error) {
+		cookieCurrent, cookiePrevious, err := read(db.SecretCookieSigning)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		csrfCurrent, csrfPrevious, err := read(db.SecretCSRFToken)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		return cookieCurrent, cookiePrevious, csrfCurrent, csrfPrevious, nil
+	})
 }
 func parseTokenExpiry(value, date string) (*time.Time, error) {
 	switch value {

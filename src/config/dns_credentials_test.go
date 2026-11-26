@@ -13,12 +13,12 @@ func TestDNSCredentialsSealAndRotate(t *testing.T) {
 	if _, err := EnsureEncryptionKey(cfg); err != nil {
 		t.Fatal(err)
 	}
-	cfg.Server.TLS.DNSCredentials = map[string]string{"CF_DNS_API_TOKEN": "secret-value"}
+	cfg.Server.TLS.LetsEncrypt.DNSCredentials = map[string]string{"CF_DNS_API_TOKEN": "secret-value"}
 	changed, err := SealDNSCredentials(cfg)
 	if err != nil || !changed {
 		t.Fatalf("SealDNSCredentials() = %v, %v; want changed", changed, err)
 	}
-	sealed := cfg.Server.TLS.DNSCredentials["CF_DNS_API_TOKEN"]
+	sealed := cfg.Server.TLS.LetsEncrypt.DNSCredentials["CF_DNS_API_TOKEN"]
 	if !strings.HasPrefix(sealed, dnsCredentialPrefix) || strings.Contains(sealed, "secret-value") {
 		t.Fatalf("credential was not encrypted: %q", sealed)
 	}
@@ -42,7 +42,7 @@ func TestDNSCredentialsSealAndRotate(t *testing.T) {
 	if err != nil || values["CF_DNS_API_TOKEN"] != "secret-value" {
 		t.Fatalf("rotated DNSCredentialValues() = %#v, %v", values, err)
 	}
-	cfg.Server.TLS.DNSCredentials["CF_DNS_API_TOKEN"] += "tampered"
+	cfg.Server.TLS.LetsEncrypt.DNSCredentials["CF_DNS_API_TOKEN"] += "tampered"
 	if _, err := DNSCredentialValues(cfg); err == nil {
 		t.Fatal("tampered ciphertext decrypted without error")
 	}
@@ -54,7 +54,7 @@ func TestLoadAndSavePreserveSecretFileMode(t *testing.T) {
 	if _, err := EnsureEncryptionKey(cfg); err != nil {
 		t.Fatal(err)
 	}
-	cfg.Server.TLS.DNSCredentials = map[string]string{"DO_AUTH_TOKEN": "secret-value"}
+	cfg.Server.TLS.LetsEncrypt.DNSCredentials = map[string]string{"DO_AUTH_TOKEN": "secret-value"}
 	if _, err := SealDNSCredentials(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -65,8 +65,23 @@ func TestLoadAndSavePreserveSecretFileMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "secret-value") {
-		t.Fatal("saved config contains plaintext DNS credential")
+	if strings.Contains(string(data), "secret-value") || strings.Contains(string(data), dnsCredentialPrefix) {
+		t.Fatal("saved server.yml contains a DNS credential")
+	}
+	secretData, err := os.ReadFile(filepath.Join(filepath.Dir(path), "secrets.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(secretData), dnsCredentialPrefix) || strings.Contains(string(secretData), "secret-value") {
+		t.Fatalf("secrets.yml does not contain only the encrypted DNS credential: %s", secretData)
+	}
+	loaded, err := Load(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, err := DNSCredentialValues(loaded)
+	if err != nil || values["DO_AUTH_TOKEN"] != "secret-value" {
+		t.Fatalf("loaded DNS credentials = %#v, %v", values, err)
 	}
 	info, err := os.Stat(path)
 	if err != nil {

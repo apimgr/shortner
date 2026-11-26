@@ -10,7 +10,9 @@ package httpserver
 import (
 	"bufio"
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"net"
@@ -46,6 +48,7 @@ type deps struct {
 	accessLogFormat string
 	operatorTok     string
 	tokenKey        []byte
+	secretKeys      *security.SecretKeyring
 	cors            config.CORS
 	csrf            config.CSRF
 	geo             *geoip.Manager
@@ -196,7 +199,7 @@ func (d *deps) csrfMiddleware(next http.Handler) http.Handler {
 
 		switch r.Method {
 		case http.MethodGet, http.MethodHead, http.MethodOptions:
-			ensureCSRFCookie(w, r, d.csrf, d.resolver)
+			ensureCSRFCookie(w, r, d.csrf, d.resolver, d.secretKeys)
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -244,7 +247,7 @@ func (d *deps) csrfMiddleware(next http.Handler) http.Handler {
 		if submitted == "" {
 			submitted = r.FormValue("csrf_token")
 		}
-		if submitted == "" || subtle.ConstantTimeCompare([]byte(submitted), []byte(cookie.Value)) != 1 {
+		if submitted == "" || subtle.ConstantTimeCompare([]byte(submitted), []byte(cookie.Value)) != 1 || !validCSRFCookie(cookie.Value, d.secretKeys) {
 			d.logCSRFFailure(r, "token mismatch")
 			sendError(w, r, apperr.New(apperr.CodeCSRFFailed))
 			return
@@ -266,12 +269,13 @@ func (d *deps) logCSRFFailure(r *http.Request, reason string) {
 // request if one isn't already set, so a subsequent form POST/JS request on
 // the same origin has a token to submit. SameSite=Strict and NOT HttpOnly
 // (JS needs to read it to set the request header) per AI.md PART 16.
-func ensureCSRFCookie(w http.ResponseWriter, r *http.Request, csrf config.CSRF, resolver *ProxyResolver) {
+func ensureCSRFCookie(w http.ResponseWriter, r *http.Request, csrf config.CSRF, resolver *ProxyResolver, keys *security.SecretKeyring) {
 	cookieName := csrf.CookieName
 	if cookieName == "" {
 		cookieName = "csrf_token"
 	}
-	if _, err := r.Cookie(cookieName); err == nil {
+	current, _ := keys.CSRFKeys()
+	if cookie, err := r.Cookie(cookieName); err == nil && validCSRFCookie(cookie.Value, keys) {
 		return
 	}
 
@@ -283,7 +287,11 @@ func ensureCSRFCookie(w http.ResponseWriter, r *http.Request, csrf config.CSRF, 
 	if _, err := rand.Read(buf); err != nil {
 		return
 	}
-	token := hex.EncodeToString(buf)
+	nonce := hex.EncodeToString(buf)
+	token := signCSRFCookie(current, nonce)
+	if len(current) == 0 {
+		token = nonce
+	}
 
 	// AI.md PART 31 "Tor HTTP Semantics" keeps the Secure flag on for
 	// overlay requests: a `.onion` is a W3C potentially-trustworthy origin,
@@ -298,6 +306,35 @@ func ensureCSRFCookie(w http.ResponseWriter, r *http.Request, csrf config.CSRF, 
 		Secure:   secure,
 		HttpOnly: false,
 	})
+}
+
+func signCSRFCookie(key []byte, nonce string) string {
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write([]byte(nonce))
+	return nonce + "." + hex.EncodeToString(mac.Sum(nil))
+}
+
+func validCSRFCookie(token string, keys *security.SecretKeyring) bool {
+	parts := strings.Split(token, ".")
+	if len(parts) != 2 || len(parts[1]) != sha256.Size*2 {
+		return false
+	}
+	provided, err := hex.DecodeString(parts[1])
+	if err != nil {
+		return false
+	}
+	current, previous := keys.CSRFKeys()
+	for _, key := range [][]byte{current, previous} {
+		if len(key) == 0 {
+			continue
+		}
+		mac := hmac.New(sha256.New, key)
+		_, _ = mac.Write([]byte(parts[0]))
+		if subtle.ConstantTimeCompare(provided, mac.Sum(nil)) == 1 {
+			return true
+		}
+	}
+	return false
 }
 
 // corsMiddleware sets frontend CORS headers per AI.md PART 16 "CORS".

@@ -144,6 +144,7 @@ func (r *runner) loadConfig() int {
 		return ExitConfig
 	}
 	cfg.SetPath(p.ConfigFile)
+	persistedCfg := cfg
 
 	// A missing cli.yml is written on first run so the client works with
 	// zero configuration, per AI.md PART 32.
@@ -160,23 +161,33 @@ func (r *runner) loadConfig() int {
 
 	persist := false
 	if r.flags.Server != "" {
-		value, save, warn := clientconfig.SaveIfEmptyOrInvalid(cfg.Server.Primary, r.flags.Server, clientconfig.ValidateServerURL)
+		value, save, warn := clientconfig.SaveIfEmptyOrInvalid(persistedCfg.Server.Primary, r.flags.Server, clientconfig.ValidateServerURL)
 		if warn {
 			if _, err := fmt.Fprintf(r.io.Err, "%s: invalid --server value %q, keeping current configuration\n", r.binaryName, r.flags.Server); err != nil {
 				return ExitError
 			}
 		}
-		cfg.Server.Primary = value
+		if !warn {
+			cfg.Server.Primary = value
+			if save {
+				persistedCfg.Server.Primary = value
+			}
+		}
 		persist = persist || save
 	}
 	if r.flags.Token != "" {
-		value, save, warn := clientconfig.SaveIfEmptyOrInvalid(cfg.Auth.Token, r.flags.Token, clientconfig.ValidateToken)
+		value, save, warn := clientconfig.SaveIfEmptyOrInvalid(persistedCfg.Auth.Token, r.flags.Token, clientconfig.ValidateToken)
 		if warn {
 			if _, err := fmt.Fprintf(r.io.Err, "%s: invalid --token value, keeping current configuration\n", r.binaryName); err != nil {
 				return ExitError
 			}
 		}
-		cfg.Auth.Token = value
+		if !warn {
+			cfg.Auth.Token = value
+			if save {
+				persistedCfg.Auth.Token = value
+			}
+		}
 		persist = persist || save
 	}
 	if r.flags.TokenFile != "" {
@@ -205,7 +216,7 @@ func (r *runner) loadConfig() int {
 	}
 
 	if persist {
-		if err := cfg.Save(); err != nil {
+		if err := persistedCfg.Save(); err != nil {
 			if _, err := fmt.Fprintf(r.io.Err, "%s: cannot save %s: %v\n", r.binaryName, cfg.Path(), err); err != nil {
 				return ExitError
 			}

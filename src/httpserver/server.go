@@ -30,6 +30,7 @@ import (
 	"github.com/apimgr/shortner/src/geoip"
 	"github.com/apimgr/shortner/src/metrics"
 	"github.com/apimgr/shortner/src/notify"
+	"github.com/apimgr/shortner/src/security"
 	"github.com/apimgr/shortner/src/tor"
 )
 
@@ -109,6 +110,7 @@ type Options struct {
 	// input.
 	InstallSecret         string
 	PreviousInstallSecret string
+	SecretKeys            *security.SecretKeyring
 	// Notifier delivers the AI.md PART 17 email events raised from the
 	// HTTP layer: the PART 11 security-report maintainer notification and
 	// researcher acknowledgment, and the PART 16 contact-form relay. Nil
@@ -129,6 +131,12 @@ type Options struct {
 // called).
 func New(opts Options) *Server {
 	cfg := opts.Config
+	secretKeys := opts.SecretKeys
+	if secretKeys == nil {
+		cookieKey, _ := security.GenerateSecret(32)
+		csrfKey, _ := security.GenerateSecret(32)
+		secretKeys = security.NewSecretKeyring(cookieKey, nil, csrfKey, nil)
+	}
 	stats := NewStats()
 	if err := stats.AttachDB(opts.DB); err != nil && opts.AccessLog != nil {
 		_ = opts.AccessLog.WriteLine(applog.LevelWarn, "health: request statistics persistence unavailable\n")
@@ -145,6 +153,7 @@ func New(opts Options) *Server {
 		access:          opts.AccessLog,
 		accessLogFormat: cfg.Server.Logs.Access.Format,
 		operatorTok:     cfg.Server.Token,
+		secretKeys:      secretKeys,
 		cors:            cfg.Server.CORS,
 		csrf:            cfg.Server.CSRF,
 		geo:             opts.GeoIP,
@@ -211,6 +220,7 @@ func New(opts Options) *Server {
 		resolver:              resolver,
 		installSecret:         opts.InstallSecret,
 		previousInstallSecret: opts.PreviousInstallSecret,
+		secretKeys:            secretKeys,
 		audit:                 opts.AuditLog,
 		configDir:             opts.ConfigDir,
 		notifier:              opts.Notifier,

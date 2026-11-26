@@ -49,11 +49,9 @@ bin_dir=""
 # shellcheck disable=SC1091
 . "$project_dir/tests/assert.sh"
 
-# Emits 8 random lowercase alphanumerics, used for unique container names.
+# Emits an 8-character random hexadecimal suffix for unique container names.
 __random_suffix() {
-  set +o pipefail
-  tr -dc 'a-z0-9' </dev/urandom | head -c8
-  set -o pipefail
+  head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8
 }
 
 # Creates the mandatory temp-dir structure and echoes its path:

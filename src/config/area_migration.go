@@ -260,6 +260,9 @@ func dropInDefinesServerKey(configDir, key string) bool {
 func migrateLegacyConfig(root *yaml.Node) bool {
 	changed := migrateLegacyDatabase(root)
 	for _, move := range [][2]string{
+		{"server.tls", "server.ssl"},
+		{"server.ssl.dns_provider", "server.ssl.letsencrypt.dns_provider"},
+		{"server.ssl.dns_credentials", "server.ssl.letsencrypt.dns_credentials"},
 		{"server.logging.access_format", "server.logs.access.format"},
 		{"server.logging.level", "server.logs.level"},
 		{"server.logging", "server.logs"},

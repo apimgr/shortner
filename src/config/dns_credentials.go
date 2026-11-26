@@ -15,7 +15,7 @@ const dnsCredentialPrefix = "enc:v1:"
 // SealDNSCredentials encrypts plaintext DNS values in-place and validates
 // already encrypted entries. The caller persists cfg atomically when changed.
 func SealDNSCredentials(cfg *Config) (bool, error) {
-	credentials := cfg.Server.TLS.DNSCredentials
+	credentials := cfg.Server.TLS.LetsEncrypt.DNSCredentials
 	if len(credentials) == 0 {
 		return false, nil
 	}
@@ -44,7 +44,7 @@ func SealDNSCredentials(cfg *Config) (bool, error) {
 // DNSCredentialValues decrypts the flat lego environment map for the
 // immediate provider-construction call. Values are never logged or serialized.
 func DNSCredentialValues(cfg *Config) (map[string]string, error) {
-	credentials := cfg.Server.TLS.DNSCredentials
+	credentials := cfg.Server.TLS.LetsEncrypt.DNSCredentials
 	if len(credentials) == 0 {
 		return map[string]string{}, nil
 	}
@@ -68,7 +68,7 @@ func DNSCredentialValues(cfg *Config) (map[string]string, error) {
 // ReencryptDNSCredentials migrates stored DNS credentials during key
 // rotation without exposing values beyond this in-memory operation.
 func ReencryptDNSCredentials(cfg *Config, oldKey, newKey []byte) error {
-	for name, sealed := range cfg.Server.TLS.DNSCredentials {
+	for name, sealed := range cfg.Server.TLS.LetsEncrypt.DNSCredentials {
 		if !strings.HasPrefix(sealed, dnsCredentialPrefix) {
 			return fmt.Errorf("config: plaintext DNS credential %s cannot be rotated safely", name)
 		}
@@ -80,7 +80,7 @@ func ReencryptDNSCredentials(cfg *Config, oldKey, newKey []byte) error {
 		if err != nil {
 			return fmt.Errorf("config: re-encrypt DNS credential %s", name)
 		}
-		cfg.Server.TLS.DNSCredentials[name] = rotated
+		cfg.Server.TLS.LetsEncrypt.DNSCredentials[name] = rotated
 	}
 	return nil
 }

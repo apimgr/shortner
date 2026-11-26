@@ -82,6 +82,27 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
+func TestRedactOperatorTokenLeavesSourceAndBlanksBackupCopy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secrets.yml")
+	original := "server:\n  token: adm_sensitive-value\n  security:\n    encryption_key: retained-secret\n"
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	copy, err := redactOperatorToken(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(copy), "adm_sensitive-value") || !strings.Contains(string(copy), "token:") {
+		t.Fatalf("backup copy did not blank server.token: %s", copy)
+	}
+	if !strings.Contains(string(copy), "retained-secret") {
+		t.Fatalf("backup copy unexpectedly changed another secret: %s", copy)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != original {
+		t.Fatalf("source secrets changed: %s, %v", got, err)
+	}
+}
+
 func (e testEnv) options() Options {
 	return Options{
 		Dir:        e.backupDir,
@@ -122,12 +143,12 @@ func TestCreateAndVerifyRoundTrip(t *testing.T) {
 	// PART 21 "Backup Contents": server.yml, server.db, template/ and
 	// theme/ are always included; ssl/ and data/ only with their flags.
 	for _, want := range []string{"server.yml", "server.db", "template/welcome.tmpl", "theme/dark.css"} {
-		if _, ok := res.Manifest.Files[want]; !ok {
+		if !res.Manifest.HasFile(want) {
 			t.Errorf("manifest is missing %q", want)
 		}
 	}
 	for _, unwanted := range []string{"ssl/cert.pem", "data/notes.txt"} {
-		if _, ok := res.Manifest.Files[unwanted]; ok {
+		if res.Manifest.HasFile(unwanted) {
 			t.Errorf("manifest contains %q without its opt-in flag", unwanted)
 		}
 	}
@@ -168,7 +189,7 @@ func TestCreateWithOptionalContents(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	for _, want := range []string{"ssl/cert.pem", "data/notes.txt"} {
-		if _, ok := res.Manifest.Files[want]; !ok {
+		if !res.Manifest.HasFile(want) {
 			t.Errorf("manifest is missing opt-in content %q", want)
 		}
 	}
@@ -259,6 +280,7 @@ func TestCreateIncrementalCarriesOnlyChanges(t *testing.T) {
 	incOpts := env.options()
 	incOpts.Kind = KindDaily
 	incOpts.Base = &full.Manifest
+	incOpts.BaseName = full.Name
 	inc, err := Create(incOpts)
 	if err != nil {
 		t.Fatalf("Create incremental: %v", err)
@@ -266,10 +288,10 @@ func TestCreateIncrementalCarriesOnlyChanges(t *testing.T) {
 	if inc.Name != "shortner-daily.tar.gz" {
 		t.Errorf("incremental name = %q, want shortner-daily.tar.gz", inc.Name)
 	}
-	if _, ok := inc.Manifest.Files["theme/dark.css"]; !ok {
+	if !inc.Manifest.HasFile("theme/dark.css") {
 		t.Error("incremental is missing the changed theme file")
 	}
-	if _, ok := inc.Manifest.Files["template/welcome.tmpl"]; ok {
+	if inc.Manifest.HasFile("template/welcome.tmpl") {
 		t.Error("incremental contains an unchanged file")
 	}
 	if inc.Manifest.BaseChecksum != full.Manifest.Checksum {

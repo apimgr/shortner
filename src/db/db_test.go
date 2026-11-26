@@ -885,6 +885,36 @@ func TestEnsureCoreSecrets(t *testing.T) {
 	}
 }
 
+func TestPreviousSecretRowsAndWrappedEncryptionKey(t *testing.T) {
+	sqlDB := openTestDB(t)
+	ctx := context.Background()
+	if _, _, _, err := EnsureCoreSecrets(ctx, sqlDB); err != nil {
+		t.Fatal(err)
+	}
+	previous := "previous-installation-secret"
+	if err := SetGraceSecret(ctx, sqlDB, SecretInstallation, previous, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := GetGraceSecret(ctx, sqlDB, SecretInstallation)
+	if err != nil || got != previous {
+		t.Fatalf("GetGraceSecret() = (%q,%v), want previous installation secret", got, err)
+	}
+
+	oldKey := []byte("old encryption key material")
+	newKey := make([]byte, 32)
+	if err := SetGraceSecret(ctx, sqlDB, "encryption_key", string(oldKey), time.Now().Add(time.Hour), newKey); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := GetSecret(ctx, sqlDB, "encryption_key_previous")
+	if err != nil || stored == string(oldKey) {
+		t.Fatalf("previous AES key was stored unwrapped: %q, %v", stored, err)
+	}
+	got, err = GetPreviousSecret(ctx, sqlDB, "encryption_key", newKey)
+	if err != nil || got != string(oldKey) {
+		t.Fatalf("GetPreviousSecret(encryption_key) = (%q,%v), want unwrapped previous key", got, err)
+	}
+}
+
 func TestTryTouchSecurityReportViewConsumesIntervalAtomically(t *testing.T) {
 	sqlDB := openTestDB(t)
 	ctx := context.Background()

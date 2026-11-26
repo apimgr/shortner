@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/backup"
 	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/notify"
@@ -102,7 +103,7 @@ func (b BackupDeps) options(kind backup.Kind) backup.Options {
 // retention only once everything verified.
 func backupDailyTask(deps Deps) TaskFunc {
 	return func(ctx context.Context) error {
-		return runBackupCycle(deps.Backup, deps.Notifier)
+		return runBackupCycle(deps.Backup, deps.Notifier, deps.Logger)
 	}
 }
 
@@ -121,7 +122,10 @@ func backupHourlyTask(deps Deps) TaskFunc {
 			return fmt.Errorf("backup_hourly: %w", err)
 		}
 		opts := b.options(backup.KindHourly)
-		opts.Base = newestManifest(b, files)
+		opts.Base, opts.BaseName = newestFull(b, files)
+		if opts.Base == nil {
+			return nil
+		}
 		res, err := backup.Create(opts)
 		if err != nil {
 			name := backup.FileName(b.Prefix, backup.KindHourly, opts.Now, b.encrypt())
@@ -135,26 +139,20 @@ func backupHourlyTask(deps Deps) TaskFunc {
 }
 
 // runBackupCycle performs the AI.md PART 21 daily flow end to end.
-func runBackupCycle(b BackupDeps, n *notify.Notifier) error {
+func runBackupCycle(b BackupDeps, n *notify.Notifier, logger *applog.Logger) error {
 	if !b.configured() {
 		return nil
 	}
 
-	// Step 1: retention sweep before anything is written.
+	// Step 1 removes only temporary partial files left by an interrupted write.
+	if err := backup.RemovePartialFiles(b.Dir, b.Prefix); err != nil {
+		return fmt.Errorf("backup_daily: pre-run partial sweep: %w", err)
+	}
 	status, err := backup.Disk(b.Dir)
 	if err != nil {
 		return fmt.Errorf("backup_daily: %w", err)
 	}
 	policy := b.Policy(status)
-	deleted, err := backup.Apply(b.Dir, b.Prefix, policy)
-	if err != nil {
-		return fmt.Errorf("backup_daily: retention sweep: %w", err)
-	}
-	if len(deleted) > 0 {
-		remaining, _ := backup.List(b.Dir, b.Prefix)
-		backup.AuditRetentionCleanup(b.Audit, deleted, len(remaining), "pre-backup retention sweep")
-	}
-
 	// Step 2: abort when free space is short or the disk is over threshold.
 	files, err := backup.List(b.Dir, b.Prefix)
 	if err != nil {
@@ -173,8 +171,41 @@ func runBackupCycle(b BackupDeps, n *notify.Notifier) error {
 		return fmt.Errorf("backup_daily: %w", err)
 	}
 
-	// Steps 3-4: full backup, verified by Create itself.
+	// The incremental captures changes from the previous full through this
+	// run's snapshot instant. The first run has no previous full, so it skips
+	// the daily incremental as required by PART 21.
+	incOpts := b.options(backup.KindDaily)
 	fullOpts := b.options(backup.KindFull)
+	fullOpts.Now = incOpts.Now
+	baseFile := newestFullFile(files)
+	if baseFile != nil && backup.IsEncryptedName(baseFile.Name) {
+		header, headerErr := backup.ReadEncryptionHeader(filepath.Join(b.Dir, baseFile.Name))
+		if headerErr != nil {
+			if logger != nil {
+				_ = logger.WriteLine(applog.LevelWarn, fmt.Sprintf("backup_daily: corrupt incremental base %q; skipping incremental: %v\n", baseFile.Name, headerErr))
+			}
+		} else if keyID, keyErr := backup.KeyIDForPassword(b.password(), header); keyErr != nil || keyID != header.KeyID {
+			if logger != nil {
+				_ = logger.WriteLine(applog.LevelInfo, fmt.Sprintf("backup_daily: backup password changed for base %q; skipping incremental\n", baseFile.Name))
+			}
+		} else {
+			incOpts.Base, incOpts.BaseName = newestFull(b, []backup.File{*baseFile})
+		}
+	} else {
+		incOpts.Base, incOpts.BaseName = newestFull(b, files)
+	}
+	if incOpts.Base != nil {
+		inc, err := backup.Create(incOpts)
+		if err != nil {
+			name := backup.FileName(b.Prefix, backup.KindDaily, incOpts.Now, b.encrypt())
+			backup.AuditFailure(b.Audit, name, err)
+			notifyBackupFailed(n, name, err)
+			return fmt.Errorf("backup_daily: incremental: %w", err)
+		}
+		backup.AuditDailyUpdated(b.Audit, inc)
+	}
+
+	// The full at the same T0 follows the cumulative incremental.
 	full, err := backup.Create(fullOpts)
 	if err != nil {
 		name := backup.FileName(b.Prefix, backup.KindFull, fullOpts.Now, b.encrypt())
@@ -185,20 +216,8 @@ func runBackupCycle(b BackupDeps, n *notify.Notifier) error {
 	backup.AuditCreated(b.Audit, full)
 	notifyBackupComplete(n, full)
 
-	// Steps 5-6: incremental against the full just written, verified too.
-	incOpts := b.options(backup.KindDaily)
-	incOpts.Base = &full.Manifest
-	inc, err := backup.Create(incOpts)
-	if err != nil {
-		name := backup.FileName(b.Prefix, backup.KindDaily, incOpts.Now, b.encrypt())
-		backup.AuditFailure(b.Audit, name, err)
-		notifyBackupFailed(n, name, err)
-		return fmt.Errorf("backup_daily: incremental: %w", err)
-	}
-	backup.AuditDailyUpdated(b.Audit, inc)
-
 	// Step 7: both verified, so old backups may now be pruned.
-	deleted, err = backup.Apply(b.Dir, b.Prefix, policy)
+	deleted, err := backup.Apply(b.Dir, b.Prefix, policy)
 	if err != nil {
 		return fmt.Errorf("backup_daily: retention: %w", err)
 	}
@@ -209,18 +228,30 @@ func runBackupCycle(b BackupDeps, n *notify.Notifier) error {
 	return nil
 }
 
-// newestManifest loads the manifest of the most recent full backup, so an
-// hourly incremental carries only what changed since it. A manifest that
-// cannot be read (wrong password, deleted mid-run) yields nil, which makes
-// the incremental self-contained rather than failing the run.
-func newestManifest(b BackupDeps, files []backup.File) *backup.Manifest {
-	newest := backup.Newest(files)
+// newestFull loads the newest full backup and returns its filename for the
+// encrypted header and incremental manifest.
+func newestFull(b BackupDeps, files []backup.File) (*backup.Manifest, string) {
+	newest := newestFullFile(files)
 	if newest == nil {
-		return nil
+		return nil, ""
 	}
 	m, err := backup.LoadManifest(filepath.Join(b.Dir, newest.Name), b.password())
 	if err != nil {
-		return nil
+		return nil, ""
 	}
-	return m
+	return m, newest.Name
+}
+
+func newestFullFile(files []backup.File) *backup.File {
+	var newest *backup.File
+	for i := range files {
+		candidate := &files[i]
+		if candidate.Kind.Incremental() {
+			continue
+		}
+		if newest == nil || candidate.Date.After(newest.Date) || (candidate.Date.Equal(newest.Date) && candidate.Name > newest.Name) {
+			newest = candidate
+		}
+	}
+	return newest
 }

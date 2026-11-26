@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -353,9 +354,25 @@ func RotateToken(ctx context.Context, db Handle, id int64, owner, kind string, k
 	if err != nil {
 		return "", nil, err
 	}
-	_, err = db.ExecContext(ctx, `UPDATE api_tokens SET token_hash=?,token_prefix=?,token_last4=?,token_enc=?,rotated_at=strftime('%s','now') WHERE id=? AND owner_id=? AND revoked_at IS NULL`, security.HashToken(raw), security.TokenPrefix(raw), tokenLast4(raw), sealed, id, owner)
+	err = WithTransaction(ctx, db, func(tx *sql.Tx) error {
+		result, err := tx.ExecContext(ctx, `UPDATE api_tokens SET token_hash=?,token_prefix=?,token_last4=?,token_enc=?,rotated_at=strftime('%s','now') WHERE id=? AND owner_id=? AND revoked_at IS NULL`, security.HashToken(raw), security.TokenPrefix(raw), tokenLast4(raw), sealed, id, owner)
+		if err != nil {
+			return HandleQueryError(err)
+		}
+		updated, err := result.RowsAffected()
+		if err != nil {
+			return HandleQueryError(err)
+		}
+		if updated != 1 {
+			return ErrNotFound
+		}
+		if err := RotateCSRFSecretTx(ctx, tx); err != nil {
+			return fmt.Errorf("db: rotate CSRF secret after API token rotation: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return "", nil, HandleQueryError(err)
+		return "", nil, err
 	}
 	tok, err := GetTokenByID(ctx, db, id)
 	return raw, tok, err

@@ -103,7 +103,7 @@ func NewBlockStore(entries []config.BlockedIPEntry, audit *applog.AuditLogger) *
 			continue
 		}
 		s.permanent = append(s.permanent, network)
-		s.reasons[network.String()] = e.Reason
+		s.reasons[network.String()] = e.Description
 	}
 	return s
 }

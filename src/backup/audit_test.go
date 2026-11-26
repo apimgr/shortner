@@ -26,7 +26,7 @@ func TestAuditEvents(t *testing.T) {
 		Manifest: Manifest{
 			Kind:         KindFull,
 			AppVersion:   "1.2.3",
-			Files:        map[string]string{"server.yml": "sha256:abc"},
+			Files:        []FileEntry{{Path: "server.yml", SHA256: "abc"}},
 			BaseChecksum: "sha256:base",
 		},
 	}

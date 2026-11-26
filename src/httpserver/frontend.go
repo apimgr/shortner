@@ -285,9 +285,10 @@ type helpPageData struct {
 }
 
 func (fd *frontendDeps) helpHandler(w http.ResponseWriter, r *http.Request) {
+	content, _ := fd.cfg.Server.Pages.Help.Content.Resolve(langFromContext(r))
 	data := helpPageData{
 		Base:        fd.newPageData(r, requestCSRFToken(r, fd.cfg), t(r, "help.title"), fd.cfg.Server.Branding.Description),
-		HelpContent: sanitize.RenderMarkdown(fd.cfg.Server.Pages.Help.Content, r.Host),
+		HelpContent: sanitize.RenderMarkdown(content, r.Host),
 		HelpPages:   registeredHelpPages(fd.cfg, langFromContext(r)),
 	}
 	_ = renderPage(w, http.StatusOK, "help", data)

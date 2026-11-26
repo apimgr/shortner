@@ -30,10 +30,11 @@ const (
 
 // File is one backup archive found in the backup directory.
 type File struct {
-	Name string
-	Path string
-	Size int64
-	Kind Kind
+	Name       string
+	Path       string
+	Size       int64
+	Kind       Kind
+	BaseBackup string
 	// Date is the calendar date the backup represents: parsed from the
 	// filename when the name carries one, else the file's modification
 	// time.
@@ -79,13 +80,21 @@ func List(dir, prefix string) ([]File, error) {
 		if !ok {
 			continue
 		}
-		files = append(files, File{
+		file := File{
 			Name: e.Name(),
 			Path: filepath.Join(dir, e.Name()),
 			Size: info.Size(),
 			Kind: kind,
 			Date: date,
-		})
+		}
+		if IsEncryptedName(e.Name()) {
+			if header, parseErr := ReadEncryptionHeader(filepath.Join(dir, e.Name())); parseErr == nil {
+				file.BaseBackup = header.BaseName
+			}
+		} else if manifest, loadErr := ReadManifestFromArchive(filepath.Join(dir, e.Name())); loadErr == nil {
+			file.BaseBackup = manifest.BaseBackup
+		}
+		files = append(files, file)
 	}
 
 	sort.Slice(files, func(i, j int) bool {
@@ -95,6 +104,20 @@ func List(dir, prefix string) ([]File, error) {
 		return files[i].Date.Before(files[j].Date)
 	})
 	return files, nil
+}
+
+func RemovePartialFiles(dir, prefix string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) { return nil }
+		return fmt.Errorf("backup: read partial backup dir %s: %w", dir, err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasPrefix(name, prefix) || !strings.Contains(name, ".tar.gz.tmp-") && !strings.Contains(name, ".tar.gz.enc.tmp-") { continue }
+		if err := os.Remove(filepath.Join(dir, name)); err != nil && !os.IsNotExist(err) { return fmt.Errorf("backup: remove partial %s: %w", name, err) }
+	}
+	return nil
 }
 
 // parseBackupName classifies one filename against AI.md PART 21's naming
@@ -167,6 +190,17 @@ func Plan(files []File, p Policy) (keep []File, remove []File) {
 			}
 		}
 	}
+	protectedBases := make(map[string]bool)
+	for _, f := range ordered {
+		if f.Kind.Incremental() && f.BaseBackup != "" {
+			protectedBases[f.BaseBackup] = true
+		}
+	}
+	for i := range ordered {
+		if protectedBases[ordered[i].Name] {
+			selected[i] = true
+		}
+	}
 
 	tiers := []struct {
 		tier  Tier
@@ -208,7 +242,11 @@ func Plan(files []File, p Policy) (keep []File, remove []File) {
 		}
 	}
 
-	keep, overCap := applySizeCap(keep, p.MaxTotalBytes)
+	protected := make(map[string]bool, len(protectedBases))
+	for name := range protectedBases {
+		protected[name] = true
+	}
+	keep, overCap := applySizeCap(keep, p.MaxTotalBytes, protected)
 	remove = append(remove, overCap...)
 	sort.Slice(remove, func(i, j int) bool { return remove[i].Date.Before(remove[j].Date) })
 	return keep, remove
@@ -219,7 +257,7 @@ func Plan(files []File, p Policy) (keep []File, remove []File) {
 // total is under the cap. Incrementals are excluded from this sweep —
 // they are replaced in place on the very next run, so deleting them frees
 // nothing durable while destroying the newest recoverable state.
-func applySizeCap(keep []File, maxTotal int64) ([]File, []File) {
+func applySizeCap(keep []File, maxTotal int64, protected map[string]bool) ([]File, []File) {
 	if maxTotal <= 0 {
 		return keep, nil
 	}
@@ -235,7 +273,7 @@ func applySizeCap(keep []File, maxTotal int64) ([]File, []File) {
 	var kept, removed []File
 	// Oldest first; keep is already ordered oldest-first by Plan.
 	for i, f := range keep {
-		if total > maxTotal && !f.Kind.Incremental() && i < len(keep)-1 {
+		if total > maxTotal && !f.Kind.Incremental() && !protected[f.Name] && i < len(keep)-1 {
 			total -= f.Size
 			removed = append(removed, f)
 			continue

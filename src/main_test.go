@@ -43,6 +43,20 @@ func captureOutput(t *testing.T, fn func() int) (stdout, stderr string, code int
 	return bufOut.String(), bufErr.String(), code
 }
 
+func TestManualCertificateDoesNotEnableTLSOnHTTPPort(t *testing.T) {
+	cfg := config.Default("")
+	cfg.Server.Port = "8090"
+	cfg.Server.TLS.Cert = "cert.pem"
+	cfg.Server.TLS.Key = "key.pem"
+	tlsConfig, challenge, err := buildTLSConfig(cfg, t.TempDir(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tlsConfig != nil || challenge != nil {
+		t.Fatalf("buildTLSConfig() returned TLS=%t challenge-handler=%t; want neither on a disabled HTTP listener", tlsConfig != nil, challenge != nil)
+	}
+}
+
 func isolateRuntimePrivilegeHooks(t *testing.T) {
 	t.Helper()
 	oldCreate, oldOwnership, oldDrop, oldBind := createServiceAccount, setRuntimeOwnership, dropPrivileges, bindPrivilegedPorts

@@ -10,6 +10,9 @@ import (
 
 func TestDefault(t *testing.T) {
 	cfg := Default("/tmp/db")
+	if cfg.Server.TLS.MinVersion != "TLS1.2" {
+		t.Errorf("TLS.MinVersion = %q, want TLS1.2", cfg.Server.TLS.MinVersion)
+	}
 	if cfg.Server.Listen != "[::]" {
 		t.Errorf("Listen = %q, want [::]", cfg.Server.Listen)
 	}
@@ -34,6 +37,70 @@ func TestDefault(t *testing.T) {
 		MaxLinks: 10, RejectMarkup: true, Strikes: 3, BanHours: 24, DuplicateWindowHours: 24,
 	}) {
 		t.Errorf("Contact.Antispam = %+v, want spec defaults", cfg.Server.Contact.Antispam)
+	}
+}
+
+func TestValidateTLSSettings(t *testing.T) {
+	cfg := Default("")
+	cfg.Server.TLS.MinVersion = "TLS1.0"
+	cfg.Server.TLS.Cert = "cert.pem"
+	warnings := Validate(cfg)
+	if len(warnings) == 0 || cfg.Server.TLS.MinVersion != "TLS1.2" || cfg.Server.TLS.Cert != "" || cfg.Server.TLS.Key != "" {
+		t.Fatalf("Validate TLS = warnings %v, TLS %+v", warnings, cfg.Server.TLS)
+	}
+}
+
+func TestLoadMigratesLegacyServerTLSBlock(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	legacy := "server:\n  tls:\n    enabled: true\n    cert: cert.pem\n    key: private.pem\n    min_version: TLS1.3\n    dns_provider: cloudflare\n    dns_credentials:\n      CF_DNS_API_TOKEN: old-value\n"
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateAreaFiles(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateSecretsFiles(path); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path, filepath.Join(dir, "server.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secretData, err := os.ReadFile(filepath.Join(dir, "secrets.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "old-value") || !strings.Contains(string(secretData), "old-value") {
+		t.Fatalf("legacy DNS credential not migrated to secrets.yml; server=%s secrets=%s", data, secretData)
+	}
+	if !cfg.Server.TLS.Enabled || cfg.Server.TLS.Cert != "cert.pem" || cfg.Server.TLS.Key != "private.pem" || cfg.Server.TLS.MinVersion != "TLS1.3" || cfg.Server.TLS.LetsEncrypt.DNSProvider != "cloudflare" || cfg.Server.TLS.LetsEncrypt.DNSCredentials["CF_DNS_API_TOKEN"] != "old-value" {
+		t.Fatalf("legacy TLS settings were not preserved: %+v; migrated file %s", cfg.Server.TLS, data)
+	}
+}
+
+func TestLocalizedPageBodyResolveFallback(t *testing.T) {
+	body := LocalizedPageBody{
+		Values: map[string]string{"fr": "premier", "default": "fallback", "es": "hola"},
+		Order:  []string{"fr", "default", "es"},
+		Has:    true,
+	}
+	for _, test := range []struct{ language, want string }{
+		{"es", "hola"}, {"de", "fallback"},
+	} {
+		got, ok := body.Resolve(test.language)
+		if !ok || got != test.want {
+			t.Errorf("Resolve(%q) = (%q,%t), want (%q,true)", test.language, got, ok, test.want)
+		}
+	}
+	delete(body.Values, "default")
+	got, ok := body.Resolve("de")
+	if !ok || got != "premier" {
+		t.Errorf("Resolve() without default = (%q,%t), want (premier,true)", got, ok)
 	}
 }
 

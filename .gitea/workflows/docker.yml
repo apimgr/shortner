@@ -3,7 +3,7 @@ name: Docker Build
 on:
   push:
     # main only: branches are local and temporary, never pushed
-    branches: [main, master]
+    branches: [main]
     tags:
       - 'v*'
       - '*.*.*'
@@ -14,7 +14,7 @@ on:
 
 concurrency:
   group: docker-${{ gitea.ref }}
-  cancel-in-progress: ${{ gitea.ref == 'refs/heads/main' || gitea.ref == 'refs/heads/master' }}
+  cancel-in-progress: ${{ gitea.ref == 'refs/heads/main' }}
 
 env:
   PROJECT_NAME: shortner
@@ -142,7 +142,7 @@ jobs:
 
   build-devel:
     runs-on: ubuntu-26.04
-    if: (gitea.event_name == 'schedule' || gitea.event_name == 'workflow_dispatch' || gitea.event_name == 'push') && (gitea.ref == 'refs/heads/main' || gitea.ref == 'refs/heads/master')
+    if: (gitea.event_name == 'schedule' || gitea.event_name == 'workflow_dispatch' || gitea.event_name == 'push') && (gitea.ref == 'refs/heads/main')
     permissions:
       contents: read
       packages: write

@@ -30,6 +30,56 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 	}
 }
 
+func TestEncryptionHeaderContainsKDFAndBaseMetadata(t *testing.T) {
+	sealed, err := Encrypt([]byte("secret payload"), "pw", "shortner_backup_2026-11-26.tar.gz.enc")
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	header, err := ParseEncryptionHeader(sealed)
+	if err != nil {
+		t.Fatalf("ParseEncryptionHeader: %v", err)
+	}
+	if header.MemoryKiB != backupArgonM || header.Iterations != backupArgonT || header.Parallelism != backupArgonP {
+		t.Fatalf("Argon2 parameters = (%d,%d,%d), want (%d,%d,%d)", header.MemoryKiB, header.Iterations, header.Parallelism, backupArgonM, backupArgonT, backupArgonP)
+	}
+	if header.BaseName != "shortner_backup_2026-11-26.tar.gz.enc" {
+		t.Fatalf("BaseName = %q", header.BaseName)
+	}
+	if len(header.KeyID) != backupKeyIDLen {
+		t.Fatalf("KeyID length = %d, want %d", len(header.KeyID), backupKeyIDLen)
+	}
+	keyID, err := KeyIDForPassword("pw", header)
+	if err != nil || keyID != header.KeyID {
+		t.Fatalf("KeyIDForPassword = %q, %v; want %q", keyID, err, header.KeyID)
+	}
+	other, err := KeyIDForPassword("other", header)
+	if err != nil {
+		t.Fatalf("KeyIDForPassword with a different password should derive an ID: %v", err)
+	}
+	if other == header.KeyID {
+		t.Fatal("different passwords produced the same key ID")
+	}
+}
+
+func TestEncryptRejectsUnsafeBaseName(t *testing.T) {
+	if _, err := Encrypt([]byte("payload"), "pw", "../outside.tar.gz"); err == nil {
+		t.Fatal("Encrypt accepted a path as the base filename")
+	}
+}
+
+func TestParseEncryptionHeaderRejectsOversizedBaseName(t *testing.T) {
+	sealed, err := Encrypt([]byte("payload"), "pw")
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	baseLengthOffset := len(encMagic) + 16 + 12 + backupNonceLen + backupKeyIDLen
+	sealed[baseLengthOffset] = 0x01
+	sealed[baseLengthOffset+1] = 0x00
+	if _, err := ParseEncryptionHeader(sealed); !errors.Is(err, ErrNotEncrypted) {
+		t.Fatalf("ParseEncryptionHeader = %v, want ErrNotEncrypted", err)
+	}
+}
+
 func TestDecryptWrongPassword(t *testing.T) {
 	sealed, err := Encrypt([]byte("secret"), "right")
 	if err != nil {

@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	clientconfig "github.com/apimgr/shortner/src/client/config"
+	"github.com/apimgr/shortner/src/client/paths"
 )
 
 // newTestIO builds an in-memory IO so Run never touches the process streams.
@@ -144,6 +147,87 @@ func TestRunServerFlagPersistsToConfig(t *testing.T) {
 	code := Run([]string{"--server", "http://127.0.0.1:1", "list"}, streams, "shortner-cli")
 	if code == ExitConfig {
 		t.Fatalf("code = ExitConfig, want the server flag to be accepted; stderr = %q", errOut.String())
+	}
+}
+
+func TestServerEnvironmentOverrideIsSessionOnlyAndFlagSaveUsesFileConfig(t *testing.T) {
+	isolateHome(t)
+	p := paths.Resolve(InternalOrg, InternalName, "")
+	cfg := clientconfig.Default()
+	cfg.SetPath(p.ConfigFile)
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save initial config: %v", err)
+	}
+	t.Setenv("SHORTNER_SERVER_PRIMARY", "https://environment.example")
+
+	streams, _, _ := newTestIO()
+	r := &runner{io: streams, binaryName: "shortner-cli", flags: Flags{Server: "https://flag.example"}}
+	if code := r.loadConfig(); code != ExitOK {
+		t.Fatalf("loadConfig() = %d, want ExitOK", code)
+	}
+	if r.cfg.Server.Primary != "https://flag.example" {
+		t.Fatalf("effective server = %q, want flag value", r.cfg.Server.Primary)
+	}
+	saved, err := clientconfig.Load(p.ConfigFile)
+	if err != nil {
+		t.Fatalf("load saved config: %v", err)
+	}
+	if saved.Server.Primary != "https://flag.example" {
+		t.Fatalf("saved server = %q, want flag value because the file value was empty", saved.Server.Primary)
+	}
+}
+
+func TestServerEnvironmentOverrideDoesNotChangeSavedConfig(t *testing.T) {
+	isolateHome(t)
+	p := paths.Resolve(InternalOrg, InternalName, "")
+	cfg := clientconfig.Default()
+	cfg.Server.Primary = "https://file.example"
+	cfg.SetPath(p.ConfigFile)
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("save initial config: %v", err)
+	}
+	t.Setenv("SHORTNER_SERVER_PRIMARY", "https://environment.example")
+
+	streams, _, _ := newTestIO()
+	r := &runner{io: streams, binaryName: "shortner-cli"}
+	if code := r.loadConfig(); code != ExitOK {
+		t.Fatalf("loadConfig() = %d, want ExitOK", code)
+	}
+	if r.cfg.Server.Primary != "https://environment.example" {
+		t.Fatalf("effective server = %q, want environment value", r.cfg.Server.Primary)
+	}
+	saved, err := clientconfig.Load(p.ConfigFile)
+	if err != nil {
+		t.Fatalf("load saved config: %v", err)
+	}
+	if saved.Server.Primary != "https://file.example" {
+		t.Fatalf("saved server = %q, want original file value", saved.Server.Primary)
+	}
+}
+
+func TestSessionEnvironmentDoesNotPersistWhenFlagSavesAnotherSetting(t *testing.T) {
+	isolateHome(t)
+	p := paths.Resolve(InternalOrg, InternalName, "")
+	cfg := clientconfig.Default()
+	cfg.SetPath(p.ConfigFile)
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHORTNER_SERVER_PRIMARY", "https://environment.example")
+	streams, _, _ := newTestIO()
+	r := &runner{io: streams, binaryName: "shortner-cli", flags: Flags{Token: "own_" + strings.Repeat("a", 32)}}
+	if code := r.loadConfig(); code != ExitOK {
+		t.Fatalf("loadConfig() = %d, want ExitOK", code)
+	}
+	saved, err := clientconfig.Load(p.ConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Server.Primary != "" {
+		t.Fatalf("environment server was persisted: %q", saved.Server.Primary)
+	}
+	if saved.Auth.Token != "own_"+strings.Repeat("a", 32) {
+		t.Fatalf("flag token was not persisted: %q", saved.Auth.Token)
 	}
 }
 

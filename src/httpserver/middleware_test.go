@@ -9,6 +9,7 @@ import (
 
 	"github.com/apimgr/shortner/src/applog"
 	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/security"
 )
 
 func TestIsHealthProbe(t *testing.T) {
@@ -53,6 +54,7 @@ func testDeps(t *testing.T) *deps {
 		access:          logger,
 		accessLogFormat: cfg.Server.Logs.Access.Format,
 		operatorTok:     "adm_test-operator",
+		secretKeys:      security.NewSecretKeyring(make([]byte, 32), nil, make([]byte, 32), nil),
 		cfgHeaders:      cfg.Web.Headers,
 		headers:         newHeaderDeps(cfg, resolver),
 		privacy:         &privacyDeps{cfg: cfg, resolver: resolver},
@@ -149,8 +151,10 @@ func TestCSRFMiddlewareAllowsMatchingCookieAndHeader(t *testing.T) {
 
 	h := d.csrfMiddleware(okHandler())
 	req := httptest.NewRequest(http.MethodPost, "/server/consent", nil)
-	req.AddCookie(&http.Cookie{Name: "csrf_token", Value: "abc123"})
-	req.Header.Set("X-CSRF-Token", "abc123")
+	current, _ := d.secretKeys.CSRFKeys()
+	csrfToken := signCSRFCookie(current, "abc123")
+	req.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfToken})
+	req.Header.Set("X-CSRF-Token", csrfToken)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 

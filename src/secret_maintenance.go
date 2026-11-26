@@ -69,6 +69,13 @@ func runSecretMaintenance(binaryName string, p paths.Paths, args []string) int {
 
 func rotateInstallationSecret(sqlDB db.Handle, configDir string, audit *applog.AuditLogger) error {
 	ctx := context.Background()
+	active, err := db.HasPreviousSecret(ctx, sqlDB, db.SecretInstallation)
+	if err != nil {
+		return err
+	}
+	if active {
+		return errors.New("previous installation_secret is still within its grace period")
+	}
 	oldSecret, err := db.GetSecret(ctx, sqlDB, db.SecretInstallation)
 	if err != nil {
 		return err
@@ -83,6 +90,7 @@ func rotateInstallationSecret(sqlDB db.Handle, configDir string, audit *applog.A
 	if store.HasKeypair() {
 		private, err = store.ReadPrivateKey(oldSecret)
 		if err != nil {
+			_ = audit.Write(applog.Entry{Event: "security.decrypt_failed", Category: "security", Severity: applog.SeverityError, Details: map[string]any{"table": "pgp_keys", "row_id": "project"}, Result: applog.ResultFailure})
 			return fmt.Errorf("decrypt existing PGP private key: %w", err)
 		}
 	}
@@ -91,7 +99,7 @@ func rotateInstallationSecret(sqlDB db.Handle, configDir string, audit *applog.A
 		return err
 	}
 	if err := db.SetSecret(ctx, sqlDB, db.SecretInstallation, newSecret); err != nil {
-		return err
+		return errors.Join(err, db.DeletePreviousSecret(ctx, sqlDB, db.SecretInstallation))
 	}
 	if private != nil {
 		if err := store.Write(private, newSecret); err != nil {
@@ -102,6 +110,14 @@ func rotateInstallationSecret(sqlDB db.Handle, configDir string, audit *applog.A
 }
 
 func rotateEncryptionKey(sqlDB db.Handle, configPath string, cfg *config.Config, audit *applog.AuditLogger) error {
+	ctx := context.Background()
+	active, err := db.HasPreviousSecret(ctx, sqlDB, "encryption_key")
+	if err != nil {
+		return err
+	}
+	if active {
+		return errors.New("previous encryption_key is still within its grace period")
+	}
 	oldKey, err := config.DecodeEncryptionKey(cfg)
 	if err != nil {
 		return err
@@ -113,35 +129,35 @@ func rotateEncryptionKey(sqlDB db.Handle, configPath string, cfg *config.Config,
 	newEncoded := base64.StdEncoding.EncodeToString(raw)
 	newKey := raw
 	oldEncoded := cfg.Server.Security.EncryptionKey
-	ctx := context.Background()
-	if err := db.SetGraceSecret(ctx, sqlDB, "encryption_key", oldEncoded, time.Now().UTC().Add(30*24*time.Hour)); err != nil {
-		return err
-	}
-	if err := db.ReencryptStoredData(ctx, sqlDB, oldKey, newKey); err != nil {
+	if err := db.SetGraceSecret(ctx, sqlDB, "encryption_key", oldEncoded, time.Now().UTC().Add(30*24*time.Hour), newKey); err != nil {
 		return err
 	}
 	if err := config.ReencryptDNSCredentials(cfg, oldKey, newKey); err != nil {
-		return errors.Join(err, restoreStoredEncryptionKey(ctx, sqlDB, newKey, oldKey))
+		return errors.Join(err, db.DeletePreviousSecret(ctx, sqlDB, "encryption_key"))
 	}
 	cfg.Server.Security.EncryptionKey = newEncoded
 	if err := config.Save(configPath, cfg); err != nil {
-		return errors.Join(err, restoreStoredEncryptionKey(ctx, sqlDB, newKey, oldKey))
+		return errors.Join(err, db.DeletePreviousSecret(ctx, sqlDB, "encryption_key"))
+	}
+	if err := db.ReencryptStoredData(ctx, sqlDB, oldKey, newKey); err != nil {
+		return errors.Join(err, writeDecryptFailure(audit, err))
 	}
 	return audit.Write(applog.Entry{Event: "security.encryption_key_rotated", Category: "security", Severity: applog.SeverityWarn, Details: map[string]any{"operator_reason": "manual rotation"}, Result: applog.ResultSuccess})
+}
+
+func writeDecryptFailure(audit *applog.AuditLogger, err error) error {
+	var failure *db.DecryptFailure
+	if !errors.As(err, &failure) || audit == nil {
+		return nil
+	}
+	return audit.Write(applog.Entry{Event: "security.decrypt_failed", Category: "security", Severity: applog.SeverityError, Details: map[string]any{"table": failure.Table, "row_id": failure.RowID}, Result: applog.ResultFailure})
 }
 
 func restoreInstallationSecret(ctx context.Context, sqlDB db.Handle, oldSecret string) error {
 	if err := db.SetSecret(ctx, sqlDB, db.SecretInstallation, oldSecret); err != nil {
 		return fmt.Errorf("restore previous installation secret: %w", err)
 	}
-	return nil
-}
-
-func restoreStoredEncryptionKey(ctx context.Context, sqlDB db.Handle, newKey, oldKey []byte) error {
-	if err := db.ReencryptStoredData(ctx, sqlDB, newKey, oldKey); err != nil {
-		return fmt.Errorf("restore database values encrypted with the previous key: %w", err)
-	}
-	return nil
+	return db.DeletePreviousSecret(ctx, sqlDB, db.SecretInstallation)
 }
 
 func maintenanceError(binaryName string, err error) int {

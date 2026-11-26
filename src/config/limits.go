@@ -82,6 +82,20 @@ func Validate(cfg *Config) []string {
 	warnings := ValidateBranding(cfg)
 	warnings = append(warnings, ValidateConnectionSettings(cfg)...)
 	defaults := Default("")
+	if (cfg.Server.TLS.Cert == "") != (cfg.Server.TLS.Key == "") {
+		warnings = append(warnings, "invalid server.ssl.cert/key pair, clearing both values")
+		cfg.Server.TLS.Cert = defaults.Server.TLS.Cert
+		cfg.Server.TLS.Key = defaults.Server.TLS.Key
+	}
+	switch strings.TrimSpace(cfg.Server.TLS.MinVersion) {
+	case "", "TLS1.2", "TLS1.3":
+		if cfg.Server.TLS.MinVersion == "" {
+			cfg.Server.TLS.MinVersion = defaults.Server.TLS.MinVersion
+		}
+	default:
+		warnings = append(warnings, "invalid server.ssl.min_version, using TLS1.2")
+		cfg.Server.TLS.MinVersion = defaults.Server.TLS.MinVersion
+	}
 	contactCaptcha := strings.ToLower(strings.TrimSpace(cfg.Server.Pages.Contact.Captcha))
 	switch contactCaptcha {
 	case "", "simple":
@@ -207,6 +221,7 @@ func Validate(cfg *Config) []string {
 	}
 
 	warnings = append(warnings, validateBackup(cfg, defaults)...)
+	warnings = append(warnings, validateRestore(cfg, defaults)...)
 	warnings = append(warnings, validateUpdate(cfg, defaults)...)
 	warnings = append(warnings, validateScheduler(cfg, defaults)...)
 	if v := strings.TrimSpace(cfg.Server.APIVersion); v == "" {
@@ -230,6 +245,35 @@ func Validate(cfg *Config) []string {
 		cfg.Server.SEO.Feed.MaxItems = defaults.Server.SEO.Feed.MaxItems
 	}
 
+	return warnings
+}
+
+func validateRestore(cfg, defaults *Config) []string {
+	var warnings []string
+	for _, field := range []struct {
+		name     string
+		value    *string
+		fallback string
+	}{
+		{"max_archive_size", &cfg.Server.Restore.MaxArchiveSize, defaults.Server.Restore.MaxArchiveSize},
+		{"max_expanded_size", &cfg.Server.Restore.MaxExpandedSize, defaults.Server.Restore.MaxExpandedSize},
+		{"max_file_size", &cfg.Server.Restore.MaxFileSize, defaults.Server.Restore.MaxFileSize},
+	} {
+		if _, err := ParseSize(*field.value, 0); err != nil || strings.TrimSpace(*field.value) == "" {
+			if err != nil {
+				warnings = append(warnings, fmt.Sprintf("invalid server.restore.%s %q, using default %q", field.name, *field.value, field.fallback))
+			}
+			*field.value = field.fallback
+		}
+	}
+	if cfg.Server.Restore.MaxFiles < 1 {
+		warnings = append(warnings, "invalid server.restore.max_files, using default 10000")
+		cfg.Server.Restore.MaxFiles = defaults.Server.Restore.MaxFiles
+	}
+	if cfg.Server.Restore.MaxRatio < 1 {
+		warnings = append(warnings, "invalid server.restore.max_ratio, using default 100")
+		cfg.Server.Restore.MaxRatio = defaults.Server.Restore.MaxRatio
+	}
 	return warnings
 }
 
@@ -637,13 +681,16 @@ func validateSecurity(cfg *Config, defaults *Config) []string {
 	sec.Allowlist = keptAllow
 
 	keptBlock := sec.BlockedIPs[:0]
-	for _, e := range sec.BlockedIPs {
+	for i, e := range sec.BlockedIPs {
 		norm, err := NormalizeCIDR(e.CIDR)
 		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("invalid server.security.blocked_ips entry %q: %v, entry ignored", e.CIDR, err))
+			warnings = append(warnings, fmt.Sprintf("invalid server.security.blocked_ips entry %d field cidr: %v, entry ignored", i, err))
 			continue
 		}
 		e.CIDR = norm
+		if strings.TrimSpace(e.Description) == "" {
+			e.Description = "(no description)"
+		}
 		keptBlock = append(keptBlock, e)
 	}
 	sec.BlockedIPs = keptBlock

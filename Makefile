@@ -2,15 +2,15 @@
 # Seven core targets. DO NOT ADD MORE.
 
 # Project identity comes from IDEA.md first, then the remote, then the directory path.
-PROJECT_NAME := $(shell sed -n 's/^project_name:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1 | tr -d '[:space:]')
+PROJECT_NAME := $(shell awk '/^project_name:[[:space:]]*/ && !found {sub(/^project_name:[[:space:]]*/, ""); value=$$0; found=1} END {print value}' IDEA.md 2>/dev/null | tr -d '[:space:]')
 ifeq ($(PROJECT_NAME),)
 PROJECT_NAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$$|\1|' || basename "$$(pwd)")
 endif
-PROJECT_ORG := $(shell sed -n 's/^project_org:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1 | tr -d '[:space:]')
+PROJECT_ORG := $(shell awk '/^project_org:[[:space:]]*/ && !found {sub(/^project_org:[[:space:]]*/, ""); value=$$0; found=1} END {print value}' IDEA.md 2>/dev/null | tr -d '[:space:]')
 ifeq ($(PROJECT_ORG),)
 PROJECT_ORG := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || basename "$$(dirname "$$(pwd)")")
 endif
-INTERNAL_NAME := $(shell sed -n 's/^internal_name:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1 | tr -d '[:space:]')
+INTERNAL_NAME := $(shell awk '/^internal_name:[[:space:]]*/ && !found {sub(/^internal_name:[[:space:]]*/, ""); value=$$0; found=1} END {print value}' IDEA.md 2>/dev/null | tr -d '[:space:]')
 ifeq ($(INTERNAL_NAME),)
 INTERNAL_NAME := $(PROJECT_NAME)
 endif
@@ -59,7 +59,7 @@ DOCKER_CPU_SHARES ?= 256
 DOCKER_TIMEOUT ?= 3600
 
 GO_DOCKER_RUN := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
-	--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	--name $(PROJECT_NAME)-$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) \
 	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) --cpu-shares=$(DOCKER_CPU_SHARES) \
 	-v $(PWD):/app \
 	-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
@@ -235,7 +235,7 @@ dev:
 				go build -buildvcs=false -o /build/$(PROJECT_NAME)-cli ./src/client && \
 			echo "Built: $$BUILD_DIR/$(PROJECT_NAME)-cli"; \
 		fi && \
-		echo "Test:  docker run --rm --name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECT_NAME) --help"
+		echo "Test:  docker run --rm --name $(PROJECT_NAME)-$$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8) -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECT_NAME) --help"
 
 # =============================================================================
 # CLEAN - Remove build artifacts

@@ -116,8 +116,8 @@ func TestBanner(t *testing.T) {
 }
 
 // TestFromEnv covers the MODE/DEBUG env var priority rules: MODE=debug
-// selects debug mode and defaults debug on, but an explicitly set DEBUG
-// (even DEBUG=false) always wins over that default.
+// selects debug mode and defaults debug on, but a non-empty DEBUG value
+// (including DEBUG=false) always wins over that default.
 func TestFromEnv(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -131,6 +131,7 @@ func TestFromEnv(t *testing.T) {
 		{"MODE=development", "development", "", false, Development, false},
 		{"MODE=debug sets debug mode + debug on", "debug", "", false, Debug, true},
 		{"MODE=debug DEBUG=false disables debug but keeps debug mode", "debug", "false", true, Debug, false},
+		{"MODE=debug DEBUG empty preserves default", "debug", "", true, Debug, true},
 		{"MODE=production DEBUG=true", "production", "true", true, Production, true},
 		{"DEBUG=1 alone enables debug, mode stays production", "", "1", true, Production, true},
 	}
@@ -144,6 +145,8 @@ func TestFromEnv(t *testing.T) {
 			}
 			if tt.setDebug {
 				t.Setenv("DEBUG", tt.debug)
+			} else {
+				t.Setenv("DEBUG", "")
 			}
 			FromEnv()
 			if GetCurrentAppMode() != tt.wantMode {

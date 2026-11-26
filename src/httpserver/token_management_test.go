@@ -79,7 +79,7 @@ func TestTokenRestoreRevealAndPrimaryOnlyAPI(t *testing.T) {
 			viewCookie = cookie
 		}
 	}
-	if viewCookie == nil || viewCookie.Value != "primary" || viewCookie.MaxAge != 60 || viewCookie.Path != "/server/preferences/tokens" || !viewCookie.HttpOnly || !viewCookie.Secure || viewCookie.SameSite != http.SameSiteStrictMode {
+	if viewCookie == nil || verifyTokenViewCookie(fd.secretKeys, viewCookie.Value) != "primary" || viewCookie.MaxAge != 60 || viewCookie.Path != "/server/preferences/tokens" || !viewCookie.HttpOnly || !viewCookie.Secure || viewCookie.SameSite != http.SameSiteStrictMode {
 		t.Fatalf("primary reveal view cookie = %+v", viewCookie)
 	}
 	revealPageRequest := httptest.NewRequest(http.MethodGet, "/server/preferences/tokens", nil)
@@ -173,7 +173,7 @@ func TestNewPrimaryTokenUsesOneUseViewAndCurrentCookie(t *testing.T) {
 			viewCookie = cookie
 		}
 	}
-	if ownerCookie == nil || ownerCookie.Value == "" || viewCookie == nil || viewCookie.Value != "primary" || !legacyCleared {
+	if ownerCookie == nil || ownerCookie.Value == "" || viewCookie == nil || verifyTokenViewCookie(fd.secretKeys, viewCookie.Value) != "primary" || !legacyCleared {
 		t.Fatalf("issue cookies = %+v; legacy cleared = %v", rec.Result().Cookies(), legacyCleared)
 	}
 	if strings.Contains(rec.Header().Get("Location"), ownerCookie.Value) || strings.Contains(rec.Body.String(), ownerCookie.Value) {
@@ -467,7 +467,7 @@ func TestPrimaryRotationIssuesOnlyCurrentCookieName(t *testing.T) {
 	}
 	viewSet := false
 	for _, cookie := range rec.Result().Cookies() {
-		viewSet = viewSet || (cookie.Name == tokenViewCookieName && cookie.Value == "primary" && cookie.MaxAge == 60)
+		viewSet = viewSet || (cookie.Name == tokenViewCookieName && verifyTokenViewCookie(fd.secretKeys, cookie.Value) == "primary" && cookie.MaxAge == 60)
 	}
 	if !viewSet {
 		t.Fatalf("rotation did not set one-use primary view cookie: %q", rec.Header().Values("Set-Cookie"))

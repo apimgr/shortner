@@ -111,8 +111,8 @@ func TestValidateSecurityDropsInvalidAllowlistAndBlockedEntries(t *testing.T) {
 		{CIDR: "garbage", Description: "bad"},
 	}
 	cfg.Server.Security.BlockedIPs = []BlockedIPEntry{
-		{CIDR: "198.51.100.9", Reason: "ok"},
-		{CIDR: "0.0.0.0/0", Reason: "too broad"},
+		{CIDR: "198.51.100.9", Description: "ok"},
+		{CIDR: "0.0.0.0/0", Description: "too broad"},
 	}
 
 	warnings := Validate(cfg)

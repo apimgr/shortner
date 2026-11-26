@@ -20,6 +20,7 @@ import (
 	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/metrics"
 	"github.com/apimgr/shortner/src/notify"
+	"github.com/apimgr/shortner/src/security"
 )
 
 // footerRepoURL is the {PLATFORM_REPO_URL} of the default application
@@ -142,6 +143,7 @@ type frontendDeps struct {
 	resolver              *ProxyResolver
 	installSecret         string
 	previousInstallSecret string
+	secretKeys            *security.SecretKeyring
 	audit                 *applog.AuditLogger
 	configDir             string
 	// notifier sends the AI.md PART 17 email events the frontend raises.

@@ -109,16 +109,15 @@ func GetAppModeString() string {
 
 // FromEnv sets mode and debug from environment variables.
 // MODE=debug selects debug mode and defaults the debug flag on, but an
-// explicitly set DEBUG env var (truthy OR falsy) always wins over that
+// non-empty DEBUG env var (truthy OR falsy) always wins over that
 // default — MODE=debug DEBUG=false runs debug mode with debug off.
 // The --debug CLI flag (applied after this) wins over both.
 func FromEnv() {
 	if m := os.Getenv("MODE"); m != "" {
 		SetAppMode(m)
 	}
-	// LookupEnv distinguishes "explicitly set" from "unset": an unset
-	// DEBUG leaves the alias result alone; a set DEBUG overrides it.
-	if v, set := os.LookupEnv("DEBUG"); set {
+	// An empty DEBUG value leaves the mode default unchanged.
+	if v, set := os.LookupEnv("DEBUG"); set && v != "" {
 		SetDebugEnabled(config.IsTruthy(v))
 	}
 }
