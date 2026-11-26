@@ -147,7 +147,7 @@ IDEA.md is the project PLAN. AI.md (this file) is the authoritative template bas
 
 **IDEA.md says WHAT the product is (features, data, business rules, audience, non-goals). AI.md says HOW every project is built and is the authority on every implementation and baseline requirement. When they disagree, AI.md wins and IDEA.md is corrected.**
 
-**A feature IDEA.md defines that AI.md has no contract for** (for example operator-level billing or federation) is built from IDEA.md under the full AI.md baseline: security, authentication, database, API conventions, configuration, audit, i18n and every PART the feature touches. AI.md defines no protocol for it and forbids nothing about it. The project's SPEC.md states the feature's technical contract (data, endpoints, signatures, retries, conflict handling) and is the only place that does; the feature never loosens a baseline rule, and a baseline rule it cannot meet is a SPEC.md exception (PART 0).
+**A feature IDEA.md defines that AI.md has no contract for** (for example federation) is built from IDEA.md under the full AI.md baseline: security, authentication, database, API conventions, configuration, audit, i18n and every PART the feature touches. AI.md defines no protocol for it and forbids nothing about it. The project's SPEC.md states the feature's technical contract (data, endpoints, signatures, retries, conflict handling) and is the only place that does; the feature never loosens a baseline rule, and a baseline rule it cannot meet is a SPEC.md exception (PART 0).
 
 | IDEA.md MAY | IDEA.md MAY NOT |
 |-------------|-----------------|
@@ -9856,7 +9856,7 @@ data:
 
 ### Update Contract and Sources
 
-**Blocklist sources** (`server.security.blocklists`, file-only, hot-reloaded). `extra_sources` entries have exactly the fields `id`, `type`, `url` and `enabled` below (the `Name` column of PART 17's suggested-sources table is the `id`, and the list format is detected from the content, never a field); the master keys `enabled`, `auto_update`, `action`, `reject_message` and `log_blocked` of `server.security.blocklists` are defined in PART 17 → Blocklists and apply to every source. `extra_sources` takes the same fields as below, for example `- {id: my_list, type: domain, url: "https://example.com/list.txt", enabled: true}`:
+**Blocklist sources** (`server.security.blocklists`, file-only, hot-reloaded). `extra_sources` entries have exactly the fields `id`, `type`, `url` and `enabled` below (the `Name` column of PART 17's suggested-sources table is the `id`, and the list format is detected from the content, never a field); the master keys of `server.security.blocklists` apply to every source: `enabled` (default `true`), `auto_update` (default `true`), `action` (`reject`, the default, answers `403`; or `drop`, which closes the connection silently), `reject_message` (optional text that overrides the translated `errors.forbidden`) and `log_blocked` (default `true`). `type` is CONFIGURED, the operator declares what the list holds; only the line layout is detected from the content. A line that does not parse as the declared type is skipped, and a download with no valid line of that type fails the atomic-update validation, so the previous data stays in use. `extra_sources` takes the same fields as below, for example `- {id: my_list, type: domain, url: "https://example.com/list.txt", enabled: true}`:
 
 ```yaml
 server:
@@ -32944,9 +32944,14 @@ groups:
   ],
   "encrypted": true,
   "encryption_method": "AES-256-GCM",
-  "checksum": "sha256:abc123..."
+  "type": "full",
+  "snapshot_at": "2025-01-15T10:30:00Z",
+  "files": [{"path": "server.yml", "size": 4096, "mtime": 1736937000, "sha256": "def456..."}],
+  "sha256": "abc123..."
 }
 ```
+
+**The one canonical checksum field is `sha256`.** It is the SHA-256 (hex) of the lines `{file sha256}  {path}` of `files`, one per line, sorted by path. It covers the content files and never `manifest.json` itself, so there is no self-reference. In an encrypted archive the manifest is inside the ciphertext: decrypt first (a wrong password fails the GCM tag), then read the manifest and verify; the integrity of the encrypted file itself is the GCM tag. An incremental's `base_sha256` is the `sha256` field of its base's manifest.
 
 ### Backup Encryption
 
