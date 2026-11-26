@@ -5076,8 +5076,8 @@ curl -q -LSsf https://api.example.com/api/v1/data
 2. **curl commands**: Use `{official_site}`, not `localhost` or relative paths
 3. **Client examples**: Show connecting to `{official_site}` by default
 4. **Endpoint tables**: Show full URLs: `GET {official_site}/api/v1/items`
-5. **Docker examples**: OK to use localhost for local deployment instructions
-6. **Development section**: OK to use localhost (it's for local dev)
+5. **Docker examples**: a labelled local try-out command may use `localhost` (the Display Rules exception, PART 8); nowhere else in user-facing documentation
+6. **Development section**: labelled local development and debug commands may use `localhost` (the same exception)
 
 **Template variables:**
 ```markdown
@@ -8184,7 +8184,7 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 |------|------------------|
 | `80` | Enable Let's Encrypt HTTP-01 challenge |
 | `443` | Enable Let's Encrypt TLS-ALPN-01 challenge, auto-enable SSL |
-| `0` | Let OS assign any available port |
+| `0` | Not valid: replaced like any invalid port (a random port in 64000-64999) with a warning; there is no OS-assigned mode |
 | `64000-64999` | Default range for random selection |
 
 ### Privileged Port Binding (<1024)
@@ -8879,7 +8879,7 @@ server:
   # - Omit or empty: Random port in 64000-64999 range
   # - Single number: Use that exact port
   # - Dual (HTTP,HTTPS): "8090,8443" format
-  # - 0: Let OS assign any available port
+  # - 0: not valid, replaced by a random port in 64000-64999 with a warning
   port: 64580
 ```
 
@@ -9856,7 +9856,7 @@ data:
 
 ### Update Contract and Sources
 
-**Blocklist sources** (`server.security.blocklists`, file-only, hot-reloaded). `extra_sources` takes the same fields as below, for example `- {id: my_list, type: domain, url: "https://example.com/list.txt", enabled: true}`:
+**Blocklist sources** (`server.security.blocklists`, file-only, hot-reloaded). `extra_sources` entries have exactly the fields `id`, `type`, `url` and `enabled` below (the `Name` column of PART 17's suggested-sources table is the `id`, and the list format is detected from the content, never a field); the master keys `enabled`, `auto_update`, `action`, `reject_message` and `log_blocked` of `server.security.blocklists` are defined in PART 17 → Blocklists and apply to every source. `extra_sources` takes the same fields as below, for example `- {id: my_list, type: domain, url: "https://example.com/list.txt", enabled: true}`:
 
 ```yaml
 server:
