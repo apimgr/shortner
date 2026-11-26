@@ -236,13 +236,22 @@ Three mechanisms, evaluated in order:
 
 1. **Allowlist** — `server.security.allowlist` entries bypass all blocking.
 2. **Permanent blocks** — `server.security.blocked_ips`, configuration-file
-   only, each with a reason.
+   only, each with a CIDR and optional description.
 3. **Temporary blocks** — issued automatically by abuse detection and
    released by the `ip_block_release` scheduler task, which sweeps every
    minute.
 
-Allowlist entries are managed in configuration. Their `description` is
-optional; an omitted or empty value is stored as `(no description)`.
+Allowlist and permanent block entries are managed in configuration. Each
+accepts a `cidr` and optional `description`; an omitted or empty description is
+stored as `(no description)`.
+
+```yaml
+server:
+  security:
+    blocked_ips:
+      - cidr: 198.51.100.0/24
+        description: "Scraper network"
+```
 
 ```yaml
 server:

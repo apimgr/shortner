@@ -94,7 +94,7 @@ GO_CACHE="${GO_CACHE:-$HOME/go/pkg/mod}"
 GO_BUILD="${GO_BUILD:-$HOME/.cache/go-build/$PROJECT_NAME}"
 mkdir -p "$GO_CACHE" "$GO_BUILD"
 docker run --rm --no-healthcheck \
-  --name "$(basename "$PWD")-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+  --name "$(basename "$PWD")-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
   -v "$PWD:/app" \
   -v "$GO_CACHE:/usr/local/share/go/pkg/mod" \
   -v "$GO_BUILD:/usr/local/share/go/cache" \
@@ -177,7 +177,7 @@ GO_CACHE="${GO_CACHE:-$HOME/go/pkg/mod}"
 GO_BUILD="${GO_BUILD:-$HOME/.cache/go-build/$PROJECT_NAME}"
 mkdir -p "$GO_CACHE" "$GO_BUILD"
 docker run --rm --no-healthcheck \
-  --name "$(basename "$PWD")-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+  --name "$(basename "$PWD")-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
   -v "$PWD:/app" \
   -v "$GO_CACHE:/usr/local/share/go/pkg/mod" \
   -v "$GO_BUILD:/usr/local/share/go/cache" \

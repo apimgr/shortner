@@ -782,8 +782,8 @@ permanent, config-file-only blocks. Entries with an invalid or dangerously
 broad CIDR (an IPv4 prefix shorter than `/8`, or an IPv6 prefix shorter
 than `/16`) are dropped with a warning. See [Security](security.md).
 
-Allowlist entries accept `cidr` and an optional `description`; an omitted or
-empty description is stored as `(no description)`.
+Allowlist and permanent block entries accept `cidr` and an optional
+`description`; an omitted or empty description is stored as `(no description)`.
 
 `blocklists` always includes the built-in `firehol_level1` IP feed. Add
 operator feeds under `extra_sources`; each requires a unique lowercase
