@@ -2318,43 +2318,43 @@ server:
 
 **Use `grep -n "^# PART" AI.md` to get exact current line numbers.**
 
-| PART | Line | Topic | When to Read |
-|------|------|-------|--------------|
-| 0 | ~2406 | AI Assistant Rules | **ALWAYS READ FIRST**, **AI Behavior Rules**, **Host System Safety Rule**, **Translation Rule** |
-| 1 | ~4224 | Critical Rules | **ALWAYS READ FIRST** |
-| 2 | ~5487 | License & Attribution | License requirements |
-| 3 | ~5821 | Project Structure | Setting up new project, **CI/CD badge detection** |
-| 4 | ~6690 | OS-Specific Paths | Path handling |
-| 5 | ~6886 | Configuration | Config file work, **Path Security**, **Privileged Ports**, **Escalation** |
-| 6 | ~8718 | Application Modes | Mode handling, debug endpoints |
-| 7 | ~9379 | Binary Requirements | Binary building, **Display detection**, **TERM=dumb**, **NO_COLOR** |
-| 8 | ~10018 | Server Binary CLI | CLI flags/commands, **NO_COLOR Support**, **--color/--lang flags**, **Resource Owner Tokens** |
-| 9 | ~13108 | Error Handling & Caching | Error/cache patterns |
-| 10 | ~13533 | Database | Database work |
-| 11 | ~13940 | Security & Logging | Security features, **Context Detection** |
-| 12 | ~16077 | Server Configuration | Server settings, **Allowlist**, **Blocklists**, **GeoIP** |
-| 13 | ~17526 | Health & Versioning | Health endpoints |
-| 14 | ~18236 | API Structure | REST/GraphQL/Route Compliance, **Non-Interactive Text Output** |
-| 15 | ~19998 | SSL/TLS & Let's Encrypt | SSL certificates |
-| 16 | ~20956 | Web Frontend | Frontend/UI, **Sitemap**, **Site Verification**, **Branding/SEO** |
-| 17 | ~28050 | Email & Notifications | Email/SMTP, **SMTP Auto-Detection** |
-| 18 | ~28702 | Scheduler | Background tasks, **NO external schedulers**, **Backup tasks** |
-| 19 | ~29143 | GeoIP | GeoIP features, **Country blocking (deny/allow)** |
-| 20 | ~29296 | Metrics | Prometheus metrics, **INTERNAL only** |
-| 21 | ~30824 | Backup & Restore | Backup features, **Compliance encryption** |
-| 22 | ~31381 | Update Command | Update feature |
-| 23 | ~32011 | Privilege Escalation & Service | Service/privilege work |
-| 24 | ~32625 | Service Support | Systemd/runit/rc.d/launchd templates |
-| 25 | ~32940 | Makefile | Local dev/tests/debug only, **NOT used in CI/CD** |
-| 26 | ~33763 | Docker | Docker/containers, **NEVER copy/symlink binaries** |
-| 27 | ~34732 | CI/CD Workflows | GitHub/GitLab/Gitea Actions |
-| 28 | ~38095 | Testing & Development | Testing/dev workflow, **Host Safety in tests**, **AI Docker Compose Rules**, **Content Negotiation Testing** |
-| 29 | ~39859 | ReadTheDocs Documentation | Documentation |
-| 30 | ~40653 | I18N & A11Y | Internationalization, **Translation parity (both binaries)**, **--lang flag** |
-| 31 | ~42094 | Overlay Networks (Tor & I2P) | Tor (required) + I2P eepsite (opt-in outside containers, on by default in a container) |
-| 32 | ~44684 | Client | Client **REQUIRED** — CLI/TUI/GUI, **Resource Owner Tokens**, **Smart Context**, **First-Run Wizard** |
-| 33 | ~47817 | IDEA.md Reference | **Examples only** - NEVER modify |
-| FINAL | ~48054 | Compliance Checklist | Final verification, **AI Quick Reference Rules**, **Console/Banner Checklist**, **I18N Checklist**, **Host Safety Checklist** |
+| PART | Topic | When to Read |
+|------|-------|--------------|
+| 0 | AI Assistant Rules | **ALWAYS READ FIRST**, **AI Behavior Rules**, **Host System Safety Rule**, **Translation Rule** |
+| 1 | Critical Rules | **ALWAYS READ FIRST** |
+| 2 | License & Attribution | License requirements |
+| 3 | Project Structure | Setting up new project, **CI/CD badge detection** |
+| 4 | OS-Specific Paths | Path handling |
+| 5 | Configuration | Config file work, **Path Security**, **Privileged Ports**, **Escalation** |
+| 6 | Application Modes | Mode handling, debug endpoints |
+| 7 | Binary Requirements | Binary building, **Display detection**, **TERM=dumb**, **NO_COLOR** |
+| 8 | Server Binary CLI | CLI flags/commands, **NO_COLOR Support**, **--color/--lang flags**, **Resource Owner Tokens** |
+| 9 | Error Handling & Caching | Error/cache patterns |
+| 10 | Database | Database work |
+| 11 | Security & Logging | Security features, **Context Detection** |
+| 12 | Server Configuration | Server settings, **Allowlist**, **Blocklists**, **GeoIP** |
+| 13 | Health & Versioning | Health endpoints |
+| 14 | API Structure | REST/GraphQL/Route Compliance, **Non-Interactive Text Output** |
+| 15 | SSL/TLS & Let's Encrypt | SSL certificates |
+| 16 | Web Frontend | Frontend/UI, **Sitemap**, **Site Verification**, **Branding/SEO** |
+| 17 | Email & Notifications | Email/SMTP, **SMTP Auto-Detection** |
+| 18 | Scheduler | Background tasks, **NO external schedulers**, **Backup tasks** |
+| 19 | GeoIP | GeoIP features, **Country blocking (deny/allow)** |
+| 20 | Metrics | Prometheus metrics, **INTERNAL only** |
+| 21 | Backup & Restore | Backup features, **Compliance encryption** |
+| 22 | Update Command | Update feature |
+| 23 | Privilege Escalation & Service | Service/privilege work |
+| 24 | Service Support | Systemd/runit/rc.d/launchd templates |
+| 25 | Makefile | Local dev/tests/debug only, **NOT used in CI/CD** |
+| 26 | Docker | Docker/containers, **NEVER copy/symlink binaries** |
+| 27 | CI/CD Workflows | GitHub/GitLab/Gitea Actions |
+| 28 | Testing & Development | Testing/dev workflow, **Host Safety in tests**, **AI Docker Compose Rules**, **Content Negotiation Testing** |
+| 29 | ReadTheDocs Documentation | Documentation |
+| 30 | I18N & A11Y | Internationalization, **Translation parity (both binaries)**, **--lang flag** |
+| 31 | Overlay Networks (Tor & I2P) | Tor (required) + I2P eepsite (opt-in outside containers, on by default in a container) |
+| 32 | Client | Client **REQUIRED** — CLI/TUI/GUI, **Resource Owner Tokens**, **Smart Context**, **First-Run Wizard** |
+| 33 | IDEA.md Reference | **Examples only** - NEVER modify |
+| FINAL | Compliance Checklist | Final verification, **AI Quick Reference Rules**, **Console/Banner Checklist**, **I18N Checklist**, **Host Safety Checklist** |
 
 ### How to Read This File
 
@@ -3772,9 +3772,9 @@ logging:
 |----------|----------|
 | **App needs debian packages** | Use `debian:latest` base image |
 | **App needs specific runtime** | Add to Dockerfile, document in IDEA.md |
-| **App has unique requirements** | Document exception in IDEA.md |
+| **App has unique requirements** | Declare the exception in the project's SPEC.md (it outranks AI.md); IDEA.md only states the product reason and never waives a requirement |
 
-**Rule:** If a spec requirement would genuinely break the app's core functionality, document the exception in IDEA.md.
+**Rule:** If a spec requirement would genuinely break the app's core functionality, declare the exception in SPEC.md (SPEC.md > AI.md) and state the product reason in IDEA.md. IDEA.md alone never waives a requirement.
 
 ## Post-Migration Checklist
 
@@ -6089,8 +6089,8 @@ PROJECT_ORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+
 │       ├── beta.yml        # Beta releases
 │       ├── devel.yml       # Devel builds
 │       └── docker.yml      # Docker images
-├── CLAUDE.md               # Project memory - critical rules (REQUIRED, primary location)
-├── AGENTS.md               # identical copy of CLAUDE.md, for non-Claude agents
+├── CLAUDE.md               # Short loader that points to AI.md (REQUIRED, primary location)
+├── AGENTS.md               # identical copy of the CLAUDE.md loader, for non-Claude agents
 ├── CLAUDE.local.md         # Personal project preferences (gitignored)
 ├── .claude/                # Claude Code configuration
 │   ├── CLAUDE.md           # Project memory (alternate location)
@@ -7157,9 +7157,10 @@ func SafePath(input string) (string, error) {
 var validFileSegment = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // SafeResourcePath validates a relative FILE or RESOURCE path (static files, downloads, an API file parameter).
-// It does not lowercase or rewrite the name; it only accepts or rejects it
+// It does not lowercase or rewrite the name; it only accepts or rejects it.
+// Traversal is rejected per segment: a segment of exactly . or .. fails validFileSegment (no leading dot), while dots inside a name (report..pdf) are legal
 func SafeResourcePath(input string) (string, error) {
-    if len(input) > 2048 || strings.Contains(input, "..") || strings.Contains(input, "\\") {
+    if len(input) > 2048 || strings.Contains(input, "\\") {
         return "", ErrPathTraversal
     }
     var kept []string
@@ -8200,7 +8201,7 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 
 **Default rule:** server/service processes MUST run as a dedicated system user/group whenever the project supports privilege drop.
 
-**Project-specific exception:** a project may run permanently as root/Administrator only when its core function requires ongoing OS-level privileges and privilege drop would break the app. This exception MUST be explicitly justified in IDEA.md.
+**Project-specific exception:** a project may run permanently as root/Administrator only when its core function requires ongoing OS-level privileges and privilege drop would break the app. This exception MUST be declared in SPEC.md, with the product reason that makes a privilege drop impossible stated in IDEA.md.
 
 ```bash
 # Unix-like (Linux, macOS, FreeBSD)
@@ -8251,7 +8252,7 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 # USER {internal_name}
 
 # WRONG: Hardcode permanent root when the project could run unprivileged
-# and has no documented IDEA.md exception
+# and has no SPEC.md exception
 #
 # WRONG in projects that need privileged startup: prevents privileged port binding
 # USER {internal_name}
@@ -10812,7 +10813,7 @@ Run '{project_name} <flag> --help' (for example `--service --help`) for detailed
 | **Private path enforcement** | `enforcePrivate` runs on every private path at every start, BEFORE the first read of `server.yml` and BEFORE any child process (tor, i2pd) is spawned. A wrong mode is FIXED, never reported as a config load failure; only a path that is neither private nor fixable stops the start, with an error naming the path and its mode (never any content). The unit test builds the tree at `0755`/`0644` and asserts every private path ends `0700`/`0600`, `tor/site` and `server.yml` included |
 | **PID directory (root)** | `/var/run/{internal_org}/{internal_name}/`, one directory per service, `0755`, owned by `{internal_name}:{internal_name}`, created in the root phase (PART 8 startup step 8b) or by the init script before the start. Never a directory shared between services of one org: a service account can then remove only its own PID file on shutdown and can never touch another service's |
 | **Parent dirs** | Create parent directories as needed (`mkdir -p` equivalent) |
-| **Validate writable** | Fail fast if directory is not writable |
+| **Validate writable** | Fail fast if a directory is not writable, EXCEPT `{backup_dir}`: at startup it is warning-only (step 8j logs one error and the server starts), and a backup operation fails closed when it cannot use it (PART 22), writing nothing elsewhere |
 | **Log on create** | Log directory creation at INFO level |
 
 ### Implementation
@@ -14265,7 +14266,7 @@ func (p *Paste) SetSlug(slug string) {
 
 **When this specification renames one of its own columns to the canonical name (for example the scheduler tables: `task_id` becomes `id`, `task_name` becomes `name`, `ran_at` becomes `started_at`), a database created with the old name is upgraded in place by the schema step.** The step runs `ALTER TABLE ... RENAME COLUMN old TO new` only when the table's column list shows the old name and not the new one, so it is idempotent. SQLite and libSQL both support `RENAME COLUMN`, and the column list comes from `PRAGMA table_info`. Data is kept, nothing is dropped and no alias or duplicate column remains, so "Canonical Terms Only" (PART 0) and "Never destructive" both hold. A column that is missing after the rename (for example `finished_at` on an old history table) is added with the plain `ADD COLUMN` rule. This exception covers only columns whose canonical name this specification defines; a project's own columns follow "Handling Column Renames".
 
-**A primary key is never converted by the schema step.** `admins.id` is `INTEGER PRIMARY KEY AUTOINCREMENT` from the first release of a project built on this template, so there is no type to migrate; the schema step never rebuilds a table, which keeps "Never destructive" true. An existing table keeps its key, and code treats `admins.id` as an opaque value it only compares. An installation that predates this template adopts the canonical key through one project-written migration made while adopting the template: a backup first, then one transaction that creates the new table, copies every row with its references remapped, swaps the tables and re-checks the foreign keys (`PRAGMA foreign_key_check`).
+**A primary key is never converted by the schema step.** `admins.id` is `INTEGER PRIMARY KEY AUTOINCREMENT` from the first release of a project built on this template, so there is no type to migrate; the schema step never rebuilds a table, which keeps "Never destructive" true. An existing table keeps its key, and code treats `admins.id` as an opaque value it only compares. The ONLY exception to "No migration files" is a one-time adoption step for an installation that predates this template: the adopting project writes it in its own code (never in this template), the maintainer runs it ONCE, by hand, before the first start on the new binary (it is not part of startup, not versioned and never repeated), and it adopts the canonical key like this: a backup first, then one transaction that creates the new table, copies every row with its references remapped, swaps the tables and re-checks the foreign keys (`PRAGMA foreign_key_check`).
 
 ### Remote Database Updates
 
@@ -17127,7 +17128,7 @@ Tor hidden services are always plain `http://` — the `.onion` address is itsel
 | **`Strict-Transport-Security` (HSTS)** | Never sent — HSTS would make the browser refuse the `http://` onion, taking the site offline. |
 | **CSP `upgrade-insecure-requests`** | Omitted from the CSP for Tor responses — it would rewrite same-origin `http://{onion}` references to a nonexistent `https://{onion}`. |
 | **Clearnet HTTPS-only mode** | Never inherited — a clearnet port-443 / HTTPS-only configuration does NOT propagate to the onion; the onion stays `http://` regardless. |
-| **`Secure` cookie flag** | Still set — a `.onion` is a W3C "potentially trustworthy" secure context in Tor Browser, so `Secure` cookies are stored and sent normally; `secure: auto` treats a matched Tor request as a secure context. |
+| **`Secure` cookie flag** | Still set — a `.onion` is a W3C "potentially trustworthy" secure context in Tor Browser, so `Secure` cookies are stored and sent normally; `secure: auto` treats a matched Tor request as a secure context. **I2P differs:** a `.b32.i2p` site is plain HTTP and browsers do NOT treat it as a secure context, so they drop a `Secure` cookie. On a matched I2P request no cookie (session, CSRF, owner token, preference) is set with `Secure`, whatever `secure` says; `HttpOnly`, `SameSite` and the host-only scope stay. |
 | **Canonical / `Location` / absolute links** | Built via `BuildURL(r, path)` → `http://{onion_address}`; never `https://`, never the clearnet host. |
 
 These rules apply only to requests detected as Tor requests. Clearnet requests keep full HTTPS enforcement (redirect, HSTS, upgrade-insecure-requests) unchanged.
@@ -17145,7 +17146,7 @@ These are concrete cases of parity-principle point 2 — features that cannot wo
 | **Third-party clearnet embeds** — external CDNs, fonts, scripts, remote images, analytics | Loading a clearnet URL from a `.onion` page either fails or deanonymizes the user by forcing a non-Tor request. | Serve every asset same-origin from the onion; ship fonts/scripts/images locally; disable third-party analytics for Tor requests. |
 | **Third-party OAuth / SSO login** | Many providers reject `.onion` redirect URIs and will not federate to a hidden service. | Offer local or onion-native auth for Tor; if an external provider is required and unavailable, show a clear "not available over Tor" message — never redirect to a clearnet callback. |
 | **CAPTCHA (reCAPTCHA, hCaptcha) and other clearnet security services** | These are clearnet endpoints; calling them from a `.onion` leaks the request off Tor and usually fails. | Use a self-hosted / Tor-friendly challenge or a proof-of-work / rate-limit alternative. |
-| **Payment gateways, webhooks, outbound callbacks to clearnet** | The target is a clearnet URL; an onion-origin request to it defeats anonymity or is rejected. | Route through a Tor-aware integration if one exists; otherwise fail loudly and tell the caller the action isn't available over Tor. **Exception:** a notification webhook (the contact and security-report copy) is optional, never the action itself: over Tor or I2P it is skipped with one WARN log, and the submission is still accepted and stored, with the same response the caller would get otherwise. |
+| **Payment gateways, webhooks, outbound callbacks to clearnet** | The target is a clearnet URL; an onion-origin request to it defeats anonymity or is rejected. | Route through a Tor-aware integration if one exists; otherwise fail loudly and tell the caller the action isn't available over Tor. **Exception:** a notification webhook (the contact and security-report copy) is optional, never the action itself: over Tor or I2P it is skipped with one WARN log, and the submission is still accepted and processed exactly as it would be without the webhook (a security report is stored as PART 11 defines; any other contact message follows its normal email routing), with the same response the caller would get otherwise. The webhook is only an extra copy, never the delivery path and never a storage mechanism. |
 | **Absolute / cross-network links** | A link to the clearnet FQDN pushes the client off Tor and leaks the clearnet identity. | Build every absolute URL (canonical tags, redirects, webhook/callback URLs, email links) from `tor.onion_address` for Tor requests. |
 
 ### Tor Request Logging & Identity
@@ -33084,7 +33085,7 @@ server:
 ```
 0. Ensure {backup_dir} exists and is writable: EnsureDir (PART 8; it is created again when missing, for example removed or an unmounted external disk; 0755 as root, 0700 as user), then a write probe.
    A failure aborts the run with ONE error naming the path, its owner and mode and the running user (backup.failed); nothing is created elsewhere
-1. Run retention sweep on backup dir (resolved and cached at startup step 7)
+1. Pre-run sweep of the backup dir (resolved and cached at startup step 7): removes ONLY leftovers (partial or unverified files from an earlier failed run) and NEVER a valid backup; retention deletion happens only in step 7, after the new backups verify
 2. Check free space: if free < 2× size of most recent backup, OR disk usage
    > disk_threshold (default 90%), log backup.skipped_disk_full (level=error)
    and abort — do NOT create the backup
@@ -33302,7 +33303,7 @@ Note: A single backup can satisfy multiple retention types (e.g., Jan 1st 2025
 on a Sunday counts as daily + weekly + monthly + yearly — uses highest priority)
 ```
 
-**Daily incremental is NOT counted** in retention - it's always exactly 1 file that gets replaced. A full backup that is the `base_backup` of a retained incremental is exempt from pruning until that incremental is replaced (at most one extra full on disk).
+**Daily incremental is NOT counted** in retention - it's always exactly 1 file that gets replaced. A full backup that is the `base_backup` of a retained incremental is exempt from pruning until that incremental is replaced (at most one extra full on disk). Lifetime: the next run replaces the incremental with one based on the newest full; from then on the former base is a plain full, restorable alone at its own snapshot, and it ages out by the normal retention rules. Only the newest incremental and its base form a point-in-time pair, there is never a second incremental on disk, and the fixed file name `{project_name}-daily.tar.gz[.enc]` names no pair (its manifest's `base_backup` does).
 
 ## Incremental Backup Contract
 
@@ -34428,7 +34429,7 @@ adduser -S -D -H -u {id} -G {internal_name} -h /var/lib/{internal_org}/{internal
 
 **Default rule:** create and use a dedicated service user/group.
 
-**Exception:** skip dedicated user creation only when the project is explicitly approved to run permanently as root/Administrator in IDEA.md.
+**Exception:** skip dedicated user creation only when the project is explicitly approved to run permanently as root/Administrator in SPEC.md (the product reason is stated in IDEA.md).
 
 ### macOS Service Account
 
@@ -34716,7 +34717,7 @@ func installWindowsService() error {
 
 This allows any port configuration without service file changes.
 
-**Exception:** if IDEA.md explicitly requires permanent root, the service file and documentation MUST say so and explain why privilege drop is not possible.
+**Exception:** if the project's SPEC.md declares permanent root (the product reason is stated in IDEA.md), the service file and documentation MUST say so and explain why privilege drop is not possible.
 
 ### systemd (Linux)
 
@@ -35493,7 +35494,9 @@ test:
 		mkdir -p \"\$${TMPDIR:-/tmp}/$(PROJECT_ORG)\" && \
 		COVDIR=\$$(mktemp -d \"\$${TMPDIR:-/tmp}/$(PROJECT_ORG)/$(INTERNAL_NAME)-XXXXXX\") && \
 		go mod download && \
-		go test -v -cover -coverprofile=\$$COVDIR/coverage.out ./... && \
+		mkdir -p \$$COVDIR/data && \
+		go test -v -cover ./... -args -test.gocoverdir=\$$COVDIR/data && \
+		go tool covdata textfmt -i=\$$COVDIR/data -o=\$$COVDIR/coverage.out && \
 		COVERAGE=\$$(go tool cover -func=\$$COVDIR/coverage.out | grep '^total:' | awk '{print \$$3}' | sed 's/%//') && \
 		echo \"Coverage: \$$COVERAGE%\" && \
 		if [ \$$(echo \"\$$COVERAGE < 60\" | bc -l) -eq 1 ]; then \
@@ -37071,7 +37074,9 @@ jobs:
           mkdir -p "/tmp/${{ github.repository_owner }}"
           COVDIR=$(mktemp -d "/tmp/${{ github.repository_owner }}/$(basename "${{ github.repository }}")-XXXXXX")
           echo "COVDIR=$COVDIR" >> "$GITHUB_ENV"
-          go test -cover -coverprofile="$COVDIR/coverage.out" ./...
+          mkdir -p "$COVDIR/data"
+          go test -cover ./... -args -test.gocoverdir="$COVDIR/data"
+          go tool covdata textfmt -i="$COVDIR/data" -o="$COVDIR/coverage.out"
       - name: Enforce coverage threshold
         run: |
           THRESHOLD=60
@@ -38126,7 +38131,9 @@ jobs:
           mkdir -p "/tmp/${{ gitea.repository_owner }}"
           COVDIR=$(mktemp -d "/tmp/${{ gitea.repository_owner }}/$(basename "${{ gitea.repository }}")-XXXXXX")
           echo "COVDIR=$COVDIR" >> "$GITEA_ENV"
-          go test -cover -coverprofile="$COVDIR/coverage.out" ./...
+          mkdir -p "$COVDIR/data"
+          go test -cover ./... -args -test.gocoverdir="$COVDIR/data"
+          go tool covdata textfmt -i="$COVDIR/data" -o="$COVDIR/coverage.out"
       - name: Enforce coverage threshold
         run: |
           THRESHOLD=60
@@ -39310,13 +39317,15 @@ test:
   script:
     - mkdir -p "/tmp/${CI_PROJECT_NAMESPACE}"
     - COVDIR=$(mktemp -d "/tmp/${CI_PROJECT_NAMESPACE}/${CI_PROJECT_NAME}-XXXXXX")
-    - go test -v -cover -coverprofile="$COVDIR/coverage.out" ./...
+    - mkdir -p "$COVDIR/data"
+    - go test -v -cover ./... -args -test.gocoverdir="$COVDIR/data"
+    - go tool covdata textfmt -i="$COVDIR/data" -o="$COVDIR/coverage.out"
     - PCT=$(go tool cover -func="$COVDIR/coverage.out" | awk '/^total:/ {gsub("%","",$3); print int($3)}')
     - if [ "$PCT" -lt 60 ]; then echo "coverage ${PCT}% is below the 60% threshold"; exit 1; fi
   rules:
     - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
     - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"
-    - if: $CI_COMMIT_TAG =~ /-beta$/
+    - if: $CI_COMMIT_TAG =~ /^\d{14}-beta$/
 
 # =============================================================================
 # RELEASE (GitLab Release)
@@ -39454,7 +39463,7 @@ build:beta:
       dotenv: release.env
     expire_in: 1 week
   rules:
-    - if: $CI_COMMIT_TAG =~ /-beta$/
+    - if: $CI_COMMIT_TAG =~ /^\d{14}-beta$/
 
 # =============================================================================
 # DEVEL BUILDS (Scheduled + main/master push) - All 8 platforms
@@ -39547,7 +39556,7 @@ sbom:beta:
       - ${PROJECT_NAME}-*-sbom.cdx.json
     expire_in: 1 week
   rules:
-    - if: $CI_COMMIT_TAG =~ /-beta$/
+    - if: $CI_COMMIT_TAG =~ /^\d{14}-beta$/
 
 sbom:devel:
   image: $BUILD_IMAGE
@@ -39633,7 +39642,7 @@ release:beta:
         - name: "sha512.txt"
           url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/sha512.txt?job=release:beta"
   rules:
-    - if: $CI_COMMIT_TAG =~ /-beta$/
+    - if: $CI_COMMIT_TAG =~ /^\d{14}-beta$/
 
 release:devel:
   stage: release
@@ -39777,7 +39786,7 @@ docker:build:
   rules:
     - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
     - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"
-    - if: $CI_COMMIT_TAG =~ /-beta$/
+    - if: $CI_COMMIT_TAG =~ /^\d{14}-beta$/
 
 # =============================================================================
 # DEVEL IMAGE BUILD (own job — push to main/master + daily schedule)
@@ -39981,7 +39990,7 @@ pipeline {
             steps {
                 script {
                     // Determine build type and version
-                    if (env.TAG_NAME?.endsWith('-beta')) {
+                    if ((env.TAG_NAME ?: '') ==~ /^\d{14}-beta$/) {
                         // Beta build (tag YYYYMMDDHHMMSS-beta) - matches beta.yml
                         env.BUILD_TYPE = 'beta'
                         env.VERSION = env.TAG_NAME
@@ -40366,7 +40375,7 @@ pipeline {
                 sh '''
                     mkdir -p "/tmp/${PROJECT_ORG}"
                     COVDIR=$(mktemp -d "/tmp/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX")
-                    docker run --rm -v ${WORKSPACE}:/app -v ${COVDIR}:/cov -v ${GO_CACHE}:/usr/local/share/go/pkg/mod -v ${GO_BUILD}:/usr/local/share/go/cache -w /app casjaysdev/go:latest go test -coverprofile=/cov/coverage.out ./...
+                    docker run --rm -v ${WORKSPACE}:/app -v ${COVDIR}:/cov -v ${GO_CACHE}:/usr/local/share/go/pkg/mod -v ${GO_BUILD}:/usr/local/share/go/cache -w /app casjaysdev/go:latest sh -c 'mkdir -p /cov/data && go test -cover ./... -args -test.gocoverdir=/cov/data && go tool covdata textfmt -i=/cov/data -o=/cov/coverage.out'
                     PCT=$(docker run --rm -v ${WORKSPACE}:/app -v ${COVDIR}:/cov -w /app casjaysdev/go:latest go tool cover -func=/cov/coverage.out | awk '/^total:/ {gsub("%","",$3); print int($3)}')
                     rm -rf "$COVDIR"
                     [ "$PCT" -ge 60 ] || { echo "coverage ${PCT}% < 60%"; exit 1; }
@@ -40763,7 +40772,7 @@ Before proceeding, confirm you understand:
 | Feature | GitHub Actions | Gitea/Forgejo | GitLab CI | Jenkins |
 |---------|----------------|---------------|-----------|---------|
 | Stable release | `release.yml` | `release.yml` | `rules: tag` | `BUILD_TYPE == 'release'` |
-| Beta release | `beta.yml` | `beta.yml` | `rules: beta` | `BUILD_TYPE == 'beta'` |
+| Beta release | `beta.yml` | `beta.yml` | `rules: if: $CI_COMMIT_TAG =~ /^\d{14}-beta$/` | `BUILD_TYPE == 'beta'` |
 | Devel release | `devel.yml` | `devel.yml` | `rules: schedule` | `BUILD_TYPE == 'devel'` |
 | Docker images | `docker.yml` | `docker.yml` | `docker:build` | Docker stage |
 | Docker devel image | `docker.yml` `build-devel` job | `docker.yml` `build-devel` job | `docker:devel` | "Docker: Devel" stage |
@@ -41016,6 +41025,8 @@ rm -rf "$TEST_DIR"
 ## Container Usage
 
 **⚠️ NEVER RUN BINARIES DIRECTLY ON THE LOCAL MACHINE. ALWAYS USE CONTAINERS. ⚠️**
+
+**Scope:** this rule covers development, build and test execution by an AI or a developer. The END-USER install steps of the production README (download, `chmod +x`, run) are the product's own install path and run the binary directly on the user's machine, as they must.
 
 **See also: "Container-Only Development" in Critical Rules section.**
 
@@ -41455,6 +41466,8 @@ make test
 
 ### Coverage Enforcement
 
+**Coverage data is collected with `-test.gocoverdir` and converted with `go tool covdata textfmt`; `-coverprofile` is not used.** Every test process writes its own file into the coverage directory, so no profile file is shared between processes (a shared one can end up malformed, `expected "mode: set"`). The directory is the project-scoped temp directory of the Test Output rule, never the project tree.
+
 **In CI/CD Pipeline (REQUIRED):**
 
 ```yaml
@@ -41466,16 +41479,18 @@ test:
 
     - name: Run tests with coverage
       run: |
-        # coverage.out goes to the mounted workspace (/app), not /tmp — two separate docker run
-        # invocations cannot share /tmp; the workspace mount is the only shared path between them.
-        # The runner workspace is ephemeral so this is safe.
-        docker run --rm --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -v $PWD:/app -w /app casjaysdev/go:latest \
-          go test -cover -coverprofile=coverage.out ./...
+        # coverage data goes to a project-scoped temp directory outside the workspace, mounted into the container; two separate docker run
+        # invocations share it through the mount, and the project tree stays clean
+        mkdir -p "/tmp/${{ github.repository_owner }}"
+        COVDIR=$(mktemp -d "/tmp/${{ github.repository_owner }}/$(basename "${{ github.repository }}")-XXXXXX")
+        echo "COVDIR=$COVDIR" >> "$GITHUB_ENV"
+        docker run --rm --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -v $PWD:/app -v "$COVDIR":/cov -w /app casjaysdev/go:latest \
+          sh -c 'mkdir -p /cov/data && go test -cover ./... -args -test.gocoverdir=/cov/data && go tool covdata textfmt -i=/cov/data -o=/cov/coverage.out'
 
     - name: Check coverage is ≥60%
       run: |
-        COVERAGE=$(docker run --rm --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -v $PWD:/app -w /app casjaysdev/go:latest \
-          go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | sed 's/%//')
+        COVERAGE=$(docker run --rm --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -v $PWD:/app -v "$COVDIR":/cov -w /app casjaysdev/go:latest \
+          go tool cover -func=/cov/coverage.out | grep '^total:' | awk '{print $3}' | sed 's/%//')
         if [ $(echo "$COVERAGE < 60" | bc -l) -eq 1 ]; then
           echo "ERROR: Coverage is $COVERAGE%, must be >= 60%" >&2
           exit 1
@@ -43735,7 +43750,7 @@ DATABASE_DRIVER=sqlite
 
 ## Server Administration
 
-All settings are configurable via `server.yml` or CLI.
+All settings are configurable in the configuration files (`server.yml`, the `yaml.d/` area files and `secrets.yml`). The command line has controls only for the flags PART 8 lists; there is no generic CLI override for a server setting.
 
 Document:
 - well-known namespace settings and optional entries if enabled
@@ -53272,43 +53287,43 @@ When stuck:
 
 **Use `grep -n "^# PART" AI.md` to get exact current line numbers.**
 
-| PART | Line | Topic | When to Read |
-|------|------|-------|--------------|
-| 0 | ~2406 | AI Assistant Rules | **ALWAYS READ FIRST**, **AI Behavior Rules**, **Host System Safety Rule**, **Translation Rule** |
-| 1 | ~4224 | Critical Rules | **ALWAYS READ FIRST** |
-| 2 | ~5487 | License & Attribution | License requirements |
-| 3 | ~5821 | Project Structure | Setting up new project, **CI/CD badge detection** |
-| 4 | ~6690 | OS-Specific Paths | Path handling |
-| 5 | ~6886 | Configuration | Config file work, **Path Security**, **Privileged Ports**, **Escalation** |
-| 6 | ~8718 | Application Modes | Mode handling, debug endpoints |
-| 7 | ~9379 | Binary Requirements | Binary building, **Display detection**, **TERM=dumb**, **NO_COLOR** |
-| 8 | ~10018 | Server Binary CLI | CLI flags/commands, **NO_COLOR Support**, **--color/--lang flags**, **Resource Owner Tokens** |
-| 9 | ~13108 | Error Handling & Caching | Error/cache patterns |
-| 10 | ~13533 | Database | Database work |
-| 11 | ~13940 | Security & Logging | Security features, **Context Detection** |
-| 12 | ~16077 | Server Configuration | Server settings, **Allowlist**, **Blocklists**, **GeoIP** |
-| 13 | ~17526 | Health & Versioning | Health endpoints |
-| 14 | ~18236 | API Structure | REST/GraphQL/Route Compliance, **Non-Interactive Text Output** |
-| 15 | ~19998 | SSL/TLS & Let's Encrypt | SSL certificates |
-| 16 | ~20956 | Web Frontend | Frontend/UI, **Sitemap**, **Site Verification**, **Branding/SEO** |
-| 17 | ~28050 | Email & Notifications | Email/SMTP, **SMTP Auto-Detection** |
-| 18 | ~28702 | Scheduler | Background tasks, **NO external schedulers**, **Backup tasks** |
-| 19 | ~29143 | GeoIP | GeoIP features, **Country blocking (deny/allow)** |
-| 20 | ~29296 | Metrics | Prometheus metrics, **INTERNAL only** |
-| 21 | ~30824 | Backup & Restore | Backup features, **Compliance encryption** |
-| 22 | ~31381 | Update Command | Update feature |
-| 23 | ~32011 | Privilege Escalation & Service | Service/privilege work |
-| 24 | ~32625 | Service Support | Systemd/runit/rc.d/launchd templates |
-| 25 | ~32940 | Makefile | Local dev/tests/debug only, **NOT used in CI/CD** |
-| 26 | ~33763 | Docker | Docker/containers, **NEVER copy/symlink binaries** |
-| 27 | ~34732 | CI/CD Workflows | GitHub/GitLab/Gitea Actions |
-| 28 | ~38095 | Testing & Development | Testing/dev workflow, **Host Safety in tests**, **AI Docker Compose Rules**, **Content Negotiation Testing** |
-| 29 | ~39859 | ReadTheDocs Documentation | Documentation |
-| 30 | ~40653 | I18N & A11Y | Internationalization, **Translation parity (both binaries)**, **--lang flag** |
-| 31 | ~42094 | Overlay Networks (Tor & I2P) | Tor (required) + I2P eepsite (opt-in outside containers, on by default in a container) |
-| 32 | ~44684 | Client | Client **REQUIRED** — CLI/TUI/GUI, **Resource Owner Tokens**, **Smart Context**, **First-Run Wizard** |
-| 33 | ~47817 | IDEA.md Reference | **Examples only** - NEVER modify |
-| FINAL | ~48054 | Compliance Checklist | Final verification, **AI Quick Reference Rules**, **Console/Banner Checklist**, **I18N Checklist**, **Host Safety Checklist** |
+| PART | Topic | When to Read |
+|------|-------|--------------|
+| 0 | AI Assistant Rules | **ALWAYS READ FIRST**, **AI Behavior Rules**, **Host System Safety Rule**, **Translation Rule** |
+| 1 | Critical Rules | **ALWAYS READ FIRST** |
+| 2 | License & Attribution | License requirements |
+| 3 | Project Structure | Setting up new project, **CI/CD badge detection** |
+| 4 | OS-Specific Paths | Path handling |
+| 5 | Configuration | Config file work, **Path Security**, **Privileged Ports**, **Escalation** |
+| 6 | Application Modes | Mode handling, debug endpoints |
+| 7 | Binary Requirements | Binary building, **Display detection**, **TERM=dumb**, **NO_COLOR** |
+| 8 | Server Binary CLI | CLI flags/commands, **NO_COLOR Support**, **--color/--lang flags**, **Resource Owner Tokens** |
+| 9 | Error Handling & Caching | Error/cache patterns |
+| 10 | Database | Database work |
+| 11 | Security & Logging | Security features, **Context Detection** |
+| 12 | Server Configuration | Server settings, **Allowlist**, **Blocklists**, **GeoIP** |
+| 13 | Health & Versioning | Health endpoints |
+| 14 | API Structure | REST/GraphQL/Route Compliance, **Non-Interactive Text Output** |
+| 15 | SSL/TLS & Let's Encrypt | SSL certificates |
+| 16 | Web Frontend | Frontend/UI, **Sitemap**, **Site Verification**, **Branding/SEO** |
+| 17 | Email & Notifications | Email/SMTP, **SMTP Auto-Detection** |
+| 18 | Scheduler | Background tasks, **NO external schedulers**, **Backup tasks** |
+| 19 | GeoIP | GeoIP features, **Country blocking (deny/allow)** |
+| 20 | Metrics | Prometheus metrics, **INTERNAL only** |
+| 21 | Backup & Restore | Backup features, **Compliance encryption** |
+| 22 | Update Command | Update feature |
+| 23 | Privilege Escalation & Service | Service/privilege work |
+| 24 | Service Support | Systemd/runit/rc.d/launchd templates |
+| 25 | Makefile | Local dev/tests/debug only, **NOT used in CI/CD** |
+| 26 | Docker | Docker/containers, **NEVER copy/symlink binaries** |
+| 27 | CI/CD Workflows | GitHub/GitLab/Gitea Actions |
+| 28 | Testing & Development | Testing/dev workflow, **Host Safety in tests**, **AI Docker Compose Rules**, **Content Negotiation Testing** |
+| 29 | ReadTheDocs Documentation | Documentation |
+| 30 | I18N & A11Y | Internationalization, **Translation parity (both binaries)**, **--lang flag** |
+| 31 | Overlay Networks (Tor & I2P) | Tor (required) + I2P eepsite (opt-in outside containers, on by default in a container) |
+| 32 | Client | Client **REQUIRED** — CLI/TUI/GUI, **Resource Owner Tokens**, **Smart Context**, **First-Run Wizard** |
+| 33 | IDEA.md Reference | **Examples only** - NEVER modify |
+| FINAL | Compliance Checklist | Final verification, **AI Quick Reference Rules**, **Console/Banner Checklist**, **I18N Checklist**, **Host Safety Checklist** |
 
 ### How to Read This File
 

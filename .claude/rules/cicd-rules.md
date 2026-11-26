@@ -5,18 +5,21 @@
 ## CRITICAL - NEVER DO
 - Use `make` inside CI/CD workflows — explicit commands only
 - Pin a third-party GitHub Action to a tag — pin to a full commit SHA
-- Create `ci.yml`/`release.yml` before security-only workflows exist
+- Add a Go toolchain image or `build-toolchain.yml` when the maintained
+  `casjaysdev/go:latest` image is sufficient
 
 ## CRITICAL - ALWAYS DO
 - `act --list -W {file}` must pass before a workflow file is considered done
-- Provide equivalent build/test/security, release, and toolchain workflows
-  for GitHub, GitLab, Gitea, Forgejo, and Jenkins as required by AI.md PART 27
+- Provide equivalent build/test/security, release, and Docker workflows for
+  GitHub, GitLab, Gitea, Forgejo, and Jenkins as required by AI.md PART 27
+- Keep Go lint, test, and vulnerability jobs on `casjaysdev/go:latest`; no
+  separate toolchain-image workflow is required for this project
 - Verify pinned Action SHAs with the 3-point verification process
 
 ## KEY DECISIONS (pre-answered)
 | Question | Answer | Spec Reference |
 |----------|--------|-----------------|
-| Workflow creation order | security-only first, ci/release last | global CLAUDE.md, PART 27 |
+| Security gates | `ci.yml` contains scheduled secret, vulnerability, workflow-policy, and image scans | AI.md PART 27 |
 | Action pinning | full commit SHA, never a tag | global CLAUDE.md, PART 27 |
 
 ## QUICK REFERENCE

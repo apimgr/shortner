@@ -60,7 +60,7 @@ operator token, opens the database, and starts listening on port `8090`.
 Then create a link:
 
 ```bash
-curl -X POST http://localhost:8090/api/v1/links \
+curl -q -LSsf -X POST http://localhost:8090/api/v1/links \
   -H 'Content-Type: application/json' \
   -d '{"url": "https://example.com/a/very/long/path"}'
 ```

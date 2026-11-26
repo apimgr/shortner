@@ -89,11 +89,19 @@ The Makefile is a local convenience only. The equivalent explicit command,
 which is what CI uses:
 
 ```bash
-docker run --rm --name shortner-build \
-  -v "$PWD:/app" -w /app \
+PROJECT_NAME=shortner
+GO_CACHE="${GO_CACHE:-$HOME/go/pkg/mod}"
+GO_BUILD="${GO_BUILD:-$HOME/.cache/go-build/$PROJECT_NAME}"
+mkdir -p "$GO_CACHE" "$GO_BUILD"
+docker run --rm \
+  --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+  -v "$PWD:/app" \
+  -v "$GO_CACHE:/usr/local/share/go/pkg/mod" \
+  -v "$GO_BUILD:/usr/local/share/go/cache" \
+  -w /app \
   -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
   casjaysdev/go:latest \
-  go build -o binaries/shortner ./src
+  go build -buildvcs=false -trimpath -o binaries/shortner ./src
 ```
 
 ### Docker image
@@ -121,9 +129,14 @@ where those files land on each platform.
 To run against a throwaway directory instead of the system paths:
 
 ```bash
-CONFIG_DIR=/tmp/shortner/config DATA_DIR=/tmp/shortner/data \
+mkdir -p "${TMPDIR:-/tmp}/apimgr"
+TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/apimgr/shortner-XXXXXX")
+mkdir -p "$TEMP_DIR/config" "$TEMP_DIR/data"
+CONFIG_DIR="$TEMP_DIR/config" DATA_DIR="$TEMP_DIR/data" \
   ./binaries/shortner --debug --port 8080
 ```
+
+Remove only the printed `TEMP_DIR` after stopping the server.
 
 ## Testing
 
@@ -159,7 +172,16 @@ bash tests/e2e.sh
 ## Linting
 
 ```bash
-docker run --rm -v "$PWD:/app" -w /app \
+PROJECT_NAME=shortner
+GO_CACHE="${GO_CACHE:-$HOME/go/pkg/mod}"
+GO_BUILD="${GO_BUILD:-$HOME/.cache/go-build/$PROJECT_NAME}"
+mkdir -p "$GO_CACHE" "$GO_BUILD"
+docker run --rm \
+  --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
+  -v "$PWD:/app" \
+  -v "$GO_CACHE:/usr/local/share/go/pkg/mod" \
+  -v "$GO_BUILD:/usr/local/share/go/cache" \
+  -w /app \
   -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
   casjaysdev/go:latest sh -c 'gofmt -l ./src && go vet ./... && staticcheck ./...'
 ```

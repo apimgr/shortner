@@ -24,9 +24,9 @@ Releases are published on GitHub with SHA-256 and SHA-512 checksums, an
 SBOM, and build provenance attestation.
 
 ```bash
-curl -fsSLo shortner \
+curl -q -LSsf -o shortner \
   https://github.com/apimgr/shortner/releases/latest/download/shortner-linux-amd64
-curl -fsSLo sha256.txt \
+curl -q -LSsf -o sha256.txt \
   https://github.com/apimgr/shortner/releases/latest/download/sha256.txt
 grep -- shortner-linux-amd64 sha256.txt | sha256sum -c -
 chmod +x shortner
@@ -138,12 +138,14 @@ The published image runs `tini` as PID 1, uses `STOPSIGNAL SIGRTMIN+3`,
 and has a `HEALTHCHECK` that calls `shortner --status`.
 
 ```bash
-docker run -d --rm \
-  --name shortner-app \
-  -p 8080:80 \
+DEPLOY_DIR="$HOME/.local/share/apimgr/shortner"
+mkdir -p "$DEPLOY_DIR/config" "$DEPLOY_DIR/data"
+docker run -d \
+  --name shortner \
+  -p 172.17.0.1:64580:80 \
   -e PORT=80 \
-  -v "$PWD/config:/config:z" \
-  -v "$PWD/data:/data:z" \
+  -v "$DEPLOY_DIR/config:/config:z" \
+  -v "$DEPLOY_DIR/data:/data:z" \
   ghcr.io/apimgr/shortner:latest
 ```
 
@@ -161,12 +163,19 @@ Three compose files ship in `docker/`:
 | `docker/docker-compose.dev.yml` | Development |
 | `docker/docker-compose.test.yml` | Ephemeral test runs |
 
+Copy the production compose file into a deployment directory outside the
+source checkout, then run it from that directory so relative volume mounts
+stay out of the repository:
+
 ```bash
-docker compose -f docker/docker-compose.yml up -d
+DEPLOY_DIR="$HOME/.local/share/apimgr/shortner"
+mkdir -p "$DEPLOY_DIR"
+cp docker/docker-compose.yml "$DEPLOY_DIR/docker-compose.yml"
+(cd "$DEPLOY_DIR" && docker compose up -d)
 ```
 
 The production compose file mounts `./volumes/config` and `./volumes/data`
-and publishes the container's port 80.
+under the deployment directory and publishes the container's port 80.
 
 !!! note
     The production compose file also defines a Valkey sidecar and sets

@@ -3,6 +3,7 @@
 [![License](https://img.shields.io/github/license/apimgr/shortner)](LICENSE.md)
 [![Release](https://img.shields.io/github/v/release/apimgr/shortner)](https://github.com/apimgr/shortner/releases)
 [![CI](https://github.com/apimgr/shortner/actions/workflows/ci.yml/badge.svg)](https://github.com/apimgr/shortner/actions/workflows/ci.yml)
+[![Docs](https://readthedocs.org/projects/apimgr-shortner/badge/?version=latest)](https://apimgr-shortner.readthedocs.io)
 
 ## About
 
@@ -54,6 +55,31 @@ unless they explicitly request another representation.
 
 ## Production
 
+### Docker (Recommended)
+
+The production container includes the server, embedded web assets, Tor, and
+i2pd. The production compose setup also provides the Valkey cache used for
+shared rate-limit counters.
+
+### Docker Compose
+
+From a repository checkout, copy the production compose file into a
+deployment directory outside the source tree, then start it there:
+
+```bash
+DEPLOY_DIR="$HOME/.local/share/apimgr/shortner"
+mkdir -p "$DEPLOY_DIR"
+cp docker/docker-compose.yml "$DEPLOY_DIR/docker-compose.yml"
+(cd "$DEPLOY_DIR" && docker compose up -d)
+```
+
+This starts `shortner` (port `172.17.0.1:64580`) plus a `shortner-cache`
+(Valkey) sidecar. Config and data persist under the deployment directory in
+`volumes/config` and `volumes/data`. `PORT` and `TZ` are configurable through
+the compose environment. The server consumes `CACHE_URL` on first run, saves
+it as the Valkey connection, and uses the cache for shared rate-limit
+counters.
+
 ### Binary
 
 Download the latest release from [GitHub Releases](https://github.com/apimgr/shortner/releases/latest).
@@ -66,7 +92,7 @@ Download the latest release from [GitHub Releases](https://github.com/apimgr/sho
 | arm64 | `shortner-linux-arm64` |
 
 ```bash
-curl -LSsf https://github.com/apimgr/shortner/releases/latest/download/shortner-linux-amd64 \
+curl -q -LSsf https://github.com/apimgr/shortner/releases/latest/download/shortner-linux-amd64 \
   -o /usr/local/bin/shortner && chmod +x /usr/local/bin/shortner
 ```
 
@@ -80,7 +106,7 @@ curl -LSsf https://github.com/apimgr/shortner/releases/latest/download/shortner-
 ```bash
 # Detect arch automatically
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-curl -LSsf "https://github.com/apimgr/shortner/releases/latest/download/shortner-darwin-${ARCH}" \
+curl -q -LSsf "https://github.com/apimgr/shortner/releases/latest/download/shortner-darwin-${ARCH}" \
   -o /usr/local/bin/shortner && chmod +x /usr/local/bin/shortner
 # Remove macOS quarantine flag
 xattr -d com.apple.quarantine /usr/local/bin/shortner 2>/dev/null || true
@@ -113,26 +139,13 @@ sudo shortner --service --install
 The command installs and enables the service using the stable internal
 service name. Manage it with `shortner --service start|stop|restart|reload`.
 
-### Docker
-
-```bash
-cd docker
-docker compose up -d
-```
-
-This starts `shortner` (port `172.17.0.1:64580`) plus a `shortner-cache`
-(Valkey) sidecar. Config and data persist in `./volumes/config` and
-`./volumes/data`. `PORT` and `TZ` are configurable through the compose
-environment. The server consumes `CACHE_URL` on first run, saves it as the
-Valkey connection, and uses the cache for shared rate-limit counters.
-
 ## Client
 
 `shortner-cli` is the companion CLI/TUI/GUI client for managing links and
 server settings from the command line.
 
 ```bash
-curl -LSsf https://github.com/apimgr/shortner/releases/latest/download/shortner-cli-linux-amd64 \
+curl -q -LSsf https://github.com/apimgr/shortner/releases/latest/download/shortner-cli-linux-amd64 \
   -o /usr/local/bin/shortner-cli && chmod +x /usr/local/bin/shortner-cli
 ```
 
