@@ -15891,7 +15891,7 @@ CREATE TABLE IF NOT EXISTS security_thanks (
 
 ### GPG Keypair Management (`--maintenance pgp` / `server.token`)
 
-**One project-level GPG keypair. Used to encrypt incoming security reports at rest, sign outbound notifications, and seed the `Encryption:` line in security.txt.**
+**One project-level GPG keypair. Used to encrypt incoming security reports at rest, sign a rotated public key with the previous key (see Rotate below), and seed the `Encryption:` line in security.txt. It does NOT sign outbound notifications: an email carries no PGP signature, and a webhook is authenticated by its own HMAC ("Outbound webhook signing").**
 
 **There is no web UI and no admin API route for keypair management. All actions run through the existing `--maintenance` dispatcher (PART 5): `{project_name} --maintenance pgp <action>`, authorized like other sensitive operations (`server.token` OR root). This reuses an existing PART 8 flag — no new flag is added.**
 
