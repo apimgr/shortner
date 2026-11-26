@@ -395,7 +395,8 @@ Values are resolved highest-priority first:
 
 A flag is written back to `cli.yml` only when the stored value is empty
 or invalid, so a one-off `--server` never overwrites a working
-configuration.
+configuration. Environment overrides are session-only and are never
+written back to `cli.yml`.
 
 ### Interactive Interface
 
