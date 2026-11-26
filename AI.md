@@ -1259,6 +1259,7 @@ Quick reference: Accept `yes/no`, `true/false`, `1/0`, `on/off`, `enable/disable
 | `PLAN.AI.md` | Optional | Project plan — AI creates/updates. If it exists, this is THE plan | No |
 | `TODO.md` | Optional | Task list — human edits/owns. AI reads, interprets, executes, and marks items done in place. Never delete, empty, or restructure | No |
 | `TODO.AI.md` | Optional | Task list — AI creates/updates (3+ tasks only) | No |
+| `PROMPT.md` | Optional | Prompt/instructions file — human edits/owns. AI reads and follows it; never rewrite, delete or restructure | No |
 | `README.md` | ✓ | Public documentation | No |
 | `LICENSE.md` | ✓ | License file | No |
 | `Makefile` | ✓ | Build targets | No |
@@ -3007,6 +3008,7 @@ Purpose: {inferred from code/config}
 | **TODO.md** | Task tracking (human-owned) | AI may mark items done; never delete/empty |
 | **PLAN.AI.md** | Implementation plan (AI-owned) | Planning new features |
 | **PLAN.md** | Implementation plan (human-owned) | AI may mark items done; never rewrite |
+| **PROMPT.md** | Prompt/instructions (human-owned) | AI reads and follows it; never rewrite or delete |
 | **README.md** | User documentation | Usage changes |
 
 **Hierarchy:** SPEC.md > AI.md > global CLAUDE.md. If SPEC.md and AI.md conflict, SPEC.md wins — that is its purpose.
@@ -4853,6 +4855,7 @@ func gUBE(e string) (*U, error) {
 | **TODO.md** | Project repository | Task tracking (human-owned) | **MARK ITEMS DONE ONLY** (never delete/empty) |
 | **PLAN.AI.md** | Project repository | Implementation plan (AI-owned) | **YES** |
 | **PLAN.md** | Project repository | Implementation plan (human-owned) | **MARK ITEMS DONE ONLY** (never rewrite) |
+| **PROMPT.md** | Project repository | Prompt/instructions (human-owned) | **NEVER** (read and follow only) |
 
 ### Documentation Rules
 
@@ -4869,6 +4872,7 @@ AI.md (implementation spec - READ-ONLY)
 IDEA.md (project spec - update as needed)
     ├── PLAN.AI.md  (AI-owned plan, optional)
     ├── PLAN.md     (human-owned plan, optional - AI marks items done only)
+    ├── PROMPT.md   (human-owned prompt, optional - AI reads and follows, never rewrites)
     ├── TODO.AI.md  (AI-owned task tracking)
     └── TODO.md     (human-owned task tracking - AI marks items done only)
 ```
@@ -5969,6 +5973,7 @@ package main
 | **Per-record provenance** | When records come from several sources, every record or file carries a `source` key that names its entry in the third-party notices |
 | **Unknown or unusable terms** | Content with no stated license, a license that forbids redistribution, a site that forbids scraping, or an unknown origin is NOT embedded. The project asks the user instead of guessing |
 | **Generated content** | It counts as the project's own only when the user says so, and is never presented with an invented source |
+| **Project translations** | Strings translated for the project under the localization rule (by the AI or a human translator, I18N & A11Y → "Translating") are the project's own work and need no source record; a human translator's pull request is under the project license. A translation copied from another project, a service or a third-party catalogue is third-party content and follows every row above |
 
 ## License Compatibility Matrix
 
@@ -6245,6 +6250,7 @@ PROJECT_ORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+
 ├── TODO.md                 # Task tracking (human-owned, optional - AI marks items done only)
 ├── PLAN.AI.md              # Implementation plan (AI-owned, optional)
 ├── PLAN.md                 # Implementation plan (human-owned, optional - AI marks items done only)
+├── PROMPT.md               # Prompt/instructions (human-owned, optional - AI never rewrites)
 ├── Jenkinsfile             # Jenkins pipeline
 ├── release.txt             # Local-build version (optional)
 └── site.txt                # Official site URL (optional)
@@ -7252,7 +7258,7 @@ func SafeResourcePath(input string) (string, error) {
 | `/../admin` | ✗ rejected | Path traversal |
 | `/server/admin/../secret` | ✗ rejected | Path traversal |
 | `/server/admin/..` | ✗ rejected | Path traversal |
-| `....` | ✗ rejected | Invalid chars |
+| `....` | ✗ rejected | Path traversal (any `..` in an identifier path is rejected) |
 | `/Admin` | ✗ rejected | Uppercase not allowed |
 | `/server/admin/<script>` | ✗ rejected | Invalid chars |
 
@@ -14102,11 +14108,11 @@ func GetUserWithVersion(ctx context.Context, userID int, version int) (*User, er
 |--------------|---------------------|-------------|
 | Static assets with matching `?v=` build stamp | `public, max-age=31536000, immutable` | 1 year — URL changes every release, so this can never go stale |
 | Static assets without / with mismatched `?v=` | `no-cache` + `ETag` | Always revalidated — never trusted across updates |
-| HTML pages | `no-store` | Always fetch fresh. The service worker's Cache API copy is separate from the HTTP cache and follows "Offline copies are for public pages only" (PART 16) |
+| HTML pages (public) | `no-store` | Always fetch fresh; an authenticated page overrides this with the row below. The service worker's Cache API copy is separate from the HTTP cache and follows "Offline copies are for public pages only" (PART 16) |
 | `/sw.js` and `/manifest.json` | `no-cache` + `ETag` | Browser must see the new service worker on its next update check — never immutable |
 | API responses (public) | `public, max-age=60` | Short cache for CDN |
 | API responses (private) | `private, no-store` | User-specific data |
-| Authenticated pages | `private, no-store` | Never cache, and never put in the service worker cache: they never carry `X-Offline-Cache` |
+| Authenticated pages (override of the public HTML row) | `private, no-store` | Never cache, and never put in the service worker cache: they never carry `X-Offline-Cache` |
 | Error pages | `no-store` | Don't cache errors |
 
 ### Asset Version-Busting (REQUIRED)
@@ -14203,9 +14209,7 @@ Called from the HTML middleware only — never on static, API, or `/sw.js` respo
 func warmCache(ctx context.Context) error {
     // Warm on startup and periodically
 
-    // Configuration
-    config, _ := db.GetServerConfig()
-    cache.Set(ctx, "config:server", config, 1*time.Minute)
+    // Operator-editable configuration is never read from the database (PART 5): the merged config files are the only source, so warm derived runtime data only
 
     // Blocklists
     blocklist, _ := db.GetBlocklist()
@@ -14892,7 +14896,7 @@ When `DEBUG=true` is active and an error occurs, the canonical error body (PART 
 |------|-------------|
 | Path confinement | Reject absolute paths, `..`, empty names, drive-letter paths, and any extracted path that escapes the target directory |
 | Symlinks / special files | Reject symlinks, hard links, device files, named pipes, sockets, and setuid/setgid bits |
-| Size limits | Enforce all four before extracting and again while streaming. Defaults, all configurable under `restore.*`: max archive size `1G` (`restore.max_archive_size`), max total expanded size `4G` (`restore.max_expanded_size`), max file count `10000` (`restore.max_files`), max single file `512M` (`restore.max_file_size`) |
+| Size limits | Enforce all four size limits before extracting and again while streaming (the ratio guard in the next row is separate). Defaults, all configurable under `restore.*`: max archive size `1G` (`restore.max_archive_size`), max total expanded size `4G` (`restore.max_expanded_size`), max file count `10000` (`restore.max_files`), max single file `512M` (`restore.max_file_size`) |
 | Compression bombs | Abort and delete the partial output when the expanded-to-compressed ratio exceeds `100:1` (`restore.max_ratio`) or any size limit above is exceeded; count bytes and files while streaming, never trust archive headers |
 | Permissions | Normalize extracted file modes to safe defaults; never preserve executable bits unless the feature explicitly needs them |
 | Overwrite policy | Do not overwrite existing files outside an explicit replace flow |
@@ -14957,7 +14961,7 @@ The root secret all other derived material hangs off. Without it, in-flight HMAC
 | Generated | First start. Stored in `server.db` row `app_secrets.installation_secret`, base64-encoded. |
 | Scope | Server-wide. Generated on first start and persisted to `server.db`. NEVER appears in a request, response, or log. |
 | Used by | `{security_id}` HMAC (PART 11 → "Security Reports"); PGP private-key KDF (PART 11 → "GPG Keypair Management"); future derived material (cookie signing salts, etc.). |
-| Rotation | Manual via `--maintenance secret rotate installation_secret` (PART 11 → "Secret Rotation"). Sensitive-operation flow (PART 5 → "Sensitive Operations"): re-prompt for the operator token, log to `audit.log` as `security.installation_secret_rotated`. Rotation re-encrypts the PGP private key and re-bases all live HMACs. The previous secret is kept for 7 days to validate any in-flight `{security_id}` URLs that referenced it. |
+| Rotation | Manual via `--maintenance secret rotate installation_secret` (PART 11 → "Secret Rotation"). Sensitive-operation flow (PART 5 → "Sensitive Operations"): require a typed confirmation and, when the run is authorized by `server.token`, re-prompt for it (a run as root is not asked for the token), log to `audit.log` as `security.installation_secret_rotated`. Rotation re-encrypts the PGP private key and re-bases all live HMACs. The previous secret is kept for 7 days to validate any in-flight `{security_id}` URLs that referenced it. |
 | Backup | Always — see PART 21 → "Backup Contents". Required for any restore: without it, the PGP private key in the backup is undecryptable. |
 | Loss = catastrophic | Lost = cannot decrypt PGP private key (and therefore cannot decrypt in-flight encrypted security reports); cannot validate `{security_id}` URLs on existing security.txt copies until the file regenerates. Recovery requires the operator to: regenerate keypair, regenerate `installation_secret`, accept that all in-flight encrypted reports are unreadable. |
 
@@ -14972,7 +14976,7 @@ The root secret all other derived material hangs off. Without it, in-flight HMAC
 
 | Key | Length | Storage | Purpose | Rotation |
 |-----|--------|---------|---------|----------|
-| `server.security.encryption_key` | 32 bytes (AES-256-GCM) | `secrets.yml` (auto-generated on first run) | At-rest encryption for ALL sensitive server data: encrypted copies of owner and linked API tokens (so they stay viewable on `/server/preferences/tokens`), security report bodies (used as the AES fallback when no PGP keypair exists, see PART 11 → "Security Reports"), and any future at-rest encrypted data. | Manual via `--maintenance secret rotate encryption_key` (PART 11 → "Secret Rotation"). Sensitive-operation flow (PART 5 → "Sensitive Operations"): re-prompt for the operator token, log to `audit.log` as `security.encryption_key_rotated`. 30-day grace for in-flight encrypted data. |
+| `server.security.encryption_key` | 32 bytes (AES-256-GCM) | `secrets.yml` (auto-generated on first run) | At-rest encryption for ALL sensitive server data: encrypted copies of owner and linked API tokens (so they stay viewable on `/server/preferences/tokens`), security report bodies (used as the AES fallback when no PGP keypair exists, see PART 11 → "Security Reports"), and any future at-rest encrypted data. | Manual via `--maintenance secret rotate encryption_key` (PART 11 → "Secret Rotation"). Sensitive-operation flow (PART 5 → "Sensitive Operations"): require a typed confirmation and, when the run is authorized by `server.token`, re-prompt for it (a run as root is not asked for the token), log to `audit.log` as `security.encryption_key_rotated`. 30-day grace for in-flight encrypted data. |
 
 ### Secret Rotation (`--maintenance secret` / `server.token`)
 
@@ -14980,8 +14984,8 @@ The root secret all other derived material hangs off. Without it, in-flight HMAC
 
 | Action | Command | Effect |
 |--------|---------|--------|
-| **Rotate installation_secret** | `--maintenance secret rotate installation_secret` | Sensitive-operation flow: re-prompt for the operator token, log to `audit.log` as `security.installation_secret_rotated`. Generates a new 32-byte secret, re-encrypts the PGP private key, and re-bases all live HMACs. Previous secret kept 7 days to validate in-flight `{security_id}` URLs. |
-| **Rotate encryption_key** | `--maintenance secret rotate encryption_key` | Sensitive-operation flow: re-prompt for the operator token, log to `audit.log` as `security.encryption_key_rotated`. Generates a new AES-256-GCM key in `secrets.yml`, re-encrypts all at-rest data under the new key (the `token_enc` copies of owner and linked tokens, AES-encrypted security report bodies and every `contact_enc`; PGP-encrypted bodies are not touched). Previous key kept 30 days to decrypt any data not yet re-encrypted (see "Rotation contract" below). |
+| **Rotate installation_secret** | `--maintenance secret rotate installation_secret` | Sensitive-operation flow: require a typed confirmation and, when the run is authorized by `server.token`, re-prompt for it (a run as root is not asked for the token), log to `audit.log` as `security.installation_secret_rotated`. Generates a new 32-byte secret, re-encrypts the PGP private key, and re-bases all live HMACs. Previous secret kept 7 days to validate in-flight `{security_id}` URLs. |
+| **Rotate encryption_key** | `--maintenance secret rotate encryption_key` | Sensitive-operation flow: require a typed confirmation and, when the run is authorized by `server.token`, re-prompt for it (a run as root is not asked for the token), log to `audit.log` as `security.encryption_key_rotated`. Generates a new AES-256-GCM key in `secrets.yml`, re-encrypts all at-rest data under the new key (the `token_enc` copies of owner and linked tokens, AES-encrypted security report bodies and every `contact_enc`; PGP-encrypted bodies are not touched). Previous key kept 30 days to decrypt any data not yet re-encrypted (see "Rotation contract" below). |
 
 **Rotation contract (`installation_secret`, `encryption_key` and `cookie_signing_key`):**
 
@@ -15928,7 +15932,7 @@ CREATE TABLE IF NOT EXISTS security_thanks (
 | **Rotate** | `--maintenance pgp rotate` | Runs under the same lock the submission step uses, in this order: (1) generates the new keypair, signs the new pubkey with the old key and writes both new files as STAGED files (`pgp.pub.asc.new`, `pgp.priv.asc.enc.new`) beside the active ones, so every file write happens before any transaction; (2) in ONE database `Write` transaction with no file I/O inside it, re-encrypts every stored `body_enc` whose `body_alg` is `pgp` to the new key (decrypt with the old private key, encrypt to the new public key) and, in the same transaction, stores the new key's `fingerprint`, `created_at`, `expires_at` and `last_rotated_at`: that stored fingerprint is the commit marker, and it exists even when no report is PGP-encrypted; if any row fails, the transaction rolls back, the staged files are deleted and the old key stays active, so no retained report is ever left readable only by a discarded key; (3) after the commit, renames the staged files over the active ones (the old private key moves to the `.old` file below first), sets `last_rotated_at` and publishes the new key to configured keyservers. The commit is the single point of no return. Crash recovery runs at every start, before submissions are accepted: when staged files exist, the fingerprint of the staged public key is compared with the stored `fingerprint`. Equal: the commit happened, so step 3 is finished. Different: the transaction never committed, so the staged files are deleted. A mixed state cannot exist, because the rows and the marker change in the one transaction. After a successful rotation every stored body is readable with the current key for its whole retention period. The old private key is kept encrypted at `{config_dir}/security/pgp.priv.old.asc.enc` for 30 days, only for items already in transit (notifications sent to the old key, researchers who fetched the old public key); the daily `security_cleanup` task then deletes it. |
 | **Publish to keyservers** | `--maintenance pgp publish` | POST the public key to each entry in `web.security.keyservers`. Each entry is a keyserver host name and the host decides the submission form. `keys.openpgp.org` (VKS): `POST https://keys.openpgp.org/vks/v1/upload` with the JSON body `{"keytext": "<ASCII-armored public key>"}`; success is `200` with a JSON body holding `key_fpr` and `status`. Any other host, for example `keyserver.ubuntu.com` (HKP): `POST https://{host}/pks/add` with `Content-Type: application/x-www-form-urlencoded` and the field `keytext=<URL-encoded armored key>`; success is `200`. Triggered automatically on generate/rotate; manually via `--maintenance pgp publish`. A network error, `5xx` or `429` is logged and retried with exponential backoff: 1 minute, doubling each time up to 6 hours, at most 8 attempts per keyserver and key, durable across restarts (the attempt count and the next time are kept in `keyservers.state`, and the scheduler task `keyserver_retry` submits again whenever a stored time has passed). Any other `4xx` is final: logged once and never retried. A keyserver that `keyservers.state` already lists for this fingerprint is skipped. |
 | **Export public key** | `--maintenance pgp export public [path]` | Use the public URL `/.well-known/pgp-key.asc`, copy `{config_dir}/security/pgp.pub.asc` directly, or write it to `[path]` (stdout if omitted) via the CLI. |
-| **Export private key** | `--maintenance pgp export private <path>` | **Full export, ASCII-armored, decrypted after operator token confirmation.** Triggers a sensitive-operation flow (PART 5 → "Sensitive Operations"): re-prompt for the operator token, log to `audit.log` as `security.private_key_exported`, write the key to `<path>` with mode 0600. **The export is rate-limited to 1 per hour per operator and the audit entry includes operator IP and reason text the operator must type.** |
+| **Export private key** | `--maintenance pgp export private <path>` | **Full export, ASCII-armored, decrypted after operator token confirmation.** Triggers a sensitive-operation flow (PART 5 → "Sensitive Operations"): require a typed confirmation and, when the run is authorized by `server.token`, re-prompt for it (a run as root is not asked for the token), log to `audit.log` as `security.private_key_exported`, write the key to `<path>` with mode 0600. **The export is rate-limited to 1 per hour per operator and the audit entry includes operator IP and reason text the operator must type.** |
 | **Import private key** | `--maintenance pgp import <file>` | Import an existing `pgp.priv.asc` from a local file (e.g., restoring from backup, migrating from another instance). Same sensitive-operation gate. Validates the key's identity matches the project's expected identity (warns on mismatch — operator can override). |
 | **Delete** | `--maintenance pgp delete` | Sensitive-operation flow. Deletes both keys, sets `web.security.publish_pgp_key: false`, removes `Encryption:` line from security.txt. Stored and in-flight PGP-encrypted report bodies become un-decryptable (retention still purges them on schedule) — operator warned and must type confirmation. |
 
@@ -17101,13 +17105,13 @@ server:
 ```yaml
 server:
   trusted_proxies:
-    # Additional IPs/CIDRs to trust (private ranges always trusted)
+    # Additional IPs/CIDRs to trust (the always-trusted ranges are never listed here)
     additional: []
     # Header that carries the client IP: auto, or one pinned header name (see "Client IP Detection")
     client_ip_header: auto
 ```
 
-**Used by `X-Forwarded-*` trust gate.** Every header-based detection chain in the spec — `BuildURL(r, ...)` (PART 8 → "Resolution Order"), CORS allow-list resolution (PART 16), CSP `connect-src` learning, domain-learning algorithm — only honors the following proxy headers when the **immediate peer's IP** is in `trusted_proxies` (private ranges + the `additional` allow-list):
+**Used by `X-Forwarded-*` trust gate.** Every header-based detection chain in the spec — `BuildURL(r, ...)` (PART 8 → "Resolution Order"), CORS allow-list resolution (PART 16), CSP `connect-src` learning, domain-learning algorithm — only honors the following proxy headers when the **immediate peer's IP** is in `trusted_proxies` (the always-trusted ranges in the table below, which include the configured listen address's `/24`, plus the `additional` allow-list):
 
 | Category | Trusted headers |
 |----------|----------------|
@@ -17415,6 +17419,7 @@ server:
 | `security` | `server.contact.security.email` (default `security@{fqdn}` per RFC 2142). If explicitly set to `""`, INTERNAL delivery (notifications, webhooks) falls back to `server.contact.admin.email`; security.txt and every public page then omit the `mailto:` line, so the admin address is never published. Same fallback for each webhook transport (security.webhooks.telegram → admin.webhooks.telegram). |
 | `abuse` | `server.contact.abuse.email` if set → else `server.contact.general.email` if set → else `server.contact.admin.email`. Same fallback chain for webhooks. Never defaults to `abuse@{fqdn}` automatically — RFC 2142 recommends that address, but the operator must opt in (an unprovisioned mailbox would bounce reports). |
 | `general` | `server.contact.general.email` if set → else `server.contact.admin.email`. Same fallback for webhooks. |
+| `dpo` | `server.contact.dpo.email` if set → else `server.contact.general.email` → else `server.contact.admin.email` for `privacy` submissions (internal delivery). The public DPO page uses only `dpo`, then `general`, and never shows the admin address. |
 
 **Effective recipient is computed once per dispatch, not cached across requests** — operator can change `general.email` and the next contact-form submission picks it up without restart.
 
@@ -17484,6 +17489,7 @@ if !subtle.ConstantTimeCompare([]byte(got), []byte(want)) {
 | `server.contact.security.email` | Public (security.txt `Contact: mailto:` line — the secondary/CC channel; GitHub private vulnerability reporting is primary) | Researchers need to reach you. Choose carefully. Suggest a role address (`security@{fqdn}`) over a personal one. |
 | `server.contact.abuse.email` | Public (contact page "Abuse Reports" section) when set | RFC 2142 role address (`abuse@{fqdn}`) recommended over a personal one. |
 | `server.contact.general.email` | Public only where the DPO page falls back to it | Same — role address recommended. |
+| `server.contact.dpo.email` | Public (DPO page and privacy policy) when set | Same — role address recommended. |
 | Any `webhooks.*` | NEVER public | URLs contain secrets / chat IDs / etc. |
 
 ### Canonical Contact Keys Only
@@ -17494,6 +17500,7 @@ Use only the canonical contact keys in all new config, examples, docs, UI, and c
 - `server.contact.security.email`
 - `server.contact.abuse.email`
 - `server.contact.general.email`
+- `server.contact.dpo.email` (with the optional `server.contact.dpo.name`)
 
 The one other recipient key is `server.tor.contact_email`, the only address shown on Tor responses (PART 31).
 
@@ -21213,7 +21220,7 @@ Before proceeding, confirm you understand:
 | TLS-ALPN-01 | TLS-based challenge (requires port 443) |
 | DNS-01 | DNS TXT record challenge (wildcard certs, no port requirements) |
 
-**Challenge listeners:** the server never opens a socket of its own for a challenge. HTTP-01 is answered on the server's HTTP listener and TLS-ALPN-01 on its HTTPS listener, so both are bound by the startup steps that determine and bind the server's ports (only `server.port`, `server.address` and `server.daemonize` are read early). The CA reaches them on ports 80 and 443, so the usual setup is `server.port: "80,443"` (the privileged ports are bound while root, before the drop), or a reverse proxy or port mapping that forwards 80 and 443 to the listener; on any other arrangement use DNS-01.
+**Challenge listeners:** the server never opens a socket of its own for a challenge. HTTP-01 is answered on the server's HTTP listener and TLS-ALPN-01 on its HTTPS listener, so both are bound by the startup steps that determine and bind the server's ports (the early read covers only `server.port`, `server.address`, `server.daemonize` and `server.pidfile`). The CA reaches them on ports 80 and 443, so the usual setup is `server.port: "80,443"` (the privileged ports are bound while root, before the drop), or a reverse proxy or port mapping that forwards 80 and 443 to the listener; on any other arrangement use DNS-01.
 
 ### DNS-01 Provider Configuration
 
@@ -33283,7 +33290,7 @@ WARN: keep_monthly: 24 exceeds recommended 12 (2 years of monthly backups)
 
 ### Backup Files Created (Single Task at 02:00)
 
-**The backup task creates TWO files each run:**
+**The backup task creates the full backup each run and, except on the first run (no previous full exists), the daily incremental as the second file:**
 
 | File | Description | Retention |
 |------|-------------|-----------|
@@ -37146,7 +37153,7 @@ jobs:
       - name: Run tests with coverage
         run: |
           mkdir -p "/tmp/${{ github.repository_owner }}"
-          COVDIR=$(mktemp -d "/tmp/${{ github.repository_owner }}/$(basename "${{ github.repository }}")-XXXXXX")
+          COVDIR=$(mktemp -d "/tmp/${{ github.repository_owner }}/${{ env.INTERNAL_NAME }}-XXXXXX")
           echo "COVDIR=$COVDIR" >> "$GITHUB_ENV"
           mkdir -p "$COVDIR/data"
           go test -cover ./... -args -test.gocoverdir="$COVDIR/data"
@@ -37246,6 +37253,7 @@ permissions:
 
 env:
   PROJECT_NAME: {project_name}
+  INTERNAL_NAME: {internal_name}
 
 jobs:
   build:
@@ -37436,6 +37444,7 @@ permissions:
 
 env:
   PROJECT_NAME: {project_name}
+  INTERNAL_NAME: {internal_name}
 
 jobs:
   # Compute VERSION once — matrix legs must never each compute their own timestamp
@@ -37635,6 +37644,7 @@ permissions:
 
 env:
   PROJECT_NAME: {project_name}
+  INTERNAL_NAME: {internal_name}
 
 jobs:
   # Compute VERSION once — matrix legs must never each compute their own value.
@@ -37860,6 +37870,7 @@ concurrency:
 
 env:
   PROJECT_NAME: {project_name}
+  INTERNAL_NAME: {internal_name}
   REGISTRY: ghcr.io
 
 jobs:
@@ -38205,7 +38216,7 @@ jobs:
       - name: Run tests with coverage
         run: |
           mkdir -p "/tmp/${{ gitea.repository_owner }}"
-          COVDIR=$(mktemp -d "/tmp/${{ gitea.repository_owner }}/$(basename "${{ gitea.repository }}")-XXXXXX")
+          COVDIR=$(mktemp -d "/tmp/${{ gitea.repository_owner }}/${{ env.INTERNAL_NAME }}-XXXXXX")
           echo "COVDIR=$COVDIR" >> "$GITEA_ENV"
           mkdir -p "$COVDIR/data"
           go test -cover ./... -args -test.gocoverdir="$COVDIR/data"
@@ -38285,6 +38296,7 @@ permissions:
 
 env:
   PROJECT_NAME: {project_name}
+  INTERNAL_NAME: {internal_name}
 
 jobs:
   build:
@@ -38465,6 +38477,7 @@ permissions:
 
 env:
   PROJECT_NAME: {project_name}
+  INTERNAL_NAME: {internal_name}
 
 jobs:
   # Compute VERSION once — matrix legs must never each compute their own timestamp
@@ -38655,6 +38668,7 @@ permissions:
 
 env:
   PROJECT_NAME: {project_name}
+  INTERNAL_NAME: {internal_name}
 
 jobs:
   # Compute VERSION once — matrix legs must never each compute their own value.
@@ -38851,6 +38865,7 @@ concurrency:
 
 env:
   PROJECT_NAME: {project_name}
+  INTERNAL_NAME: {internal_name}
   # Registry auto-detected from Gitea instance (works with self-hosted)
   # Format: {gitea-server}/owner/repo -> extracts server for registry
 
@@ -39129,6 +39144,7 @@ All `$CI_*` variables are auto-populated by GitLab (works with self-hosted).
 
 variables:
   PROJECT_NAME: "{project_name}"
+  INTERNAL_NAME: "{internal_name}"
   PROJECT_ORG: "{project_org}"
   CGO_ENABLED: "0"
   GOOS: linux
@@ -39409,7 +39425,7 @@ test:
   stage: test
   script:
     - mkdir -p "/tmp/${CI_PROJECT_NAMESPACE}"
-    - COVDIR=$(mktemp -d "/tmp/${CI_PROJECT_NAMESPACE}/${CI_PROJECT_NAME}-XXXXXX")
+    - COVDIR=$(mktemp -d "/tmp/${CI_PROJECT_NAMESPACE}/${INTERNAL_NAME}-XXXXXX")
     - mkdir -p "$COVDIR/data"
     - go test -v -cover ./... -args -test.gocoverdir="$COVDIR/data"
     - go tool covdata textfmt -i="$COVDIR/data" -o="$COVDIR/coverage.out"
@@ -40468,7 +40484,7 @@ pipeline {
                 // Coverage gate, the same 60% as the other providers: the profile goes to a temp dir, never into the workspace
                 sh '''
                     mkdir -p "/tmp/${PROJECT_ORG}"
-                    COVDIR=$(mktemp -d "/tmp/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX")
+                    COVDIR=$(mktemp -d "/tmp/${PROJECT_ORG}/${INTERNAL_NAME}-XXXXXX")
                     docker run --rm -v ${WORKSPACE}:/app -v ${COVDIR}:/cov -v ${GO_CACHE}:/usr/local/share/go/pkg/mod -v ${GO_BUILD}:/usr/local/share/go/cache -w /app casjaysdev/go:latest sh -c 'mkdir -p /cov/data && go test -cover ./... -args -test.gocoverdir=/cov/data && go tool covdata textfmt -i=/cov/data -o=/cov/coverage.out'
                     PCT=$(docker run --rm -v ${WORKSPACE}:/app -v ${COVDIR}:/cov -w /app casjaysdev/go:latest go tool cover -func=/cov/coverage.out | awk '/^total:/ {gsub("%","",$3); print int($3)}')
                     rm -rf "$COVDIR"
@@ -41582,7 +41598,7 @@ test:
         # coverage data goes to a project-scoped temp directory outside the workspace, mounted into the container; two separate docker run
         # invocations share it through the mount, and the project tree stays clean
         mkdir -p "/tmp/${{ github.repository_owner }}"
-        COVDIR=$(mktemp -d "/tmp/${{ github.repository_owner }}/$(basename "${{ github.repository }}")-XXXXXX")
+        COVDIR=$(mktemp -d "/tmp/${{ github.repository_owner }}/${{ env.INTERNAL_NAME }}-XXXXXX")
         echo "COVDIR=$COVDIR" >> "$GITHUB_ENV"
         docker run --rm --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v $PWD:/app -v "$COVDIR":/cov -w /app casjaysdev/go:latest \
           sh -c 'mkdir -p /cov/data && go test -cover ./... -args -test.gocoverdir=/cov/data && go tool covdata textfmt -i=/cov/data -o=/cov/coverage.out'
@@ -42728,7 +42744,7 @@ eval "$({project_name}-cli --shell init)"
 
 The web frontend (PART 16) is verified end to end by driving the real frontend in a real headless browser. This suite is the project's beta-testing harness: it is built alongside the frontend and run **on demand** — when the user asks for beta testing, before a release, or after major frontend work. It is **NOT part of the commit gate** (`make test` does not run it). When it does run, every requirement in this section is non-negotiable: route unit tests and `curl` smoke tests are not a substitute for verifying what a user actually sees and does, with and without JavaScript. It covers every web surface the server exposes: the project's resource pages and forms, the API docs pages (Swagger UI, GraphiQL), and the standard server pages (about, status, error pages).
 
-**Engine:** `github.com/chromedp/chromedp` driving headless Chromium over CDP — pure Go, no Node toolchain. Test code lives in `tests/e2e/` behind the `e2e` build tag, so `make test` never sees it; the entry point is `./tests/e2e.sh`, which Docker-wraps `go test -tags e2e ./tests/e2e/...` and joins the existing manual `./tests/*.sh` script family (this PART → "Testing Strategy"). No new Makefile target — the six-target set (PART 25) is fixed. Everything runs inside Docker like every other test (this PART → "Host System Safety Applies to All Testing & Debugging").
+**Engine:** `github.com/chromedp/chromedp` driving headless Chromium over CDP — pure Go, no Node toolchain. Test code lives in `tests/e2e/` behind the `e2e` build tag, so `make test` never sees it; the entry point is `./tests/e2e.sh`, which Docker-wraps `go test -tags e2e ./tests/e2e/...` and joins the existing manual `./tests/*.sh` script family (this PART → "Testing Strategy"). No new Makefile target — the target set (PART 25) is fixed. Everything runs inside Docker like every other test (this PART → "Host System Safety Applies to All Testing & Debugging").
 
 ### Three Mandatory Tiers
 
@@ -46542,7 +46558,7 @@ Because the PROXY header is sent on every connection, the `HiddenServicePort` ta
 | **App Shutdown** | Terminate Tor process gracefully | Unix: SIGTERM; Windows: TerminateProcess |
 | **App Crash** | Tor process should terminate (child process dies with parent) | All platforms |
 | **Shutdown signal** | Graceful shutdown: stop Tor, then exit | Unix: SIGTERM/SIGINT; Windows: CTRL_C_EVENT |
-| **Reload signal** | Reload config, restart Tor if settings changed | Unix: SIGHUP; Windows: N/A (use API) |
+| **Config change** | The file watcher reloads the configuration; restart Tor if the Tor settings changed ("Tor Restart Triggers") | All platforms. SIGHUP is ignored (PART 8 signal table), never a reload trigger |
 
 ### Tor Restart Triggers
 
@@ -51316,7 +51332,8 @@ project_org:     {project_org}
 internal_name:   {project_name}
 internal_org:    {project_org}
 app_name:        {project_name}
-official_site:   https://{fqdn}
+# Optional: set only when the user gives the real URL; omit this line otherwise (never invented)
+# official_site: {full URL with scheme}
 maintainer_name: {maintainer_name — defaults to {project_org} if unset}
 maintainer_email: {maintainer_email — or empty; used only if set}
 

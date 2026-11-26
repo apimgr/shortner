@@ -149,7 +149,7 @@ overrides it, and service-managed or container starts remain in the foreground.
 In dual-port mode the first listener serves HTTP (including ACME HTTP-01
 challenges) and the second serves HTTPS; the startup banner prints both
 URLs. A single port of `443` enables TLS automatically. With a single
-non-443 port, set `server.tls.enabled: true` to serve HTTPS on that port.
+non-443 port, set `server.ssl.enabled: true` to serve HTTPS on that port.
 
 The default address `[::]` listens on IPv4 and IPv6. If the kernel does not
 support IPv6 sockets, Shortner falls back to `0.0.0.0` and logs one warning.
@@ -332,14 +332,21 @@ CSRF uses a double-submit cookie on HTML form routes. It does not apply to
 
 ```yaml
 server:
-  tls:
+  ssl:
     enabled: false
+    cert: ""
+    key: ""
+    min_version: TLS1.2
     dns_provider: ""
     dns_credentials: {}
 ```
 
 When enabled, certificates are obtained automatically via ACME using the
 HTTP-01 and TLS-ALPN-01 challenges.
+
+Set `cert` and `key` together to use a manually managed certificate. Paths
+inside `config_dir/ssl/` are preserved by backup; paths outside it are backed
+up under `ssl-external/` and rewritten into `config_dir/ssl/` on restore.
 
 For DNS-01, set the lego provider name and a flat map of that provider's
 environment variable names to values. For example, Cloudflare accepts
