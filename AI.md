@@ -35962,7 +35962,7 @@ The **only** times binaries are copied are the CI/CD release process, the `make 
 | Beta | CI/CD only | `20251205143022-beta` | Unlimited |
 | Devel | CI/CD only | `a1b2c3d` (short commit id) | **1** (rolling) |
 
-**Note:** `make release` is for manual local releases only. All automated releases use CI/CD (GitHub Actions, Gitea Actions, or GitLab CI depending on git provider).
+**Note:** `make release` is for manual local releases only. All automated releases use CI/CD: GitHub Actions, Gitea Actions, Forgejo Actions, GitLab CI or Jenkins, depending on the git provider (every provider has the same release equivalence, see the CI/CD Equivalence table).
 
 ---
 
