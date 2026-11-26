@@ -8098,7 +8098,7 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 | **Keys** | Only these, for every one the project has: `server.token`; `server.security.encryption_key` and `server.security.encryption_key_version`; `server.notifications.email.smtp.password`; `server.cache.password`; `server.database.token` (libsql only); `server.database.url` and `server.cache.url` (each only while the URL carries a credential); `server.pages.contact.captcha_secret_key`; `server.ssl.letsencrypt.dns_credentials`; `data.cve.api_key`; `server.backup.encryption_password`; `server.metrics.auth.tokens.*`; every webhook URL and its `_secret` under `server.contact.{role}.webhooks`. `server.tokens.*` is token policy, not a secret. Every other key stays in its area file |
 | **Generated** | When one of these keys is empty or missing at start, the server generates it BEFORE it serves anything, writes it to `secrets.yml` (atomic, `0600`) and records `config.secret_generated` (the key name only) in `audit.log`: `server.token`; `server.security.encryption_key` (with `encryption_key_version: 1`); `server.metrics.auth.tokens.prometheus`, `.grafana` and `.loki`; and a `server.contact.{role}.webhooks.{transport}_secret` whenever its webhook URL `server.contact.{role}.webhooks.{transport}` is set. `server.token` is an `adm_` token and each metrics token an `mtr_` token, each plus 32 random base62 characters ("Token Catalogue") and the encryption key is 32 random bytes. Only `server.token` is printed, once, to the console at first creation ("First-start disclosure") and never logged; every other value is read from `secrets.yml` |
 | **Never generated** | Credentials that someone else issues stay empty until the operator sets them: `server.notifications.email.smtp.password`, `server.cache.password`, `server.database.token`, `server.database.url` and `server.cache.url` with a credential in them, `server.pages.contact.captcha_secret_key`, `server.ssl.letsencrypt.dns_credentials`, `data.cve.api_key`, `server.backup.encryption_password` and the webhook URLs |
-| **Rotation** | Blank a generated key in `secrets.yml` and restart: a new value is generated. `--maintenance secret rotate {name}` rotates the encryption key and the HMAC secrets with their grace periods (PART 11) |
+| **Rotation** | Blank a generated key in `secrets.yml` and restart: a new value is generated. `--maintenance secret rotate {name}` rotates `installation_secret` or the encryption key with their grace periods (PART 11); those are the only two with a manual rotation, while `cookie_signing_key` and `csrf_token_secret` rotate automatically and any other name is rejected with a usage error |
 | **Written by** | The server writes generated, rotated and moved secrets to `secrets.yml` and ONLY there, never to `server.yml` and never to a drop-in (this limits what the server writes; an operator may still hand-write a value elsewhere, see "Operator-set values"): the first-run `server.token`, `server.security.encryption_key` with its version, and every rotation (`--maintenance secret rotate encryption_key`) |
 | **Operator-set values** | An operator MAY write a secret key in `server.yml` or a drop-in (for example from configuration management). The automatic migration moves it to `secrets.yml` at the next start ("Area Files and Automatic Migration"), where it wins over any other file. A value may also be an environment reference such as `${DB_PASSWORD}`, which is moved like any other value. A plaintext DNS credential is rewritten as `enc:v1:` in the file that holds it. So `secrets.yml` is where a secret lives at rest, and a secret in `server.yml` or a drop-in is a hand-off that ends at the next start |
 | **Migration** | At start, if `server.token` or `server.security.encryption_key` is found in `server.yml` and `secrets.yml` does not hold it, the server writes `secrets.yml` first (atomic, `0600`, fsynced) and only then rewrites `server.yml` without those keys, so a secret is never in both files and never lost |
@@ -12103,7 +12103,18 @@ Every project supports two database modes, one at a time: local SQLite (the defa
 CREATE TABLE IF NOT EXISTS app_secrets (
     name       TEXT PRIMARY KEY,
     value      TEXT NOT NULL,
+    -- monotonic: bumped by every rotation; the cluster heartbeat compares it (PART 10)
+    version    INTEGER NOT NULL DEFAULT 1,
     updated_at TEXT NOT NULL
+);
+
+-- audit history only: one row per secret version a removed node had loaded
+CREATE TABLE IF NOT EXISTS app_secret_revocations (
+    name       TEXT NOT NULL,
+    version    INTEGER NOT NULL,
+    node_id    TEXT NOT NULL,
+    revoked_at TEXT NOT NULL,
+    PRIMARY KEY (name, version, node_id)
 );
 ```
 
@@ -18701,7 +18712,7 @@ type StatsInfo struct {
 | **Stable keys** | `{kind}_{id}` is a stable snake_case identifier — NEVER a file path, URL, or filename (public-safe; see Security) |
 | **Order** | Core checks first (`database`, `cache`, `disk`, `scheduler`), then `tor`, `i2p`, then dataset checks in registration order. JSON emits keys in exactly this order (custom marshaller — never an unordered map) |
 | **Cost** | `/server/healthz` reads CACHED results. The scheduler re-runs dataset checks at most every 60 seconds and after every data-set reload/update; a request NEVER triggers a disk scan, parse, or network fetch |
-| **Freshness** | Each data set declares a `max_age` (e.g. 21 days for GeoIP, 72 hours for every blocklist source, fixed, no per-source field; the GeoIP update itself runs weekly, so 21 days is three missed runs, and the timestamp that drives it is `{data_dir}/security/geoip/.last_updated`); the check compares last successful load/update against it |
+| **Freshness** | Each data set declares a `max_age` (e.g. 21 days for GeoIP, 72 hours for every blocklist source, fixed, not configurable per source (each source's own last-update time is a stored `{id}.last_updated` file, PART 17); the GeoIP update itself runs weekly, so 21 days is three missed runs, and the timestamp that drives it is `{data_dir}/security/geoip/.last_updated`); the check compares last successful load/update against it |
 | **Public-safe** | `ok` / `degraded` / `error` only — no paths, URLs, sizes, record counts, versions, or error text |
 
 **Frontend labels:** the Component Status table shows one row per check. Labels come from i18n keys `health.check.{key}`; a key with no translation uses the translated generic label `health.check.unknown` ("Check: {key}") with the stable key as the `{key}` value (`blocklist_ads` → "Check: blocklist_ads"); the key is data, so no English label is ever built or humanized in code. Dataset rows follow the core rows, grouped under their kind.
@@ -33246,7 +33257,7 @@ retention:
   keep_yearly: 1
 ```
 ```
-Backups on disk (January 15, 2025):
+Backups on disk (January 15, 2025, first month of use, so no December 2024 archive exists):
   myapp_backup_2025-01-15.tar.gz.enc    ← Today's run (daily full at T0)
   myapp_backup_2025-01-12.tar.gz.enc    ← Last Sunday (weekly)
   myapp_backup_2025-01-01.tar.gz.enc    ← 1st of Jan 2025 (yearly; a backup fills exactly one category, so the monthly slot stays empty until the next 1st)
@@ -33306,7 +33317,7 @@ nothing in the backup dir matching the app's naming is ever exempt from pruning.
    (only 1 exists); hourly incremental likewise
 8. If max_total_size > 0: after all count-based pruning, if total size of
    all backup files still exceeds the cap, delete oldest files first until
-   total is under the cap (size cap overrides all count limits)
+   total is under the cap (the size cap overrides all count limits, with ONE exception: a full that is the `base_backup` of the retained incremental is never deleted by the cap. If the cap is still exceeded after every other file is pruned, the run logs a WARN `backup.cap_exceeded_protected_base` and keeps the pair; the next run replaces the incremental, which frees the base and lets the cap apply)
 
 Note: the categories never overlap (e.g., Jan 1st 2025 on a Sunday is a yearly
 backup only: highest priority wins, and it consumes no monthly, weekly or daily slot)
@@ -40583,6 +40594,12 @@ pipeline {
         // Docker - matches docker.yml (main, version tags and *-beta tags)
         stage('Docker') {
             agent { label 'amd64' }
+            when {
+                anyOf {
+                    branch 'main'
+                    buildingTag()
+                }
+            }
             steps {
                 script {
                     def tags = "-t ${REGISTRY}:${COMMIT_ID}"
@@ -40775,7 +40792,7 @@ REGISTRY = "ghcr.io/${PROJECT_ORG}/${INTERNAL_NAME}"
 | Stable | `release.yml` (tag push) | `BUILD_TYPE == 'release'` (tag) |
 | Beta | `beta.yml` (`*-beta` tag) | `BUILD_TYPE == 'beta'` (`*-beta` tag) |
 | Devel | `devel.yml` (schedule + main) | `BUILD_TYPE == 'devel'` (cron + main) |
-| Docker | `docker.yml` (main, version and beta tags) | Docker stage (always runs) |
+| Docker | `docker.yml` (main, version and beta tags) | Docker stage (main and tags) |
 | Docker devel | `docker.yml` `build-devel` job (`main` + daily schedule) | "Docker: Devel" stage (`main` only) + 4am cron |
 
 ---
