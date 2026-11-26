@@ -521,6 +521,10 @@ header, and footer extensions are configured as
 rendering. The terms entry replaces the built-in page; about and privacy
 extend their built-in content.
 
+Help `content` may be one Markdown string for every language or a map keyed by
+language code. The request language is selected first, then the map's `default`
+entry, then its first entry.
+
 ```yaml
 server:
   pages:
