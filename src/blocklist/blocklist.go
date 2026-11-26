@@ -194,7 +194,7 @@ func (m *Manager) updateSource(ctx context.Context, source Source) (resultErr er
 		return err
 	}
 	now := time.Now().UTC()
-	if err := os.WriteFile(filepath.Join(m.dir, ".last_updated"), []byte(now.Format(time.RFC3339)+"\n"), 0o644); err != nil {
+	if err := writeLastUpdated(filepath.Join(m.dir, source.ID+".last_updated"), now); err != nil {
 		m.markFailure(source.ID, err)
 		return err
 	}
@@ -218,18 +218,56 @@ func (m *Manager) loadCached() {
 			m.data.stats[source.ID] = Stats{Status: "error", LastError: "cached feed is invalid"}
 			continue
 		}
-		info, _ := os.Stat(path)
-		updated := time.Time{}
-		if info != nil {
-			updated = info.ModTime().UTC()
-		}
+		updated, markerErr := readLastUpdated(filepath.Join(m.dir, source.ID+".last_updated"))
 		status := "ok"
-		if updated.IsZero() || time.Since(updated) > maxAge {
+		if markerErr != nil || updated.IsZero() || time.Since(updated) > maxAge {
 			status = "degraded"
 		}
+		stats := Stats{Loaded: len(parsed), Skipped: skipped, Updated: updated, Status: status}
+		if markerErr != nil {
+			stats.LastError = "per-source update timestamp is unavailable"
+		}
 		m.data.entries[source.ID] = parsed
-		m.data.stats[source.ID] = Stats{Loaded: len(parsed), Skipped: skipped, Updated: updated, Status: status}
+		m.data.stats[source.ID] = stats
 	}
+}
+
+func readLastUpdated(path string) (time.Time, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return time.Time{}, err
+	}
+	updated, err := time.Parse(time.RFC3339, strings.TrimSpace(string(data)))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse update timestamp: %w", err)
+	}
+	return updated.UTC(), nil
+}
+
+func writeLastUpdated(path string, updated time.Time) (resultErr error) {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".last-updated-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		if err := os.Remove(tmpPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("remove temporary timestamp: %w", err))
+		}
+	}()
+	if err := tmp.Chmod(0o644); err != nil {
+		return errors.Join(err, tmp.Close())
+	}
+	if _, err := fmt.Fprintf(tmp, "%s\n", updated.UTC().Format(time.RFC3339)); err != nil {
+		return errors.Join(err, tmp.Close())
+	}
+	if err := tmp.Sync(); err != nil {
+		return errors.Join(err, tmp.Close())
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 func (m *Manager) markFailure(id string, err error) {

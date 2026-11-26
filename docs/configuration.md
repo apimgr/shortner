@@ -713,9 +713,12 @@ do not toggle it by hand. The password is only ever supplied through an
 interactive prompt; there is no password flag, so it cannot leak into
 shell history or a process listing. `hint` is a non-secret reminder.
 
-Retention is tiered: yearly beats monthly beats weekly beats daily. A
-backup is skipped when disk usage exceeds `disk_threshold` percent. See
-[CLI Reference](cli.md#backup-and-restore).
+Retention categories are exclusive: January 1 backups are yearly, other
+first-of-month backups are monthly, Sundays are weekly, and all others are
+daily. The newest backups within each category fill that category's retention
+limit; an older backup that exceeds its category limit is deleted rather than
+reclassified into another category. A backup is skipped when disk usage
+exceeds `disk_threshold` percent. See [CLI Reference](cli.md#backup-and-restore).
 
 ## Updates
 
@@ -778,6 +781,9 @@ entries are retained. `allowlist` entries bypass blocking; `blocked_ips` are
 permanent, config-file-only blocks. Entries with an invalid or dangerously
 broad CIDR (an IPv4 prefix shorter than `/8`, or an IPv6 prefix shorter
 than `/16`) are dropped with a warning. See [Security](security.md).
+
+Allowlist entries accept `cidr` and an optional `description`; an omitted or
+empty description is stored as `(no description)`.
 
 `blocklists` always includes the built-in `firehol_level1` IP feed. Add
 operator feeds under `extra_sources`; each requires a unique lowercase

@@ -241,6 +241,9 @@ Three mechanisms, evaluated in order:
    released by the `ip_block_release` scheduler task, which sweeps every
    minute.
 
+Allowlist entries are managed in configuration. Their `description` is
+optional; an omitted or empty value is stored as `(no description)`.
+
 ```yaml
 server:
   security:
@@ -345,8 +348,10 @@ they do not inspect the server's Host header or perform reverse DNS.
 Each source has a health check named `blocklist_{id}`. A source that has
 never loaded reports `error`; a cached source older than 72 hours reports
 `degraded`. A failed refresh also reports `degraded` while its last good
-copy remains active. A degraded or unavailable feed does not make the service
-unhealthy, but it is visible in `/server/healthz`.
+copy remains active. Each source's `{id}.last_updated` marker records its
+own last successful refresh, so another feed's update cannot make a stale
+source appear current after restart. A degraded or unavailable feed does not
+make the service unhealthy, but it is visible in `/server/healthz`.
 
 ## Current Limitation
 

@@ -107,6 +107,7 @@ func TestValidateSecurityDropsInvalidAllowlistAndBlockedEntries(t *testing.T) {
 	cfg := Default("/db")
 	cfg.Server.Security.Allowlist = []AllowlistEntry{
 		{CIDR: "203.0.113.5", Description: "ok"},
+		{CIDR: "198.51.100.7"},
 		{CIDR: "garbage", Description: "bad"},
 	}
 	cfg.Server.Security.BlockedIPs = []BlockedIPEntry{
@@ -118,8 +119,14 @@ func TestValidateSecurityDropsInvalidAllowlistAndBlockedEntries(t *testing.T) {
 	if len(warnings) == 0 {
 		t.Fatal("Validate() returned no warnings, want warnings for the dropped entries")
 	}
-	if len(cfg.Server.Security.Allowlist) != 1 || cfg.Server.Security.Allowlist[0].CIDR != "203.0.113.5/32" {
-		t.Errorf("Allowlist = %+v, want only the normalized valid entry", cfg.Server.Security.Allowlist)
+	if len(cfg.Server.Security.Allowlist) != 2 || cfg.Server.Security.Allowlist[0].CIDR != "203.0.113.5/32" {
+		t.Errorf("Allowlist = %+v, want the two normalized valid entries", cfg.Server.Security.Allowlist)
+	}
+	if len(cfg.Server.Security.Allowlist) == 2 {
+		entry := cfg.Server.Security.Allowlist[1]
+		if entry.CIDR != "198.51.100.7/32" || entry.Description != "(no description)" || entry.AddedAt.IsZero() || entry.AddedBy != "config" {
+			t.Errorf("allowlist entry defaults = %+v, want CIDR, description, added_at and config source defaults", entry)
+		}
 	}
 	if len(cfg.Server.Security.BlockedIPs) != 1 || cfg.Server.Security.BlockedIPs[0].CIDR != "198.51.100.9/32" {
 		t.Errorf("BlockedIPs = %+v, want only the normalized valid entry", cfg.Server.Security.BlockedIPs)

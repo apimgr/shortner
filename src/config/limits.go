@@ -623,6 +623,15 @@ func validateSecurity(cfg *Config, defaults *Config) []string {
 			continue
 		}
 		e.CIDR = norm
+		if strings.TrimSpace(e.Description) == "" {
+			e.Description = "(no description)"
+		}
+		if e.AddedAt.IsZero() {
+			e.AddedAt = time.Now().UTC()
+		}
+		if e.AddedBy == "" {
+			e.AddedBy = "config"
+		}
 		keptAllow = append(keptAllow, e)
 	}
 	sec.Allowlist = keptAllow

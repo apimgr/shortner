@@ -139,6 +139,22 @@ func TestPlanTierPriority(t *testing.T) {
 	}
 }
 
+func TestPlanCategoryIsAssignedBeforeRetentionLimit(t *testing.T) {
+	files := []File{
+		planFile("shortner_backup_2024-01-01.tar.gz", KindFull, day(2024, time.January, 1), 10),
+		planFile("shortner_backup_2025-01-01.tar.gz", KindFull, day(2025, time.January, 1), 10),
+		planFile("shortner_backup_2025-01-05.tar.gz", KindFull, day(2025, time.January, 5), 10),
+	}
+
+	keep, remove := Plan(files, Policy{MaxBackups: 1, KeepYearly: 1})
+	if len(keep) != 1 || keep[0].Name != "shortner_backup_2025-01-01.tar.gz" {
+		t.Fatalf("keep = %v, want newest yearly only", names(keep))
+	}
+	if len(remove) != 2 || !contains(names(remove), "shortner_backup_2024-01-01.tar.gz") || !contains(names(remove), "shortner_backup_2025-01-05.tar.gz") {
+		t.Fatalf("remove = %v, want the older yearly and daily beyond their category limits", names(remove))
+	}
+}
+
 func TestPlanIncrementalsAreNeverCounted(t *testing.T) {
 	files := []File{
 		planFile("shortner-daily.tar.gz", KindDaily, day(2025, time.January, 16), 5),

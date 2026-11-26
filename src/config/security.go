@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"sort"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -62,10 +63,13 @@ type SecurityReports struct {
 
 // AllowlistEntry is one trusted IP/CIDR, per AI.md PART 11 "IP Block
 // Management" -> "Data Model". A bare IP auto-expands to /32 (IPv4) or
-// /128 (IPv6) at load time.
+// /128 (IPv6) at load time. Missing descriptions receive a display label
+// during config validation; AddedAt and AddedBy are runtime metadata.
 type AllowlistEntry struct {
-	CIDR        string `yaml:"cidr" json:"cidr"`
-	Description string `yaml:"description" json:"description"`
+	CIDR        string    `yaml:"cidr" json:"cidr"`
+	Description string    `yaml:"description,omitempty" json:"description,omitempty"`
+	AddedAt     time.Time `yaml:"-" json:"added_at"`
+	AddedBy     string    `yaml:"-" json:"added_by"`
 }
 
 // BlockedIPEntry is one permanently blocked IP/CIDR.

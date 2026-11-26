@@ -131,12 +131,10 @@ func parseBackupName(prefix, name string, modTime time.Time) (Kind, time.Time, b
 	return "", time.Time{}, false
 }
 
-// Plan assigns every file a retention tier and returns the files to keep
-// and the files to delete, implementing AI.md PART 21 "Backup Cleanup
-// Logic" steps 1-8 exactly: yearly, then monthly, then weekly, then daily,
-// each tier consuming its slots newest-first, a file counting only toward
-// the highest tier it qualifies for, and the optional size cap applied
-// last so it overrides every count limit.
+// Plan assigns every file one retention category and returns the files to
+// keep and delete. Categories are exclusive and assigned by date priority
+// before retention limits are applied, per AI.md PART 21. The optional size
+// cap runs last and overrides every count limit.
 //
 // Plan is pure — it touches no filesystem — so the classification can be
 // exercised directly by tests.
@@ -151,21 +149,33 @@ func Plan(files []File, p Policy) (keep []File, remove []File) {
 	})
 
 	assigned := make([]Tier, len(ordered))
+	selected := make([]bool, len(ordered))
 	for i := range ordered {
 		if ordered[i].Kind.Incremental() {
 			assigned[i] = TierIncremental
+		} else {
+			t := ordered[i].Date
+			switch {
+			case t.Month() == time.January && t.Day() == 1:
+				assigned[i] = TierYearly
+			case t.Day() == 1:
+				assigned[i] = TierMonthly
+			case t.Weekday() == time.Sunday:
+				assigned[i] = TierWeekly
+			default:
+				assigned[i] = TierDaily
+			}
 		}
 	}
 
 	tiers := []struct {
-		tier    Tier
-		slots   int
-		matches func(time.Time) bool
+		tier  Tier
+		slots int
 	}{
-		{TierYearly, p.KeepYearly, func(t time.Time) bool { return t.Month() == time.January && t.Day() == 1 }},
-		{TierMonthly, p.KeepMonthly, func(t time.Time) bool { return t.Day() == 1 }},
-		{TierWeekly, p.KeepWeekly, func(t time.Time) bool { return t.Weekday() == time.Sunday }},
-		{TierDaily, p.MaxBackups, func(time.Time) bool { return true }},
+		{TierYearly, p.KeepYearly},
+		{TierMonthly, p.KeepMonthly},
+		{TierWeekly, p.KeepWeekly},
+		{TierDaily, p.MaxBackups},
 	}
 
 	for _, tier := range tiers {
@@ -173,18 +183,18 @@ func Plan(files []File, p Policy) (keep []File, remove []File) {
 			continue
 		}
 		filled := 0
-		// Newest first: the most recent qualifying backup takes the slot.
+		// Newest first within its already assigned category.
 		for i := len(ordered) - 1; i >= 0 && filled < tier.slots; i-- {
-			if assigned[i] != "" || !tier.matches(ordered[i].Date) {
+			if assigned[i] != tier.tier || selected[i] {
 				continue
 			}
-			assigned[i] = tier.tier
+			selected[i] = true
 			filled++
 		}
 	}
 
 	for i := range ordered {
-		if assigned[i] == "" {
+		if !selected[i] && assigned[i] != TierIncremental {
 			assigned[i] = TierExpired
 		}
 		ordered[i].Tier = assigned[i]

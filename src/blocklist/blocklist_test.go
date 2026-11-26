@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -92,13 +94,20 @@ func TestUpdateAndMatchRequest(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	m, err := Open(t.TempDir(), config.Blocklists{})
+	dir := t.TempDir()
+	m, err := Open(dir, config.Blocklists{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	m.sources = []Source{{ID: "domains", Type: "domain", URL: server.URL, Enabled: true}}
 	if err := m.Update(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "domains.last_updated")); err != nil {
+		t.Fatalf("per-source update timestamp missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".last_updated")); !os.IsNotExist(err) {
+		t.Fatalf("shared update timestamp still exists: %v", err)
 	}
 	bodyText := "email=user%40blocked.example&url=https%3A%2F%2Fok.example"
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(bodyText))
@@ -116,5 +125,56 @@ func TestUpdateAndMatchRequest(t *testing.T) {
 	}
 	if got := m.MatchDomain("blocked.example"); got != "domains" {
 		t.Fatalf("last known good feed lost after failure: %q", got)
+	}
+}
+
+func TestLoadCachedUsesPerSourceFreshnessMarkers(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now().UTC()
+	for _, id := range []string{"fresh", "stale"} {
+		if err := os.WriteFile(filepath.Join(dir, id+".txt"), []byte("203.0.113.7\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".last_updated"), []byte(now.Format(time.RFC3339)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "fresh.last_updated"), []byte(now.Format(time.RFC3339)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "stale.last_updated"), []byte(now.Add(-maxAge-time.Minute).Format(time.RFC3339)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{
+		dir:     dir,
+		sources: []Source{{ID: "fresh", Type: "ip"}, {ID: "stale", Type: "ip"}},
+		data:    snapshot{entries: make(map[string][]entry), stats: make(map[string]Stats)},
+	}
+	m.loadCached()
+	if got := m.Status()["fresh"].Status; got != "ok" {
+		t.Errorf("fresh source status = %q, want ok", got)
+	}
+	if got := m.Status()["stale"].Status; got != "degraded" {
+		t.Errorf("stale source status = %q, want degraded", got)
+	}
+}
+
+func TestLoadCachedWithoutPerSourceTimestampIsDegraded(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "feed.txt"), []byte("203.0.113.7\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".last_updated"), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{
+		dir:     dir,
+		sources: []Source{{ID: "feed", Type: "ip"}},
+		data:    snapshot{entries: make(map[string][]entry), stats: make(map[string]Stats)},
+	}
+	m.loadCached()
+	stats := m.Status()["feed"]
+	if stats.Status != "degraded" || !stats.Updated.IsZero() {
+		t.Errorf("source status = %+v, want loaded but degraded without a timestamp", stats)
 	}
 }

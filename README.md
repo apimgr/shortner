@@ -33,6 +33,8 @@ the originating IP anonymized for privacy-respecting analytics.
   rate limits, content filtering, strike bans, and silent honeypot drops
 - HTTPS service worker with cached static assets and a synthesized translated
   offline fallback
+- Scheduled encrypted backups with exclusive yearly, monthly, weekly, and
+  daily retention categories; see the [configuration guide](docs/configuration.md#backup)
 - REST API for link creation, listing, management, analytics, and health,
   with OpenAPI, read-only GraphQL, and MCP tools using the same API tokens
 - Local GeoIP enrichment for click analytics and country-based controls
