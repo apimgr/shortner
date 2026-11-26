@@ -33249,7 +33249,7 @@ retention:
 Backups on disk (January 15, 2025):
   myapp_backup_2025-01-15.tar.gz.enc    ← Today's run (daily full at T0)
   myapp_backup_2025-01-12.tar.gz.enc    ← Last Sunday (weekly)
-  myapp_backup_2025-01-01.tar.gz.enc    ← 1st of Jan 2025 (monthly + yearly)
+  myapp_backup_2025-01-01.tar.gz.enc    ← 1st of Jan 2025 (yearly; a backup fills exactly one category, so the monthly slot stays empty until the next 1st)
   myapp-daily.tar.gz.enc                 ← Incremental
 
 Total: 4 files
@@ -33295,11 +33295,12 @@ nothing in the backup dir matching the app's naming is ever exempt from pruning.
 ```
 1. Collect all backup files in the cached backup dir matching the app's
    naming patterns above; sort by date (oldest first)
-2. Mark all backups from January 1st as "yearly" (keep up to keep_yearly)
-3. Mark all backups from 1st of month as "monthly" (keep up to keep_monthly)
-4. Mark all backups from Sunday as "weekly" (keep up to keep_weekly)
-5. Mark remaining backups (daily full + manual/timestamped) as "daily"
-   (keep up to max_backups, oldest deleted first)
+2. Classify every backup into exactly ONE category, the first that applies: "yearly" (January 1st),
+   "monthly" (1st of a month), "weekly" (Sunday), otherwise "daily" (daily full + manual/timestamped).
+   The categories are exclusive: a January 1st backup fills only a yearly slot
+3. Keep the newest keep_yearly yearly, keep_monthly monthly and keep_weekly weekly backups
+4. Keep the newest max_backups daily backups (oldest deleted first)
+5. Every backup not kept by steps 3 and 4 is unmarked (nothing is counted twice)
 6. Delete unmarked backups, oldest first
 7. Daily incremental ({project_name}-daily.tar.gz[.enc]) is always replaced
    (only 1 exists); hourly incremental likewise
@@ -33307,8 +33308,8 @@ nothing in the backup dir matching the app's naming is ever exempt from pruning.
    all backup files still exceeds the cap, delete oldest files first until
    total is under the cap (size cap overrides all count limits)
 
-Note: A single backup can satisfy multiple retention types (e.g., Jan 1st 2025
-on a Sunday counts as daily + weekly + monthly + yearly — uses highest priority)
+Note: the categories never overlap (e.g., Jan 1st 2025 on a Sunday is a yearly
+backup only: highest priority wins, and it consumes no monthly, weekly or daily slot)
 ```
 
 **Daily incremental is NOT counted** in retention - it's always exactly 1 file that gets replaced. A full backup that is the `base_backup` of a retained incremental is exempt from pruning until that incremental is replaced (at most one extra full on disk). Lifetime: the next run replaces the incremental with one based on the newest full; from then on the former base is a plain full, restorable alone at its own snapshot, and it ages out by the normal retention rules. Only the newest incremental and its base form a point-in-time pair, there is never a second incremental on disk, and the fixed file name `{project_name}-daily.tar.gz[.enc]` names no pair (its manifest's `base_backup` does).
