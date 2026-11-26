@@ -8885,6 +8885,15 @@ chmod 755 /var/log/{internal_org}/{internal_name}/
 | **Auto-start** | On boot | On user login |
 | **Service file** | `/etc/systemd/system/` | `~/.config/systemd/user/` |
 
+**User service per platform** (a non-root `--service --install` installs exactly this; it is never an error):
+
+| Platform | User service | File or entry |
+|----------|--------------|---------------|
+| Linux with systemd | `systemd --user` unit | `~/.config/systemd/user/{internal_name}.service` |
+| macOS | launchd LaunchAgent (loaded at user login) | `~/Library/LaunchAgents/{plist_name}.plist` |
+| Windows | Task Scheduler task that runs at the user's logon (no admin rights needed) | task `{internal_name}` created with `schtasks /Create /SC ONLOGON` |
+| Linux with OpenRC, runit, s6 or SysVinit, and BSD | No per-user service manager exists: nothing is installed, the command prints that no user service is available on this platform and how to start the server (`{project_name} --daemon`, or ask an administrator to install the system service), and exits `0` |
+
 ### Port Display Rules
 
 | Rule | Description |
@@ -9020,7 +9029,7 @@ server:
 
   # Scheduler - manages all background tasks
   scheduler:
-    # Built-in tasks with sane defaults (all enabled by default)
+    # Built-in tasks with sane defaults (all enabled by default except backup_hourly, which is disabled by default)
     tasks:
       # Security database updates
       geoip_update:
@@ -9051,7 +9060,7 @@ server:
       token_cleanup:
         enabled: true
         # Every 15 minutes
-        schedule: "*/15 * * * *"
+        schedule: "@every 15m"
       backup_daily:
         enabled: true
         # Daily: 2:00 AM
@@ -11436,7 +11445,7 @@ PHASE 5: Server startup (actual server start)
 | `--service start` (container) | Always foreground (ignores config) |
 | `--service start` (SysV init) | Always foreground (the init script backgrounds it with `start-stop-daemon --background`) |
 | `--service start` (rc.d/BSD) | Always foreground (the rc script backgrounds and supervises it with `daemon(8)`) |
-| Manual start (no --service) | Respects `--daemon` flag and config |
+| Manual start (no --service) | Respects `--daemon` flag and config on Unix; on Windows `--daemon` is ignored with a warning and the process stays in the foreground ("Daemonization (Windows)") |
 
 **Container Detection (always foreground):**
 
@@ -11691,7 +11700,7 @@ func Daemonize() error {
 func filterDaemonFlag(args []string) []string {
     filtered := make([]string, 0, len(args))
     for _, arg := range args {
-        if arg != "--daemon" && arg != "-d" {
+        if arg != "--daemon" {
             filtered = append(filtered, arg)
         }
     }
@@ -14307,6 +14316,7 @@ func isColumnExistsError(err error) bool {
 | **Add only** | Add columns, add tables, add indexes |
 | **Defaults required** | New columns must have `DEFAULT` or be nullable |
 | **No renames of a project's own columns** | Add new column, migrate data in app code, deprecate old ("Handling Column Renames"). The one exception is a column this specification itself renames to its canonical name ("Canonical Column Renames") |
+| **Existing key types stay** | A primary key's type is never converted and a table is never rebuilt. A database created with another key type for a table (for example a text `scheduler_history.id`) keeps it; fresh databases use the canonical definition, and code treats such a key as an opaque value read through the driver, never as an integer it computes |
 | **Comments in code** | Note version that introduced each change |
 
 ### Handling Column Renames
@@ -14789,7 +14799,7 @@ For SQLite this retry lives in the `Write` helper of "SQLite Concurrency Contrac
 | `request_count_24h`, `active_connections`, `total_connections` | `/server/healthz` (under `metrics`) | Operational, aggregate |
 | `unique_visitors_24h`, `peak_concurrent` | `/server/healthz` (aggregate only) | Bragging rights / monitoring; no per-IP detail |
 | Public domain(s) the app serves (`{fqdn}`, learned reverse-proxy hosts) | `/api/autodiscover`, banners | Already public — that's how visitors got here |
-| Tor `.onion` / I2P address (if Tor/I2P enabled and `server.tor.expose` / `server.i2p.expose` is `true`) | `/api/autodiscover` | Operator opt-in; advertised on purpose |
+| Tor `.onion` / I2P address (if Tor/I2P enabled and `server.tor.expose` / `server.i2p.expose` is `true`) | `/api/autodiscover` | Operator opt-in; advertised on purpose. The same switch is the one exposure policy for every public surface: the `hostname` of `/server/healthz`, the shared footer link target and the `/server/help` Tor and I2P sections show the address only while `server.tor.expose` / `server.i2p.expose` is `true`, and are empty or omitted otherwise |
 | OpenAPI spec, GraphQL schema | `/api/{api_version}/server/swagger`, `/api/swagger`, `/server/docs/*` | API surface is intentionally public |
 | Public OG / social metadata | HTML `<meta>` | Required for sharing / SEO |
 
@@ -15986,27 +15996,9 @@ CREATE TABLE IF NOT EXISTS security_thanks (
 | `access.log` | HTTP requests | `apache` | `apache`, `nginx`, `json` |
 | `server.log` | Application events | `text` | `text`, `json` |
 | `error.log` | Error messages | `text` | `text`, `json` |
-| `app.log` (or `{project_name}.log`) | General application events (info/warn) | `logfmt` | `logfmt`, `json` |
-| `auth.log` | Authentication events (token issue/revoke, failures) | `syslog` | `syslog` (RFC 3164), `json` |
 | `audit.log` | Security events | `json` | `json` only (must be machine-parseable) |
 | `security.log` | Security/auth events | `fail2ban` | `fail2ban`, `syslog`, `cef`, `json`, `text` |
 | `debug.log` | Debug (dev mode) | `text` | `text`, `json` |
-
-**`app.log` (logfmt) — example line:**
-
-```
-time=2026-05-13T10:58:00-04:00 level=INFO msg="user created" id=abc123 ip=1.2.3.4
-```
-
-Logfmt: space-separated `key=value` pairs, values with spaces or `=` quoted with double quotes. One event per line. Time in RFC 3339 with timezone offset.
-
-**`auth.log` (syslog RFC 3164) — example line:**
-
-```
-May 13 10:58:00 hostname {project_name}[pid]: auth: token_id=xxx ip=1.2.3.4 result=fail reason=invalid_token
-```
-
-Syslog header: `<MMM DD HH:MM:SS> <hostname> <program>[<pid>]:` followed by the structured message. `result=` is one of `success` / `fail`. `reason=` is a stable machine code (never a free-form message — keeps Fail2ban / SIEM parsers stable).
 
 **All log files (every log listed above) — raw text only:**
 - No ANSI escape codes
@@ -19342,7 +19334,7 @@ Same underlying health response as `/server/healthz`, but formatted using the st
 
 - **`enabled` means "active on this instance", not "currently running".** Tor: a `tor` binary was found (there is no toggle). I2P: `server.i2p.enabled` is true AND a provider was found.
 - **A missing binary is `disabled`, never `unavailable`.** Not having Tor is a normal state (PART 31.1: "missing Tor is NOT an error"), so it never produces an `error` or `degraded` anywhere.
-- **Invariants:** `enabled: false` always comes with `running: false`, `status: "disabled"`, an empty `hostname` and NO `checks.tor` / `checks.i2p` key. `running: true` implies `status: "healthy"`. All fields are always present, with the same shape on every project.
+- **Invariants:** `enabled: false` always comes with `running: false`, `status: "disabled"`, an empty `hostname` and NO `checks.tor` / `checks.i2p` key. `running: true` implies `status: "healthy"`. `hostname` is empty while the matching `server.tor.expose` / `server.i2p.expose` is `false` (default), even when the network is healthy: the exposure switch of PART 11 gates it. All fields are always present, with the same shape on every project.
 - **Overall status:** `unavailable` makes the check `degraded`, which makes the overall `status` `degraded` (HTTP 200). It never makes the overall status `unhealthy`, and it is never ignored (an `unavailable` network with an overall `healthy` is a bug).
 - **I2P mapping:** the lifecycle `state` maps to `status` as `disabled` and `no_provider` to `disabled`, `starting` and `building` to `starting`, `running` to `healthy`, `error` to `unavailable`.
 - **Text format:** `features.tor: unavailable` and `features.i2p: disabled` (the status word, then the hostname when there is one).
@@ -20478,12 +20470,12 @@ func renderNoJSHTML(w http.ResponseWriter, data interface{}) {
 | **Sync with project** | Both MUST reflect current project API at all times |
 | **Sync with each other** | Both describe the same API: GraphQL is query-only (reads, per the route contract), so every read operation a client may call appears in both, while write operations (POST, PUT, PATCH, DELETE) exist in REST and Swagger only. Not every read is a GraphQL field: a route declared `Binary` (an image or a file, which a GraphQL response cannot carry) appears as its metadata and URL only, and the `service`-auth routes and the routes with `Internal` set (metrics, debug) are in neither GraphQL nor MCP |
 | **Auto-generated** | Both specs generated from code (annotations, comments, or schema) |
-| **Never manual** | NEVER manually edit OpenAPI JSON or GraphQL schema |
+| **Never manual** | NEVER manually edit the generated OpenAPI JSON or generated GraphQL output (code-first: the schema built from the code; schema-first: the generated Go types). In schema-first the hand-written `schema.graphqls` is the one source and IS edited |
 | **Build-time generation** | Specs regenerated on every build |
 | **Optional routes** | The embedded build-time spec is the full SUPERSET of routes, and every route that depends on a flag or a setting (the `/debug/*` routes, `/metrics`, the root aliases, optional well-known files) carries `x-mounted-when` naming its condition (for example `--debug` or `server.metrics.root.enabled`). At startup the server derives the SERVED spec from the embedded one by removing every operation whose condition is false for this run, so the spec a client reads always matches the routes that are actually mounted. The drift test compares the superset with the route table |
 | **JSON only** | OpenAPI spec uses JSON format only (NO YAML) |
 | **Source of truth** | AI.md defines the TEMPLATE routes and the `### API routes` inventory in IDEA.md defines EVERY project-defined route, including any native or compatibility API of the project; together they are the API CONTRACT: routes, methods, auth and shapes. AI.md never enumerates project routes. The code and its annotations implement that contract, and the specs are GENERATED from the code, so they are artifacts, never edited by hand. Drift is detected by a test with three legs: the generated OpenAPI route and method list, the router's registered routes, and the union of the AI.md template routes and the IDEA.md `### API routes` inventory. A route present in one leg and missing from another fails the build, naming the route and the missing place; a project whose IDEA.md has no `### API routes` subsection fails with that message instead of passing vacuously. A deliberate change is made in AI.md or IDEA.md first, then the code, then the specs are regenerated |
-| **Template route inventory** | The template leg of the drift test is read from the project's own `AI.md` at test time, deterministically: a template route is a Markdown table row whose first cell is exactly one backticked path starting with `/` and whose second cell lists one or more HTTP methods (`GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`) separated by `/` or `,` (each method of the path is its own route); a first cell with an alias lists each path as its own route. `{api_version}` is the API version in use, `{admin_path}` the configured admin path, any other `{name}` segment matches a path parameter. A row under a section marked OPTIONAL counts only when the project enables that feature (its `x-mounted-when` condition). A route table in any other form is not a route inventory: a new template route is added to AI.md in this form, and nothing is copied into a project |
+| **Template route inventory** | The template leg of the drift test is read from the project's own `AI.md` at test time, deterministically: a template route is a Markdown table row whose first cell is exactly one backticked path starting with `/` and whose second cell lists one or more HTTP methods (`GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`) separated by `/` or `,` (each method of the path is its own route); a first cell with an alias lists each path as its own route; optional-segment brackets such as `/metrics[/{service}]` expand to two routes, the path without and the path with the bracketed segment. A row in a fenced code block or in a table introduced as an illustrative example (for example the generic REST row `/api/{api_version}/{resource}`) is not a template route. `{api_version}` is the API version in use, `{admin_path}` the configured admin path, any other `{name}` segment matches a path parameter. A row under a section marked OPTIONAL counts only when the project enables that feature (its `x-mounted-when` condition). A route table in any other form is not a route inventory: a new template route is added to AI.md in this form, and nothing is copied into a project |
 | **Match site theme** | Both UIs styled to match site theme (light/dark/auto) |
 | **Standardized locations** | ALWAYS `src/swagger/` and `src/graphql/` (NEVER in root `.`) |
 
@@ -20530,7 +20522,7 @@ Both specs automatically in sync with project
 
 **NEVER:**
 - Manually edit `openapi.json`
-- Manually edit GraphQL schema files
+- Manually edit generated GraphQL output (in schema-first, `schema.graphqls` is the source and is edited)
 - Let specs drift from actual API
 - Have endpoints not documented in both
 - Put swagger/graphql files in project root (`.`)
@@ -29253,7 +29245,7 @@ Language is detected automatically and changed in Preferences. It is never a hea
 | Data Collection | built-in text ("Built-in privacy text") | What data is collected |
 | Data Usage | `GetDataUsageContent()` | Dynamic: returns `data_usage` or `data_usage_if_sold` |
 | Data Security | built-in text ("Built-in privacy text") | How data is protected |
-| Data Storage | `server.privacy.sharing` | Where data is stored, third-party conditions |
+| Data Storage | `server.privacy.data.sharing` | Where data is stored, third-party conditions |
 | Data Retention | `server.privacy.retention` | How long data is kept |
 | Third Parties | `server.privacy.third_party` | Services that receive data (if any) |
 | Your Rights | `server.privacy.retention` | Export/deletion options |
@@ -30693,6 +30685,7 @@ server:
 | Threshold | `server.notifications.disk_low.threshold_percent` (default `85`, matching the PART 20 Prometheus example). The stricter backup rule in PART 21 (skip backups above 90%) is a separate safeguard |
 | Cadence | Built-in scheduler task `disk_check` every `server.notifications.disk_low.check_interval` (default `5m`); no external cron |
 | Deduplication | One WARN and email per volume when the threshold is first crossed; repeated at most once per `server.notifications.disk_low.repeat` (default `24h`) while usage stays above it |
+| Switch | `server.notifications.disk_low.enabled` (default `true`) controls the check and its email together; there is no separate `events.disk_low` email switch, so while it is on the email follows the matrix below (sent whenever SMTP works) |
 | Recovery | When usage falls 5 percentage points below the threshold, log INFO `Disk space recovered` (log only) and reset the deduplication state |
 
 ```yaml
@@ -32980,13 +32973,14 @@ groups:
 | `{config_dir}/secrets.yml` | ✓ If exists | Secrets (encryption key, credentials); `server.token` is blanked in the backup copy |
 | `{config_dir}/assets/` | ✓ If exists | Branding image files |
 | `server.db` | ✓ When the local file exists | The local SQLite database: the main database with the SQLite driver (settings, rate limits, audit log); with the libSQL driver, the local cache file when `server.database.cache.enabled` is true. A remote database is never part of a backup (see below) |
+| `app_secrets.json` | ✓ Always | The `app_secrets` rows (`installation_secret`, `cookie_signing_key`, `csrf_token_secret` and their `{name}_previous` rows), exported by the server whether the database is local or remote, so a restore can decrypt the PGP private key (PART 11) even when the database is remote with no local cache. A restore writes them back and replaces rows that exist |
 | `{config_dir}/template/` | ✓ If exists | Custom email templates |
 | `{config_dir}/ssl/` | Optional | SSL certificates (flag: `--include-ssl`) |
 | Connection TLS files | ✓ Always, when referenced | The files named by `tls_ca`, `tls_cert`, `tls_key` (cache), even without `--include-ssl`; only those files, not the whole `ssl/` directory ("Connection Strings") |
 | External TLS files | ✓ Always, when referenced | The files named by `server.ssl.cert` and `server.ssl.key` that lie OUTSIDE `{config_dir}/ssl/` (a manually supplied certificate), even without `--include-ssl`: only those two files, stored under `ssl-external/` in the archive. On restore they are written into `{config_dir}/ssl/` (the key with mode `0600`) and `server.ssl.cert` and `server.ssl.key` are rewritten to those paths, so the restored config never points at a file the archive lacks |
 | `{data_dir}/` | Optional | Data files (flag: `--include-data`) |
 
-**Remote database (libSQL/Turso driver):** the remote database itself is never part of a backup, and that is neither an error nor a warning (a remote database is backed up by its own provider; the backup writes one `info` line naming the driver). On restore with a remote driver configured, the restored `server.db` seeds the remote database ONLY when that database is empty, exactly as a new setup initializes it; a remote database that already holds data is left untouched.
+**Remote database (libSQL/Turso driver):** the remote database itself is never part of a backup (its `app_secrets` rows are the one exception, exported as `app_secrets.json`), and that is neither an error nor a warning (a remote database is backed up by its own provider; the backup writes one `info` line naming the driver). On restore with a remote driver configured, the restored `server.db` seeds the remote database ONLY when that database is empty, exactly as a new setup initializes it; a remote database that already holds data is left untouched.
 
 ### What Is in server.db
 
@@ -34242,7 +34236,7 @@ Sequence). `--service --install` runs the same user/group and directory routine 
 | 2 | OpenRC | `/sbin/openrc-run` exists AND `/run/openrc` exists (OpenRC is running; true in an Alpine Incus container) |
 | 3 | runit | `/etc/runit` exists or `sv` is on `PATH` |
 | 4 | s6 | `s6-svc` is on `PATH` and an `s6-svscan` process is running |
-| 5 | SysVinit | none of the above, `/etc/init.d/` exists, and `update-rc.d` or `chkconfig` works |
+| 5 | SysVinit | none of the above (the RUNNING init decides: an installed but non-running `systemctl` does not exclude SysVinit), `/etc/init.d/` exists, and `update-rc.d` or `chkconfig` works |
 | 6 | rc.d (BSD), launchd, Windows Service | by platform |
 
 An OpenRC host is NEVER treated as SysVinit: both use `/etc/init.d/{internal_name}`, and the OpenRC script (`#!/sbin/openrc-run`) is not a SysV script. A system container (Incus/LXC) that runs systemd or OpenRC as its init is a normal host for service installation; "container" is only for application containers (Docker, Podman, Kubernetes).
@@ -34928,7 +34922,7 @@ sudo rc-update del {internal_name} default
 
 **Installation path:** `/etc/init.d/{internal_name}` (executable shell script — same path as OpenRC; only one of the two is installed per host based on detection)
 
-**Detection:** the binary picks SysVinit only when `/sbin/openrc-run` is absent, `systemctl` is absent, and `/etc/init.d/` exists with a working `update-rc.d` or `chkconfig`.
+**Detection:** the binary picks SysVinit only when `/sbin/openrc-run` is absent, systemd is not the running init (an installed but non-running `systemctl` does not exclude SysVinit), and `/etc/init.d/` exists with a working `update-rc.d` or `chkconfig`.
 
 ```sh
 #!/bin/sh
@@ -35604,7 +35598,7 @@ test:
 		COVDIR=\$$(mktemp -d \"\$${TMPDIR:-/tmp}/$(PROJECT_ORG)/$(INTERNAL_NAME)-XXXXXX\") && \
 		go mod download && \
 		mkdir -p \$$COVDIR/data && \
-		go test -v -cover ./... -args -test.gocoverdir=\$$COVDIR/data && \
+		TMPDIR=\$$COVDIR go test -v -cover ./... -args -test.gocoverdir=\$$COVDIR/data && \
 		go tool covdata textfmt -i=\$$COVDIR/data -o=\$$COVDIR/coverage.out && \
 		COVERAGE=\$$(go tool cover -func=\$$COVDIR/coverage.out | grep '^total:' | awk '{print \$$3}' | sed 's/%//') && \
 		echo \"Coverage: \$$COVERAGE%\" && \
@@ -36083,7 +36077,7 @@ docker/
 | Entrypoint script | `/usr/local/bin/entrypoint.sh` |
 | Init system | **tini** |
 | Internal port | **80** |
-| **ENV MODE** | **not set** — binary defaults to production; compose files set `MODE` explicitly (`production` / `development`). Only the `:devel` image (`Dockerfile.dev`) bakes `ENV MODE=development` |
+| **ENV MODE** | **not set** — binary defaults to production; the production compose file sets neither `MODE` nor `DEBUG`, while the dev and test compose files set `MODE: development`. Only the `:devel` image (`Dockerfile.dev`) bakes `ENV MODE=development` |
 
 ### Container Paths
 
@@ -36134,7 +36128,7 @@ docker/
 
 **Host Volume Mapping (docker-compose):**
 
-All compose files mount two volumes:
+Production compose files mount two volumes (a development compose file mounts the same two without `:z`, see the Rules below):
 
 ```yaml
 volumes:
@@ -36322,7 +36316,7 @@ RUN chmod 755 /usr/local/bin/*
 # Set environment
 # Note: Tor available (binary installed) but server binary controls Tor startup (see PART 31)
 # DATABASE_DIR: SQLite location (binary auto-detects container, but explicit is clearer)
-# MODE is never baked into the production image — binary defaults to production; compose sets MODE explicitly (only Dockerfile.dev bakes MODE=development)
+# MODE is never baked into the production image — binary defaults to production; the production compose sets neither MODE nor DEBUG, the dev and test compose files set MODE: development (only Dockerfile.dev bakes MODE=development)
 # I2P_ENABLED is never baked either: the binary's own default is on in a container, so an operator's explicit flag, variable or config value always overrides it (PART 31.2)
 ENV TZ=America/New_York \
     DATABASE_DIR=/data/db/sqlite
@@ -36350,7 +36344,7 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 
 **Notes:**
 - **NEVER modify ENTRYPOINT or CMD** - all customization goes in `entrypoint.sh`
-- `STOPSIGNAL SIGRTMIN+3` allows entrypoint.sh to handle shutdown gracefully
+- `STOPSIGNAL SIGRTMIN+3` lets the application shut down gracefully: the entrypoint ends with `exec`, so the binary replaces the shell and receives the signal itself
 - `tini -p SIGTERM` propagates SIGTERM to all child processes
 - docker.yml workflow needs NO binary build step - just docker buildx
 
@@ -36360,9 +36354,8 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 
 **Entrypoint is MINIMAL.** It only does:
 1. Set environment variables/flags
-2. Exec server binary
-3. Start server binary
-4. Handle signals for graceful shutdown
+2. Optionally start helper services in the background
+3. `exec` the server binary (it replaces the shell and handles signals itself)
 
 **Binary handles EVERYTHING else:** directories, permissions, user/group, Tor, etc.
 
@@ -36372,7 +36365,7 @@ set -eo pipefail
 
 # =============================================================================
 # Container Entrypoint Script - MINIMAL
-# Only: set env, start services, start binary, handle signals
+# Only: set env, start optional helper services, exec the binary (the binary handles signals)
 # Binary handles: directories, permissions, user/group, Tor, etc.
 # =============================================================================
 
@@ -36384,12 +36377,13 @@ export TZ="${TZ:-America/New_York}"
 export CONFIG_DIR="${CONFIG_DIR:-/config/${APP_NAME}}"
 export DATA_DIR="${DATA_DIR:-/data/${APP_NAME}}"
 
-# Track background PIDs for cleanup
+# Track background helper PIDs (only needed when helper services are started below)
 declare -a PIDS=()
 
 log() { echo "[entrypoint] $(date '+%Y-%m-%dT%H:%M:%S%z') $*"; }
 
-# Signal handling for graceful shutdown
+# Signal handling for the helper services only: the trap lives until the final exec, after which the binary receives signals directly
+# (with no helper services, omit PIDS, cleanup and the trap entirely)
 cleanup() {
     log "Shutdown signal received..."
     for ((i=${#PIDS[@]}-1; i>=0; i--)); do
@@ -36428,7 +36422,7 @@ exec $APP_BIN --address "${LISTEN:-[::]}" $FLAGS "$@"
 |---------|-------------|
 | **Environment defaults** | Sets `TZ`, `CONFIG_DIR`, `DATA_DIR` |
 | **Flag building** | Constructs CLI flags from env vars (`LISTEN`, `PORT`, `DEBUG`) |
-| **Signal handling** | Graceful shutdown on SIGTERM/SIGINT/SIGQUIT |
+| **Signal handling** | The binary handles SIGTERM/SIGINT/SIGQUIT itself after `exec`; the shell traps them only to stop optional helper services before `exec` |
 | **Service startup** | Optional: pre-flight checks before binary exec |
 | **Binary exec** | Runs server binary with `exec` (replaces shell) |
 
@@ -37184,7 +37178,7 @@ jobs:
           COVDIR=$(mktemp -d "/tmp/${{ github.repository_owner }}/${{ env.INTERNAL_NAME }}-XXXXXX")
           echo "COVDIR=$COVDIR" >> "$GITHUB_ENV"
           mkdir -p "$COVDIR/data"
-          go test -cover ./... -args -test.gocoverdir="$COVDIR/data"
+          TMPDIR="$COVDIR" go test -cover ./... -args -test.gocoverdir="$COVDIR/data"
           go tool covdata textfmt -i="$COVDIR/data" -o="$COVDIR/coverage.out"
       - name: Enforce coverage threshold
         run: |
@@ -38247,7 +38241,7 @@ jobs:
           COVDIR=$(mktemp -d "/tmp/${{ gitea.repository_owner }}/${{ env.INTERNAL_NAME }}-XXXXXX")
           echo "COVDIR=$COVDIR" >> "$GITEA_ENV"
           mkdir -p "$COVDIR/data"
-          go test -cover ./... -args -test.gocoverdir="$COVDIR/data"
+          TMPDIR="$COVDIR" go test -cover ./... -args -test.gocoverdir="$COVDIR/data"
           go tool covdata textfmt -i="$COVDIR/data" -o="$COVDIR/coverage.out"
       - name: Enforce coverage threshold
         run: |
@@ -39455,7 +39449,7 @@ test:
     - mkdir -p "/tmp/${CI_PROJECT_NAMESPACE}"
     - COVDIR=$(mktemp -d "/tmp/${CI_PROJECT_NAMESPACE}/${INTERNAL_NAME}-XXXXXX")
     - mkdir -p "$COVDIR/data"
-    - go test -v -cover ./... -args -test.gocoverdir="$COVDIR/data"
+    - TMPDIR="$COVDIR" go test -v -cover ./... -args -test.gocoverdir="$COVDIR/data"
     - go tool covdata textfmt -i="$COVDIR/data" -o="$COVDIR/coverage.out"
     - PCT=$(go tool cover -func="$COVDIR/coverage.out" | awk '/^total:/ {gsub("%","",$3); print int($3)}')
     - if [ "$PCT" -lt 60 ]; then echo "coverage ${PCT}% is below the 60% threshold"; exit 1; fi
@@ -40513,7 +40507,7 @@ pipeline {
                 sh '''
                     mkdir -p "/tmp/${PROJECT_ORG}"
                     COVDIR=$(mktemp -d "/tmp/${PROJECT_ORG}/${INTERNAL_NAME}-XXXXXX")
-                    docker run --rm -v ${WORKSPACE}:/app -v ${COVDIR}:/cov -v ${GO_CACHE}:/usr/local/share/go/pkg/mod -v ${GO_BUILD}:/usr/local/share/go/cache -w /app casjaysdev/go:latest sh -c 'mkdir -p /cov/data && go test -cover ./... -args -test.gocoverdir=/cov/data && go tool covdata textfmt -i=/cov/data -o=/cov/coverage.out'
+                    docker run --rm -v ${WORKSPACE}:/app -v ${COVDIR}:/cov -v ${GO_CACHE}:/usr/local/share/go/pkg/mod -v ${GO_BUILD}:/usr/local/share/go/cache -w /app casjaysdev/go:latest sh -c 'mkdir -p /cov/data && TMPDIR=/cov go test -cover ./... -args -test.gocoverdir=/cov/data && go tool covdata textfmt -i=/cov/data -o=/cov/coverage.out'
                     PCT=$(docker run --rm -v ${WORKSPACE}:/app -v ${COVDIR}:/cov -w /app casjaysdev/go:latest go tool cover -func=/cov/coverage.out | awk '/^total:/ {gsub("%","",$3); print int($3)}')
                     rm -rf "$COVDIR"
                     [ "$PCT" -ge 60 ] || { echo "coverage ${PCT}% < 60%"; exit 1; }
@@ -41629,7 +41623,7 @@ test:
         COVDIR=$(mktemp -d "/tmp/${{ github.repository_owner }}/${{ env.INTERNAL_NAME }}-XXXXXX")
         echo "COVDIR=$COVDIR" >> "$GITHUB_ENV"
         docker run --rm --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v $PWD:/app -v "$COVDIR":/cov -w /app casjaysdev/go:latest \
-          sh -c 'mkdir -p /cov/data && go test -cover ./... -args -test.gocoverdir=/cov/data && go tool covdata textfmt -i=/cov/data -o=/cov/coverage.out'
+          sh -c 'mkdir -p /cov/data && TMPDIR=/cov go test -cover ./... -args -test.gocoverdir=/cov/data && go tool covdata textfmt -i=/cov/data -o=/cov/coverage.out'
 
     - name: Check coverage is ≥60%
       run: |
@@ -42009,7 +42003,7 @@ docker run --rm \
 
     echo '=== Open API Smoke Test ==='
     # No token needed for the public endpoints; MCP, metrics and token routes are checked separately (a missing token answers 401)
-    curl -q -LSsf http://localhost:64580/server/healthz | grep -q '"status"' \
+    curl -q -LSsf -H 'Accept: application/json' http://localhost:64580/server/healthz | grep -q '"status"' \
         && echo '✓ Health endpoint works' \
         || fail 'Health endpoint'
 
@@ -42270,7 +42264,7 @@ echo "=== Project-Specific Endpoint Tests ==="
 
 echo "=== Open API Smoke Test ==="
 # No token needed for the public endpoints; MCP, metrics and token routes are checked separately (a missing token answers 401)
-if curl -q -LSsf http://localhost:$(port)/server/healthz | grep '"status"' >/dev/null; then pass "Health endpoint works"; else fail "Health endpoint"; fi
+if curl -q -LSsf -H 'Accept: application/json' http://localhost:$(port)/server/healthz | grep '"status"' >/dev/null; then pass "Health endpoint works"; else fail "Health endpoint"; fi
 
 echo "=== Binary Rename Tests ==="
 # Binaries show the ACTUAL name in --help/--version (not hardcoded)
@@ -42520,7 +42514,7 @@ echo "Incus tests completed successfully ($MODES)"
 
 **Every mode runs the same steps, in this order:** init identity (PID 1, and no foreign init) → `--service --install` (file exists, enabled, active, health answers) → `--service restart` (new PID) → `--service stop` (stopped, port closed) → `--service start` → API, project-specific, rename and client tests → Tor tests → I2P tests → `incus restart` of the container (service still enabled and back by itself, health answers) → `--service --disable` (not enabled, not active, file kept) → `--service --install` again → `--service --uninstall` (file removed, not enabled, not active, data removed).
 
-**Tor and I2P are tested with both installed, and both end up enabled in every test.** `tests/docker.sh` runs the compiled binary in an Alpine application container (the binary is mounted; the shipped image is checked separately after `make docker`, "Image check"), so I2P is on by default there: `features.i2p.enabled` is `true`, and within `I2P_WAIT` seconds `features.i2p.status` is `healthy` with a `.b32.i2p` hostname and `checks.i2p` is `ok`. An Incus container is a system container that runs its own init, so it counts as a host ("Container Detection", System containers: a system container run by systemd or OpenRC is a host) and I2P is opt-in there: `tests/incus.sh` checks the default (off) first and then enables it through a drop-in. The script installs `tor` and `i2pd` in the container (`apt-get install tor i2pd` on Debian, `apk add tor i2pd` on Alpine) and disables the distro's own `tor` and `i2pd` services, because the server runs its own dedicated, isolated instances (PART 31):
+**Tor and I2P are tested with both installed, and both end up enabled in every test.** The test configuration also sets `server.tor.expose` and `server.i2p.expose` to `true`, because the health `hostname` is empty otherwise (PART 13). `tests/docker.sh` runs the compiled binary in an Alpine application container (the binary is mounted; the shipped image is checked separately after `make docker`, "Image check"), so I2P is on by default there: `features.i2p.enabled` is `true`, and within `I2P_WAIT` seconds `features.i2p.status` is `healthy` with a `.b32.i2p` hostname and `checks.i2p` is `ok`. An Incus container is a system container that runs its own init, so it counts as a host ("Container Detection", System containers: a system container run by systemd or OpenRC is a host) and I2P is opt-in there: `tests/incus.sh` checks the default (off) first and then enables it through a drop-in. The script installs `tor` and `i2pd` in the container (`apt-get install tor i2pd` on Debian, `apk add tor i2pd` on Alpine) and disables the distro's own `tor` and `i2pd` services, because the server runs its own dedicated, isolated instances (PART 31):
 
 | Test | Expected |
 |------|----------|
@@ -42873,7 +42867,7 @@ sleep 3
 
 # 1. Health check
 echo "Testing health endpoint..."
-curl -q -LSsf http://localhost:64580/server/healthz | grep '"status"' >/dev/null \
+curl -q -LSsf -H 'Accept: application/json' http://localhost:64580/server/healthz | grep '"status"' >/dev/null \
     && echo '✓ Health endpoint works' \
     || { echo '✗ FAILED: Health endpoint' >&2; kill $SERVER_PID; exit 1; }
 
@@ -45134,7 +45128,7 @@ LANG=es_ES.UTF-8 {project_name}-cli --help
 | **Plurals** | Provide every CLDR plural category the language needs (`zero`, `one`, `two`, `few`, `many`, `other`; see "Plural Rules"). Translators check the category list for their language at the CLDR plural chart; a missing category fails the build |
 | **Whole sentences** | Each value is a complete phrase. Never rely on joining fragments; word order, gender and case differ per language. If an English string looks like a fragment, report it as an issue instead of working around it |
 | **Register and tone** | One consistent register per language (formal "you": `Sie`, `usted`, `vous`, `Lei`, ...). Short and neutral, matching the English UI tone; no slang, humor or idioms that do not travel |
-| **What stays untranslated** | Product and brand names, protocol and technology names (API, Tor, `.onion`, I2P, JSON, token), code, file names, config keys, URLs and the literal values users type (`dark`, `auto`), the license-mandated attribution text (the DB-IP link text, PART 19), and the service worker's first-use offline fallback: the English `DEFAULT_STRINGS` page (with `lang="en"`) the worker serves only before any page has stored the translated offline strings (PART 16). It is the one hardcoded document language allowed, and it is replaced by the translated strings from the first page load on. The project's glossary in `docs/translating.md` lists the agreed term for every recurring word (token, paste, rotate, revoke, ...), and translators reuse it |
+| **What stays untranslated** | Product and brand names, protocol and technology names (API, Tor, `.onion`, I2P, JSON, token), code, file names, config keys, URLs and the literal values users type (`dark`, `auto`), the license-mandated attribution text (the DB-IP link text, PART 19), the last-resort error page of PART 16 (fixed English with no translation lookup, because it runs when the template and translation machinery themselves failed), and the service worker's first-use offline fallback: the English `DEFAULT_STRINGS` page (with `lang="en"`) the worker serves only before any page has stored the translated offline strings (PART 16). It is the one hardcoded document language allowed, and it is replaced by the translated strings from the first page load on. The project's glossary in `docs/translating.md` lists the agreed term for every recurring word (token, paste, rotate, revoke, ...), and translators reuse it |
 | **Typography** | Follow the language's own rules (French non-breaking space before `: ; ! ?`, quotation marks, decimal and thousands separators come from `golang.org/x/text`, not from the translation) |
 | **AI and machine translation** | Expected and encouraged: when the AI is fluent enough in the language it translates the strings itself (natural, idiomatic wording, not word-for-word), and a language is NOT held back waiting for a native speaker. Where the AI is not fluent enough to produce a reliable translation (rare or low-resource languages), it says so and the language waits for a human translator instead of shipping guesses. Human translators fix mistakes at any time through a normal pull request, and their corrections win over the AI wording on every later sync |
 | **Layout check** | Translations are often longer than English (up to about 40%). The translator or reviewer opens the app in that language at 320, 768 and 1280 px (see the review matrix) and confirms nothing is clipped, wrapped badly or overflowing; right-to-left languages are also checked mirrored |
