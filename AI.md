@@ -28533,7 +28533,7 @@ When `branding.content.footer` is set, the server logs at startup and on every r
 | **I Agree** | Form POST to `/server/consent` — server sets the `cookie_consent` cookie (all categories accepted), redirects back, enables all cookies + tracking |
 | **Decline** | Form POST to `/server/consent` — server sets the `cookie_consent` cookie (essential only), redirects back, essential cookies only |
 | **Already set** | Server doesn't render the banner when a valid `cookie_consent` cookie exists |
-| **First visit** | Server renders the banner (visible, no JS required) until the user responds |
+| **First visit** | Server renders the banner (visible, no JS required) until the user responds, on every page EXCEPT `/server/preferences`: that page has exactly one POST form whose consent section already lets the visitor accept or decline, so the banner there would add two more POST forms |
 
 ### Implementation
 
@@ -28559,7 +28559,7 @@ message := cfg.Privacy.GetConsentMessage()
 ```html
 <!-- Cookie Consent Banner - server-rendered (visible) whenever no valid cookie_consent cookie exists (we use cookies) -->
 <!-- {message} is dynamically selected based on server.privacy.data.sold -->
-{{ if not .HasConsentCookie }}
+{{ if and (not .HasConsentCookie) (not .IsPreferencesPage) }}
 <div id="cookie-consent" class="cookie-banner" data-sold="{data_sold}">
   <div class="cookie-banner-content">
     <span class="cookie-message">
