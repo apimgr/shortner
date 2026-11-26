@@ -141,7 +141,11 @@ func TestCreateAndVerifyRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open metadata database: %v", err)
 	}
-	defer metadataDB.Close()
+	t.Cleanup(func() {
+		if err := metadataDB.Close(); err != nil {
+			t.Errorf("close metadata database: %v", err)
+		}
+	})
 	var filename, storedPath, kind, checksum string
 	var size int64
 	if err := metadataDB.QueryRow(`SELECT filename, filepath, size_bytes, type, checksum FROM backups WHERE filename = ?`, res.Name).

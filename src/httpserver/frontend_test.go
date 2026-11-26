@@ -191,12 +191,15 @@ func TestHomeHandler_POSTInvalidURL(t *testing.T) {
 }
 
 func TestHomeHandler_POSTReservedSlug(t *testing.T) {
-	fd, _ := testFrontendDeps(t)
+	fd, ld := testFrontendDeps(t)
 	form := url.Values{"url": {"https://example.com"}, "slug": {"api"}}
 	rec := httptest.NewRecorder()
 	fd.homeHandler(rec, htmlRequest(http.MethodPost, "/", form))
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	if got := testOwnerCount(t, ld.sqlDB); got != 0 {
+		t.Errorf("owner count after reserved slug = %d, want 0", got)
 	}
 }
 
@@ -205,11 +208,15 @@ func TestHomeHandler_POSTCustomSlugTaken(t *testing.T) {
 	if _, err := db.CreateLinkCustomSlug(context.Background(), ld.sqlDB, "myslug", "https://example.com", nil); err != nil {
 		t.Fatalf("seed CreateLinkCustomSlug: %v", err)
 	}
+	ownerCountBefore := testOwnerCount(t, ld.sqlDB)
 	form := url.Values{"url": {"https://example.com/other"}, "slug": {"myslug"}}
 	rec := httptest.NewRecorder()
 	fd.homeHandler(rec, htmlRequest(http.MethodPost, "/", form))
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	if got := testOwnerCount(t, ld.sqlDB); got != ownerCountBefore {
+		t.Errorf("owner count after duplicate slug = %d, want %d", got, ownerCountBefore)
 	}
 }
 

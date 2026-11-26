@@ -197,6 +197,16 @@ func (fd *frontendDeps) homePost(w http.ResponseWriter, r *http.Request) {
 		fd.homeError(w, r, t(r, "errors.invalid_url"), destInput, slugInput, http.StatusBadRequest)
 		return
 	}
+	if slugInput != "" {
+		if !security.ValidateSlugFormat(slugInput) {
+			fd.homeError(w, r, t(r, "errors.slug_format"), destInput, slugInput, http.StatusBadRequest)
+			return
+		}
+		if security.IsReservedSlug(slugInput) {
+			fd.homeError(w, r, t(r, "errors.slug_reserved"), destInput, slugInput, http.StatusConflict)
+			return
+		}
+	}
 
 	ctx := r.Context()
 	ownerID, ownerToken, err := fd.ld.ownerForCreate(w, r, true)
@@ -207,16 +217,12 @@ func (fd *frontendDeps) homePost(w http.ResponseWriter, r *http.Request) {
 	var link *db.Link
 
 	if slugInput != "" {
-		if !security.ValidateSlugFormat(slugInput) {
-			fd.homeError(w, r, t(r, "errors.slug_format"), destInput, slugInput, http.StatusBadRequest)
-			return
-		}
-		if security.IsReservedSlug(slugInput) {
-			fd.homeError(w, r, t(r, "errors.slug_reserved"), destInput, slugInput, http.StatusConflict)
-			return
-		}
 		link, err = db.CreateLinkCustomSlugOwned(ctx, fd.ld.sqlDB, ownerID, slugInput, destination, nil)
 		if errors.Is(err, db.ErrSlugTaken) {
+			if cleanupErr := discardNewOwner(fd.ld.sqlDB, ownerID, ownerToken); cleanupErr != nil {
+				fd.homeError(w, r, t(r, "errors.link_create_failed"), destInput, slugInput, http.StatusInternalServerError)
+				return
+			}
 			fd.homeError(w, r, t(r, "errors.slug_in_use"), destInput, slugInput, http.StatusConflict)
 			return
 		}
@@ -224,6 +230,10 @@ func (fd *frontendDeps) homePost(w http.ResponseWriter, r *http.Request) {
 		link, err = db.CreateLinkAutoCodeOwned(ctx, fd.ld.sqlDB, ownerID, destination, nil)
 	}
 	if err != nil {
+		if cleanupErr := discardNewOwner(fd.ld.sqlDB, ownerID, ownerToken); cleanupErr != nil {
+			fd.homeError(w, r, t(r, "errors.link_create_failed"), destInput, slugInput, http.StatusInternalServerError)
+			return
+		}
 		fd.homeError(w, r, t(r, "errors.link_create_failed"), destInput, slugInput, http.StatusInternalServerError)
 		return
 	}

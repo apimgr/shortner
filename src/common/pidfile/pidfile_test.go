@@ -137,7 +137,11 @@ func TestWritePIDFileAlreadyRunningInSelf(t *testing.T) {
 	if err := WritePIDFile(path); err != nil {
 		t.Fatalf("second WritePIDFile() error = %v, want nil (stale file replaced)", err)
 	}
-	t.Cleanup(func() { RemovePIDFile(path) })
+	t.Cleanup(func() {
+		if err := RemovePIDFile(path); err != nil {
+			t.Errorf("RemovePIDFile() error = %v", err)
+		}
+	})
 }
 
 func TestIsContainerRunsWithoutPanic(t *testing.T) {

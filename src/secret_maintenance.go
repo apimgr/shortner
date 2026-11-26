@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -94,8 +95,7 @@ func rotateInstallationSecret(sqlDB db.Handle, configDir string, audit *applog.A
 	}
 	if private != nil {
 		if err := store.Write(private, newSecret); err != nil {
-			_ = db.SetSecret(ctx, sqlDB, db.SecretInstallation, oldSecret)
-			return err
+			return errors.Join(err, restoreInstallationSecret(ctx, sqlDB, oldSecret))
 		}
 	}
 	return audit.Write(applog.Entry{Event: "security.installation_secret_rotated", Category: "security", Severity: applog.SeverityWarn, Details: map[string]any{"operator_reason": "manual rotation"}, Result: applog.ResultSuccess})
@@ -121,15 +121,27 @@ func rotateEncryptionKey(sqlDB db.Handle, configPath string, cfg *config.Config,
 		return err
 	}
 	if err := config.ReencryptDNSCredentials(cfg, oldKey, newKey); err != nil {
-		_ = db.ReencryptStoredData(ctx, sqlDB, newKey, oldKey)
-		return err
+		return errors.Join(err, restoreStoredEncryptionKey(ctx, sqlDB, newKey, oldKey))
 	}
 	cfg.Server.Security.EncryptionKey = newEncoded
 	if err := config.Save(configPath, cfg); err != nil {
-		_ = db.ReencryptStoredData(ctx, sqlDB, newKey, oldKey)
-		return err
+		return errors.Join(err, restoreStoredEncryptionKey(ctx, sqlDB, newKey, oldKey))
 	}
 	return audit.Write(applog.Entry{Event: "security.encryption_key_rotated", Category: "security", Severity: applog.SeverityWarn, Details: map[string]any{"operator_reason": "manual rotation"}, Result: applog.ResultSuccess})
+}
+
+func restoreInstallationSecret(ctx context.Context, sqlDB db.Handle, oldSecret string) error {
+	if err := db.SetSecret(ctx, sqlDB, db.SecretInstallation, oldSecret); err != nil {
+		return fmt.Errorf("restore previous installation secret: %w", err)
+	}
+	return nil
+}
+
+func restoreStoredEncryptionKey(ctx context.Context, sqlDB db.Handle, newKey, oldKey []byte) error {
+	if err := db.ReencryptStoredData(ctx, sqlDB, newKey, oldKey); err != nil {
+		return fmt.Errorf("restore database values encrypted with the previous key: %w", err)
+	}
+	return nil
 }
 
 func maintenanceError(binaryName string, err error) int {

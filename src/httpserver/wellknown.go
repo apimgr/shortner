@@ -396,7 +396,7 @@ func validLLMCustomSection(section config.LLMCustomSection) bool {
 			return false
 		}
 		target := strings.TrimSpace(rest[:end])
-		if !(strings.HasPrefix(target, "https://") || (target != "" && !strings.Contains(target, ":") && !strings.HasPrefix(target, "//"))) {
+		if !strings.HasPrefix(target, "https://") && (target == "" || strings.Contains(target, ":") || strings.HasPrefix(target, "//")) {
 			return false
 		}
 		rest = rest[end+1:]

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apimgr/shortner/src/config"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -199,7 +200,7 @@ func redisOptions(cfg RedisOptions) (*redis.Options, error) {
 			}
 		}
 		if value := query.Get("tls"); value != "" {
-			parsed, err := strconv.ParseBool(value)
+			parsed, err := config.ParseBool(value, false)
 			if err != nil {
 				return nil, errors.New("cache: invalid TLS option")
 			}
@@ -207,7 +208,7 @@ func redisOptions(cfg RedisOptions) (*redis.Options, error) {
 			query.Del("tls")
 		}
 		if value := query.Get("tls_skip_verify"); value != "" {
-			parsed, err := strconv.ParseBool(value)
+			parsed, err := config.ParseBool(value, false)
 			if err != nil {
 				return nil, errors.New("cache: invalid TLS verification option")
 			}
@@ -230,7 +231,7 @@ func redisOptions(cfg RedisOptions) (*redis.Options, error) {
 			query.Del("sslmode")
 		}
 		if value := query.Get("encrypt"); value != "" {
-			parsed, err := strconv.ParseBool(value)
+			parsed, err := config.ParseBool(value, false)
 			if err != nil {
 				return nil, errors.New("cache: invalid TLS option")
 			}

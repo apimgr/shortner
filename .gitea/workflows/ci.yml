@@ -68,6 +68,12 @@ jobs:
             echo "$bad"
             exit 1
           fi
+          unsafe=$(grep -RnE '^[[:space:]]*pull_request_target:' .github/ .gitea/ .forgejo/ 2>/dev/null || true)
+          if [ -n "$unsafe" ]; then
+            echo "::error::unsafe pull_request_target trigger found:"
+            echo "$unsafe"
+            exit 1
+          fi
 
   test:
     if: gitea.event_name != 'schedule'
@@ -84,15 +90,19 @@ jobs:
           mkdir -p "/tmp/${{ gitea.repository_owner }}"
           COVDIR=$(mktemp -d "/tmp/${{ gitea.repository_owner }}/$(basename "${{ gitea.repository }}")-XXXXXX")
           echo "COVDIR=$COVDIR" >> "$GITEA_ENV"
-          go test -cover -coverprofile="$COVDIR/coverage.out" ./...
+          mkdir -p "$COVDIR/data"
+          go test -cover ./... -args -test.gocoverdir="$COVDIR/data"
+          go tool covdata textfmt -i="$COVDIR/data" -o="$COVDIR/coverage.out"
       - name: Enforce coverage threshold
         run: |
           THRESHOLD=60
           PCT=$(go tool cover -func="$COVDIR/coverage.out" | awk '/^total:/ {gsub("%","",$3); print int($3)}')
           if [ "$PCT" -lt "$THRESHOLD" ]; then
+            rm -rf -- "$COVDIR"
             echo "::error::coverage $PCT% < threshold $THRESHOLD%"
             exit 1
           fi
+          rm -rf -- "$COVDIR"
 
   build:
     if: gitea.event_name != 'schedule'

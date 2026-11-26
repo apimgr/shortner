@@ -98,12 +98,16 @@ func Detect(host string, base config.SMTP) (Candidate, bool) {
 // cannot be determined. Only Linux exposes this without cgo or shelling
 // out; on every other platform the candidate is skipped rather than
 // guessed at.
-func defaultGateway() string {
+func defaultGateway() (gateway string) {
 	f, err := os.Open("/proc/net/route")
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			gateway = ""
+		}
+	}()
 
 	scanner := bufio.NewScanner(f)
 	// Skip the column-header line.

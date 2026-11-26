@@ -1,8 +1,19 @@
 # Makefile — local dev only, NOT used by CI/CD. See AI.md PART 25.
-# Six core targets. DO NOT ADD MORE.
+# Seven core targets. DO NOT ADD MORE.
 
-PROJECT_NAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|\.git/?$$||' | sed -E 's|.*/||' || basename "$$(pwd)")
-PROJECT_ORG  := $(shell git remote get-url origin 2>/dev/null | sed -E 's|\.git/?$$||' | sed -E 's|.*/([^/]+)/[^/]+$$|\1|' || basename "$$(dirname "$$(pwd)")")
+# Project identity comes from IDEA.md first, then the remote, then the directory path.
+PROJECT_NAME := $(shell sed -n 's/^project_name:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1 | tr -d '[:space:]')
+ifeq ($(PROJECT_NAME),)
+PROJECT_NAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$$|\1|' || basename "$$(pwd)")
+endif
+PROJECT_ORG := $(shell sed -n 's/^project_org:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1 | tr -d '[:space:]')
+ifeq ($(PROJECT_ORG),)
+PROJECT_ORG := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || basename "$$(dirname "$$(pwd)")")
+endif
+INTERNAL_NAME := $(shell sed -n 's/^internal_name:[[:space:]]*//p' IDEA.md 2>/dev/null | head -n1 | tr -d '[:space:]')
+ifeq ($(INTERNAL_NAME),)
+INTERNAL_NAME := $(PROJECT_NAME)
+endif
 
 # Local builds only: VERSION override > non-empty release.txt > short commit ID (or devel outside git)
 VERSION ?= $(shell v=; [ -r release.txt ] && v=$$(tr -d '[:space:]' < release.txt); if [ -n "$$v" ]; then echo "$$v"; else git rev-parse --short=7 HEAD 2>/dev/null || echo devel; fi)
@@ -58,7 +69,7 @@ GO_DOCKER_RUN := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthchec
 	-e GOFLAGS=-buildvcs=false
 GO_DOCKER := $(GO_DOCKER_RUN) casjaysdev/go:latest
 
-.PHONY: build local release docker test dev clean
+.PHONY: build local release release-check beta docker test dev clean
 
 # =============================================================================
 # BUILD - Build all platforms + local binary (via Docker with cached modules)
@@ -115,7 +126,10 @@ local: clean
 # =============================================================================
 # RELEASE - Manual local release (stable only)
 # =============================================================================
-release: build
+release-check:
+	@echo "$(VERSION)" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$$' >/dev/null || { echo "ERROR: make release needs a stable SemVer X.Y.Z in release.txt (got '$(VERSION)')" >&2; exit 78; }
+
+release: release-check build
 	@mkdir -p $(RELDIR)
 	@echo "Preparing release $(VERSION)..."
 
@@ -144,6 +158,13 @@ release: build
 		--latest
 
 	@echo "Release complete: $(VERSION)"
+
+# BETA - Publish a timestamped prerelease tag from the clean main branch.
+# =============================================================================
+beta:
+	@[ "$$(git branch --show-current)" = main ] || { echo "beta: run it on main" >&2; exit 1; }
+	@[ -z "$$(git status --porcelain)" ] || { echo "beta: the working tree is not clean" >&2; exit 1; }
+	@tag="$$(date -u +%Y%m%d%H%M%S)-beta"; git tag "$$tag" && git push origin "refs/tags/$$tag" && echo "Pushed $$tag"
 
 # =============================================================================
 # DOCKER - Build and push container to registry (set REGISTRY env var)
@@ -182,10 +203,13 @@ test:
 	@echo "Running tests with coverage..."
 	@$(GO_DOCKER) sh -c " \
 		mkdir -p \"\$${TMPDIR:-/tmp}/$(PROJECT_ORG)\" && \
-		COVDIR=\$$(mktemp -d \"\$${TMPDIR:-/tmp}/$(PROJECT_ORG)/$(PROJECT_NAME)-XXXXXX\") && \
+		COVDIR=\$$(mktemp -d \"\$${TMPDIR:-/tmp}/$(PROJECT_ORG)/$(INTERNAL_NAME)-XXXXXX\") && \
+		trap 'rm -rf \"\$$COVDIR\"' EXIT && \
 		go mod download && \
 		go generate ./src/swagger && \
-		go test -p 1 -v -cover -coverprofile=\$$COVDIR/coverage.out ./... && \
+		mkdir -p \$$COVDIR/data && \
+		go test -p 1 -v -cover ./... -args -test.gocoverdir=\$$COVDIR/data && \
+		go tool covdata textfmt -i=\$$COVDIR/data -o=\$$COVDIR/coverage.out && \
 		COVERAGE=\$$(go tool cover -func=\$$COVDIR/coverage.out | grep total | awk '{print \$$3}' | sed 's/%//') && \
 		echo \"Coverage: \$$COVERAGE%\" && \
 		if ! awk -v coverage="\$$COVERAGE" 'BEGIN { exit !(coverage + 0 >= 60) }'; then \
@@ -201,7 +225,7 @@ dev:
 	@$(GO_DOCKER) go mod tidy
 	@$(GO_DOCKER) go generate ./src/swagger
 	@mkdir -p "$${TMPDIR:-/tmp}/$(PROJECT_ORG)" && \
-		BUILD_DIR=$$(mktemp -d "$${TMPDIR:-/tmp}/$(PROJECT_ORG)/$(PROJECT_NAME)-XXXXXX") && \
+		BUILD_DIR=$$(mktemp -d "$${TMPDIR:-/tmp}/$(PROJECT_ORG)/$(INTERNAL_NAME)-XXXXXX") && \
 		echo "Quick dev build to $$BUILD_DIR..." && \
 		$(GO_DOCKER_RUN) -v $$BUILD_DIR:/build casjaysdev/go:latest \
 			go build -buildvcs=false -o /build/$(PROJECT_NAME) ./src && \
@@ -211,7 +235,7 @@ dev:
 				go build -buildvcs=false -o /build/$(PROJECT_NAME)-cli ./src/client && \
 			echo "Built: $$BUILD_DIR/$(PROJECT_NAME)-cli"; \
 		fi && \
-		echo "Test:  docker run --rm --name $(PROJECT_NAME)-test -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECT_NAME) --help"
+		echo "Test:  docker run --rm --name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECT_NAME) --help"
 
 # =============================================================================
 # CLEAN - Remove build artifacts

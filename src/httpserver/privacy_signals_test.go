@@ -19,7 +19,11 @@ func testPrivacyDeps(t *testing.T) (*privacyDeps, *applog.AuditLogger) {
 	if err != nil {
 		t.Fatalf("applog.NewAuditLogger() error = %v", err)
 	}
-	t.Cleanup(func() { audit.Close() })
+	t.Cleanup(func() {
+		if err := audit.Close(); err != nil {
+			t.Errorf("audit.Close() error = %v", err)
+		}
+	})
 
 	cfg := config.Default(":memory:")
 	pd := &privacyDeps{cfg: cfg, resolver: NewProxyResolver(nil), audit: audit}

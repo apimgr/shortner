@@ -12,6 +12,7 @@ package certmgr
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -139,7 +140,7 @@ func NeedsRenewal(notAfter time.Time) bool {
 // {config_dir}/ssl/letsencrypt/{fqdn}/{fullchain,privkey}.pem, per AI.md
 // PART 15 "Certificate Directory Structure". The key file is written 0600
 // (owner-read-only); the certificate is not secret and is written 0644.
-func SaveAppManagedCertificate(configDir, fqdn string, certPEM, keyPEM []byte) error {
+func SaveAppManagedCertificate(configDir, fqdn string, certPEM, keyPEM []byte) (resultErr error) {
 	dir := AppManagedDir(configDir, fqdn)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("certmgr: create %s: %w", dir, err)
@@ -148,12 +149,20 @@ func SaveAppManagedCertificate(configDir, fqdn string, certPEM, keyPEM []byte) e
 	if err != nil {
 		return fmt.Errorf("certmgr: stage fullchain.pem: %w", err)
 	}
-	defer os.Remove(certTemp)
+	defer func() {
+		if err := os.Remove(certTemp); err != nil && !errors.Is(err, os.ErrNotExist) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("certmgr: remove temporary fullchain.pem: %w", err))
+		}
+	}()
 	keyTemp, err := writeAtomicTemp(dir, "privkey.pem", keyPEM, 0o600)
 	if err != nil {
 		return fmt.Errorf("certmgr: stage privkey.pem: %w", err)
 	}
-	defer os.Remove(keyTemp)
+	defer func() {
+		if err := os.Remove(keyTemp); err != nil && !errors.Is(err, os.ErrNotExist) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("certmgr: remove temporary privkey.pem: %w", err))
+		}
+	}()
 	if err := os.Rename(certTemp, filepath.Join(dir, "fullchain.pem")); err != nil {
 		return fmt.Errorf("certmgr: replace fullchain.pem: %w", err)
 	}

@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apimgr/shortner/src/config"
 	"github.com/apimgr/shortner/src/applog"
+	"github.com/apimgr/shortner/src/config"
 )
 
 func TestWebhookGenericPayloadIsSignedAndTimestamped(t *testing.T) {
@@ -135,7 +135,11 @@ func TestWebhookFailureLogsAreRateLimitedPerRoleAndTransport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer logger.Close()
+	t.Cleanup(func() {
+		if err := logger.Close(); err != nil {
+			t.Errorf("close logger: %v", err)
+		}
+	})
 	sender := newWebhookSender(config.Contact{}, "shortner", "Shortner", "1.0.0", "https://shortner.example", logger)
 	sender.logFailure("admin", "generic", "backup.failed")
 	sender.logFailure("admin", "generic", "backup.failed")

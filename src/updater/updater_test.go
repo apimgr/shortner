@@ -225,7 +225,9 @@ func TestCheckForUpdateStableUsesLatestEndpoint(t *testing.T) {
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
-		fmt.Fprint(w, `{"tag_name":"v1.5.0","prerelease":false,"published_at":"2026-01-01T00:00:00Z"}`)
+		if _, err := fmt.Fprint(w, `{"tag_name":"v1.5.0","prerelease":false,"published_at":"2026-01-01T00:00:00Z"}`); err != nil {
+			t.Errorf("writing release response: %v", err)
+		}
 	}))
 	defer srv.Close()
 	withAPI(t, srv)
@@ -246,8 +248,10 @@ func TestCheckEligibleUsesFullList(t *testing.T) {
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
-		fmt.Fprintf(w, `[{"tag_name":"v1.2.4","published_at":%q},{"tag_name":"v1.2.3","published_at":%q}]`,
-			ago(5).Format(time.RFC3339), ago(40).Format(time.RFC3339))
+		if _, err := fmt.Fprintf(w, `[{"tag_name":"v1.2.4","published_at":%q},{"tag_name":"v1.2.3","published_at":%q}]`,
+			ago(5).Format(time.RFC3339), ago(40).Format(time.RFC3339)); err != nil {
+			t.Errorf("writing releases response: %v", err)
+		}
 	}))
 	defer srv.Close()
 	withAPI(t, srv)
@@ -302,7 +306,9 @@ func TestVerifyChecksum(t *testing.T) {
 
 func TestFetchExpectedChecksum(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "aaaa  shortner-linux-amd64\nbbbb  shortner-darwin-arm64\n")
+		if _, err := fmt.Fprint(w, "aaaa  shortner-linux-amd64\nbbbb  shortner-darwin-arm64\n"); err != nil {
+			t.Errorf("writing checksum response: %v", err)
+		}
 	}))
 	defer srv.Close()
 

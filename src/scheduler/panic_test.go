@@ -40,7 +40,11 @@ func TestRunNowRecoversTaskPanicAndRecordsFailure(t *testing.T) {
 	if err := sched.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	defer sched.Stop()
+	t.Cleanup(func() {
+		if err := sched.Stop(); err != nil {
+			t.Errorf("Scheduler.Stop() error = %v", err)
+		}
+	})
 	if err := sched.RunNow(context.Background(), "panic_task"); err == nil {
 		t.Fatal("RunNow() returned nil for panicking task")
 	}

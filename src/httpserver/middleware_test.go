@@ -37,7 +37,11 @@ func testDeps(t *testing.T) *deps {
 	if err != nil {
 		t.Fatalf("applog.Open() error = %v", err)
 	}
-	t.Cleanup(func() { logger.Close() })
+	t.Cleanup(func() {
+		if err := logger.Close(); err != nil {
+			t.Errorf("logger.Close() error = %v", err)
+		}
+	})
 
 	cfg := config.Default(filepath.Join(t.TempDir(), "server.db"))
 	resolver := NewProxyResolver(nil)

@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -73,7 +74,7 @@ func RecordClick(ctx context.Context, sqlDB Handle, linkID int64, rawIP, userAge
 // ClicksForLink returns clicks for linkID, most recent first, up to
 // limit rows. Used by the per-link analytics page (IDEA.md "Endpoints":
 // "Get link click statistics").
-func ClicksForLink(ctx context.Context, sqlDB Handle, linkID int64, limit int) ([]Click, error) {
+func ClicksForLink(ctx context.Context, sqlDB Handle, linkID int64, limit int) (out []Click, resultErr error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
@@ -83,9 +84,12 @@ func ClicksForLink(ctx context.Context, sqlDB Handle, linkID int64, limit int) (
 	if err != nil {
 		return nil, HandleQueryError(err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("db: close click rows: %w", err))
+		}
+	}()
 
-	var out []Click
 	for rows.Next() {
 		var c Click
 		var ts int64

@@ -49,7 +49,14 @@ func openTestDB(t *testing.T) *db.Store {
 	if err != nil {
 		t.Fatalf("db.Open() error = %v", err)
 	}
-	t.Cleanup(func() { _ = sqlDB.Close(); _ = os.RemoveAll(dir) })
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("db.Close() error = %v", err)
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			t.Errorf("os.RemoveAll(%q) error = %v", dir, err)
+		}
+	})
 	return sqlDB
 }
 
@@ -59,7 +66,11 @@ func testLogger(t *testing.T) *applog.Logger {
 	if err != nil {
 		t.Fatalf("applog.Open() error = %v", err)
 	}
-	t.Cleanup(func() { l.Close() })
+	t.Cleanup(func() {
+		if err := l.Close(); err != nil {
+			t.Errorf("Logger.Close() error = %v", err)
+		}
+	})
 	return l
 }
 
@@ -94,7 +105,11 @@ func TestRegisterAndRunNow(t *testing.T) {
 	if err := sched.Start(ctx); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	defer sched.Stop()
+	t.Cleanup(func() {
+		if err := sched.Stop(); err != nil {
+			t.Errorf("Scheduler.Stop() error = %v", err)
+		}
+	})
 
 	if err := sched.RunNow(ctx, "test_task"); err != nil {
 		t.Fatalf("RunNow() error = %v", err)
@@ -139,7 +154,11 @@ func TestStartImmediatelyRetriesPersistedInterruption(t *testing.T) {
 	if err := sched.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	defer sched.Stop()
+	t.Cleanup(func() {
+		if err := sched.Stop(); err != nil {
+			t.Errorf("Scheduler.Stop() error = %v", err)
+		}
+	})
 	select {
 	case <-run:
 	case <-time.After(2 * time.Second):
@@ -176,7 +195,11 @@ func TestRunNowRecordsFailure(t *testing.T) {
 	if err := sched.Start(ctx); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	defer sched.Stop()
+	t.Cleanup(func() {
+		if err := sched.Stop(); err != nil {
+			t.Errorf("Scheduler.Stop() error = %v", err)
+		}
+	})
 
 	if err := sched.RunNow(ctx, "failing_task"); !errors.Is(err, wantErr) {
 		t.Errorf("RunNow() error = %v, want %v", err, wantErr)
@@ -279,7 +302,11 @@ func TestCatchUpRunsOverdueTask(t *testing.T) {
 	if err := sched.Start(ctx); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	defer sched.Stop()
+	t.Cleanup(func() {
+		if err := sched.Stop(); err != nil {
+			t.Errorf("Scheduler.Stop() error = %v", err)
+		}
+	})
 
 	select {
 	case <-ranCh:

@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -116,7 +117,7 @@ func (m *Manager) Update(ctx context.Context) error {
 	return firstErr
 }
 
-func (m *Manager) updateSource(ctx context.Context, source Source) error {
+func (m *Manager) updateSource(ctx context.Context, source Source) (resultErr error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, source.URL, nil)
 	if err != nil {
 		return err
@@ -126,7 +127,12 @@ func (m *Manager) updateSource(ctx context.Context, source Source) error {
 		m.markFailure(source.ID, err)
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("close feed response: %w", err))
+			m.markFailure(source.ID, resultErr)
+		}
+	}()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		err = fmt.Errorf("feed returned HTTP %d", resp.StatusCode)
 		m.markFailure(source.ID, err)
@@ -159,19 +165,23 @@ func (m *Manager) updateSource(ctx context.Context, source Source) error {
 		return err
 	}
 	name := tmp.Name()
-	defer os.Remove(name)
+	defer func() {
+		if err := os.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("remove temporary feed: %w", err))
+		}
+	}()
 	if err := tmp.Chmod(0o644); err != nil {
-		tmp.Close()
+		err = errors.Join(err, tmp.Close())
 		m.markFailure(source.ID, err)
 		return err
 	}
 	if _, err := tmp.Write(body); err != nil {
-		tmp.Close()
+		err = errors.Join(err, tmp.Close())
 		m.markFailure(source.ID, err)
 		return err
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+		err = errors.Join(err, tmp.Close())
 		m.markFailure(source.ID, err)
 		return err
 	}

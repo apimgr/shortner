@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -20,7 +21,10 @@ func apiResponseFormatMiddleware(next http.Handler) http.Handler {
 		recorder := httptest.NewRecorder()
 		next.ServeHTTP(recorder, r)
 		result := recorder.Result()
-		defer result.Body.Close()
+		if err := result.Body.Close(); err != nil {
+			http.Error(w, "response formatting failed", http.StatusInternalServerError)
+			return
+		}
 		for name, values := range result.Header {
 			for _, value := range values {
 				w.Header().Add(name, value)
@@ -33,7 +37,9 @@ func apiResponseFormatMiddleware(next http.Handler) http.Handler {
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(recorder.Code)
-		_, _ = w.Write(ensureSingleNewline(body))
+		if _, err := w.Write(ensureSingleNewline(body)); err != nil {
+			log.Printf("write formatted API response: %v", err)
+		}
 	})
 }
 

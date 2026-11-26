@@ -540,12 +540,16 @@ func startSAMEepsite(ctx context.Context, cfg config.I2P, dirs Dirs, backendPort
 	return B32Address(raw[:length]), nil
 }
 
-func probeSAM(address string) bool {
+func probeSAM(address string) (reachable bool) {
 	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			reachable = false
+		}
+	}()
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 	r := bufio.NewReader(conn)
 	if _, err := fmt.Fprint(conn, "HELLO VERSION MIN=3.1 MAX=3.3\n"); err != nil {

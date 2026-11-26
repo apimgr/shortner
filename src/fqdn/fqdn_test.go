@@ -1,7 +1,6 @@
 package fqdn
 
 import (
-	"os"
 	"testing"
 )
 
@@ -38,7 +37,7 @@ func TestGetFQDN_DomainEnvTakesPriority(t *testing.T) {
 
 func TestGetFQDN_FallsBackToHostname(t *testing.T) {
 	t.Setenv("DOMAIN", "")
-	os.Unsetenv("HOSTNAME")
+	t.Setenv("HOSTNAME", "")
 	got := GetFQDN("shortner")
 	if got == "" {
 		t.Fatal("expected a non-empty FQDN fallback")

@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -218,11 +219,10 @@ func IncrementClickCount(ctx context.Context, sqlDB Handle, id int64) error {
 // total row count, per AI.md PART 14 "Pagination" (default 250 items) and
 // IDEA.md "Endpoints": "List all created links (public, paginated)." limit
 // and offset are the caller's responsibility to validate/clamp.
-func ListLinks(ctx context.Context, sqlDB Handle, limit, offset int) ([]Link, int64, error) {
+func ListLinks(ctx context.Context, sqlDB Handle, limit, offset int) (links []Link, total int64, resultErr error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	var total int64
 	if err := sqlDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM links`).Scan(&total); err != nil {
 		return nil, 0, HandleQueryError(err)
 	}
@@ -233,9 +233,15 @@ func ListLinks(ctx context.Context, sqlDB Handle, limit, offset int) ([]Link, in
 	if err != nil {
 		return nil, 0, HandleQueryError(err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			links = nil
+			total = 0
+			resultErr = HandleQueryError(errors.Join(resultErr, err))
+		}
+	}()
 
-	links := make([]Link, 0, limit)
+	links = make([]Link, 0, limit)
 	for rows.Next() {
 		var l Link
 		var createdAt int64

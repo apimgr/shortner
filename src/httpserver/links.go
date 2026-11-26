@@ -179,16 +179,8 @@ func (ld *linkDeps) createLinkHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		expiresAt = &t
 	}
-
-	ctx := r.Context()
-	ownerID, ownerToken, err := ld.ownerForCreate(w, r, false)
-	if err != nil {
-		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
-		return
-	}
-	var link *db.Link
-
-	if slug := strings.TrimSpace(req.Slug); slug != "" {
+	slug := strings.TrimSpace(req.Slug)
+	if slug != "" {
 		if !security.ValidateSlugFormat(slug) {
 			sendError(w, r, apperr.New(apperr.CodeValidationFailed).WithDetails(map[string]any{
 				"field": "slug", "rule": "format",
@@ -199,8 +191,23 @@ func (ld *linkDeps) createLinkHandler(w http.ResponseWriter, r *http.Request) {
 			sendError(w, r, apperr.New(apperr.CodeConflict).WithMessageKey("errors.slug_reserved", "Slug is reserved"))
 			return
 		}
+	}
+
+	ctx := r.Context()
+	ownerID, ownerToken, err := ld.ownerForCreate(w, r, false)
+	if err != nil {
+		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
+		return
+	}
+	var link *db.Link
+
+	if slug != "" {
 		link, err = db.CreateLinkCustomSlugOwned(ctx, ld.sqlDB, ownerID, slug, destination, expiresAt)
 		if errors.Is(err, db.ErrSlugTaken) {
+			if cleanupErr := discardNewOwner(ld.sqlDB, ownerID, ownerToken); cleanupErr != nil {
+				sendError(w, r, apperr.Wrap(apperr.CodeServerError, errors.Join(err, cleanupErr)))
+				return
+			}
 			sendError(w, r, apperr.New(apperr.CodeConflict).WithMessageKey("errors.slug_in_use", "Slug already in use"))
 			return
 		}
@@ -208,7 +215,7 @@ func (ld *linkDeps) createLinkHandler(w http.ResponseWriter, r *http.Request) {
 		link, err = db.CreateLinkAutoCodeOwned(ctx, ld.sqlDB, ownerID, destination, expiresAt)
 	}
 	if err != nil {
-		sendError(w, r, apperr.Wrap(apperr.CodeServerError, err))
+		sendError(w, r, apperr.Wrap(apperr.CodeServerError, errors.Join(err, discardNewOwner(ld.sqlDB, ownerID, ownerToken))))
 		return
 	}
 
@@ -283,7 +290,7 @@ func (ld *linkDeps) getLinkHandler(w http.ResponseWriter, r *http.Request) {
 // (frontend.go's listHTMLHandler), per IDEA.md "Endpoints": "List all
 // created links (public, paginated)."
 func (ld *linkDeps) buildListLinksResponse(ctx context.Context, r *http.Request, page, limit int) (listLinksResponse, error) {
-	offset := (page - 1) * limit
+	offset := pageOffset(page, limit)
 	links, total, err := db.ListLinks(ctx, ld.sqlDB, limit, offset)
 	if err != nil {
 		return listLinksResponse{}, err
@@ -308,6 +315,17 @@ func (ld *linkDeps) buildListLinksResponse(ctx context.Context, r *http.Request,
 			Pages: pages,
 		},
 	}, nil
+}
+
+func pageOffset(page, limit int) int {
+	if page <= 1 || limit <= 0 {
+		return 0
+	}
+	maxInt := int(^uint(0) >> 1)
+	if page-1 > maxInt/limit {
+		return maxInt
+	}
+	return (page - 1) * limit
 }
 
 // listLinksHandler serves GET /api/{api_version}/links — a public,
@@ -505,9 +523,28 @@ func (ld *linkDeps) ownerForCreate(w http.ResponseWriter, r *http.Request, web b
 	}
 	raw, _, err := db.CreatePrimaryToken(r.Context(), ld.sqlDB, ownerID, ld.tokenKey)
 	if err != nil {
-		return "", "", err
+		cleanupErr := deleteCreatedOwner(ld.sqlDB, ownerID)
+		return "", "", errors.Join(err, cleanupErr)
 	}
 	return ownerID, raw, nil
+}
+
+// discardNewOwner removes the credential owner created for a link request
+// that failed before the link could be stored.
+func discardNewOwner(sqlDB db.Handle, ownerID, ownerToken string) error {
+	if ownerToken == "" {
+		return nil
+	}
+	return deleteCreatedOwner(sqlDB, ownerID)
+}
+
+func deleteCreatedOwner(sqlDB db.Handle, ownerID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, _, err := db.DeleteOwner(ctx, sqlDB, ownerID); err != nil {
+		return fmt.Errorf("discard owner created for failed link: %w", err)
+	}
+	return nil
 }
 
 // isBotUserAgent defers to the shared classifier in src/security so the

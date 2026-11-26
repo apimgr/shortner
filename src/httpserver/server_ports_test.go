@@ -51,21 +51,31 @@ func TestServeUsesPreboundListener(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = fmt.Fprint(w, "prebound")
+		if _, err := fmt.Fprint(w, "prebound"); err != nil {
+			t.Errorf("write prebound response: %v", err)
+		}
 	})}
 	done := make(chan error, 1)
 	go func() { done <- serve(server, listener) }()
 
 	response, err := http.Get("http://" + listener.Addr().String())
 	if err != nil {
-		_ = server.Close()
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("http.Server.Close() error = %v", closeErr)
+		}
 		t.Fatalf("request to prebound listener: %v", err)
 	}
-	defer response.Body.Close()
+	t.Cleanup(func() {
+		if err := response.Body.Close(); err != nil {
+			t.Errorf("response.Body.Close() error = %v", err)
+		}
+	})
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want %d", response.StatusCode, http.StatusOK)
 	}
-	_ = server.Close()
+	if err := server.Close(); err != nil {
+		t.Errorf("http.Server.Close() error = %v", err)
+	}
 	if err := <-done; err != nil {
 		t.Fatalf("serve with prebound listener: %v", err)
 	}

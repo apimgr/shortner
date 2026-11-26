@@ -141,7 +141,7 @@ func checkForUpdate(ctx context.Context, currentVersion, branch string, buildEpo
 //
 // HTTP 404 means the repository has published no matching release yet —
 // per AI.md PART 22, that is "no updates available", not an error.
-func fetchReleases(ctx context.Context, branch string, deferDays int) ([]Release, error) {
+func fetchReleases(ctx context.Context, branch string, deferDays int) (releases []Release, resultErr error) {
 	url := apiBaseURL + "/repos/" + repoOwner + "/" + repoName + "/releases"
 	single := branch == BranchStable && deferDays == 0
 	if single {
@@ -158,7 +158,11 @@ func fetchReleases(ctx context.Context, branch string, deferDays int) ([]Release
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("updater: close releases response: %w", err))
+		}
+	}()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil
@@ -175,7 +179,6 @@ func fetchReleases(ctx context.Context, branch string, deferDays int) ([]Release
 		return []Release{release}, nil
 	}
 
-	var releases []Release
 	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
 		return nil, err
 	}
@@ -252,7 +255,7 @@ func matchesBranch(r Release, branch string) bool {
 // DoUpdate downloads release's binary for this platform, verifies it
 // against the release's sha256.txt, and replaces the running executable.
 // It does not restart anything — see Restart.
-func DoUpdate(ctx context.Context, release *Release) error {
+func DoUpdate(ctx context.Context, release *Release) (returnErr error) {
 	assetName := BinaryName()
 	var downloadURL string
 	for _, asset := range release.Assets {
@@ -272,11 +275,14 @@ func DoUpdate(ctx context.Context, release *Release) error {
 	tmpPath := tmpFile.Name()
 	// Removed on every error path; a successful replacement renames the
 	// file away first, which makes this a harmless no-op.
-	defer os.Remove(tmpPath)
+	defer func() {
+		if err := os.Remove(tmpPath); err != nil && !os.IsNotExist(err) {
+			returnErr = errors.Join(returnErr, fmt.Errorf("updater: remove temporary download: %w", err))
+		}
+	}()
 
 	if err := download(ctx, downloadURL, tmpFile); err != nil {
-		tmpFile.Close()
-		return err
+		return errors.Join(err, tmpFile.Close())
 	}
 	if err := tmpFile.Close(); err != nil {
 		return fmt.Errorf("updater: close temp file: %w", err)
@@ -311,7 +317,7 @@ func DoUpdate(ctx context.Context, release *Release) error {
 }
 
 // download streams url into dst.
-func download(ctx context.Context, url string, dst io.Writer) error {
+func download(ctx context.Context, url string, dst io.Writer) (resultErr error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -320,7 +326,11 @@ func download(ctx context.Context, url string, dst io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("updater: close download response: %w", err))
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("updater: download failed: %d", resp.StatusCode)
 	}
@@ -370,12 +380,16 @@ func fetchExpectedChecksum(ctx context.Context, release *Release, assetName stri
 }
 
 // verifyChecksum verifies filePath's SHA-256 against expectedHash.
-func verifyChecksum(filePath, expectedHash string) error {
+func verifyChecksum(filePath, expectedHash string) (resultErr error) {
 	f, err := os.Open(filePath)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("updater: close checksum file: %w", err))
+		}
+	}()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {

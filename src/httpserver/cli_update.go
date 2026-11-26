@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -155,7 +156,11 @@ func (d *cliUpdateDeps) binaryHandler(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Printf("cli update: close downloaded binary %q: %v", filepath.Base(path), err)
+		}
+	}()
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
 		http.NotFound(w, r)
@@ -167,12 +172,17 @@ func (d *cliUpdateDeps) binaryHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, filepath.Base(path), info.ModTime().UTC().Round(time.Second), file)
 }
 
-func hashRegularFile(path string) (string, bool) {
+func hashRegularFile(path string) (sum string, ok bool) {
 	file, err := os.Open(path)
 	if err != nil {
 		return "", false
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			sum = ""
+			ok = false
+		}
+	}()
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
 		return "", false

@@ -155,7 +155,7 @@ func (s *webhookSender) logFailure(role, transport, event string) {
 	_ = s.log.WriteLine(applog.LevelError, "notify.webhook_failed role="+role+" event="+event+" transport="+transport+"\n")
 }
 
-func (s *webhookSender) sendOnce(transport, endpoint string, message webhookMessage) error {
+func (s *webhookSender) sendOnce(transport, endpoint string, message webhookMessage) (resultErr error) {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
 		return errors.New("notify: webhook endpoint must be an HTTPS URL")
@@ -188,7 +188,11 @@ func (s *webhookSender) sendOnce(transport, endpoint string, message webhookMess
 	if err != nil {
 		return errors.New("notify: webhook delivery failed")
 	}
-	defer response.Body.Close()
+	defer func() {
+		if err := response.Body.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("notify: close webhook response: %w", err))
+		}
+	}()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return errors.New("notify: webhook receiver returned a non-success status")
 	}

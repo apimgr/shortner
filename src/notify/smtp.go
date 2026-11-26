@@ -73,8 +73,7 @@ func dialSMTP(cfg config.SMTP) (*smtp.Client, error) {
 		}
 		client, err := smtp.NewClient(conn, host)
 		if err != nil {
-			conn.Close()
-			return nil, fmt.Errorf("notify: smtp handshake %s: %w", addr, err)
+			return nil, errors.Join(fmt.Errorf("notify: smtp handshake %s: %w", addr, err), conn.Close())
 		}
 		return client, nil
 	}
@@ -85,8 +84,7 @@ func dialSMTP(cfg config.SMTP) (*smtp.Client, error) {
 	}
 	client, err := smtp.NewClient(conn, host)
 	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("notify: smtp handshake %s: %w", addr, err)
+		return nil, errors.Join(fmt.Errorf("notify: smtp handshake %s: %w", addr, err), conn.Close())
 	}
 
 	if mode == config.SMTPTLSNone {
@@ -95,14 +93,12 @@ func dialSMTP(cfg config.SMTP) (*smtp.Client, error) {
 	ok, _ := client.Extension("STARTTLS")
 	if !ok {
 		if mode == config.SMTPTLSStartTLS {
-			client.Close()
-			return nil, fmt.Errorf("notify: smtp %s: STARTTLS required but not offered", addr)
+			return nil, errors.Join(fmt.Errorf("notify: smtp %s: STARTTLS required but not offered", addr), client.Close())
 		}
 		return client, nil
 	}
 	if err := client.StartTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); err != nil {
-		client.Close()
-		return nil, fmt.Errorf("notify: smtp starttls %s: %w", addr, err)
+		return nil, errors.Join(fmt.Errorf("notify: smtp starttls %s: %w", addr, err), client.Close())
 	}
 	return client, nil
 }
@@ -134,9 +130,8 @@ func TestConnection(cfg config.SMTP) error {
 	if err != nil {
 		return err
 	}
-	defer client.Close()
 	if err := authenticate(client, cfg, strings.TrimSpace(cfg.Host)); err != nil {
-		return fmt.Errorf("notify: smtp auth %s: %w", cfg.Host, err)
+		return errors.Join(fmt.Errorf("notify: smtp auth %s: %w", cfg.Host, err), client.Close())
 	}
 	return client.Quit()
 }
@@ -147,12 +142,18 @@ func TestConnection(cfg config.SMTP) error {
 var sendMail = smtpSend
 
 // smtpSend is the real transport.
-func smtpSend(cfg config.SMTP, msg Message) error {
+func smtpSend(cfg config.SMTP, msg Message) (resultErr error) {
 	client, err := dialSMTP(cfg)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer func() {
+		if client != nil {
+			if err := client.Close(); err != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("notify: close SMTP client: %w", err))
+			}
+		}
+	}()
 
 	if err := authenticate(client, cfg, strings.TrimSpace(cfg.Host)); err != nil {
 		return fmt.Errorf("notify: smtp auth %s: %w", cfg.Host, err)
@@ -176,18 +177,20 @@ func smtpSend(cfg config.SMTP, msg Message) error {
 		individual.To = []string{recipient}
 		message, err := BuildMessage(individual, time.Now())
 		if err != nil {
-			w.Close()
-			return fmt.Errorf("notify: build message: %w", err)
+			return errors.Join(fmt.Errorf("notify: build message: %w", err), w.Close())
 		}
 		if _, err := w.Write(message); err != nil {
-			w.Close()
-			return fmt.Errorf("notify: smtp write: %w", err)
+			return errors.Join(fmt.Errorf("notify: smtp write: %w", err), w.Close())
 		}
 		if err := w.Close(); err != nil {
 			return fmt.Errorf("notify: smtp close: %w", err)
 		}
 	}
-	return client.Quit()
+	if err := client.Quit(); err != nil {
+		return err
+	}
+	client = nil
+	return nil
 }
 
 // BuildMessage renders msg as an RFC 5322 message. Every header value is
@@ -282,8 +285,7 @@ func writeQuotedPrintable(writer *multipart.Writer, contentType, body string) er
 	}
 	encoder := quotedprintable.NewWriter(part)
 	if _, err := encoder.Write([]byte(body)); err != nil {
-		encoder.Close()
-		return err
+		return errors.Join(err, encoder.Close())
 	}
 	return encoder.Close()
 }

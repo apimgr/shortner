@@ -558,9 +558,10 @@ func (fd *frontendDeps) storeSecurityReport(ctx context.Context, f securityRepor
 		return "", "", err
 	}
 	creditName := ""
-	if f.CreditPref == "name" {
+	switch f.CreditPref {
+	case "name":
 		creditName = f.Name
-	} else if f.CreditPref == "handle" {
+	case "handle":
 		creditName = f.CreditHandle
 	}
 	disclosureDate := time.Time{}

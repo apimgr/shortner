@@ -12,6 +12,7 @@ package geoip
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -358,7 +359,7 @@ func Download(ctx context.Context, dir string, dbs config.GeoIPDatabases) error 
 // per request.
 var downloadClient = &http.Client{Timeout: 5 * time.Minute}
 
-func downloadOne(ctx context.Context, dir, name string) error {
+func downloadOne(ctx context.Context, dir, name string) (resultErr error) {
 	url, ok := downloadURLs[name]
 	if !ok {
 		return fmt.Errorf("geoip: no download URL for %s", name)
@@ -372,7 +373,11 @@ func downloadOne(ctx context.Context, dir, name string) error {
 	if err != nil {
 		return fmt.Errorf("geoip: download %s: %w", name, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("geoip: close download response for %s: %w", name, err))
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("geoip: download %s: unexpected status %s", name, resp.Status)
 	}
@@ -382,11 +387,14 @@ func downloadOne(ctx context.Context, dir, name string) error {
 		return fmt.Errorf("geoip: create temp file for %s: %w", name, err)
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer func() {
+		if err := os.Remove(tmpPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("geoip: remove temporary %s database: %w", name, err))
+		}
+	}()
 
 	if _, err := io.Copy(tmp, resp.Body); err != nil {
-		tmp.Close()
-		return fmt.Errorf("geoip: write %s: %w", name, err)
+		return errors.Join(fmt.Errorf("geoip: write %s: %w", name, err), tmp.Close())
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("geoip: close %s: %w", name, err)

@@ -1,6 +1,7 @@
 package netutil
 
 import (
+	"errors"
 	"net"
 	"strconv"
 	"testing"
@@ -50,7 +51,11 @@ func TestListenLoopback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListenLoopback() error = %v", err)
 	}
-	defer ln.Close()
+	t.Cleanup(func() {
+		if err := ln.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			t.Errorf("closing listener: %v", err)
+		}
+	})
 
 	if port < PortRangeLow || port > PortRangeHigh {
 		t.Fatalf("port %d outside range [%d, %d]", port, PortRangeLow, PortRangeHigh)
@@ -69,7 +74,9 @@ func TestListenLoopback(t *testing.T) {
 	// Binding a second loopback listener on the exact same port must now
 	// fail, proving the first listener genuinely holds the port.
 	if second, err := net.Listen("tcp", addr.String()); err == nil {
-		second.Close()
+		if err := second.Close(); err != nil {
+			t.Errorf("closing second listener: %v", err)
+		}
 		t.Errorf("expected port %d to be held by the first listener, but a second bind succeeded", port)
 	}
 
@@ -90,13 +97,21 @@ func TestListenLoopbackDistinctPorts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first ListenLoopback() error = %v", err)
 	}
-	defer ln1.Close()
+	t.Cleanup(func() {
+		if err := ln1.Close(); err != nil {
+			t.Errorf("closing first listener: %v", err)
+		}
+	})
 
 	ln2, port2, err := ListenLoopback()
 	if err != nil {
 		t.Fatalf("second ListenLoopback() error = %v", err)
 	}
-	defer ln2.Close()
+	t.Cleanup(func() {
+		if err := ln2.Close(); err != nil {
+			t.Errorf("closing second listener: %v", err)
+		}
+	})
 
 	if port1 == port2 {
 		t.Errorf("two concurrent ListenLoopback() calls returned the same port %d", port1)
@@ -115,7 +130,9 @@ func TestPortAvailable(t *testing.T) {
 	if PortAvailable(held) {
 		t.Errorf("PortAvailable(%d) = true, want false for a held port", held)
 	}
-	ln.Close()
+	if err := ln.Close(); err != nil {
+		t.Fatalf("closing held listener: %v", err)
+	}
 
 	if !PortAvailable(held) {
 		t.Errorf("PortAvailable(%d) = false, want true once released", held)
@@ -127,7 +144,9 @@ func TestPortAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PortAvailable() left port %d unusable: %v", held, err)
 	}
-	confirm.Close()
+	if err := confirm.Close(); err != nil {
+		t.Fatalf("closing confirmation listener: %v", err)
+	}
 }
 
 // CircuitToken must return an empty string for a nil address (the

@@ -386,14 +386,12 @@ func migrateLegacySecurityReportBodies(ctx context.Context, sqlDB Handle) error 
 	for rows.Next() {
 		var report legacyReportBody
 		if err := rows.Scan(&report.id, &report.body); err != nil {
-			rows.Close()
-			return fmt.Errorf("db: scan legacy security report body: %w", err)
+			return errors.Join(fmt.Errorf("db: scan legacy security report body: %w", err), rows.Close())
 		}
 		reports = append(reports, report)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
-		return fmt.Errorf("db: iterate legacy security report bodies: %w", err)
+		return errors.Join(fmt.Errorf("db: iterate legacy security report bodies: %w", err), rows.Close())
 	}
 	if err := rows.Close(); err != nil {
 		return err
@@ -410,7 +408,7 @@ func migrateLegacySecurityReportBodies(ctx context.Context, sqlDB Handle) error 
 	return nil
 }
 
-func migrateLegacyOwnerSchema(ctx context.Context, sqlDB Handle) error {
+func migrateLegacyOwnerSchema(ctx context.Context, sqlDB Handle) (resultErr error) {
 	if _, err := sqlDB.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS owners (
 		id TEXT PRIMARY KEY,
 		created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
@@ -445,7 +443,11 @@ func migrateLegacyOwnerSchema(ctx context.Context, sqlDB Handle) error {
 	if err != nil {
 		return fmt.Errorf("db: begin owner migration: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("db: roll back owner migration: %w", err))
+		}
+	}()
 	if err := migrateLegacyTokenSchema(ctx, tx); err != nil {
 		return err
 	}
@@ -498,16 +500,16 @@ func migrateLegacyTokenSchema(ctx context.Context, tx *sql.Tx) error {
 	for rows.Next() {
 		var item legacyToken
 		if err := rows.Scan(&item.id, &item.hash, &item.prefix, &item.resourceType, &item.resourceID, &item.created, &item.expires, &item.lastUsed, &item.revoked, &item.reason); err != nil {
-			rows.Close()
-			return fmt.Errorf("db: scan legacy token: %w", err)
+			return errors.Join(fmt.Errorf("db: scan legacy token: %w", err), rows.Close())
 		}
 		tokens = append(tokens, item)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
-		return fmt.Errorf("db: iterate legacy tokens: %w", err)
+		return errors.Join(fmt.Errorf("db: iterate legacy tokens: %w", err), rows.Close())
 	}
-	rows.Close()
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("db: close legacy token rows: %w", err)
+	}
 	ownerByLink := map[string]string{}
 	for _, token := range tokens {
 		ownerID := fmt.Sprintf("legacy-token-%d", token.id)
@@ -596,16 +598,16 @@ func fillUnownedLinks(ctx context.Context, tx *sql.Tx) error {
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return err
+			return errors.Join(err, rows.Close())
 		}
 		ids = append(ids, id)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
-		return err
+		return errors.Join(err, rows.Close())
 	}
-	rows.Close()
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("db: close unowned link rows: %w", err)
+	}
 	for _, id := range ids {
 		ownerID := fmt.Sprintf("legacy-link-%d", id)
 		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO owners(id) VALUES (?)`, ownerID); err != nil {
@@ -624,12 +626,16 @@ func tableExists(ctx context.Context, db Handle, table string) bool {
 	return count > 0
 }
 
-func columnExists(ctx context.Context, db Handle, table, column string) bool {
+func columnExists(ctx context.Context, db Handle, table, column string) (exists bool) {
 	rows, err := db.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
 	if err != nil {
 		return false
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			exists = false
+		}
+	}()
 	for rows.Next() {
 		var cid, notnull, pk int
 		var name, typ string
@@ -641,12 +647,16 @@ func columnExists(ctx context.Context, db Handle, table, column string) bool {
 	return false
 }
 
-func columnExistsTx(ctx context.Context, tx *sql.Tx, table, column string) bool {
+func columnExistsTx(ctx context.Context, tx *sql.Tx, table, column string) (exists bool) {
 	rows, err := tx.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
 	if err != nil {
 		return false
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			exists = false
+		}
+	}()
 	for rows.Next() {
 		var cid, notnull, pk int
 		var name, typ string

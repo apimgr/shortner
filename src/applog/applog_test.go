@@ -90,7 +90,11 @@ func TestLoggerWriteLineFiltersByLevel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	defer logger.Close()
+	t.Cleanup(func() {
+		if err := logger.Close(); err != nil {
+			t.Errorf("closing logger: %v", err)
+		}
+	})
 
 	if err := logger.WriteLine(LevelDebug, "debug line\n"); err != nil {
 		t.Fatalf("WriteLine(debug) error = %v", err)
@@ -120,7 +124,11 @@ func TestLoggerRecentReturnsBufferedLines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	defer logger.Close()
+	t.Cleanup(func() {
+		if err := logger.Close(); err != nil {
+			t.Errorf("closing logger: %v", err)
+		}
+	})
 
 	if err := logger.WriteLine(LevelInfo, "first line\n"); err != nil {
 		t.Fatalf("WriteLine() error = %v", err)
@@ -144,7 +152,11 @@ func TestLoggerRecentRespectsMaxEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	defer logger.Close()
+	t.Cleanup(func() {
+		if err := logger.Close(); err != nil {
+			t.Errorf("closing logger: %v", err)
+		}
+	})
 
 	for i := 0; i < 5; i++ {
 		if err := logger.WriteLine(LevelInfo, "line\n"); err != nil {
@@ -164,7 +176,11 @@ func TestLoggerRecentRespectsMaxAge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	defer logger.Close()
+	t.Cleanup(func() {
+		if err := logger.Close(); err != nil {
+			t.Errorf("closing logger: %v", err)
+		}
+	})
 
 	if err := logger.WriteLine(LevelInfo, "old enough to be excluded\n"); err != nil {
 		t.Fatalf("WriteLine() error = %v", err)
@@ -185,7 +201,11 @@ func TestLoggerFilePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	defer logger.Close()
+	t.Cleanup(func() {
+		if err := logger.Close(); err != nil {
+			t.Errorf("closing logger: %v", err)
+		}
+	})
 
 	info, err := os.Stat(path)
 	if err != nil {
@@ -204,7 +224,11 @@ func TestLoggerRotate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	defer logger.Close()
+	t.Cleanup(func() {
+		if err := logger.Close(); err != nil {
+			t.Errorf("closing logger: %v", err)
+		}
+	})
 
 	if err := logger.WriteLine(LevelInfo, "before rotate\n"); err != nil {
 		t.Fatalf("WriteLine() error = %v", err)
@@ -233,7 +257,11 @@ func TestAuditLoggerWriteAssignsIDAndTime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger() error = %v", err)
 	}
-	defer al.Close()
+	t.Cleanup(func() {
+		if err := al.Close(); err != nil {
+			t.Errorf("closing audit logger: %v", err)
+		}
+	})
 
 	err = al.Write(Entry{
 		Event:    "config.updated",
@@ -286,7 +314,11 @@ func TestAuditLoggerAppendsMultipleEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuditLogger() error = %v", err)
 	}
-	defer al.Close()
+	t.Cleanup(func() {
+		if err := al.Close(); err != nil {
+			t.Errorf("closing audit logger: %v", err)
+		}
+	})
 
 	for i := 0; i < 3; i++ {
 		if err := al.Write(Entry{Event: "server.started", Category: "server", Severity: SeverityInfo, Actor: Actor{IP: "127.0.0.1"}, Result: ResultSuccess}); err != nil {

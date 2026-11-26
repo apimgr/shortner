@@ -203,7 +203,11 @@ func TestCollectBusinessMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.Open: %v", err)
 	}
-	defer sqlDB.Close()
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
 	for _, statement := range []string{
 		`CREATE TABLE links (created_at INTEGER NOT NULL)`,
 		`CREATE TABLE clicks (timestamp INTEGER NOT NULL)`,

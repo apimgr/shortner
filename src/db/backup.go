@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -23,7 +24,7 @@ type BackupMetadata struct {
 // RecordBackupAt writes metadata into the server database. It creates only
 // the backup schema here so it can safely update an existing database from
 // before that table was added without attempting unrelated migrations.
-func RecordBackupAt(ctx context.Context, dbPath string, record BackupMetadata) error {
+func RecordBackupAt(ctx context.Context, dbPath string, record BackupMetadata) (resultErr error) {
 	if dbPath == "" || record.Filename == "" || filepath.Base(record.Filename) != record.Filename || record.Filepath == "" || record.SizeBytes < 0 {
 		return fmt.Errorf("db: invalid backup metadata")
 	}
@@ -37,7 +38,11 @@ func RecordBackupAt(ctx context.Context, dbPath string, record BackupMetadata) e
 	if err != nil {
 		return fmt.Errorf("db: open backup metadata database: %w", err)
 	}
-	defer sqlDB.Close()
+	defer func() {
+		if err := sqlDB.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("db: close backup metadata database: %w", err))
+		}
+	}()
 	if err := sqlDB.Write(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS backups (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,

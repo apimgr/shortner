@@ -16,7 +16,11 @@ func TestRotateIfDueCompressesAndKeepsArchive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer logger.Close()
+	t.Cleanup(func() {
+		if err := logger.Close(); err != nil {
+			t.Errorf("closing logger: %v", err)
+		}
+	})
 	if err := logger.SetRotationPolicy("daily", "forever", true); err != nil {
 		t.Fatal(err)
 	}
@@ -42,12 +46,20 @@ func TestRotateIfDueCompressesAndKeepsArchive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	t.Cleanup(func() {
+		if err := file.Close(); err != nil {
+			t.Errorf("closing archive: %v", err)
+		}
+	})
 	reader, err := gzip.NewReader(file)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
+	t.Cleanup(func() {
+		if err := reader.Close(); err != nil {
+			t.Errorf("closing archive reader: %v", err)
+		}
+	})
 	body, err := io.ReadAll(reader)
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +75,11 @@ func TestRotateIfDueDeletesArchiveWhenKeepNone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer logger.Close()
+	t.Cleanup(func() {
+		if err := logger.Close(); err != nil {
+			t.Errorf("closing logger: %v", err)
+		}
+	})
 	if err := logger.SetRotationPolicy("daily", "none", false); err != nil {
 		t.Fatal(err)
 	}

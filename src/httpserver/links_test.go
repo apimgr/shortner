@@ -25,6 +25,15 @@ func testLinkDeps(t *testing.T) (*linkDeps, *sql.DB) {
 	return &linkDeps{sqlDB: sqlDB, tokenKey: make([]byte, 32), resolver: NewProxyResolver(nil)}, sqlDB
 }
 
+func testOwnerCount(t *testing.T, sqlDB db.Handle) int {
+	t.Helper()
+	var count int
+	if err := sqlDB.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM owners`).Scan(&count); err != nil {
+		t.Fatalf("count owners: %v", err)
+	}
+	return count
+}
+
 func newChiRequest(method, target string, body []byte, slug string) *http.Request {
 	var req *http.Request
 	if body != nil {
@@ -128,14 +137,16 @@ func TestCreateLinkHandler_CustomSlug(t *testing.T) {
 	var resp struct {
 		Data CreateLinkResponse `json:"data"`
 	}
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
 	if resp.Data.ShortCode != "mylink" {
 		t.Errorf("short_code = %q, want mylink", resp.Data.ShortCode)
 	}
 }
 
 func TestCreateLinkHandler_DuplicateSlugConflict(t *testing.T) {
-	ld, _ := testLinkDeps(t)
+	ld, sqlDB := testLinkDeps(t)
 	body := []byte(`{"url":"https://example.com","slug":"dup"}`)
 
 	req1 := newChiRequest(http.MethodPost, "/api/v1/links", body, "")
@@ -144,6 +155,7 @@ func TestCreateLinkHandler_DuplicateSlugConflict(t *testing.T) {
 	if rec1.Code != http.StatusCreated {
 		t.Fatalf("first create status = %d", rec1.Code)
 	}
+	ownerCountAfterFirst := testOwnerCount(t, sqlDB)
 
 	req2 := newChiRequest(http.MethodPost, "/api/v1/links", body, "")
 	rec2 := httptest.NewRecorder()
@@ -151,10 +163,13 @@ func TestCreateLinkHandler_DuplicateSlugConflict(t *testing.T) {
 	if rec2.Code != http.StatusConflict {
 		t.Fatalf("second create status = %d, want 409", rec2.Code)
 	}
+	if got := testOwnerCount(t, sqlDB); got != ownerCountAfterFirst {
+		t.Errorf("owner count after duplicate slug = %d, want %d", got, ownerCountAfterFirst)
+	}
 }
 
 func TestCreateLinkHandler_ReservedSlug(t *testing.T) {
-	ld, _ := testLinkDeps(t)
+	ld, sqlDB := testLinkDeps(t)
 	body := []byte(`{"url":"https://example.com","slug":"api"}`)
 	req := newChiRequest(http.MethodPost, "/api/v1/links", body, "")
 	rec := httptest.NewRecorder()
@@ -163,6 +178,32 @@ func TestCreateLinkHandler_ReservedSlug(t *testing.T) {
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	if got := testOwnerCount(t, sqlDB); got != 0 {
+		t.Errorf("owner count after reserved slug = %d, want 0", got)
+	}
+}
+
+func TestPageOffsetAvoidsIntegerOverflow(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	tests := []struct {
+		name  string
+		page  int
+		limit int
+		want  int
+	}{
+		{name: "first page", page: 1, limit: 250, want: 0},
+		{name: "second page", page: 2, limit: 10, want: 10},
+		{name: "overflow saturates", page: maxInt, limit: 250, want: maxInt},
+		{name: "invalid limit", page: 3, limit: 0, want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := pageOffset(tt.page, tt.limit); got != tt.want {
+				t.Errorf("pageOffset(%d, %d) = %d, want %d", tt.page, tt.limit, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -217,7 +258,9 @@ func createTestLink(t *testing.T, ld *linkDeps) (slug, ownerToken string) {
 	var resp struct {
 		Data CreateLinkResponse `json:"data"`
 	}
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
 	return resp.Data.ShortCode, resp.Data.OwnerToken
 }
 

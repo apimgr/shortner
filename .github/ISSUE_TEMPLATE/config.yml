@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation and support
+    url: https://apimgr-shortner.readthedocs.io/en/latest/
+    about: Check the documentation or use the support links on your instance.
+  - name: Report a vulnerability privately
+    url: https://github.com/apimgr/shortner/security/advisories/new
+    about: Do not disclose security vulnerabilities in public issues.
+  - name: Contact an instance operator
+    url: https://csj.lol/server/contact
+    about: Use your instance URL instead when reporting to a self-hosted operator.

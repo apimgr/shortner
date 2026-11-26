@@ -30,7 +30,11 @@ func TestListenTCPIPv6WildcardAcceptsIPv4(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListenTCP([::]:0): %v", err)
 	}
-	defer listener.Close()
+	t.Cleanup(func() {
+		if err := listener.Close(); err != nil {
+			t.Errorf("closing listener: %v", err)
+		}
+	})
 	if fallback {
 		if listener.Addr().(*net.TCPAddr).IP.To4() == nil {
 			t.Fatalf("fallback listener address = %v, want IPv4", listener.Addr())
@@ -68,7 +72,11 @@ func TestListenTCPExplicitIPv4RemainsIPv4(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListenTCP(0.0.0.0:0): %v", err)
 	}
-	defer listener.Close()
+	t.Cleanup(func() {
+		if err := listener.Close(); err != nil {
+			t.Errorf("closing listener: %v", err)
+		}
+	})
 	if fallback {
 		t.Fatal("explicit IPv4 address unexpectedly used a fallback")
 	}

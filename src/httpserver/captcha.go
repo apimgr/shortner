@@ -127,7 +127,7 @@ func (fd *frontendDeps) verifyCaptcha(r *http.Request, values url.Values) bool {
 	return err == nil && valid
 }
 
-func (fd *frontendDeps) verifyProviderCaptcha(r *http.Request, provider, response string) bool {
+func (fd *frontendDeps) verifyProviderCaptcha(r *http.Request, provider, response string) (verified bool) {
 	endpoint := "https://www.google.com/recaptcha/api/siteverify"
 	if provider == "hcaptcha" {
 		endpoint = "https://api.hcaptcha.com/siteverify"
@@ -153,7 +153,11 @@ func (fd *frontendDeps) verifyProviderCaptcha(r *http.Request, provider, respons
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			verified = false
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return false
 	}

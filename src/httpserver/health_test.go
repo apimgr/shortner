@@ -61,7 +61,11 @@ func openTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("sql.Open() error = %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("sql.DB.Close() error = %v", err)
+		}
+	})
 	return db
 }
 
@@ -80,7 +84,9 @@ func TestCheckDatabaseNil(t *testing.T) {
 
 func TestCheckDatabaseClosed(t *testing.T) {
 	db := openTestDB(t)
-	db.Close()
+	if err := db.Close(); err != nil {
+		t.Fatalf("sql.DB.Close() error = %v", err)
+	}
 	if got := checkDatabase(context.Background(), db); got != "error" {
 		t.Errorf("checkDatabase(closed) = %q, want error", got)
 	}
@@ -169,7 +175,9 @@ func TestHealthIncludesOrderedBlocklistChecks(t *testing.T) {
 
 func TestBuildHealthResponseUnhealthyOnDBFailure(t *testing.T) {
 	db := openTestDB(t)
-	db.Close()
+	if err := db.Close(); err != nil {
+		t.Fatalf("sql.DB.Close() error = %v", err)
+	}
 	h := testHealthDeps(t, db)
 	resp := h.buildHealthResponse(context.Background())
 
@@ -321,7 +329,9 @@ func TestFormatHealthTextCanonicalOrder(t *testing.T) {
 
 func TestHealthHandlerUnhealthyReturns503(t *testing.T) {
 	db := openTestDB(t)
-	db.Close()
+	if err := db.Close(); err != nil {
+		t.Fatalf("sql.DB.Close() error = %v", err)
+	}
 	h := testHealthDeps(t, db)
 	req := httptest.NewRequest(http.MethodGet, "/server/healthz", nil)
 	req.Header.Set("Accept", "application/json")

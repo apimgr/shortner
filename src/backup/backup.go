@@ -94,7 +94,7 @@ type Result struct {
 // PART 21 "Backup Command" and "Verification". A backup that fails any
 // verification check is deleted before the error is returned — PART 21:
 // "If ANY check fails: delete the failed backup immediately".
-func Create(opts Options) (*Result, error) {
+func Create(opts Options) (result *Result, resultErr error) {
 	opts = opts.normalized()
 
 	if opts.Compliance && !opts.Encrypt {
@@ -116,13 +116,16 @@ func Create(opts Options) (*Result, error) {
 	}
 	snapshotPath := snapshot.Name()
 	if err := snapshot.Close(); err != nil {
-		_ = os.Remove(snapshotPath)
-		return nil, err
+		return nil, errors.Join(err, removeIfExists(snapshotPath))
 	}
 	if err := os.Remove(snapshotPath); err != nil {
-		return nil, err
+		return nil, errors.Join(err, removeIfExists(snapshotPath))
 	}
-	defer os.Remove(snapshotPath)
+	defer func() {
+		if err := removeIfExists(snapshotPath); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("backup: remove database snapshot: %w", err))
+		}
+	}()
 	snapshotCtx, snapshotCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	err = db.SnapshotSQLite(snapshotCtx, sourceDBPath, snapshotPath)
 	snapshotCancel()
@@ -159,28 +162,32 @@ func Create(opts Options) (*Result, error) {
 	}
 
 	target := opts.targetPath()
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			if err := removeIfExists(target); err != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("backup: remove failed backup: %w", err))
+			}
+		}
+	}()
 	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 		return nil, fmt.Errorf("backup: create backup dir: %w", err)
 	}
 
 	if err := writeBackupFile(target, manifest, files, opts); err != nil {
-		os.Remove(target)
 		return nil, err
 	}
 
 	info, err := os.Stat(target)
 	if err != nil {
-		os.Remove(target)
 		return nil, fmt.Errorf("backup: stat %s: %w", target, err)
 	}
 
 	if err := Verify(target, opts.Password); err != nil {
-		os.Remove(target)
 		return nil, err
 	}
 	checksum, err := archiveChecksum(target)
 	if err != nil {
-		os.Remove(target)
 		return nil, err
 	}
 	backupType := "auto"
@@ -198,10 +205,10 @@ func Create(opts Options) (*Result, error) {
 	})
 	cancel()
 	if err != nil {
-		os.Remove(target)
 		return nil, fmt.Errorf("backup: record backup metadata: %w", err)
 	}
 
+	succeeded = true
 	return &Result{
 		Path:      target,
 		Name:      filepath.Base(target),
@@ -211,15 +218,27 @@ func Create(opts Options) (*Result, error) {
 	}, nil
 }
 
+func removeIfExists(path string) error {
+	err := os.Remove(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
 func archiveChecksum(path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("backup: open archive for checksum: %w", err)
 	}
-	defer file.Close()
 	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return "", fmt.Errorf("backup: checksum archive: %w", err)
+	_, copyErr := io.Copy(hash, file)
+	closeErr := file.Close()
+	if copyErr != nil {
+		return "", errors.Join(fmt.Errorf("backup: checksum archive: %w", copyErr), closeErr)
+	}
+	if closeErr != nil {
+		return "", fmt.Errorf("backup: close archive after checksum: %w", closeErr)
 	}
 	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
@@ -311,17 +330,25 @@ func changedSince(files []sourceFile, base map[string]string) []sourceFile {
 // When encryption is on the tar.gz is built entirely in memory and only
 // the ciphertext is written, per AI.md PART 21 "How Encryption Works"
 // step 5: "Unencrypted archive never touches disk".
-func writeBackupFile(target string, manifest Manifest, files []sourceFile, opts Options) error {
+func writeBackupFile(target string, manifest Manifest, files []sourceFile, opts Options) (resultErr error) {
 	dir := filepath.Dir(target)
 	tmp, err := os.CreateTemp(dir, filepath.Base(target)+".tmp-*")
 	if err != nil {
 		return fmt.Errorf("backup: create temp file in %s: %w", dir, err)
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	tmpClosed := false
+	defer func() {
+		if !tmpClosed {
+			tmpClosed = true
+			resultErr = errors.Join(resultErr, tmp.Close())
+		}
+		if err := removeIfExists(tmpName); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("backup: remove temporary archive: %w", err))
+		}
+	}()
 
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
 		return fmt.Errorf("backup: chmod %s: %w", tmpName, err)
 	}
 
@@ -329,28 +356,24 @@ func writeBackupFile(target string, manifest Manifest, files []sourceFile, opts 
 		var buf limitedBuffer
 		buf.max = maxArchiveBytes
 		if err := writeArchive(&buf, manifest, files); err != nil {
-			tmp.Close()
 			return err
 		}
 		sealed, err := Encrypt(buf.Bytes(), opts.Password)
 		buf.Reset()
 		if err != nil {
-			tmp.Close()
 			return err
 		}
 		if _, err := tmp.Write(sealed); err != nil {
-			tmp.Close()
 			return fmt.Errorf("backup: write %s: %w", tmpName, err)
 		}
 	} else if err := writeArchive(tmp, manifest, files); err != nil {
-		tmp.Close()
 		return err
 	}
 
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
 		return fmt.Errorf("backup: sync %s: %w", tmpName, err)
 	}
+	tmpClosed = true
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("backup: close %s: %w", tmpName, err)
 	}
@@ -381,11 +404,13 @@ func readBackupPayload(path, password string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("backup: open %s: %w", path, err)
 	}
-	defer f.Close()
-
-	raw, err := readAllLimited(f, maxArchiveBytes)
-	if err != nil {
-		return nil, fmt.Errorf("backup: read %s: %w", path, err)
+	raw, readErr := readAllLimited(f, maxArchiveBytes)
+	closeErr := f.Close()
+	if readErr != nil {
+		return nil, errors.Join(fmt.Errorf("backup: read %s: %w", path, readErr), closeErr)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("backup: close %s: %w", path, closeErr)
 	}
 	if !IsEncryptedName(path) {
 		return raw, nil

@@ -12,6 +12,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -289,7 +290,7 @@ func loadDNSACMEUser(path string) (*dnsACMEUser, error) {
 	return &dnsACMEUser{privateKey: signer, registration: account.Registration}, nil
 }
 
-func saveDNSACMEUser(path string, user *dnsACMEUser) error {
+func saveDNSACMEUser(path string, user *dnsACMEUser) (resultErr error) {
 	keyDER, err := x509.MarshalPKCS8PrivateKey(user.privateKey)
 	if err != nil {
 		return fmt.Errorf("certmgr: encode DNS ACME account key")
@@ -305,18 +306,20 @@ func saveDNSACMEUser(path string, user *dnsACMEUser) error {
 	if err != nil {
 		return fmt.Errorf("certmgr: create DNS ACME account file")
 	}
-	defer os.Remove(tmp.Name())
+	tmpName := tmp.Name()
+	defer func() {
+		if err := os.Remove(tmpName); err != nil && !errors.Is(err, os.ErrNotExist) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("certmgr: remove temporary DNS ACME account: %w", err))
+		}
+	}()
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return fmt.Errorf("certmgr: secure DNS ACME account file")
+		return errors.Join(fmt.Errorf("certmgr: secure DNS ACME account file: %w", err), tmp.Close())
 	}
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return fmt.Errorf("certmgr: write DNS ACME account file")
+		return errors.Join(fmt.Errorf("certmgr: write DNS ACME account file: %w", err), tmp.Close())
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return fmt.Errorf("certmgr: sync DNS ACME account file")
+		return errors.Join(fmt.Errorf("certmgr: sync DNS ACME account file: %w", err), tmp.Close())
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("certmgr: close DNS ACME account file")

@@ -49,7 +49,9 @@ func detectShell() string {
 func runShell(out, errOut io.Writer, binaryName, command, shellArg string) int {
 	switch command {
 	case "", "help", "--help", "-h":
-		fmt.Fprintf(out, shellHelp, binaryName, strings.Join(supportedShells, ", "))
+		if _, err := fmt.Fprintf(out, shellHelp, binaryName, strings.Join(supportedShells, ", ")); err != nil {
+			return ExitError
+		}
 		return ExitOK
 	case "completions":
 		shellName, err := resolveShell(shellArg)
@@ -57,7 +59,9 @@ func runShell(out, errOut io.Writer, binaryName, command, shellArg string) int {
 			fmt.Fprintln(errOut, binaryName+": "+err.Error())
 			return ExitUsage
 		}
-		fmt.Fprint(out, completionScript(binaryName, shellName))
+		if _, err := fmt.Fprint(out, completionScript(binaryName, shellName)); err != nil {
+			return ExitError
+		}
 		return ExitOK
 	case "init":
 		shellName, err := resolveShell(shellArg)
@@ -65,10 +69,14 @@ func runShell(out, errOut io.Writer, binaryName, command, shellArg string) int {
 			fmt.Fprintln(errOut, binaryName+": "+err.Error())
 			return ExitUsage
 		}
-		fmt.Fprint(out, initSnippet(binaryName, shellName))
+		if _, err := fmt.Fprint(out, initSnippet(binaryName, shellName)); err != nil {
+			return ExitError
+		}
 		return ExitOK
 	default:
-		fmt.Fprintf(errOut, "%s: unknown --shell command %q (run '%s --shell help')\n", binaryName, command, binaryName)
+		if _, err := fmt.Fprintf(errOut, "%s: unknown --shell command %q (run '%s --shell help')\n", binaryName, command, binaryName); err != nil {
+			return ExitError
+		}
 		return ExitUsage
 	}
 }

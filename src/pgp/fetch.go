@@ -17,7 +17,7 @@ const maxRemotePublicKeyBytes = 16 * 1024
 
 // FetchPublicKey downloads an HTTPS public key without following redirects,
 // using proxy settings, or connecting to a private or local address.
-func FetchPublicKey(ctx context.Context, rawURL string) (string, error) {
+func FetchPublicKey(ctx context.Context, rawURL string) (armored string, resultErr error) {
 	u, err := url.ParseRequestURI(strings.TrimSpace(rawURL))
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
 		return "", errors.New("pgp: invalid public key URL")
@@ -75,7 +75,11 @@ func FetchPublicKey(ctx context.Context, rawURL string) (string, error) {
 	if err != nil {
 		return "", errors.New("pgp: public key download failed")
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("pgp: close public key response: %w", err))
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("pgp: public key server returned HTTP %d", resp.StatusCode)
 	}

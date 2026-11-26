@@ -75,8 +75,12 @@ type runner struct {
 func Run(args []string, streams IO, binaryName string) int {
 	flags, err := ParseFlags(args)
 	if err != nil {
-		fmt.Fprintf(streams.Err, "%s: %v\n", binaryName, err)
-		fmt.Fprintf(streams.Err, "Run '%s --help' for usage.\n", binaryName)
+		if _, err := fmt.Fprintf(streams.Err, "%s: %v\n", binaryName, err); err != nil {
+			return ExitError
+		}
+		if _, err := fmt.Fprintf(streams.Err, "Run '%s --help' for usage.\n", binaryName); err != nil {
+			return ExitError
+		}
 		return ExitUsage
 	}
 
@@ -84,11 +88,15 @@ func Run(args []string, streams IO, binaryName string) int {
 	// work, and never escalate privileges.
 	lang := i18n.CLILanguage(flags.Lang, "")
 	if flags.Help {
-		printHelp(streams.Out, binaryName, lang)
+		if err := printHelp(streams.Out, binaryName, lang); err != nil {
+			return ExitError
+		}
 		return ExitOK
 	}
 	if flags.Version {
-		printVersion(streams.Out, binaryName, lang)
+		if err := printVersion(streams.Out, binaryName, lang); err != nil {
+			return ExitError
+		}
 		return ExitOK
 	}
 	if flags.ShellSet {
@@ -100,7 +108,11 @@ func Run(args []string, streams IO, binaryName string) int {
 	if code := r.loadConfig(); code != ExitOK {
 		return code
 	}
-	return r.dispatch()
+	code := r.dispatch()
+	if err := r.printer.outputError(); err != nil && code == ExitOK {
+		return r.fail(err)
+	}
+	return code
 }
 
 // shellArgs splits `--shell CMD [SHELL]` into its command and optional shell
@@ -118,13 +130,17 @@ func shellArgs(flags Flags) (command, shellArg string) {
 func (r *runner) loadConfig() int {
 	p := paths.Resolve(InternalOrg, InternalName, r.flags.Config)
 	if err := p.EnsureDirs(); err != nil {
-		fmt.Fprintf(r.io.Err, "%s: cannot create client directories: %v\n", r.binaryName, err)
+		if _, err := fmt.Fprintf(r.io.Err, "%s: cannot create client directories: %v\n", r.binaryName, err); err != nil {
+			return ExitError
+		}
 		return ExitConfig
 	}
 
 	cfg, err := clientconfig.Load(p.ConfigFile)
 	if err != nil {
-		fmt.Fprintf(r.io.Err, "%s: %v\n", r.binaryName, err)
+		if _, err := fmt.Fprintf(r.io.Err, "%s: %v\n", r.binaryName, err); err != nil {
+			return ExitError
+		}
 		return ExitConfig
 	}
 	cfg.SetPath(p.ConfigFile)
@@ -133,7 +149,9 @@ func (r *runner) loadConfig() int {
 	// zero configuration, per AI.md PART 32.
 	if _, statErr := os.Stat(p.ConfigFile); os.IsNotExist(statErr) {
 		if saveErr := cfg.Save(); saveErr != nil {
-			fmt.Fprintf(r.io.Err, "%s: cannot write %s: %v\n", r.binaryName, p.ConfigFile, saveErr)
+			if _, err := fmt.Fprintf(r.io.Err, "%s: cannot write %s: %v\n", r.binaryName, p.ConfigFile, saveErr); err != nil {
+				return ExitError
+			}
 			return ExitConfig
 		}
 	}
@@ -144,7 +162,9 @@ func (r *runner) loadConfig() int {
 	if r.flags.Server != "" {
 		value, save, warn := clientconfig.SaveIfEmptyOrInvalid(cfg.Server.Primary, r.flags.Server, clientconfig.ValidateServerURL)
 		if warn {
-			fmt.Fprintf(r.io.Err, "%s: invalid --server value %q, keeping current configuration\n", r.binaryName, r.flags.Server)
+			if _, err := fmt.Fprintf(r.io.Err, "%s: invalid --server value %q, keeping current configuration\n", r.binaryName, r.flags.Server); err != nil {
+				return ExitError
+			}
 		}
 		cfg.Server.Primary = value
 		persist = persist || save
@@ -152,7 +172,9 @@ func (r *runner) loadConfig() int {
 	if r.flags.Token != "" {
 		value, save, warn := clientconfig.SaveIfEmptyOrInvalid(cfg.Auth.Token, r.flags.Token, clientconfig.ValidateToken)
 		if warn {
-			fmt.Fprintf(r.io.Err, "%s: invalid --token value, keeping current configuration\n", r.binaryName)
+			if _, err := fmt.Fprintf(r.io.Err, "%s: invalid --token value, keeping current configuration\n", r.binaryName); err != nil {
+				return ExitError
+			}
 		}
 		cfg.Auth.Token = value
 		persist = persist || save
@@ -162,7 +184,9 @@ func (r *runner) loadConfig() int {
 	}
 	if r.flags.Output != "" {
 		if !clientconfig.ValidateOutputFormat(r.flags.Output) {
-			fmt.Fprintf(r.io.Err, "%s: invalid --output value %q (want table, json, yaml, plain, or csv)\n", r.binaryName, r.flags.Output)
+			if _, err := fmt.Fprintf(r.io.Err, "%s: invalid --output value %q (want table, json, yaml, plain, or csv)\n", r.binaryName, r.flags.Output); err != nil {
+				return ExitError
+			}
 			return ExitUsage
 		}
 		cfg.Output.Format = strings.ToLower(r.flags.Output)
@@ -182,13 +206,17 @@ func (r *runner) loadConfig() int {
 
 	if persist {
 		if err := cfg.Save(); err != nil {
-			fmt.Fprintf(r.io.Err, "%s: cannot save %s: %v\n", r.binaryName, cfg.Path(), err)
+			if _, err := fmt.Fprintf(r.io.Err, "%s: cannot save %s: %v\n", r.binaryName, cfg.Path(), err); err != nil {
+				return ExitError
+			}
 		}
 	}
 
 	forceColor, err := color.ParseFlag(cfg.Output.Color)
 	if err != nil {
-		fmt.Fprintf(r.io.Err, "%s: %v\n", r.binaryName, err)
+		if _, err := fmt.Fprintf(r.io.Err, "%s: %v\n", r.binaryName, err); err != nil {
+			return ExitError
+		}
 		return ExitUsage
 	}
 
@@ -263,7 +291,9 @@ func (r *runner) dispatch() int {
 	case "health", "status":
 		return r.runHealth(ctx)
 	case "help":
-		printHelp(r.io.Out, r.binaryName, r.lang)
+		if err := printHelp(r.io.Out, r.binaryName, r.lang); err != nil {
+			return r.fail(err)
+		}
 		return ExitOK
 	default:
 		// Smart argument detection (AI.md PART 32): a bare URL shortens, a
@@ -274,7 +304,9 @@ func (r *runner) dispatch() int {
 		if len(r.flags.Args) == 1 && looksLikeSlug(command) {
 			return r.runGet(ctx, r.flags.Args)
 		}
-		fmt.Fprintf(r.io.Err, "%s: unknown command %q (run '%s --help')\n", r.binaryName, command, r.binaryName)
+		if _, err := fmt.Fprintf(r.io.Err, "%s: unknown command %q (run '%s --help')\n", r.binaryName, command, r.binaryName); err != nil {
+			return ExitError
+		}
 		return ExitUsage
 	}
 }
@@ -294,8 +326,12 @@ func (r *runner) runInteractive(ctx context.Context) int {
 	mode := r.displayMode()
 	switch mode {
 	case "plain":
-		fmt.Fprintf(r.io.Err, "%s: no command given and no terminal attached\n", r.binaryName)
-		fmt.Fprintf(r.io.Err, "Run '%s --help' for usage.\n", r.binaryName)
+		if _, err := fmt.Fprintf(r.io.Err, "%s: no command given and no terminal attached\n", r.binaryName); err != nil {
+			return ExitError
+		}
+		if _, err := fmt.Fprintf(r.io.Err, "Run '%s --help' for usage.\n", r.binaryName); err != nil {
+			return ExitError
+		}
 		return ExitUsage
 	case "gui":
 		if !clientconfig.ValidateServerURL(r.cfg.Server.Primary) {
@@ -379,14 +415,18 @@ func (r *runner) runSetup(ctx context.Context) int {
 		APIVersion:    r.cfg.Server.APIVersion,
 	})
 	if err != nil {
-		fmt.Fprintf(r.io.Err, "%s: %v\n", r.binaryName, err)
+		if _, err := fmt.Fprintf(r.io.Err, "%s: %v\n", r.binaryName, err); err != nil {
+			return ExitError
+		}
 		return ExitConfig
 	}
 
 	r.cfg.Server.Primary = result.Server
 	r.cfg.Auth.Token = result.Token
 	if err := r.cfg.Save(); err != nil {
-		fmt.Fprintf(r.io.Err, "%s: cannot save %s: %v\n", r.binaryName, r.cfg.Path(), err)
+		if _, err := fmt.Fprintf(r.io.Err, "%s: cannot save %s: %v\n", r.binaryName, r.cfg.Path(), err); err != nil {
+			return ExitError
+		}
 		return ExitConfig
 	}
 	r.client = api.New(api.Options{

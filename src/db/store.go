@@ -295,8 +295,11 @@ func SnapshotSQLite(ctx context.Context, source, destination string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
-	return s.VacuumInto(ctx, destination)
+	resultErr := s.VacuumInto(ctx, destination)
+	if err := s.Close(); err != nil {
+		resultErr = errors.Join(resultErr, fmt.Errorf("db: close snapshot source: %w", err))
+	}
+	return resultErr
 }
 
 // Read returns the query-only database handle. Callers must issue only reads.

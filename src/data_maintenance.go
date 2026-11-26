@@ -48,7 +48,7 @@ type exportResource struct {
 	ClickCount     int64   `json:"click_count"`
 }
 
-func runDataMaintenance(binaryName string, p paths.Paths, args []string) int {
+func runDataMaintenance(binaryName string, p paths.Paths, args []string) (exitCode int) {
 	if len(args) < 1 || (args[0] != "export" && args[0] != "delete") {
 		return dataUsage(binaryName)
 	}
@@ -95,7 +95,11 @@ func runDataMaintenance(binaryName string, p paths.Paths, args []string) int {
 	if err != nil {
 		return maintenanceError(binaryName, err)
 	}
-	defer h.Close()
+	defer func() {
+		if err := h.Close(); err != nil {
+			exitCode = maintenanceError(binaryName, fmt.Errorf("close data maintenance database: %w", err))
+		}
+	}()
 	tok, err := db.GetTokenByPrefix(context.Background(), h, prefix)
 	if err != nil {
 		return maintenanceError(binaryName, errors.New("owner token prefix not found"))
@@ -190,13 +194,17 @@ func runDataExport(binaryName string, p paths.Paths, cfg *config.Config, h db.Ha
 	fmt.Printf("Data export written to %s\n", output)
 	return 0
 }
-func ownerLinks(ctx context.Context, h db.Handle, ownerID string, cfg *config.Config) ([]exportResource, error) {
+func ownerLinks(ctx context.Context, h db.Handle, ownerID string, cfg *config.Config) (out []exportResource, resultErr error) {
 	rows, err := h.QueryContext(ctx, `SELECT short_code,destination_url,created_at,expires_at,click_count FROM links WHERE owner_id=? ORDER BY created_at,short_code`, ownerID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []exportResource
+	defer func() {
+		if err := rows.Close(); err != nil {
+			out = nil
+			resultErr = errors.Join(resultErr, fmt.Errorf("close owner links rows: %w", err))
+		}
+	}()
 	proto := []string{"http", "https"}[boolIndex(cfg.Server.TLS.Enabled)]
 	host := fqdn.GetFQDN(paths.ProjectName)
 	base := proto + "://" + host
@@ -291,7 +299,7 @@ func runDataDelete(binaryName string, p paths.Paths, cfg *config.Config, h db.Ha
 	return 0
 }
 
-func runComplianceReport(binaryName string, p paths.Paths) int {
+func runComplianceReport(binaryName string, p paths.Paths) (exitCode int) {
 	if err := paths.EnsureDir(p.DB); err != nil {
 		return maintenanceError(binaryName, err)
 	}
@@ -306,7 +314,11 @@ func runComplianceReport(binaryName string, p paths.Paths) int {
 	if err != nil {
 		return maintenanceError(binaryName, err)
 	}
-	defer h.Close()
+	defer func() {
+		if err := h.Close(); err != nil {
+			exitCode = maintenanceError(binaryName, fmt.Errorf("close compliance report database: %w", err))
+		}
+	}()
 	var owners, resources, active, reports int64
 	for _, x := range []struct {
 		q string

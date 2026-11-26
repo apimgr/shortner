@@ -35,21 +35,21 @@ fi
 __body() {
   local url="$1"
   shift
-  curl -sS "$@" "$url" 2>/dev/null || true
+  curl -q -LSs "$@" "$url" 2>/dev/null || true
 }
 
 # __status {url} {curl args...} — echoes the response status code.
 __status() {
   local url="$1"
   shift
-  curl -sS -o /dev/null -w '%{http_code}' "$@" "$url" 2>/dev/null || echo 000
+  curl -q -LSs -o /dev/null -w '%{http_code}' "$@" "$url" 2>/dev/null || echo 000
 }
 
 # __content_type {url} {curl args...} — echoes the Content-Type header.
 __content_type() {
   local url="$1"
   shift
-  curl -sS -o /dev/null -w '%{content_type}' "$@" "$url" 2>/dev/null || true
+  curl -q -LSs -o /dev/null -w '%{content_type}' "$@" "$url" 2>/dev/null || true
 }
 
 printf 'content negotiation matrix against %s\n' "$base_url"
@@ -88,7 +88,7 @@ out="$(__body "$api_url$path" -H "User-Agent: $browser_ua")"
 __assert_contains "$path + browser UA (no Accept) -> JSON" '"status"' "$out"
 
 __section "CORS"
-ctype="$(curl -sS -o /dev/null -D - "$api_url/server/healthz" 2>/dev/null | tr -d '\r' | grep -i -- '^access-control-allow-origin:' || true)"
+ctype="$(curl -q -LSs -o /dev/null -D - "$api_url/server/healthz" 2>/dev/null | tr -d '\r' | grep -i -- '^access-control-allow-origin:' || true)"
 __assert_contains "API sends Access-Control-Allow-Origin: *" "*" "$ctype"
 
 __section "Always-plain-text endpoints"

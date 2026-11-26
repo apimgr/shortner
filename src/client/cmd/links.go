@@ -137,7 +137,9 @@ func (r *runner) runDelete(ctx context.Context, args []string) int {
 			r.printer.Error("refusing to delete %s without a terminal: pass --force", slug)
 			return ExitUsage
 		}
-		fmt.Fprintf(r.io.Out, "Delete %s permanently? [y/N] ", slug)
+		if _, err := fmt.Fprintf(r.io.Out, "Delete %s permanently? [y/N] ", slug); err != nil {
+			return r.fail(err)
+		}
 		if !confirmed(r.io.In) {
 			r.printer.Message("Aborted.")
 			return ExitOK

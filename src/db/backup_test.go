@@ -29,7 +29,11 @@ func TestRecordBackupAt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sqlDB.Close()
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
 	var filename, path, kind, checksum string
 	var size, timestamp int64
 	if err := sqlDB.QueryRow(`SELECT filename, filepath, size_bytes, type, created_at, checksum FROM backups`).

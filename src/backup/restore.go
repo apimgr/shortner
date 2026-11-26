@@ -85,7 +85,6 @@ func DatabaseEmpty(dbPath string) bool {
 	if err != nil {
 		return false
 	}
-	defer handle.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -93,7 +92,8 @@ func DatabaseEmpty(dbPath string) bool {
 	var count int
 	err = handle.Read(ctx).QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").Scan(&count)
-	if err != nil {
+	closeErr := handle.Close()
+	if err != nil || closeErr != nil {
 		return false
 	}
 	return count == 0
@@ -106,8 +106,7 @@ func ConfigReadable(configFile string) bool {
 	if err != nil {
 		return false
 	}
-	f.Close()
-	return true
+	return f.Close() == nil
 }
 
 // RestoreOptions describes one restore.
@@ -144,7 +143,7 @@ type RestoreResult struct {
 // Authorization is the caller's responsibility — see Authorize — because
 // only the caller knows whether the operator confirmed or supplied a
 // valid token.
-func Restore(opts RestoreOptions) (*RestoreResult, error) {
+func Restore(opts RestoreOptions) (result *RestoreResult, resultErr error) {
 	manifest, warnings, err := VerifyForRestore(opts.Path, opts.Password, opts.AppVersion)
 	if err != nil {
 		return nil, err
@@ -159,7 +158,11 @@ func Restore(opts RestoreOptions) (*RestoreResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("backup: create staging dir: %w", err)
 	}
-	defer os.RemoveAll(stage)
+	defer func() {
+		if err := os.RemoveAll(stage); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("backup: remove restore staging dir: %w", err))
+		}
+	}()
 
 	if _, _, err := extractArchive(raw, stage); err != nil {
 		return nil, err
@@ -229,7 +232,7 @@ func (o RestoreOptions) destinationFor(name string) (string, error) {
 
 // placeFile moves src over dest atomically, preserving src's permissions
 // and creating dest's parent directories.
-func placeFile(src, dest string) error {
+func placeFile(src, dest string) (resultErr error) {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
 		return fmt.Errorf("backup: create dir for %s: %w", dest, err)
 	}
@@ -238,7 +241,11 @@ func placeFile(src, dest string) error {
 	if err != nil {
 		return fmt.Errorf("backup: open staged %s: %w", filepath.Base(src), err)
 	}
-	defer in.Close()
+	defer func() {
+		if err := in.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("backup: close staged %s: %w", filepath.Base(src), err))
+		}
+	}()
 
 	info, err := in.Stat()
 	if err != nil {
@@ -250,20 +257,27 @@ func placeFile(src, dest string) error {
 		return fmt.Errorf("backup: create temp file for %s: %w", dest, err)
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	tmpClosed := false
+	defer func() {
+		if !tmpClosed {
+			tmpClosed = true
+			resultErr = errors.Join(resultErr, tmp.Close())
+		}
+		if err := os.Remove(tmpName); err != nil && !errors.Is(err, os.ErrNotExist) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("backup: remove temporary restore file: %w", err))
+		}
+	}()
 
 	if err := tmp.Chmod(info.Mode().Perm()); err != nil {
-		tmp.Close()
 		return fmt.Errorf("backup: chmod %s: %w", tmpName, err)
 	}
 	if _, err := io.Copy(tmp, in); err != nil {
-		tmp.Close()
 		return fmt.Errorf("backup: write %s: %w", dest, err)
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
 		return fmt.Errorf("backup: sync %s: %w", dest, err)
 	}
+	tmpClosed = true
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("backup: close %s: %w", tmpName, err)
 	}

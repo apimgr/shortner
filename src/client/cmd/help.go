@@ -132,22 +132,31 @@ func helpLine(syntax, description string) string {
 }
 
 // printHelp writes the client --help output.
-func printHelp(w io.Writer, binaryName, lang string) {
-	_, _ = fmt.Fprint(w, helpText(binaryName, lang))
+func printHelp(w io.Writer, binaryName, lang string) error {
+	_, err := fmt.Fprint(w, helpText(binaryName, lang))
+	return err
 }
 
 // printVersion writes the client --version output. AI.md PART 32 requires
 // the same layout as the server binary, showing the ACTUAL binary name.
-func printVersion(w io.Writer, binaryName, lang string) {
-	fmt.Fprintln(w, i18n.TranslateFormat(lang, "version.name_version", map[string]string{
-		"project_name":    binaryName,
-		"project_version": version.Version,
-	}))
-	fmt.Fprintln(w, i18n.TranslateFormat(lang, "version.built", map[string]string{"build_date": version.BuildDate}))
-	fmt.Fprintln(w, i18n.TranslateFormat(lang, "version.commit", map[string]string{"commit": version.CommitID}))
-	fmt.Fprintln(w, i18n.TranslateFormat(lang, "version.go", map[string]string{"go_version": runtime.Version()}))
-	fmt.Fprintln(w, i18n.TranslateFormat(lang, "version.os_arch", map[string]string{
-		"goos":   runtime.GOOS,
-		"goarch": runtime.GOARCH,
-	}))
+func printVersion(w io.Writer, binaryName, lang string) error {
+	lines := []string{
+		i18n.TranslateFormat(lang, "version.name_version", map[string]string{
+			"project_name":    binaryName,
+			"project_version": version.Version,
+		}),
+		i18n.TranslateFormat(lang, "version.built", map[string]string{"build_date": version.BuildDate}),
+		i18n.TranslateFormat(lang, "version.commit", map[string]string{"commit": version.CommitID}),
+		i18n.TranslateFormat(lang, "version.go", map[string]string{"go_version": runtime.Version()}),
+		i18n.TranslateFormat(lang, "version.os_arch", map[string]string{
+			"goos":   runtime.GOOS,
+			"goarch": runtime.GOARCH,
+		}),
+	}
+	for _, line := range lines {
+		if _, err := fmt.Fprintln(w, line); err != nil {
+			return fmt.Errorf("write version output: %w", err)
+		}
+	}
+	return nil
 }

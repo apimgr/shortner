@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -117,7 +118,7 @@ func TestManagerUpdateConfigDisable(t *testing.T) {
 	// Directly install a fake running service to simulate a prior start,
 	// without depending on a real i2pd/SAM provider.
 	fakeListener := mustListen(t)
-	defer fakeListener.Close()
+	closeTestResource(t, fakeListener)
 	m.mu.Lock()
 	m.service = &Service{provider: ProviderI2PD, backend: fakeListener, address: "fake.b32.i2p"}
 	m.mu.Unlock()
@@ -142,7 +143,7 @@ func TestManagerDisableCancelsInflightSAMStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	closeTestResource(t, listener)
 	started := make(chan struct{})
 	priv := i2pBase64.EncodeToString(make([]byte, 512))
 	go func() {
@@ -152,7 +153,11 @@ func TestManagerDisableCancelsInflightSAMStart(t *testing.T) {
 				return
 			}
 			go func(conn net.Conn) {
-				defer conn.Close()
+				defer func() {
+					if err := conn.Close(); err != nil {
+						log.Printf("i2p test: close fake SAM connection: %v", err)
+					}
+				}()
 				reader := bufio.NewReader(conn)
 				for {
 					line, readErr := reader.ReadString('\n')
@@ -214,7 +219,7 @@ func TestManagerUpdateConfigStartsMonitor(t *testing.T) {
 	empty := t.TempDir()
 	t.Setenv("PATH", empty)
 	listener := fakeSAMServerMulti(t)
-	defer listener.Close()
+	closeTestResource(t, listener)
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -226,7 +231,7 @@ func TestManagerUpdateConfigStartsMonitor(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpdateConfig(enabled): %v", err)
 	}
-	defer m.Close()
+	closeTestResource(t, m)
 	m.mu.Lock()
 	monitoring := m.monitoring
 	m.mu.Unlock()
@@ -304,7 +309,7 @@ func TestManagerVirtualPort(t *testing.T) {
 	}
 
 	fakeListener := mustListen(t)
-	defer fakeListener.Close()
+	closeTestResource(t, fakeListener)
 	m.mu.Lock()
 	m.service = &Service{provider: ProviderI2PD, backend: fakeListener, virtualPort: 9999}
 	m.mu.Unlock()
@@ -339,7 +344,7 @@ func TestManagerFullLifecycleWithFakeSAM(t *testing.T) {
 	t.Setenv("PATH", empty)
 
 	ln := fakeSAMServerMulti(t)
-	defer ln.Close()
+	closeTestResource(t, ln)
 
 	dir := t.TempDir()
 	dirs := Dirs{

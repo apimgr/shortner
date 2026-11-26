@@ -178,12 +178,10 @@ func fetchNVDWindow(ctx context.Context, client *http.Client, limiter *requestLi
 			return fmt.Errorf("cve: NVD request: %w", err)
 		}
 		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
-			resp.Body.Close()
-			return fmt.Errorf("cve: NVD rate limited (HTTP %d); retry on the next scheduled run", resp.StatusCode)
+			return errors.Join(fmt.Errorf("cve: NVD rate limited (HTTP %d); retry on the next scheduled run", resp.StatusCode), resp.Body.Close())
 		}
 		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
-			return fmt.Errorf("cve: NVD returned HTTP %d", resp.StatusCode)
+			return errors.Join(fmt.Errorf("cve: NVD returned HTTP %d", resp.StatusCode), resp.Body.Close())
 		}
 		var page nvdPage
 		readErr := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&page)
@@ -242,12 +240,16 @@ func (l *requestLimiter) Wait(ctx context.Context) error {
 	return nil
 }
 
-func loadNVD(path string, records map[string]json.RawMessage) error {
+func loadNVD(path string, records map[string]json.RawMessage) (resultErr error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("cve: close NVD database: %w", err))
+		}
+	}()
 	var values []json.RawMessage
 	if err := json.NewDecoder(file).Decode(&values); err != nil {
 		return err
@@ -262,7 +264,7 @@ func loadNVD(path string, records map[string]json.RawMessage) error {
 	return nil
 }
 
-func replaceNVD(root string, records map[string]json.RawMessage, now time.Time) error {
+func replaceNVD(root string, records map[string]json.RawMessage, now time.Time) (resultErr error) {
 	parent := filepath.Dir(root)
 	if err := os.MkdirAll(parent, 0o700); err != nil {
 		return err
@@ -271,7 +273,11 @@ func replaceNVD(root string, records map[string]json.RawMessage, now time.Time) 
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmp)
+	defer func() {
+		if err := os.RemoveAll(tmp); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("cve: remove temporary NVD database: %w", err))
+		}
+	}()
 	ids := make([]string, 0, len(records))
 	for id := range records {
 		ids = append(ids, id)
@@ -287,12 +293,10 @@ func replaceNVD(root string, records map[string]json.RawMessage, now time.Time) 
 		items = append(items, records[id])
 	}
 	if err := writer.Encode(items); err != nil {
-		file.Close()
-		return err
+		return errors.Join(err, file.Close())
 	}
 	if err := file.Sync(); err != nil {
-		file.Close()
-		return err
+		return errors.Join(err, file.Close())
 	}
 	if err := file.Close(); err != nil {
 		return err
@@ -374,8 +378,7 @@ type ociManifest struct {
 	} `json:"layers"`
 }
 
-func fetchManifest(ctx context.Context, ref imageRef) (ociManifest, error) {
-	var manifest ociManifest
+func fetchManifest(ctx context.Context, ref imageRef) (manifest ociManifest, resultErr error) {
 	endpoint := "https://" + ref.host + "/v2/" + ref.repository + "/manifests/" + ref.tag
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -388,7 +391,9 @@ func fetchManifest(ctx context.Context, ref imageRef) (ociManifest, error) {
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
 		challenge := resp.Header.Get("WWW-Authenticate")
-		resp.Body.Close()
+		if err := resp.Body.Close(); err != nil {
+			return manifest, fmt.Errorf("cve: close unauthorized Trivy response: %w", err)
+		}
 		token, tokenErr := anonymousToken(ctx, challenge, ref)
 		if tokenErr != nil {
 			return manifest, tokenErr
@@ -404,7 +409,11 @@ func fetchManifest(ctx context.Context, ref imageRef) (ociManifest, error) {
 			return manifest, fmt.Errorf("cve: retry Trivy manifest: %w", err)
 		}
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("cve: close Trivy manifest response: %w", err))
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return manifest, fmt.Errorf("cve: Trivy registry returned HTTP %d", resp.StatusCode)
 	}
@@ -414,7 +423,7 @@ func fetchManifest(ctx context.Context, ref imageRef) (ociManifest, error) {
 	return manifest, nil
 }
 
-func anonymousToken(ctx context.Context, challenge string, ref imageRef) (string, error) {
+func anonymousToken(ctx context.Context, challenge string, ref imageRef) (tokenValue string, resultErr error) {
 	if !strings.HasPrefix(challenge, "Bearer ") {
 		return "", errors.New("cve: Trivy registry requires unsupported authentication")
 	}
@@ -443,7 +452,11 @@ func anonymousToken(ctx context.Context, challenge string, ref imageRef) (string
 	if err != nil {
 		return "", fmt.Errorf("cve: get Trivy registry token: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("cve: close Trivy token response: %w", err))
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("cve: Trivy token service returned HTTP %d", resp.StatusCode)
 	}
@@ -463,7 +476,7 @@ func anonymousToken(ctx context.Context, challenge string, ref imageRef) (string
 	return token.Token, nil
 }
 
-func fetchBlob(ctx context.Context, ref imageRef, digest string) ([]byte, error) {
+func fetchBlob(ctx context.Context, ref imageRef, digest string) (body []byte, resultErr error) {
 	endpoint := "https://" + ref.host + "/v2/" + ref.repository + "/blobs/" + digest
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -475,7 +488,9 @@ func fetchBlob(ctx context.Context, ref imageRef, digest string) ([]byte, error)
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
 		challenge := resp.Header.Get("WWW-Authenticate")
-		resp.Body.Close()
+		if err := resp.Body.Close(); err != nil {
+			return nil, fmt.Errorf("cve: close unauthorized Trivy blob response: %w", err)
+		}
 		token, tokenErr := anonymousToken(ctx, challenge, ref)
 		if tokenErr != nil {
 			return nil, tokenErr
@@ -490,11 +505,15 @@ func fetchBlob(ctx context.Context, ref imageRef, digest string) ([]byte, error)
 			return nil, fmt.Errorf("cve: retry Trivy database: %w", err)
 		}
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("cve: close Trivy blob response: %w", err))
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("cve: Trivy blob returned HTTP %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 512<<20))
+	body, err = io.ReadAll(io.LimitReader(resp.Body, 512<<20))
 	if err != nil {
 		return nil, err
 	}
@@ -509,17 +528,25 @@ func fetchBlob(ctx context.Context, ref imageRef, digest string) ([]byte, error)
 	return body, nil
 }
 
-func extractTrivy(root string, compressed []byte, now time.Time) error {
+func extractTrivy(root string, compressed []byte, now time.Time) (resultErr error) {
 	reader, err := gzip.NewReader(bytes.NewReader(compressed))
 	if err != nil {
 		return fmt.Errorf("cve: open Trivy database layer: %w", err)
 	}
-	defer reader.Close()
+	defer func() {
+		if err := reader.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("cve: close Trivy database archive: %w", err))
+		}
+	}()
 	tmp, err := os.MkdirTemp(filepath.Dir(root), ".trivy-update-")
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmp)
+	defer func() {
+		if err := os.RemoveAll(tmp); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("cve: remove temporary Trivy database: %w", err))
+		}
+	}()
 	archive := tar.NewReader(reader)
 	foundDB, foundMetadata := false, false
 	for {

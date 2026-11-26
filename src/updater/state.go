@@ -2,6 +2,7 @@ package updater
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -51,7 +52,7 @@ func LoadState(path string) State {
 
 // SaveState writes s to path atomically, so a crash mid-write cannot
 // leave a truncated file behind.
-func SaveState(path string, s State) error {
+func SaveState(path string, s State) (resultErr error) {
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
@@ -67,15 +68,17 @@ func SaveState(path string, s State) error {
 		return fmt.Errorf("updater: create temp state: %w", err)
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer func() {
+		if err := os.Remove(tmpPath); err != nil && !os.IsNotExist(err) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("updater: remove temp state: %w", err))
+		}
+	}()
 
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return fmt.Errorf("updater: write state: %w", err)
+		return fmt.Errorf("updater: write state: %w", errors.Join(err, tmp.Close()))
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return fmt.Errorf("updater: sync state: %w", err)
+		return fmt.Errorf("updater: sync state: %w", errors.Join(err, tmp.Close()))
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("updater: close state: %w", err)

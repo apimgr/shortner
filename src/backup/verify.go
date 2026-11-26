@@ -56,7 +56,7 @@ func failed(path string, check Check, err error) error {
 // opening the extracted server.db and running SQLite's own integrity
 // check, because PART 21 demands "backups must be 100% working" rather
 // than merely well-formed.
-func Verify(path, password string) error {
+func Verify(path, password string) (resultErr error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return failed(path, CheckFileExists, err)
@@ -81,7 +81,11 @@ func Verify(path, password string) error {
 	if err != nil {
 		return failed(path, CheckExtraction, err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			resultErr = errors.Join(resultErr, failed(path, CheckExtraction, fmt.Errorf("remove verification directory: %w", err)))
+		}
+	}()
 
 	manifest, digests, err := extractArchive(raw, tmpDir)
 	if err != nil {
@@ -126,12 +130,16 @@ func Verify(path, password string) error {
 // checkSQLiteIntegrity opens the extracted database read-only and runs
 // PRAGMA integrity_check, per AI.md PART 21 "Database integrity — verify
 // SQLite/dump is valid".
-func checkSQLiteIntegrity(dbFile string) error {
+func checkSQLiteIntegrity(dbFile string) (resultErr error) {
 	handle, err := db.OpenReadOnlySQLite(dbFile, 1)
 	if err != nil {
 		return fmt.Errorf("open extracted database: %w", err)
 	}
-	defer handle.Close()
+	defer func() {
+		if err := handle.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("close extracted database: %w", err))
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

@@ -29,7 +29,11 @@ func TestDatasetStatusRequiresLoadedDatabaseAndTimestamp(t *testing.T) {
 func TestOpenMissingFilesFailsOpen(t *testing.T) {
 	dir := t.TempDir()
 	m := Open(dir, true, allDBs())
-	defer m.Close()
+	t.Cleanup(func() {
+		if err := m.Close(); err != nil {
+			t.Errorf("closing GeoIP manager: %v", err)
+		}
+	})
 
 	ip := net.ParseIP("203.0.113.1")
 	result := m.Lookup(ip)
@@ -41,7 +45,11 @@ func TestOpenMissingFilesFailsOpen(t *testing.T) {
 func TestOpenDisabledNeverLooksUp(t *testing.T) {
 	dir := t.TempDir()
 	m := Open(dir, false, allDBs())
-	defer m.Close()
+	t.Cleanup(func() {
+		if err := m.Close(); err != nil {
+			t.Errorf("closing GeoIP manager: %v", err)
+		}
+	})
 
 	if got := m.Lookup(net.ParseIP("8.8.8.8")); got != (Result{}) {
 		t.Errorf("disabled Manager.Lookup() = %+v, want zero Result", got)
@@ -51,7 +59,11 @@ func TestOpenDisabledNeverLooksUp(t *testing.T) {
 func TestLookupSkipsPrivateAndLoopback(t *testing.T) {
 	dir := t.TempDir()
 	m := Open(dir, true, allDBs())
-	defer m.Close()
+	t.Cleanup(func() {
+		if err := m.Close(); err != nil {
+			t.Errorf("closing GeoIP manager: %v", err)
+		}
+	})
 
 	for _, addr := range []string{"127.0.0.1", "10.0.0.5", "192.168.1.1", "172.16.0.1", "::1", "fc00::1"} {
 		ip := net.ParseIP(addr)
@@ -67,7 +79,11 @@ func TestLookupSkipsPrivateAndLoopback(t *testing.T) {
 func TestLookupNilIP(t *testing.T) {
 	dir := t.TempDir()
 	m := Open(dir, true, allDBs())
-	defer m.Close()
+	t.Cleanup(func() {
+		if err := m.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
 
 	if got := m.Lookup(nil); got != (Result{}) {
 		t.Errorf("Lookup(nil) = %+v, want zero Result", got)

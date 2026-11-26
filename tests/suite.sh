@@ -58,7 +58,7 @@ last_body=""
 last_headers=""
 __request() {
   local raw
-  raw="$(curl --max-time "${CURL_TIMEOUT:-10}" -sS -D "$root/.headers" -w '\n%{http_code}' "$@" 2>/dev/null || true)"
+  raw="$(curl -q -LSs --max-redirs 0 --max-time "${CURL_TIMEOUT:-10}" -D "$root/.headers" -w '\n%{http_code}' "$@" 2>/dev/null || true)"
   last_status="${raw##*$'\n'}"
   last_body="${raw%$'\n'*}"
   last_headers="$(cat "$root/.headers" 2>/dev/null || true)"
@@ -66,7 +66,7 @@ __request() {
 
 # __status_of {curl args...} — echoes only the HTTP status code.
 __status_of() {
-  curl --max-time "${CURL_TIMEOUT:-10}" -sS -o /dev/null -w '%{http_code}' "$@" 2>/dev/null || echo 000
+  curl -q -LSs --max-redirs 0 --max-time "${CURL_TIMEOUT:-10}" -o /dev/null -w '%{http_code}' "$@" 2>/dev/null || echo 000
 }
 
 # __header_of {name} — echoes a response header from the last request.
@@ -105,21 +105,47 @@ __json_get() {
 # ---------------------------------------------------------------------------
 
 __start_server() {
+  local startup_wait="${SUITE_STARTUP_WAIT:-120}"
+  if [[ ! "$startup_wait" =~ ^[0-9]{1,3}$ ]] || [ "$startup_wait" -lt 1 ] || [ "$startup_wait" -gt 600 ]; then
+    printf 'invalid SUITE_STARTUP_WAIT: %s (expected 1-600 seconds)\n' "$startup_wait" >&2
+    return 1
+  fi
+  local startup_checks=$((startup_wait * 4))
   "$bin" --config "$root/config" --address "$host" --port "$port" >>"$log_file" 2>&1 &
   server_pid=$!
-  for _ in $(seq 1 80); do
+  for _ in $(seq 1 "$startup_checks"); do
     if [ "$(__status_of "$base_url/api/healthz")" = "200" ]; then
       return 0
     fi
     if ! kill -0 "$server_pid" 2>/dev/null; then
       printf 'server exited during startup; last log lines:\n' >&2
-      tail -n 40 "$log_file" >&2 || true
+      sed -E 's/(Operator token[^:]*: ).*/\1[REDACTED]/' "$log_file" | tail -n 40 >&2 || true
+      id >&2
+      stat -c 'mode=%a owner=%u:%g path=%n' "$root" "$root/config" "$root/data" "$root/logs" "$root/config/yaml.d" 2>&1 >&2 || true
       return 1
     fi
     sleep 0.25
   done
-  printf 'server did not become healthy within 20s; last log lines:\n' >&2
-  tail -n 40 "$log_file" >&2 || true
+  printf 'server did not become healthy within %ss; last log lines:\n' "$startup_wait" >&2
+  sed -E 's/(Operator token[^:]*: ).*/\1[REDACTED]/' "$log_file" | tail -n 40 >&2 || true
+  printf 'health response: ' >&2
+  curl -q -LSs --max-time 2 -i "$base_url/api/healthz" >&2 || true
+  id >&2
+  stat -c 'mode=%a owner=%u:%g path=%n' "$root" "$root/config" "$root/data" "$root/logs" "$root/config/yaml.d" 2>&1 >&2 || true
+  find "$root" -maxdepth 2 -type f -print >&2 || true
+  if [ -r "/proc/$server_pid/wchan" ]; then
+    printf 'server wait channel: ' >&2
+    cat "/proc/$server_pid/wchan" >&2 || true
+    printf 'server process status:\n' >&2
+    cat "/proc/$server_pid/status" >&2 || true
+  fi
+  if command -v netstat >/dev/null 2>&1; then netstat -lnt >&2 || true; fi
+  if kill -QUIT "$server_pid" 2>/dev/null; then
+    sleep 1
+    printf 'server main goroutine:\n' >&2
+    sed -n '/^goroutine 1 .*\[/,+80p' "$log_file" >&2 || true
+  fi
+  ps -ef >&2 || true
   return 1
 }
 

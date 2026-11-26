@@ -19,8 +19,8 @@ set -eo pipefail
 # shellcheck source=tests/common.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
-container_name="$project_name-test-$(__random_suffix)"
-image_container_name="$project_name-image-check-$(__random_suffix)"
+container_name="$project_name-$(__random_suffix)"
+image_container_name="$project_name-$(__random_suffix)"
 image_tag="$project_name:test-$(__random_suffix)"
 temp_dir=""
 
@@ -64,7 +64,7 @@ docker build \
   --build-arg OFFICIAL_SITE="$(__build_official_site)" \
   --build-arg COMMIT_ID="$(git -C "$project_dir" rev-parse --short HEAD)" \
   -f "$project_dir/docker/Dockerfile" -t "$image_tag" "$project_dir"
-docker run --rm --entrypoint sh "$image_tag" -c \
+docker run --rm --name "$project_name-$(__random_suffix)" --entrypoint sh "$image_tag" -c \
   'for c in bash curl tor i2pd tini; do command -v "$c" || exit 1; done; test -r /etc/ssl/cert.pem; test -d /usr/share/zoneinfo'
 __pass "runtime image includes required binaries, timezone data, and CA certificates"
 
@@ -72,7 +72,7 @@ docker run -d --rm --name "$image_container_name" "$image_tag" >/dev/null
 image_healthy=false
 health_deadline=$((SECONDS + 60))
 while [ "$SECONDS" -lt "$health_deadline" ]; do
-  image_health="$(docker exec "$image_container_name" curl -fsS --max-time 2 -H 'Accept: application/json' http://127.0.0.1/server/healthz 2>/dev/null || true)"
+  image_health="$(docker exec "$image_container_name" curl -q -LSsf --max-time 2 -H 'Accept: application/json' http://127.0.0.1/server/healthz 2>/dev/null || true)"
 if printf '%s' "$image_health" | jq -e '(.status == "healthy" or .status == "degraded") and .checks.database == "ok" and .features.tor.enabled == true and (.features.tor.status == "starting" or .features.tor.status == "healthy" or .features.tor.status == "unavailable") and .features.i2p.enabled == true and (.features.i2p.status == "starting" or .features.i2p.status == "healthy" or .features.i2p.status == "unavailable")' >/dev/null 2>&1; then
     image_healthy=true
     break
@@ -88,7 +88,7 @@ else
 fi
 
 image_overlay() {
-  docker exec "$image_container_name" curl -fsS --max-time 2 -H 'Accept: application/json' http://127.0.0.1/server/healthz 2>/dev/null | jq -r ".features.$1.$2 // empty"
+  docker exec "$image_container_name" curl -q -LSsf --max-time 2 -H 'Accept: application/json' http://127.0.0.1/server/healthz 2>/dev/null | jq -r ".features.$1.$2 // empty"
 }
 
 for overlay_name in tor i2p; do
@@ -132,7 +132,7 @@ for overlay_name in tor i2p; do
       check_i2p_key="/data/$internal_name/i2p/site/site-keys.dat"
       if docker exec "$image_container_name" test -s "$check_i2p_key"; then __pass "runtime image persists the I2P destination key"; else __fail "runtime image did not persist the I2P destination key at $check_i2p_key"; fi
     fi
-    overlay_check="$(docker exec "$image_container_name" curl -fsS --max-time 2 -H 'Accept: application/json' http://127.0.0.1/server/healthz 2>/dev/null | jq -r ".checks.$overlay_name // empty")"
+    overlay_check="$(docker exec "$image_container_name" curl -q -LSsf --max-time 2 -H 'Accept: application/json' http://127.0.0.1/server/healthz 2>/dev/null | jq -r ".checks.$overlay_name // empty")"
     if [ "$overlay_check" = ok ]; then __pass "runtime image checks.$overlay_name is ok"; else __fail "runtime image checks.$overlay_name is not ok"; fi
   elif [ "${REQUIRE_OVERLAY:-0}" = 1 ]; then
     __fail "runtime image $overlay_name did not become healthy within ${overlay_wait}s"
@@ -145,6 +145,10 @@ docker rm -f "$image_container_name" >/dev/null
 __section "Container: $docker_test_image"
 temp_dir="$(__make_temp_dir)"
 printf 'test root: %s\n' "$temp_dir"
+
+# The server drops to its dedicated UID and needs to traverse the mounted
+# volume root to reach the private config, data, and log directories.
+chmod 0711 "$temp_dir/volumes"
 
 docker run -d --rm \
   --name "$container_name" \

@@ -89,11 +89,31 @@ jobs:
           LDFLAGS="-s -w -X 'forgejo.com/apimgr/shortner/src/common/version.Version=${{ env.VERSION }}' -X 'forgejo.com/apimgr/shortner/src/common/version.CommitID=${{ env.COMMIT_ID }}' -X 'forgejo.com/apimgr/shortner/src/common/version.BuildEpoch=${{ env.BUILD_EPOCH }}' -X 'forgejo.com/apimgr/shortner/src/common/version.OfficialSite=${{ env.OFFICIAL_SITE }}'"
           go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${{ env.PROJECT_NAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./src/client
 
+      # Optional GUI client: dynamically linked desktop artifacts, never BSD.
+      - name: Build GUI client
+        if: hashFiles('src/client/gui/**') != '' && matrix.goos != 'freebsd'
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          LDFLAGS="-s -w -X 'github.com/apimgr/shortner/src/common/version.Version=${{ env.VERSION }}' -X 'github.com/apimgr/shortner/src/common/version.CommitID=${{ env.COMMIT_ID }}' -X 'github.com/apimgr/shortner/src/common/version.BuildEpoch=${{ env.BUILD_EPOCH }}' -X 'github.com/apimgr/shortner/src/common/version.OfficialSite=${{ env.OFFICIAL_SITE }}'"
+          go build -buildvcs=false -trimpath -tags gui -ldflags "${LDFLAGS}" -o ${{ env.PROJECT_NAME }}-cli-gui-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./src/client
+
+      - name: Upload GUI client artifact
+        if: hashFiles('src/client/gui/**') != '' && matrix.goos != 'freebsd'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: ${{ env.PROJECT_NAME }}-cli-gui-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ env.PROJECT_NAME }}-cli-gui-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+          retention-days: 7
+
       - name: Upload server artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: ${{ env.PROJECT_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ${{ env.PROJECT_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+          retention-days: 7
 
       - name: Upload CLI artifact
         if: hashFiles('src/client/**') != ''
@@ -101,6 +121,7 @@ jobs:
         with:
           name: ${{ env.PROJECT_NAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ${{ env.PROJECT_NAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+          retention-days: 7
 
 
   release:
@@ -147,7 +168,7 @@ jobs:
       # SBOM tooling lives in the build image — never install it on the runner
       - name: Generate SBOM (CycloneDX)
         run: |
-          docker run --rm -v "$PWD":/app -w /app -e GOFLAGS=-buildvcs=false casjaysdev/go:latest \
+          docker run --rm --no-healthcheck --name "${{ env.PROJECT_NAME }}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -v "$PWD":/app -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false casjaysdev/go:latest \
             cyclonedx-gomod mod -json -output "binaries/${{ env.PROJECT_NAME }}-${{ env.VERSION }}-sbom.cdx.json"
 
       - name: Generate checksums

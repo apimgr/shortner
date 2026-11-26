@@ -271,7 +271,9 @@ func EnsureDir(path string) error {
 	if err := os.WriteFile(testFile, []byte{}, 0o600); err != nil {
 		return fmt.Errorf("paths: directory %s is not writable: %w", path, err)
 	}
-	os.Remove(testFile)
+	if err := os.Remove(testFile); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("paths: remove write test from %s: %w", path, err)
+	}
 
 	return nil
 }
@@ -404,8 +406,11 @@ func isWritable(path string) bool {
 	if err != nil {
 		return false
 	}
-	f.Close()
-	os.Remove(testFile)
+	closeErr := f.Close()
+	removeErr := os.Remove(testFile)
+	if closeErr != nil || (removeErr != nil && !os.IsNotExist(removeErr)) {
+		return false
+	}
 	return true
 }
 

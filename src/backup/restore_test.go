@@ -52,7 +52,9 @@ func TestDatabaseEmpty(t *testing.T) {
 	if _, err := handle.Exec("CREATE TABLE links (id INTEGER PRIMARY KEY)"); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	handle.Close()
+	if err := handle.Close(); err != nil {
+		t.Fatalf("close populated database: %v", err)
+	}
 	if DatabaseEmpty(populated) {
 		t.Error("a database with application tables should not count as empty")
 	}
@@ -141,7 +143,11 @@ func TestRestoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open restored db: %v", err)
 	}
-	defer handle.Close()
+	t.Cleanup(func() {
+		if err := handle.Close(); err != nil {
+			t.Errorf("close restored database: %v", err)
+		}
+	})
 	var slug string
 	if err := handle.QueryRow("SELECT slug FROM links LIMIT 1").Scan(&slug); err != nil {
 		t.Fatalf("query restored db: %v", err)

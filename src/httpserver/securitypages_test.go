@@ -24,7 +24,11 @@ func testSecurityFrontendDeps(t *testing.T) *frontendDeps {
 	if err != nil {
 		t.Fatalf("applog.NewAuditLogger() error = %v", err)
 	}
-	t.Cleanup(func() { audit.Close() })
+	t.Cleanup(func() {
+		if err := audit.Close(); err != nil {
+			t.Errorf("audit.Close() error = %v", err)
+		}
+	})
 
 	cfg := config.Default(":memory:")
 	return &frontendDeps{

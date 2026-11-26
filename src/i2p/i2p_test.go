@@ -6,7 +6,9 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base32"
+	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -133,7 +135,7 @@ func TestSAMReachable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
-	defer ln.Close()
+	closeTestResource(t, ln)
 	go func() {
 		for {
 			conn, err := ln.Accept()
@@ -154,7 +156,9 @@ func TestSAMReachable(t *testing.T) {
 		t.Fatalf("Listen: %v", err)
 	}
 	deadAddr := closed.Addr().String()
-	closed.Close()
+	if err := closed.Close(); err != nil {
+		t.Fatalf("Close closed-port listener: %v", err)
+	}
 
 	if SAMReachable(deadAddr) {
 		t.Error("expected a closed port to be unreachable")
@@ -191,7 +195,7 @@ func TestResolveProvider(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Listen: %v", err)
 		}
-		defer ln.Close()
+		closeTestResource(t, ln)
 		go func() {
 			for {
 				conn, err := ln.Accept()
@@ -425,7 +429,11 @@ func TestReadSAMReply(t *testing.T) {
 // a read) so a caller's Healthy()/Close() checks have a live control
 // connection to exercise, exactly like a real router would leave one open.
 func handleFakeSAMConn(conn net.Conn, failSession bool) {
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Printf("i2p test: close fake SAM connection: %v", err)
+		}
+	}()
 	reader := bufio.NewReader(conn)
 
 	// HELLO VERSION ...
@@ -471,6 +479,7 @@ func fakeSAMServer(t *testing.T, failSession bool) net.Listener {
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
+	closeTestResource(t, ln)
 	go func() {
 		for {
 			conn, err := ln.Accept()
@@ -492,6 +501,7 @@ func fakeSAMServerMulti(t *testing.T) net.Listener {
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
+	closeTestResource(t, ln)
 	go func() {
 		for {
 			conn, err := ln.Accept()
@@ -504,11 +514,20 @@ func fakeSAMServerMulti(t *testing.T) net.Listener {
 	return ln
 }
 
+func closeTestResource(t *testing.T, resource interface{ Close() error }) {
+	t.Helper()
+	t.Cleanup(func() {
+		if err := resource.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			t.Errorf("close test resource: %v", err)
+		}
+	})
+}
+
 // startSAMEepsite must complete the full handshake against a fake SAM
 // server and derive a .b32.i2p address from the returned PUB destination.
 func TestStartSAMEepsiteHappyPath(t *testing.T) {
 	ln := fakeSAMServer(t, false)
-	defer ln.Close()
+	closeTestResource(t, ln)
 
 	dir := t.TempDir()
 	dirs := Dirs{Config: dir, Data: dir, Log: dir}
@@ -533,14 +552,16 @@ func TestStartSAMEepsiteHappyPath(t *testing.T) {
 	if _, err := os.Stat(dirs.KeysPath()); err != nil {
 		t.Errorf("expected keys file to be persisted: %v", err)
 	}
-	_ = svc.Close()
+	if err := svc.Close(); err != nil {
+		t.Errorf("Service.Close: %v", err)
+	}
 }
 
 // startSAMEepsite must surface a SESSION CREATE failure (RESULT=I2P_ERROR)
 // as an error rather than a synthesized address.
 func TestStartSAMEepsiteSessionError(t *testing.T) {
 	ln := fakeSAMServer(t, true)
-	defer ln.Close()
+	closeTestResource(t, ln)
 
 	dir := t.TempDir()
 	dirs := Dirs{Config: dir, Data: dir, Log: dir}

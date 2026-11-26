@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -118,7 +119,11 @@ func Handler(resolve ResolverFactory) http.Handler {
 				return
 			}
 		} else {
-			defer r.Body.Close()
+			defer func() {
+				if err := r.Body.Close(); err != nil {
+					log.Printf("graphql: close request body: %v", err)
+				}
+			}()
 			if strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") {
 				r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 				if err := r.ParseForm(); err != nil {

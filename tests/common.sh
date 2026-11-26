@@ -127,8 +127,8 @@ __build_binaries() {
   fi
 
   printf 'Building %s %s in %s...\n' "$project_name" "$version" "$go_image"
-  docker run --rm \
-    --name "$project_name-build-$(__random_suffix)" \
+  docker run --rm --no-healthcheck \
+    --name "$project_name-$(__random_suffix)" \
     --memory="${DOCKER_MEM:-4g}" --cpus="${DOCKER_CPUS:-2}" \
     -v "$project_dir:/app" \
     -v "$bin_dir:$bin_dir" \

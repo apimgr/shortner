@@ -1646,7 +1646,7 @@ func cspModeIsExplicit(data []byte) bool {
 // same directory and is renamed over path only once it is completely
 // written and fsync'd. A crash or full disk part-way through an in-place
 // truncate-and-write would leave the server with invalid configuration.
-func Save(path string, cfg *Config) error {
+func Save(path string, cfg *Config) (resultErr error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("config: create dir for %s: %w", path, err)
@@ -1692,7 +1692,11 @@ func Save(path string, cfg *Config) error {
 		return fmt.Errorf("config: create temp file in %s: %w", dir, err)
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() {
+		if err := os.Remove(tmpName); err != nil && !os.IsNotExist(err) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("config: remove temporary file %s: %w", tmpName, err))
+		}
+	}()
 
 	if err := tmp.Chmod(0o600); err != nil {
 		_ = tmp.Close()
@@ -1703,8 +1707,7 @@ func Save(path string, cfg *Config) error {
 		return fmt.Errorf("config: write %s: %w", tmpName, err)
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return fmt.Errorf("config: sync %s: %w", tmpName, err)
+		return fmt.Errorf("config: sync %s: %w", tmpName, errors.Join(err, tmp.Close()))
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("config: close %s: %w", tmpName, err)
@@ -1939,14 +1942,18 @@ func configFileContactRecipient(recipient ContactRecipient) ContactRecipient {
 	return recipient
 }
 
-func writeAtomic(path string, data []byte, perm os.FileMode) error {
+func writeAtomic(path string, data []byte, perm os.FileMode) (resultErr error) {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return fmt.Errorf("config: create temp file in %s: %w", dir, err)
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() {
+		if err := os.Remove(tmpName); err != nil && !os.IsNotExist(err) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("config: remove temporary file %s: %w", tmpName, err))
+		}
+	}()
 	if err := tmp.Chmod(perm); err != nil {
 		_ = tmp.Close()
 		return fmt.Errorf("config: chmod %s: %w", tmpName, err)

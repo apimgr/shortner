@@ -5,9 +5,9 @@ import (
 	"errors"
 	"net"
 	"net/url"
-	"strconv"
 	"strings"
 
+	"github.com/apimgr/shortner/src/config"
 	"github.com/tursodatabase/libsql-client-go/libsql"
 )
 
@@ -54,15 +54,9 @@ func openLibSQL(rawURL string, pool Pool, separateAuthToken string) (*Store, err
 	}
 	tls := scheme != "http"
 	if values, ok := query["tls"]; ok {
-		if len(values) != 1 {
-			return nil, errors.New("db: invalid database TLS option")
-		}
-		requested, parseErr := strconv.ParseBool(values[0])
-		if parseErr != nil || (scheme != "libsql" && requested != tls) {
-			return nil, errors.New("db: invalid database TLS option")
-		}
-		if scheme == "libsql" && !requested {
-			return nil, errors.New("db: libsql URLs require TLS")
+		requested, parseErr := parseLibSQLTLS(scheme, values, tls)
+		if parseErr != nil {
+			return nil, parseErr
 		}
 		tls = requested
 		query.Del("tls")
@@ -107,6 +101,22 @@ func openLibSQL(rawURL string, pool Pool, separateAuthToken string) (*Store, err
 		return nil, errors.New("db: database connection failed")
 	}
 	return store, nil
+}
+
+// parseLibSQLTLS parses the configured TLS query option with the shared
+// truthy/falsy values while enforcing the URL scheme's transport policy.
+func parseLibSQLTLS(scheme string, values []string, defaultTLS bool) (bool, error) {
+	if len(values) != 1 {
+		return false, errors.New("db: invalid database TLS option")
+	}
+	requested, err := config.ParseBool(values[0], defaultTLS)
+	if err != nil || (scheme != "libsql" && requested != defaultTLS) {
+		return false, errors.New("db: invalid database TLS option")
+	}
+	if scheme == "libsql" && !requested {
+		return false, errors.New("db: libsql URLs require TLS")
+	}
+	return requested, nil
 }
 
 func privateRemoteHost(host string) bool {

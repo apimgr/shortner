@@ -260,7 +260,9 @@ func TestFetchAutodiscoverCachesResultAndNegativeResult(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			hits++
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(api.Autodiscover{CLIMinVersion: "1.0.0"})
+			if err := json.NewEncoder(w).Encode(api.Autodiscover{CLIMinVersion: "1.0.0"}); err != nil {
+				t.Errorf("encode autodiscover: %v", err)
+			}
 		}))
 		defer srv.Close()
 
@@ -306,7 +308,9 @@ func TestFetchAutodiscoverCachesResultAndNegativeResult(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			hits++
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(api.Autodiscover{})
+			if err := json.NewEncoder(w).Encode(api.Autodiscover{}); err != nil {
+				t.Errorf("encode autodiscover: %v", err)
+			}
 		}))
 		defer srv.Close()
 
@@ -327,7 +331,9 @@ func TestFetchAutodiscoverCachesResultAndNegativeResult(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			hits++
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(api.Autodiscover{})
+			if err := json.NewEncoder(w).Encode(api.Autodiscover{}); err != nil {
+				t.Errorf("encode autodiscover: %v", err)
+			}
 		}))
 		defer srv.Close()
 
@@ -372,7 +378,9 @@ func TestUpdateGate(t *testing.T) {
 	t.Run("below cli_min_version returns false", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(api.Autodiscover{CLIMinVersion: "999.0.0"})
+			if err := json.NewEncoder(w).Encode(api.Autodiscover{CLIMinVersion: "999.0.0"}); err != nil {
+				t.Errorf("encode autodiscover response: %v", err)
+			}
 		}))
 		defer srv.Close()
 
@@ -385,7 +393,9 @@ func TestUpdateGate(t *testing.T) {
 	t.Run("up to date returns true", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(api.Autodiscover{CLIMinVersion: "0.0.1"})
+			if err := json.NewEncoder(w).Encode(api.Autodiscover{CLIMinVersion: "0.0.1"}); err != nil {
+				t.Errorf("encode autodiscover response: %v", err)
+			}
 		}))
 		defer srv.Close()
 
@@ -398,11 +408,13 @@ func TestUpdateGate(t *testing.T) {
 	t.Run("newer version available warns and returns true when auto is off", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(api.Autodiscover{
+			if err := json.NewEncoder(w).Encode(api.Autodiscover{
 				CLIVersions: map[string]api.CLIVersion{
 					platformKey(): {Version: "999.0.0", SHA256: "deadbeef"},
 				},
-			})
+			}); err != nil {
+				t.Errorf("encode autodiscover response: %v", err)
+			}
 		}))
 		defer srv.Close()
 

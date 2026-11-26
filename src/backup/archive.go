@@ -241,12 +241,16 @@ func collectDir(name, root string, excluded []string) ([]sourceFile, error) {
 }
 
 // hashFile returns "sha256:<hex>" for the contents of filePath.
-func hashFile(filePath string) (string, error) {
+func hashFile(filePath string) (digest string, resultErr error) {
 	f, err := os.Open(filePath)
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("backup: close %s: %w", filePath, err))
+		}
+	}()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
@@ -327,7 +331,9 @@ func writeArchive(w io.Writer, m Manifest, files []sourceFile) error {
 			return fmt.Errorf("backup: open %s: %w", f.Path, err)
 		}
 		err = writeTarFile(tw, f.Name, f.Mode, f.ModTime, f.Size, src)
-		src.Close()
+		if closeErr := src.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("backup: close %s: %w", f.Path, closeErr))
+		}
 		if err != nil {
 			return err
 		}
@@ -372,12 +378,16 @@ func writeTarFile(tw *tar.Writer, name string, mode fs.FileMode, modTime time.Ti
 // destDir, returning the manifest and the digest of every extracted file.
 // destDir may be empty, in which case entries are hashed and discarded —
 // that is the "test extract" mode AI.md PART 21 "Verification" requires.
-func extractArchive(raw []byte, destDir string) (*Manifest, map[string]string, error) {
+func extractArchive(raw []byte, destDir string) (manifestResult *Manifest, digestsResult map[string]string, resultErr error) {
 	gz, err := gzip.NewReader(bytes.NewReader(raw))
 	if err != nil {
 		return nil, nil, fmt.Errorf("backup: %w: %v", errInvalidFormat, err)
 	}
-	defer gz.Close()
+	defer func() {
+		if err := gz.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("backup: close gzip reader: %w", err))
+		}
+	}()
 
 	tr := tar.NewReader(gz)
 	var manifest *Manifest
@@ -427,7 +437,7 @@ func extractArchive(raw []byte, destDir string) (*Manifest, map[string]string, e
 
 // extractOne hashes one archive entry, writing it under destDir when
 // destDir is non-empty.
-func extractOne(r io.Reader, name string, mode fs.FileMode, destDir string) (string, error) {
+func extractOne(r io.Reader, name string, mode fs.FileMode, destDir string) (digest string, resultErr error) {
 	h := sha256.New()
 	var w io.Writer = h
 
@@ -443,7 +453,11 @@ func extractOne(r io.Reader, name string, mode fs.FileMode, destDir string) (str
 		if err != nil {
 			return "", fmt.Errorf("backup: create %s: %w", name, err)
 		}
-		defer f.Close()
+		defer func() {
+			if err := f.Close(); err != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("backup: close extracted file %s: %w", name, err))
+			}
+		}()
 		w = io.MultiWriter(h, f)
 	}
 

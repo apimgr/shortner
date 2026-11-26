@@ -85,7 +85,11 @@ func TestEnsureSchemaMigratesLegacySecurityReportBodies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sqlDB.Close()
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close test database: %v", err)
+		}
+	})
 	_, err = sqlDB.Exec(`CREATE TABLE security_reports (
 		tracking_id TEXT PRIMARY KEY,
 		received_at INTEGER NOT NULL,
@@ -280,7 +284,11 @@ func TestEnsureSchemaMigratesResourceTokensToOwners(t *testing.T) {
 		t.Fatal(err)
 	}
 	sqlDB.SetMaxOpenConns(1)
-	defer sqlDB.Close()
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close test database: %v", err)
+		}
+	})
 	if _, err := sqlDB.Exec(`PRAGMA foreign_keys = ON`); err != nil {
 		t.Fatal(err)
 	}

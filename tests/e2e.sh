@@ -28,8 +28,8 @@ set -eo pipefail
 browser_image="${E2E_BROWSER_IMAGE:-chromedp/headless-shell:latest}"
 run_id="$(__random_suffix)"
 network_name="$project_name-e2e-$run_id"
-browser_name="$project_name-e2e-browser-$run_id"
-runner_name="$project_name-e2e-runner-$run_id"
+browser_name="$project_name-$run_id"
+runner_name="$project_name-$(__random_suffix)"
 e2e_port="${E2E_PORT:-64123}"
 temp_dir=""
 keep_artifacts=0
@@ -87,7 +87,7 @@ fi
 # Bounded wait for the DevTools endpoint; never an open-ended sleep.
 browser_ready=0
 for _ in $(seq 1 60); do
-  if docker run --rm --network "$network_name" "$docker_test_image" \
+  if docker run --rm --name "$project_name-$(__random_suffix)" --network "$network_name" "$docker_test_image" \
     sh -c "wget -q -O- http://$browser_ip:9222/json/version >/dev/null 2>&1"; then
     browser_ready=1
     break
@@ -105,7 +105,7 @@ fi
 __section "End-to-end suite"
 keep_artifacts=1
 e2e_status=0
-docker run --rm \
+docker run --rm --no-healthcheck \
   --name "$runner_name" \
   --network "$network_name" \
   --user 0:0 \

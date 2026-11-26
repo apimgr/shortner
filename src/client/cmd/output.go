@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -16,11 +17,12 @@ import (
 
 // Printer renders command results in the format selected by --output.
 type Printer struct {
-	out    io.Writer
-	errOut io.Writer
-	format string
-	color  bool
-	quiet  bool
+	out      io.Writer
+	errOut   io.Writer
+	format   string
+	color    bool
+	quiet    bool
+	writeErr error
 }
 
 // NewPrinter builds a Printer for the given format.
@@ -56,7 +58,17 @@ func (p *Printer) Message(format string, args ...any) {
 	if p.quiet || p.format == "json" || p.format == "yaml" || p.format == "csv" {
 		return
 	}
-	fmt.Fprintf(p.out, format+"\n", args...)
+	_, err := fmt.Fprintf(p.out, format+"\n", args...)
+	p.writeErr = errors.Join(p.writeErr, err)
+}
+
+func (p *Printer) recordWrite(err error) error {
+	p.writeErr = errors.Join(p.writeErr, err)
+	return err
+}
+
+func (p *Printer) outputError() error {
+	return p.writeErr
 }
 
 // Warn prints a warning to stderr. Warnings are never suppressed by the
@@ -66,13 +78,15 @@ func (p *Printer) Warn(format string, args ...any) {
 		return
 	}
 	pal := p.palette()
-	fmt.Fprintln(p.errOut, p.colorize(pal.Warning, "warning: ")+fmt.Sprintf(format, args...))
+	_, err := fmt.Fprintln(p.errOut, p.colorize(pal.Warning, "warning: ")+fmt.Sprintf(format, args...))
+	p.recordWrite(err)
 }
 
 // Error prints an error to stderr.
 func (p *Printer) Error(format string, args ...any) {
 	pal := p.palette()
-	fmt.Fprintln(p.errOut, p.colorize(pal.Error, "error: ")+fmt.Sprintf(format, args...))
+	_, err := fmt.Fprintln(p.errOut, p.colorize(pal.Error, "error: ")+fmt.Sprintf(format, args...))
+	p.recordWrite(err)
 }
 
 // structured renders a value as JSON or YAML, returning false when the
@@ -122,10 +136,10 @@ func (p *Printer) PrintLink(link *api.Link) error {
 	case "csv":
 		return p.writeCSV(linkHeaders, [][]string{linkRow(*link)})
 	case "plain":
-		fmt.Fprintln(p.out, strings.Join(linkRow(*link), "\t"))
-		return nil
+		_, err := fmt.Fprintln(p.out, strings.Join(linkRow(*link), "\t"))
+		return p.recordWrite(err)
 	default:
-		p.writeKeyValue([][2]string{
+		return p.writeKeyValue([][2]string{
 			{"Short code", link.ShortCode},
 			{"Short URL", link.ShortURL},
 			{"Destination", link.DestinationURL},
@@ -133,7 +147,6 @@ func (p *Printer) PrintLink(link *api.Link) error {
 			{"Created", link.CreatedAt},
 			{"Expires", linkRow(*link)[4]},
 		})
-		return nil
 	}
 }
 
@@ -148,9 +161,13 @@ func (p *Printer) PrintCreatedLink(created *api.CreatedLink) error {
 		row := append(linkRow(created.Link), created.OwnerToken)
 		return p.writeCSV(append(append([]string{}, linkHeaders...), "OWNER_TOKEN"), [][]string{row})
 	case "plain":
-		fmt.Fprintln(p.out, created.ShortURL)
+		if _, err := fmt.Fprintln(p.out, created.ShortURL); err != nil {
+			return p.recordWrite(err)
+		}
 		if created.OwnerToken != "" {
-			fmt.Fprintln(p.out, created.OwnerToken)
+			if _, err := fmt.Fprintln(p.out, created.OwnerToken); err != nil {
+				return p.recordWrite(err)
+			}
 		}
 		return nil
 	default:
@@ -163,7 +180,9 @@ func (p *Printer) PrintCreatedLink(created *api.CreatedLink) error {
 		if created.OwnerToken != "" {
 			rows = append(rows, [2]string{"Owner token", created.OwnerToken})
 		}
-		p.writeKeyValue(rows)
+		if err := p.writeKeyValue(rows); err != nil {
+			return err
+		}
 		if created.OwnerToken != "" && !p.quiet {
 			p.Message("")
 			p.Message("Save the owner token now — it is shown once and cannot be recovered.")
@@ -188,7 +207,9 @@ func (p *Printer) PrintLinks(list *api.LinkList) error {
 		return p.writeCSV(linkHeaders, rows)
 	case "plain":
 		for _, row := range rows {
-			fmt.Fprintln(p.out, strings.Join(row, "\t"))
+			if _, err := fmt.Fprintln(p.out, strings.Join(row, "\t")); err != nil {
+				return p.recordWrite(err)
+			}
 		}
 		return nil
 	default:
@@ -196,12 +217,14 @@ func (p *Printer) PrintLinks(list *api.LinkList) error {
 			p.Message("No links found.")
 			return nil
 		}
-		p.writeTable(linkHeaders, rows)
+		if err := p.writeTable(linkHeaders, rows); err != nil {
+			return err
+		}
 		if !p.quiet {
 			p.Message("")
 			p.Message("Page %d of %d (%d links total)", list.Pagination.Page, list.Pagination.Pages, list.Pagination.Total)
 		}
-		return nil
+		return p.outputError()
 	}
 }
 
@@ -219,23 +242,31 @@ func (p *Printer) PrintStats(stats *api.Stats) error {
 		}
 		return p.writeCSV([]string{"DATE", "CLICKS"}, rows)
 	case "plain":
-		fmt.Fprintf(p.out, "%s\t%d\n", stats.ShortCode, stats.TotalClicks)
+		if _, err := fmt.Fprintf(p.out, "%s\t%d\n", stats.ShortCode, stats.TotalClicks); err != nil {
+			return err
+		}
 		for _, point := range stats.TimeSeries {
-			fmt.Fprintf(p.out, "%s\t%d\n", point.Date, point.Count)
+			if _, err := fmt.Fprintf(p.out, "%s\t%d\n", point.Date, point.Count); err != nil {
+				return err
+			}
 		}
 		return nil
 	default:
-		p.writeKeyValue([][2]string{
+		if err := p.writeKeyValue([][2]string{
 			{"Short code", stats.ShortCode},
 			{"Total clicks", strconv.FormatInt(stats.TotalClicks, 10)},
-		})
+		}); err != nil {
+			return err
+		}
 		if len(stats.TimeSeries) > 0 {
 			p.Message("")
 			rows := make([][]string, 0, len(stats.TimeSeries))
 			for _, point := range stats.TimeSeries {
 				rows = append(rows, []string{point.Date, strconv.Itoa(point.Count)})
 			}
-			p.writeTable([]string{"DATE", "CLICKS"}, rows)
+			if err := p.writeTable([]string{"DATE", "CLICKS"}, rows); err != nil {
+				return err
+			}
 		}
 		if len(stats.Referrers) > 0 {
 			p.Message("")
@@ -244,9 +275,11 @@ func (p *Printer) PrintStats(stats *api.Stats) error {
 				rows = append(rows, []string{referrer, strconv.Itoa(count)})
 			}
 			sortRows(rows)
-			p.writeTable([]string{"REFERRER", "CLICKS"}, rows)
+			if err := p.writeTable([]string{"REFERRER", "CLICKS"}, rows); err != nil {
+				return err
+			}
 		}
-		return nil
+		return p.outputError()
 	}
 }
 
@@ -272,12 +305,13 @@ func (p *Printer) PrintHealth(health *api.Health) error {
 		return p.writeCSV([]string{"FIELD", "VALUE"}, flat)
 	case "plain":
 		for _, row := range rows {
-			fmt.Fprintf(p.out, "%s\t%s\n", row[0], row[1])
+			if _, err := fmt.Fprintf(p.out, "%s\t%s\n", row[0], row[1]); err != nil {
+				return p.recordWrite(err)
+			}
 		}
 		return nil
 	default:
-		p.writeKeyValue(rows)
-		return nil
+		return p.writeKeyValue(rows)
 	}
 }
 
@@ -297,7 +331,7 @@ func (p *Printer) writeCSV(headers []string, rows [][]string) error {
 }
 
 // writeKeyValue renders an aligned label/value block.
-func (p *Printer) writeKeyValue(rows [][2]string) {
+func (p *Printer) writeKeyValue(rows [][2]string) error {
 	width := 0
 	for _, row := range rows {
 		if len(row[0]) > width {
@@ -307,12 +341,15 @@ func (p *Printer) writeKeyValue(rows [][2]string) {
 	pal := p.palette()
 	for _, row := range rows {
 		label := fmt.Sprintf("%-*s", width, row[0])
-		fmt.Fprintf(p.out, "%s  %s\n", p.colorize(pal.Muted, label), row[1])
+		if _, err := fmt.Fprintf(p.out, "%s  %s\n", p.colorize(pal.Muted, label), row[1]); err != nil {
+			return p.recordWrite(err)
+		}
 	}
+	return nil
 }
 
 // writeTable renders a box-drawing table sized to its content.
-func (p *Printer) writeTable(headers []string, rows [][]string) {
+func (p *Printer) writeTable(headers []string, rows [][]string) error {
 	widths := make([]int, len(headers))
 	for i, header := range headers {
 		widths[i] = len(header)
@@ -332,14 +369,20 @@ func (p *Printer) writeTable(headers []string, rows [][]string) {
 	}
 
 	pal := p.palette()
-	fmt.Fprintln(p.out, p.colorize(pal.Border, border("┌", "┬", "┐", widths)))
+	if _, err := fmt.Fprintln(p.out, p.colorize(pal.Border, border("┌", "┬", "┐", widths))); err != nil {
+		return p.recordWrite(err)
+	}
 
 	cells := make([]string, len(headers))
 	for i, header := range headers {
 		cells[i] = pad(header, widths[i])
 	}
-	fmt.Fprintln(p.out, p.colorize(pal.Border, "│")+strings.Join(colorCells(p, pal.Primary, cells), p.colorize(pal.Border, "│"))+p.colorize(pal.Border, "│"))
-	fmt.Fprintln(p.out, p.colorize(pal.Border, border("├", "┼", "┤", widths)))
+	if _, err := fmt.Fprintln(p.out, p.colorize(pal.Border, "│")+strings.Join(colorCells(p, pal.Primary, cells), p.colorize(pal.Border, "│"))+p.colorize(pal.Border, "│")); err != nil {
+		return p.recordWrite(err)
+	}
+	if _, err := fmt.Fprintln(p.out, p.colorize(pal.Border, border("├", "┼", "┤", widths))); err != nil {
+		return p.recordWrite(err)
+	}
 
 	for _, row := range rows {
 		for i := range headers {
@@ -349,10 +392,15 @@ func (p *Printer) writeTable(headers []string, rows [][]string) {
 			}
 			cells[i] = pad(truncate(value, widths[i]), widths[i])
 		}
-		fmt.Fprintln(p.out, p.colorize(pal.Border, "│")+strings.Join(cells, p.colorize(pal.Border, "│"))+p.colorize(pal.Border, "│"))
+		if _, err := fmt.Fprintln(p.out, p.colorize(pal.Border, "│")+strings.Join(cells, p.colorize(pal.Border, "│"))+p.colorize(pal.Border, "│")); err != nil {
+			return p.recordWrite(err)
+		}
 	}
 
-	fmt.Fprintln(p.out, p.colorize(pal.Border, border("└", "┴", "┘", widths)))
+	if _, err := fmt.Fprintln(p.out, p.colorize(pal.Border, border("└", "┴", "┘", widths))); err != nil {
+		return p.recordWrite(err)
+	}
+	return nil
 }
 
 // colorCells applies a color to every cell of a row.

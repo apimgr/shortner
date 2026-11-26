@@ -2,18 +2,19 @@ name: Docker Build
 
 on:
   push:
-    # ALL branches
-    branches: ['**']
+    # main only: branches are local and temporary, never pushed
+    branches: [main, master]
     tags:
       - 'v*'
       - '*.*.*'
+      - '*-beta'
   schedule:
     - cron: '0 4 * * *'
   workflow_dispatch:
 
 concurrency:
   group: docker-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/devel' || github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/beta' }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
 
 env:
   PROJECT_NAME: shortner
@@ -47,26 +48,28 @@ jobs:
       - name: Set build info
         run: |
           COMMIT_ID="$(git rev-parse --short=7 HEAD)"
-          echo "COMMIT_ID=${COMMIT_ID}" >> $GITHUB_ENV
-          echo "YYMM=$(date +"%y%m")" >> $GITHUB_ENV
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          echo "COMMIT_ID=${COMMIT_ID}" >> "$GITHUB_ENV"
+          YYMM="$(date -u +'%y%m')"
+          echo "YYMM=${YYMM}" >> "$GITHUB_ENV"
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF" != refs/tags/*-beta ]]; then
             VERSION="${GITHUB_REF_NAME#v}"
-            echo "IS_TAG=true" >> $GITHUB_ENV
-          elif [[ "${{ github.ref }}" == refs/heads/beta ]]; then
-            VERSION="$(date -u +%Y%m%d%H%M%S)-beta"
-            echo "IS_TAG=false" >> $GITHUB_ENV
+            echo "IS_TAG=true" >> "$GITHUB_ENV"
+          elif [[ "$GITHUB_REF" == refs/tags/*-beta ]]; then
+            VERSION="${GITHUB_REF_NAME}"
+            echo "IS_TAG=false" >> "$GITHUB_ENV"
           else
             VERSION="$COMMIT_ID"
-            echo "IS_TAG=false" >> $GITHUB_ENV
+            echo "IS_TAG=false" >> "$GITHUB_ENV"
           fi
-          echo "VERSION=${VERSION}" >> $GITHUB_ENV
-          BUILD_EPOCH=$(date -u +%s)
-          echo "BUILD_EPOCH=${BUILD_EPOCH}" >> $GITHUB_ENV
-          echo "BUILD_DATE=$(date -u -d @${BUILD_EPOCH} +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_ENV
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          BUILD_EPOCH="$(date -u +%s)"
+          echo "BUILD_EPOCH=${BUILD_EPOCH}" >> "$GITHUB_ENV"
+          BUILD_DATE="$(date -u -d "@${BUILD_EPOCH}" +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "BUILD_DATE=${BUILD_DATE}" >> "$GITHUB_ENV"
           if [ -f site.txt ]; then
-            echo "OFFICIAL_SITE=$(cat site.txt)" >> $GITHUB_ENV
+            echo "OFFICIAL_SITE=$(cat site.txt)" >> "$GITHUB_ENV"
           else
-            echo "OFFICIAL_SITE=${{ secrets.OFFICIAL_SITE }}" >> $GITHUB_ENV
+            echo "OFFICIAL_SITE=${{ secrets.OFFICIAL_SITE }}" >> "$GITHUB_ENV"
           fi
 
       - name: Determine tags (standard)
@@ -74,17 +77,17 @@ jobs:
         run: |
           TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.COMMIT_ID }}"
 
-          if [[ "${{ env.IS_TAG }}" == "true" ]]; then
+          if [[ "$IS_TAG" == "true" ]]; then
             TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}"
             TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
             TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.YYMM }}"
           else
-            if [[ "${{ github.ref }}" == refs/heads/beta ]]; then
+            if [[ "$GITHUB_REF" == refs/tags/*-beta ]]; then
               TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:beta"
             fi
           fi
 
-          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
 
       - name: Build and push (standard)
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
@@ -134,13 +137,14 @@ jobs:
           REQUIRE_OVERLAY: ${{ startsWith(github.ref, 'refs/tags/') && '1' || '0' }}
         run: |
           docker pull "$IMAGE"
-          docker run --rm --entrypoint sh "$IMAGE" -c 'for c in bash curl tor i2pd tini; do command -v "$c" || exit 1; done'
-          docker run -d --rm --name shortner-image-check -p 18080:80 "$IMAGE"
-          trap 'docker rm -f shortner-image-check >/dev/null 2>&1 || true' EXIT
+          docker run --rm --name "shortner-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" --entrypoint sh "$IMAGE" -c 'for c in bash curl tor i2pd tini; do command -v "$c" || exit 1; done'
+          image_check_name="shortner-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)"
+          docker run -d --rm --name "$image_check_name" -p 18080:80 "$IMAGE"
+          trap 'docker rm -f "$image_check_name" >/dev/null 2>&1 || true' EXIT
           health_ok=false
           health_deadline=$((SECONDS + 60))
           while [[ "$SECONDS" -lt "$health_deadline" ]]; do
-            response=$(curl -fsS --max-time 2 -H 'Accept: application/json' http://127.0.0.1:18080/server/healthz 2>/dev/null || true)
+            response=$(curl -q -LSsf --max-time 2 -H 'Accept: application/json' http://127.0.0.1:18080/server/healthz 2>/dev/null || true)
             if printf '%s' "$response" | jq -e '(.status == "healthy" or .status == "degraded") and .checks.database == "ok" and .features.tor.enabled == true and (.features.tor.status == "starting" or .features.tor.status == "healthy" or .features.tor.status == "unavailable") and .features.i2p.enabled == true and (.features.i2p.status == "starting" or .features.i2p.status == "healthy" or .features.i2p.status == "unavailable")' >/dev/null 2>&1; then
               health_ok=true
               break
@@ -149,7 +153,7 @@ jobs:
           done
           if [ "$health_ok" != true ]; then
             printf '%s\n' "$response"
-            docker logs shortner-image-check 2>&1 | sed -E 's/(Operator token[^:]*: ).*/\1[REDACTED]/'
+            docker logs "$image_check_name" 2>&1 | sed -E 's/(Operator token[^:]*: ).*/\1[REDACTED]/'
             exit 1
           fi
           wait_overlay() {
@@ -157,7 +161,7 @@ jobs:
             overlay_wait="$2"
             overlay_deadline=$((SECONDS + overlay_wait))
             while [[ "$SECONDS" -lt "$overlay_deadline" ]]; do
-              response=$(curl -fsS --max-time 2 -H 'Accept: application/json' http://127.0.0.1:18080/server/healthz 2>/dev/null || true)
+              response=$(curl -q -LSsf --max-time 2 -H 'Accept: application/json' http://127.0.0.1:18080/server/healthz 2>/dev/null || true)
               overlay_status="$(printf '%s' "$response" | jq -r ".features.$overlay_name.status // empty")"
               [ "$overlay_status" = healthy ] && break
               [ "$overlay_status" = unavailable ] && break
@@ -208,14 +212,15 @@ jobs:
 
       - name: Set build info
         run: |
-          echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          BUILD_EPOCH=$(date -u +%s)
-          echo "BUILD_EPOCH=${BUILD_EPOCH}" >> $GITHUB_ENV
-          echo "BUILD_DATE=$(date -u -d @${BUILD_EPOCH} +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_ENV
+          echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          BUILD_EPOCH="$(date -u +%s)"
+          echo "BUILD_EPOCH=${BUILD_EPOCH}" >> "$GITHUB_ENV"
+          BUILD_DATE="$(date -u -d "@${BUILD_EPOCH}" +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "BUILD_DATE=${BUILD_DATE}" >> "$GITHUB_ENV"
           if [ -f site.txt ]; then
-            echo "OFFICIAL_SITE=$(cat site.txt)" >> $GITHUB_ENV
+            echo "OFFICIAL_SITE=$(cat site.txt)" >> "$GITHUB_ENV"
           else
-            echo "OFFICIAL_SITE=${{ secrets.OFFICIAL_SITE }}" >> $GITHUB_ENV
+            echo "OFFICIAL_SITE=${{ secrets.OFFICIAL_SITE }}" >> "$GITHUB_ENV"
           fi
 
       - name: Build and push (devel)
@@ -263,13 +268,14 @@ jobs:
           REQUIRE_OVERLAY: '0'
         run: |
           docker pull "$IMAGE"
-          docker run --rm --entrypoint sh "$IMAGE" -c 'for c in bash curl tor i2pd tini; do command -v "$c" || exit 1; done'
-          docker run -d --rm --name shortner-devel-image-check -p 18081:80 "$IMAGE"
-          trap 'docker rm -f shortner-devel-image-check >/dev/null 2>&1 || true' EXIT
+          docker run --rm --name "shortner-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" --entrypoint sh "$IMAGE" -c 'for c in bash curl tor i2pd tini; do command -v "$c" || exit 1; done'
+          image_check_name="shortner-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)"
+          docker run -d --rm --name "$image_check_name" -p 18081:80 "$IMAGE"
+          trap 'docker rm -f "$image_check_name" >/dev/null 2>&1 || true' EXIT
           health_ok=false
           health_deadline=$((SECONDS + 60))
           while [[ "$SECONDS" -lt "$health_deadline" ]]; do
-            response=$(curl -fsS --max-time 2 -H 'Accept: application/json' http://127.0.0.1:18081/server/healthz 2>/dev/null || true)
+            response=$(curl -q -LSsf --max-time 2 -H 'Accept: application/json' http://127.0.0.1:18081/server/healthz 2>/dev/null || true)
             if printf '%s' "$response" | jq -e '(.status == "healthy" or .status == "degraded") and .checks.database == "ok" and .features.tor.enabled == true and (.features.tor.status == "starting" or .features.tor.status == "healthy" or .features.tor.status == "unavailable") and .features.i2p.enabled == true and (.features.i2p.status == "starting" or .features.i2p.status == "healthy" or .features.i2p.status == "unavailable")' >/dev/null 2>&1; then
               health_ok=true
               break
@@ -278,7 +284,7 @@ jobs:
           done
           if [ "$health_ok" != true ]; then
             printf '%s\n' "$response"
-            docker logs shortner-devel-image-check 2>&1 | sed -E 's/(Operator token[^:]*: ).*/\1[REDACTED]/'
+            docker logs "$image_check_name" 2>&1 | sed -E 's/(Operator token[^:]*: ).*/\1[REDACTED]/'
             exit 1
           fi
           wait_overlay() {
@@ -286,7 +292,7 @@ jobs:
             overlay_wait="$2"
             overlay_deadline=$((SECONDS + overlay_wait))
             while [[ "$SECONDS" -lt "$overlay_deadline" ]]; do
-              response=$(curl -fsS --max-time 2 -H 'Accept: application/json' http://127.0.0.1:18081/server/healthz 2>/dev/null || true)
+              response=$(curl -q -LSsf --max-time 2 -H 'Accept: application/json' http://127.0.0.1:18081/server/healthz 2>/dev/null || true)
               overlay_status="$(printf '%s' "$response" | jq -r ".features.$overlay_name.status // empty")"
               [ "$overlay_status" = healthy ] && break
               [ "$overlay_status" = unavailable ] && break

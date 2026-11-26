@@ -368,12 +368,16 @@ func isLogArchive(activePath, candidate string) bool {
 	return name[len("2006-01-02")] == '.'
 }
 
-func compressLog(path string) error {
+func compressLog(path string) (resultErr error) {
 	input, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("applog: open archive %s: %w", path, err)
 	}
-	defer input.Close()
+	defer func() {
+		if err := input.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("applog: close archive %s: %w", path, err))
+		}
+	}()
 	outputPath := path + ".gz"
 	output, err := os.OpenFile(outputPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, logFilePerm)
 	if err != nil {
