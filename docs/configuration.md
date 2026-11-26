@@ -157,7 +157,8 @@ Setting `server.address` or `LISTEN` explicitly to `0.0.0.0` keeps the listener
 IPv4-only; it is never widened to all interfaces or another address.
 
 `api_version` must not contain `/`, `?`, or `#`; an invalid value falls
-back to `v1`. It determines the API path prefix, `/api/v1` by default.
+back to `v1`. It determines the API path prefix,
+`https://csj.lol/api/v1` by default.
 
 ### Owner tokens
 
@@ -731,8 +732,9 @@ Valid branches are `stable`, `beta`, and `daily`. With `auto_install`
 off — the default — the `update_check` task only notifies. `defer_days`
 (0–365) makes the scheduled check ignore releases younger than that many
 days; an explicit `shortner --update` bypasses the defer window.
-`cli_min_version` is returned by `/api/autodiscover` and is empty by
-default, so no minimum CLI version is enforced.
+`cli_min_version` is returned by
+`https://csj.lol/api/autodiscover` and is empty by default, so no minimum CLI
+version is enforced.
 
 Client binary publishing options live in `yaml.d/maintenance.yml`:
 

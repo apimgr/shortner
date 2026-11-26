@@ -92,6 +92,22 @@ func TestLoadParsesExistingFile(t *testing.T) {
 	}
 }
 
+func TestLoadParsesNumericServerPortAsString(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	if err := os.WriteFile(path, []byte("server:\n  port: 8090\n"), 0o600); err != nil {
+		t.Fatalf("setup: WriteFile: %v", err)
+	}
+
+	cfg, err := Load(path, "/unused")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Server.Port != "8090" {
+		t.Errorf("Port = %q, want decimal string 8090", cfg.Server.Port)
+	}
+}
+
 func TestMigrateAreaFilesPreservesValuesAndIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "server.yml")

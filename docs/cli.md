@@ -35,7 +35,7 @@ Tor operations use the authenticated maintenance namespace. Run
 require root/Administrator or the configured operator token; identity-changing
 actions require the documented typed confirmation.
 
-The CLI sends Tor operations to loopback-only internal `/server/tor/*`
+The CLI sends Tor operations to local-only internal `/server/tor/*`
 endpoints so only the server process controls its embedded Tor instance.
 `tor status` and `tor validate` can inspect local state when the server is
 stopped; restart, regenerate, vanity start/stop/apply, and key import require a
@@ -433,8 +433,8 @@ without UTF-8 get an ASCII symbol set automatically.
     full GUI parity and native screen-reader support are not currently
     available; use the CLI or TUI for those controls.
 
-The server publishes `/api/autodiscover` and serves operator-provisioned
-client binaries from `{data_dir}/cli/` by default. Set
+The server publishes `https://csj.lol/api/autodiscover` and serves
+operator-provisioned client binaries from `{data_dir}/cli/` by default. Set
 `cli.binary_download.dir` in `yaml.d/maintenance.yml` to use another
 directory, or `cli.binary_download.require_auth: true` to require the
 operator bearer token for downloads. Place release binaries together with

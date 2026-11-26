@@ -1,5 +1,8 @@
 # API Reference
 
+Full URL examples use the official service at `https://csj.lol`; replace
+that origin with your deployment URL when self-hosting.
+
 The REST API is the primary interface; the web interface uses the same
 server-side operations. CORS follows
 `server.cors.allowed_origins`: the default `*` permits public origins, while
@@ -7,29 +10,30 @@ an explicit origin list is echoed per request and may be paired with
 credentials. Requests without an `Origin` header do not receive CORS
 headers.
 
-The version prefix is `/api/{api_version}`, which is `/api/v1` by default
-and is configurable via `server.api_version`.
+The version prefix is `https://csj.lol/api/{api_version}`, which is
+`https://csj.lol/api/v1` by default and is configurable via
+`server.api_version`.
 
 Guest preferences are cookie-only and need no account. The web page at
 `/server/preferences` saves appearance, language, consent, and CCPA choices.
 `/server/preferences/sync` displays a shareable URL and short code and accepts
 an import by normal form POST; `/server/preferences/sync/import` applies a
-shared link. The API mirrors are `GET /api/{api_version}/server/preferences`
-and `POST /api/{api_version}/server/preferences` for snapshots and partial
-updates, plus `GET /api/{api_version}/server/preferences/sync` for export and
-`GET /api/{api_version}/server/preferences/sync/import` for import. Sync data
+shared link. The API mirrors are `GET https://csj.lol/api/{api_version}/server/preferences`
+and `POST https://csj.lol/api/{api_version}/server/preferences` for snapshots and partial
+updates, plus `GET https://csj.lol/api/{api_version}/server/preferences/sync` for export and
+`GET https://csj.lol/api/{api_version}/server/preferences/sync/import` for import. Sync data
 contains only theme, language, and documented application preference
 cookies; consent, build stamps, and credentials are excluded. Imports are
 additive and never clear settings that are absent from the link.
 
-Interactive API pages are available at `/server/docs/swagger` and
-`/server/docs/graphql`. OpenAPI JSON is served directly from
-`/api/{api_version}/server/swagger` (also `/api/swagger`). The read-only
-GraphQL endpoint accepts POST requests at `/api/{api_version}/server/graphql`
-(also `/api/graphql`).
+Interactive API pages are available at `https://csj.lol/server/docs/swagger` and
+`https://csj.lol/server/docs/graphql`. OpenAPI JSON is served directly from
+`https://csj.lol/api/{api_version}/server/swagger` (also `https://csj.lol/api/swagger`). The read-only
+GraphQL endpoint accepts POST requests at `https://csj.lol/api/{api_version}/server/graphql`
+(also `https://csj.lol/api/graphql`).
 
 The Streamable HTTP MCP endpoint is available at
-`/api/{api_version}/server/mcp`, `/api/mcp`, and `/mcp`. It reuses API Bearer
+`https://csj.lol/api/{api_version}/server/mcp`, `https://csj.lol/api/mcp`, and `https://csj.lol/mcp`. It reuses API Bearer
 tokens (required on every request) and exposes permitted OpenAPI operations
 as tools through the same API middleware and ownership checks. It implements
 protocol revision `2026-07-28`; OAuth is not implemented. See
@@ -112,19 +116,19 @@ first found wins:
 9. `?token={token}` in the query string
 
 Token management is available in the browser at `/server/preferences/tokens`.
-When no owner token is present, `POST /server/preferences/token/create`
+When no owner token is present, `POST https://csj.lol/server/preferences/token/create`
 issues a primary token and redirects back to the page; restore accepts a
-primary token through `POST /server/preferences/token/restore`. The page
+primary token through `POST https://csj.lol/server/preferences/token/restore`. The page
 supports reveal, rotate, linked-token create/update/revoke, and primary revoke.
 Primary revoke deletes the owner, its linked tokens, and its resources.
 
 The API mirrors primary-token issue and revoke at
-`POST /api/{api_version}/server/preferences/tokens/primary` and
-`DELETE /api/{api_version}/server/preferences/tokens/primary`. Issuing is
+`POST https://csj.lol/api/{api_version}/server/preferences/tokens/primary` and
+`DELETE https://csj.lol/api/{api_version}/server/preferences/tokens/primary`. Issuing is
 public and returns the raw `owner_token` once in the JSON response. Revoking
 requires the primary token and returns the counts of deleted tokens and
 resources. Neither route accepts cookies. Linked-token actions remain under
-`/api/{api_version}/server/preferences/tokens` and require the primary token.
+`https://csj.lol/api/{api_version}/server/preferences/tokens` and require the primary token.
 
 Tokens use a prefix plus 32 base62 characters and are looked up by SHA-256
 hash. An encrypted owner-token copy is retained for the owner's explicit
@@ -181,7 +185,7 @@ with one newline; health text keeps its dedicated flat `key: value` format.
 ### Create a link
 
 ```
-POST /api/v1/links
+POST https://csj.lol/api/v1/links
 ```
 
 ```json
@@ -225,7 +229,7 @@ viewable, masked by default, on `/server/preferences/tokens`.
 ### Get a link
 
 ```
-GET /api/v1/links/{slug}
+GET https://csj.lol/api/v1/links/{slug}
 ```
 
 Returns the same object without `owner_token`. No authentication.
@@ -233,7 +237,7 @@ Returns the same object without `owner_token`. No authentication.
 ### List all links
 
 ```
-GET /api/v1/links?page=1&limit=250
+GET https://csj.lol/api/v1/links?page=1&limit=250
 ```
 
 ```json
@@ -268,7 +272,7 @@ GET /api/v1/links?page=1&limit=250
 ### Update a link
 
 ```
-PATCH /api/v1/links/{slug}
+PATCH https://csj.lol/api/v1/links/{slug}
 ```
 
 Requires a valid token belonging to the link's owner or the operator token.
@@ -294,7 +298,7 @@ Both fields are optional; send only what changes.
 ### Delete a link
 
 ```
-DELETE /api/v1/links/{slug}
+DELETE https://csj.lol/api/v1/links/{slug}
 ```
 
 Requires a valid token belonging to the link's owner or the operator token.
@@ -310,7 +314,7 @@ Requires a valid token belonging to the link's owner or the operator token.
 ### Click analytics
 
 ```
-GET /api/v1/links/{slug}/stats
+GET https://csj.lol/api/v1/links/{slug}/stats
 ```
 
 No authentication.
@@ -353,7 +357,7 @@ Clicks from recognized bot user agents are not counted at all.
 ## Redirect Behavior
 
 ```
-GET /{slug}
+GET https://csj.lol/{slug}
 ```
 
 | Situation | Response |
@@ -368,9 +372,9 @@ reported as having existed.
 ## Health
 
 ```
-GET /server/healthz
-GET /api/healthz
-GET /api/v1/server/healthz
+GET https://csj.lol/server/healthz
+GET https://csj.lol/api/healthz
+GET https://csj.lol/api/v1/server/healthz
 ```
 
 All three are the same handler, never a redirect. A root `/healthz` alias
@@ -430,15 +434,15 @@ running, `1` when not.
 ## Metrics
 
 ```
-GET /server/metrics
-GET /server/metrics/prometheus
-GET /server/metrics/grafana
-GET /server/metrics/loki
+GET https://csj.lol/server/metrics
+GET https://csj.lol/server/metrics/prometheus
+GET https://csj.lol/server/metrics/grafana
+GET https://csj.lol/server/metrics/loki
 ```
 
-Mirrored at `/api/metrics[/{service}]`,
-`/api/v1/server/metrics[/{service}]`, and — when
-`server.metrics.root.enabled` is on — bare `/metrics`. All aliases are the
+Mirrored at `https://csj.lol/api/metrics[/{service}]`,
+`https://csj.lol/api/v1/server/metrics[/{service}]`, and — when
+`server.metrics.root.enabled` is on — bare `https://csj.lol/metrics`. All aliases are the
 same handler; none is a redirect.
 
 Each service requires its own bearer token, supplied only in the
@@ -456,9 +460,9 @@ See [Integrations](integrations.md#metrics).
 ## Browser Reporting
 
 ```
-POST /api/v1/server/reports/csp
-POST /api/v1/server/reports/nel
-POST /api/v1/server/reports/default
+POST https://csj.lol/api/v1/server/reports/csp
+POST https://csj.lol/api/v1/server/reports/nel
+POST https://csj.lol/api/v1/server/reports/default
 ```
 
 Receives Content Security Policy violation reports, Network Error Logging
@@ -475,61 +479,61 @@ Server-rendered HTML. Every one of these works with JavaScript disabled.
 
 | Route | Purpose |
 |-------|---------|
-| `GET /` | Home page with the link-creation form |
-| `POST /` | Create a link from the form |
-| `GET /{slug}` | Redirect to the destination |
-| `GET /{slug}/stats` | Click analytics page |
-| `GET /list` | Public paginated listing of all links |
-| `GET /server` | Redirects to `/server/about` |
-| `GET /server/about` | About page |
-| `GET /server/help` | Help page |
-| `GET /server/help/mcp` | MCP connection guide |
-| `GET /server/privacy` | Privacy policy |
-| `GET /server/terms` | Terms of service |
-| `GET /server/contact` | Private noindex report-type chooser; the security pointer and abuse-report guidance appear below it |
-| `GET /server/contact?type={type}` | One noindex form containing only the selected type's fields |
-| `POST /server/contact` | Submit the selected report type, then confirm it in the server-rendered review step |
-| `GET /server/security` | Security and vulnerability reporting page |
-| `GET /server/security/policy` | Coordinated disclosure policy |
-| `GET /server/security/thanks` | Researcher acknowledgments |
-| `GET /server/healthz` | Health page |
-| `GET /server/preferences` | Cookie-only interface preferences |
-| `GET /server/preferences/tokens` | Owner-token management page |
-| `GET /api/{api_version}/server/preferences/tokens` | Masked token list (primary Bearer token required) |
-| `POST /api/{api_version}/server/preferences/tokens` | Create a linked token |
-| `POST /api/{api_version}/server/preferences/tokens/primary/reveal` | Reveal primary token |
-| `POST /api/{api_version}/server/preferences/tokens/primary/rotate` | Rotate primary token |
-| `POST /api/{api_version}/server/preferences/tokens/{id}/reveal` | Reveal linked token |
-| `POST /api/{api_version}/server/preferences/tokens/{id}/rotate` | Rotate linked token |
-| `PATCH /api/{api_version}/server/preferences/tokens/{id}` | Rename linked token or change expiry |
-| `DELETE /api/{api_version}/server/preferences/tokens/{id}` | Revoke linked token |
-| `GET /api/{api_version}/server/security/policy` | Coordinated disclosure policy data |
-| `GET /api/{api_version}/server/dpo` | Public DPO contact data |
-| `GET /api/{api_version}/server/contact` | Type-specific report field descriptors, offered types, CAPTCHA descriptor, form token, security URL, and abuse email |
-| `POST /api/{api_version}/server/contact` | Submit a type-specific report for review; repeat its fields with the review token and confirmation to deliver |
-| `GET /api/{api_version}/server/auth/check` | Validate a Bearer token and return its kind |
-| `GET /api/{api_version}/server/help` | Help content and registry-backed list of all registered help pages |
-| `GET /api/{api_version}/server/help/mcp` | MCP help sections and resolved endpoint |
-| `GET /api/{api_version}/server/about` | About content |
-| `GET /api/{api_version}/server/privacy` | Privacy content |
-| `GET /api/{api_version}/server/terms` | Terms content |
-| `GET /api/{api_version}/server/security` | Security overview |
-| `GET /api/{api_version}/server/security/thanks` | Security acknowledgments |
-| `GET /api/{api_version}/server/security/policy` | Disclosure policy |
-| `GET /server/security/report/{tracking_id}` | Researcher report status (requires the one-time status token) |
-| `POST /server/consent` | Cookie consent choice |
-| `POST /server/theme` | Theme preference |
-| `POST /announcements/dismiss` | Dismiss a configured announcement without JavaScript |
-| `GET /static/*` | Embedded CSS, JS, and images |
-| `GET /manifest.json` | PWA manifest |
-| `GET /sw.js` | Build-stamped service worker |
-| `GET /favicon.ico` | Embedded default favicon (the page head may use a configured HTTPS or same-origin branding icon) |
-| `GET /sitemap.xml` | Public-page sitemap or sitemap index |
-| `GET /sitemap-{part}.xml` | A numbered sitemap page when the URL limit is exceeded |
-| `GET /feed.xml` | Atom 1.0 feed of recent public links |
-| `GET /rss.xml` | RSS 2.0 feed of the same links |
-| `GET /api/autodiscover` | Server and available CLI update metadata |
-| `GET /cli/binaries/{project}-cli-{os}-{arch}` | Download a verified CLI build from `{data_dir}/cli/` (public unless `cli.binary_download.require_auth` is enabled) |
+| `GET https://csj.lol/` | Home page with the link-creation form |
+| `POST https://csj.lol/` | Create a link from the form |
+| `GET https://csj.lol/{slug}` | Redirect to the destination |
+| `GET https://csj.lol/{slug}/stats` | Click analytics page |
+| `GET https://csj.lol/list` | Public paginated listing of all links |
+| `GET https://csj.lol/server` | Redirects to `/server/about` |
+| `GET https://csj.lol/server/about` | About page |
+| `GET https://csj.lol/server/help` | Help page |
+| `GET https://csj.lol/server/help/mcp` | MCP connection guide |
+| `GET https://csj.lol/server/privacy` | Privacy policy |
+| `GET https://csj.lol/server/terms` | Terms of service |
+| `GET https://csj.lol/server/contact` | Private noindex report-type chooser; the security pointer and abuse-report guidance appear below it |
+| `GET https://csj.lol/server/contact?type={type}` | One noindex form containing only the selected type's fields |
+| `POST https://csj.lol/server/contact` | Submit the selected report type, then confirm it in the server-rendered review step |
+| `GET https://csj.lol/server/security` | Security and vulnerability reporting page |
+| `GET https://csj.lol/server/security/policy` | Coordinated disclosure policy |
+| `GET https://csj.lol/server/security/thanks` | Researcher acknowledgments |
+| `GET https://csj.lol/server/healthz` | Health page |
+| `GET https://csj.lol/server/preferences` | Cookie-only interface preferences |
+| `GET https://csj.lol/server/preferences/tokens` | Owner-token management page |
+| `GET https://csj.lol/api/{api_version}/server/preferences/tokens` | Masked token list (primary Bearer token required) |
+| `POST https://csj.lol/api/{api_version}/server/preferences/tokens` | Create a linked token |
+| `POST https://csj.lol/api/{api_version}/server/preferences/tokens/primary/reveal` | Reveal primary token |
+| `POST https://csj.lol/api/{api_version}/server/preferences/tokens/primary/rotate` | Rotate primary token |
+| `POST https://csj.lol/api/{api_version}/server/preferences/tokens/{id}/reveal` | Reveal linked token |
+| `POST https://csj.lol/api/{api_version}/server/preferences/tokens/{id}/rotate` | Rotate linked token |
+| `PATCH https://csj.lol/api/{api_version}/server/preferences/tokens/{id}` | Rename linked token or change expiry |
+| `DELETE https://csj.lol/api/{api_version}/server/preferences/tokens/{id}` | Revoke linked token |
+| `GET https://csj.lol/api/{api_version}/server/security/policy` | Coordinated disclosure policy data |
+| `GET https://csj.lol/api/{api_version}/server/dpo` | Public DPO contact data |
+| `GET https://csj.lol/api/{api_version}/server/contact` | Type-specific report field descriptors, offered types, CAPTCHA descriptor, form token, security URL, and abuse email |
+| `POST https://csj.lol/api/{api_version}/server/contact` | Submit a type-specific report for review; repeat its fields with the review token and confirmation to deliver |
+| `GET https://csj.lol/api/{api_version}/server/auth/check` | Validate a Bearer token and return its kind |
+| `GET https://csj.lol/api/{api_version}/server/help` | Help content and registry-backed list of all registered help pages |
+| `GET https://csj.lol/api/{api_version}/server/help/mcp` | MCP help sections and resolved endpoint |
+| `GET https://csj.lol/api/{api_version}/server/about` | About content |
+| `GET https://csj.lol/api/{api_version}/server/privacy` | Privacy content |
+| `GET https://csj.lol/api/{api_version}/server/terms` | Terms content |
+| `GET https://csj.lol/api/{api_version}/server/security` | Security overview |
+| `GET https://csj.lol/api/{api_version}/server/security/thanks` | Security acknowledgments |
+| `GET https://csj.lol/api/{api_version}/server/security/policy` | Disclosure policy |
+| `GET https://csj.lol/server/security/report/{tracking_id}` | Researcher report status (requires the one-time status token) |
+| `POST https://csj.lol/server/consent` | Cookie consent choice |
+| `POST https://csj.lol/server/theme` | Theme preference |
+| `POST https://csj.lol/announcements/dismiss` | Dismiss a configured announcement without JavaScript |
+| `GET https://csj.lol/static/*` | Embedded CSS, JS, and images |
+| `GET https://csj.lol/manifest.json` | PWA manifest |
+| `GET https://csj.lol/sw.js` | Build-stamped service worker |
+| `GET https://csj.lol/favicon.ico` | Embedded default favicon (the page head may use a configured HTTPS or same-origin branding icon) |
+| `GET https://csj.lol/sitemap.xml` | Public-page sitemap or sitemap index |
+| `GET https://csj.lol/sitemap-{part}.xml` | A numbered sitemap page when the URL limit is exceeded |
+| `GET https://csj.lol/feed.xml` | Atom 1.0 feed of recent public links |
+| `GET https://csj.lol/rss.xml` | RSS 2.0 feed of the same links |
+| `GET https://csj.lol/api/autodiscover` | Server and available CLI update metadata |
+| `GET https://csj.lol/cli/binaries/{project}-cli-{os}-{arch}` | Download a verified CLI build from `{data_dir}/cli/` (public unless `cli.binary_download.require_auth` is enabled) |
 
 Two routes are conditional: `/server/ccpa` exists only when
 `server.privacy.data.sold` is true, and `/server/dpo` only when compliance

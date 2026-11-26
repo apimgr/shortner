@@ -462,7 +462,7 @@ func parsePortSetting(value string) ([]string, error) {
 	for i, part := range parts {
 		part = strings.TrimSpace(part)
 		port, err := strconv.Atoi(part)
-		if err != nil || port < 0 || port > 65535 {
+		if err != nil || port < 1 || port > 65535 {
 			return nil, fmt.Errorf("httpserver: invalid port %q", part)
 		}
 		ports[i] = strconv.Itoa(port)

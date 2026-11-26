@@ -20,7 +20,7 @@ func TestParsePortSetting(t *testing.T) {
 	}{
 		{name: "single", value: "8090", want: []string{"8090"}},
 		{name: "dual", value: " 8090, 8443 ", want: []string{"8090", "8443"}},
-		{name: "ephemeral", value: "0", want: []string{"0"}},
+		{name: "zero port", value: "0", bad: true},
 		{name: "too many", value: "80,443,8080", bad: true},
 		{name: "empty", value: "", bad: true},
 		{name: "invalid number", value: "http,443", bad: true},

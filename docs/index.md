@@ -16,7 +16,8 @@ generates its own operator token, and starts serving.
 - Redirects `/{slug}` to the destination, recording an anonymized click.
 - Serves per-link click analytics at `/{slug}/stats` — totals, referrers, a
   daily time series, and recent clicks with GeoIP country/region.
-- Exposes the same functionality over a REST API under `/api/v1/links` and
+- Exposes the same functionality over a REST API at
+  `https://csj.lol/api/v1/links` and
   over server-rendered HTML pages.
 - Returns `410 Gone` for an expired link and `404 Not Found` for one that
   never existed.
@@ -59,8 +60,11 @@ operator token, opens the database, and starts listening on port `8090`.
 
 Then create a link:
 
+The documented API example uses the official service. For a self-hosted
+instance, replace its origin with your deployment's public URL.
+
 ```bash
-curl -q -LSsf -X POST http://localhost:8090/api/v1/links \
+curl -q -LSsf -X POST https://csj.lol/api/v1/links \
   -H 'Content-Type: application/json' \
   -d '{"url": "https://example.com/a/very/long/path"}'
 ```

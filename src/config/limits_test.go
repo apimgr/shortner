@@ -121,7 +121,7 @@ func TestValidatePortSettings(t *testing.T) {
 		valid bool
 	}{
 		{value: "8090", valid: true},
-		{value: "0", valid: true},
+		{value: "0", valid: false},
 		{value: "80,443", valid: true},
 		{value: "8090,8443", valid: true},
 		{value: "", valid: false},

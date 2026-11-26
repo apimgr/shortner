@@ -928,9 +928,7 @@ func ParseRetentionSize(s string, def int64) (RetentionSize, error) {
 	return RetentionSize{Bytes: n}, nil
 }
 
-// validPortSetting accepts AI.md's single-port, OS-assigned, and HTTP,HTTPS
-// forms. Port zero is meaningful only for a single listener because a dual
-// listener pair must expose two configured service ports.
+// validPortSetting accepts AI.md's single-port and HTTP,HTTPS forms.
 func validPortSetting(s string) bool {
 	parts := strings.Split(strings.TrimSpace(s), ",")
 	if len(parts) < 1 || len(parts) > 2 {
@@ -939,9 +937,6 @@ func validPortSetting(s string) bool {
 	for _, part := range parts {
 		port, err := strconv.Atoi(strings.TrimSpace(part))
 		if err != nil || port < 1 || port > 65535 {
-			if len(parts) == 1 && err == nil && port == 0 {
-				continue
-			}
 			return false
 		}
 	}

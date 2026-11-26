@@ -2,6 +2,8 @@
 
 This page covers the external systems `shortner` talks to, the discovery
 and protocol surfaces it exposes, and the ones it deliberately does not.
+Full URL examples use the official service at `https://csj.lol`; replace that
+origin with your deployment URL when self-hosting.
 
 ## Summary
 
@@ -19,7 +21,7 @@ and protocol surfaces it exposes, and the ones it deliberately does not.
 | Browser reporting (CSP, NEL) | Available |
 | Role-based webhooks | Available for operator events and contact/security reports |
 | Federation, OAuth/OIDC provider, machine identity | **None. Not implemented.** |
-| Swagger / OpenAPI / GraphQL | Available at `/server/docs/swagger`, `/server/docs/graphql`, `/api/swagger`, and `/api/graphql` |
+| Swagger / OpenAPI / GraphQL | Available at `https://csj.lol/server/docs/swagger`, `https://csj.lol/server/docs/graphql`, `https://csj.lol/api/swagger`, and `https://csj.lol/api/graphql` |
 | Tor v3 hidden service | Available when a Tor binary is detected |
 | I2P eepsite | On by default in containers; opt-in on hosts; needs i2pd or a SAM provider |
 | PGP key management | Available through the maintenance CLI |
@@ -30,16 +32,16 @@ Prometheus-format metrics, a Grafana-oriented JSON view, and a Loki log
 stream are served from:
 
 ```
-/server/metrics
-/server/metrics/prometheus
-/server/metrics/grafana
-/server/metrics/loki
+https://csj.lol/server/metrics
+https://csj.lol/server/metrics/prometheus
+https://csj.lol/server/metrics/grafana
+https://csj.lol/server/metrics/loki
 ```
 
-with identical handlers mirrored at `/api/metrics[/{service}]`,
-`/api/v1/server/metrics[/{service}]`, and — when
-`server.metrics.root.enabled` is on — bare `/metrics`. None of the aliases
-is a redirect.
+with identical handlers mirrored at `https://csj.lol/api/metrics[/{service}]`,
+`https://csj.lol/api/v1/server/metrics[/{service}]`, and — when
+`server.metrics.root.enabled` is on — `https://csj.lol/metrics`. None of the
+aliases is a redirect.
 
 The importable Grafana dashboard includes HTTP, database, cache, system,
 scheduler run/duration/health, and shortener business panels for total links,
@@ -166,7 +168,7 @@ server:
 With `host` empty the server probes for a relay at startup, in priority
 order:
 
-1. `127.0.0.1` — a relay on the same machine
+1. The loopback address — a relay on the same machine
 2. `172.17.0.1` — the Docker bridge gateway
 3. The default gateway address (Linux)
 4. The detected FQDN
@@ -272,9 +274,13 @@ server restart.
 
 ### nginx
 
+The example uses the private hostname `shortner.internal` as the upstream.
+Configure that name so the reverse proxy can reach the server; it is not the
+public URL clients use.
+
 ```nginx
 location / {
-  proxy_pass http://127.0.0.1:8090;
+  proxy_pass http://shortner.internal:8090;
   proxy_set_header Host $host;
   proxy_set_header X-Real-IP $remote_addr;
   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -289,7 +295,7 @@ recognized as HTTPS.
 
 ```
 csj.lol {
-  reverse_proxy 127.0.0.1:8090
+  reverse_proxy shortner.internal:8090
 }
 ```
 
@@ -298,9 +304,9 @@ csj.lol {
 Modern browsers post structured reports to:
 
 ```
-POST /api/v1/server/reports/csp
-POST /api/v1/server/reports/nel
-POST /api/v1/server/reports/default
+POST https://csj.lol/api/v1/server/reports/csp
+POST https://csj.lol/api/v1/server/reports/nel
+POST https://csj.lol/api/v1/server/reports/default
 ```
 
 These are unauthenticated because the browser sends them, and they
@@ -418,7 +424,7 @@ operations require the server to be running; vanity searches run as
 background jobs in the server and can be cancelled or inspected through the
 CLI.
 
-Publishing either overlay address through `/api/autodiscover` is disabled
+Publishing either overlay address through `https://csj.lol/api/autodiscover` is disabled
 by default. Set `server.tor.expose: true` or `server.i2p.expose: true` to
 advertise the corresponding address; enabling the overlay alone does not
 publish it.

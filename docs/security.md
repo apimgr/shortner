@@ -183,7 +183,7 @@ In development mode the policy downgrades to report-only unless
 silently ship a weaker policy to production.
 
 Violations are posted by the browser to
-`/api/v1/server/reports/csp`, which always answers `204` with an empty
+`https://csj.lol/api/v1/server/reports/csp`, which always answers `204` with an empty
 body.
 
 ### HSTS
@@ -357,8 +357,8 @@ Tor and I2P managers are wired, but overlay metric values are not populated.
 - Keep the operator token out of shell history and environment dumps; it
   is a root-equivalent credential.
 - Put the instance behind access control if the public `/list` page and
-  `GET /api/v1/links` endpoint — which expose every link and destination —
-  are unacceptable for your deployment.
+  `GET https://csj.lol/api/v1/links` endpoint — which expose every link and
+  destination — are unacceptable for your deployment.
 - Configure `server.trusted_proxies.additional` when running behind a
   proxy, or every request will be attributed to the proxy's IP and rate
   limiting will be ineffective.
