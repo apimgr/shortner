@@ -228,6 +228,9 @@ health endpoints are available. Once the remote returns, the server completes
 schema and secret initialization before accepting requests again. With
 `offline_mode: true` and a usable snapshot, cached reads continue while all
 writes and secret-dependent routes return `503`.
+The same maintenance retry applies when the configured SQLite database cannot
+be opened or initialized; the server serves its health endpoints while it
+retries the configured database path.
 
 ### Database maintenance recovery
 
@@ -250,6 +253,11 @@ Self-healing always runs. `retry_interval` sets the reconnect cadence;
 after that many failed attempts and reports exhaustion in the health response.
 Maintenance entry and recovery are written to the audit log. Notifications
 follow the two `notify` switches and require configured email delivery.
+When a checked filesystem reaches `disk_threshold`, the `disk_check` task
+prunes rotated log archives older than `log_retention_days`, removes entries
+older than 24 hours from the application-owned temporary directory under the
+OS temp root, and applies the configured backup retention policy. Active logs
+are never removed by this cleanup.
 
 ### Limits and timeouts
 
