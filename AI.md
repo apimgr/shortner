@@ -5568,7 +5568,7 @@ curl -L https://api.example.com/server/healthz
 - Rate limiting rules
 - robots.txt / security.txt
 - Scheduler settings
-- SSL certificate renewal (the `server.ssl.*` settings themselves need a restart)
+- SSL certificate renewal and the `server.ssl.letsencrypt.*` settings (the ACME client reads them at its next issuance or renewal); every other `server.ssl.*` setting needs a restart
 - All feature toggles
 - `server.tor.*` (only the Tor child process is restarted, in-process, while the server keeps serving; "Tor Restart Triggers")
 
@@ -5972,6 +5972,7 @@ package main
 | **Attribution** | The notice the terms require (author, license, link, changes made) |
 | **Record** | In the project's third-party notices (`LICENSE.md`, "Third-Party Licenses") and on the attribution surface (`/server/about`, or the README when the project has no web page) |
 | **Per-record provenance** | When records come from several sources, every record or file carries a `source` key that names its entry in the third-party notices |
+| **Provenance decision (ask first)** | Before any record is bundled the project asks the user whether the records come from a third-party corpus (then the source, terms and attribution rows above apply) or are original content written at the owner's direction (then the generated-content row applies); the answer is written to IDEA.md first |
 | **Unknown or unusable terms** | Content with no stated license, a license that forbids redistribution, a site that forbids scraping, or an unknown origin is NOT embedded. The project asks the user instead of guessing |
 | **Generated content** | It counts as the project's own only when the user says so, and is never presented with an invented source. Owner-directed original content (the owner declares it theirs and the AI writes it) is recorded in the third-party notices as "Original content, owned by {owner}, written with AI assistance at the owner's direction, released under the project's license", with no external source or URL; every record's `source` key is `original`, the attribution surface lists it under "Original content" without naming any third party, and the owner's statement is kept in the project's IDEA.md |
 | **Project translations** | Strings translated for the project under the localization rule (by the AI or a human translator, I18N & A11Y → "Translating") are the project's own work and need no source record; a human translator's pull request is under the project license. A translation copied from another project, a service or a third-party catalogue is third-party content and follows every row above |
@@ -6947,7 +6948,7 @@ Before proceeding, confirm you understand:
 | PID File | `/var/run/{internal_org}/{internal_name}/{internal_name}.pid` |
 | SSL | `/Library/Application Support/{internal_org}/{internal_name}/ssl/` (letsencrypt/, local/) |
 | Security | `/Library/Application Support/{internal_org}/{internal_name}/data/security/` (geoip/, blocklists/, cve/, trivy/) |
-| SQLite DB | `/Library/Application Support/{internal_org}/{internal_name}/db/` (server.db) |
+| SQLite DB | `/Library/Application Support/{internal_org}/{internal_name}/data/db/` (server.db) |
 | Service | `/Library/LaunchDaemons/{plist_name}.plist` |
 
 ### User (non-privileged)
@@ -8927,6 +8928,8 @@ A user service always runs with the per-user paths of "User (non-privileged)" fo
 | 80 | 443 | Let's Encrypt challenges enabled, standard web ports |
 | 64xxx | 64xxx+1 | Common pattern for random ports |
 
+**`8090` and `8443` below are example values only, never defaults: the default is the random 64xxx port (`80` in an application container), see "Port Selection Logic".**
+
 ```yaml
 # Single port (HTTP by default; exception: port 443 = HTTPS-only mode; ssl.enabled overrides)
 server:
@@ -10678,9 +10681,10 @@ When the `NO_COLOR` environment variable is set and not empty (value doesn't mat
 | Priority | Source | Example |
 |----------|--------|---------|
 | 1 | CLI flag | `--color=yes`, `--color=no` (`--color=yes` also overrides `TERM=dumb`, for color sequences only; every other `TERM=dumb` restriction stays) |
-| 2 | Config file | `output.color: false` |
-| 3 | `NO_COLOR` env var | `NO_COLOR=1` |
-| 4 | Auto-detect | TTY check, `TERM` variable |
+| 2 | Project environment variable (CLI binaries) | `{PROJECT_NAME}_OUTPUT_COLOR=no` (applied by the loader as the value of `output.color`, so `ColorEnabled` keeps its signature) |
+| 3 | Config file | `output.color: false` |
+| 4 | `NO_COLOR` env var | `NO_COLOR=1` (a standard, not a project variable: it ranks after the explicit project settings) |
+| 5 | Auto-detect | TTY check, `TERM` variable |
 
 **Implementation (ALL binaries):**
 
@@ -11489,7 +11493,7 @@ PHASE 5: Server startup (actual server start)
 | cgroup | `/proc/1/cgroup` contains `docker`, `kubepods`, `lxc` |
 | Self wrapper | Parent process is `{project_name}` (entrypoint wrapper) |
 
-**System containers (Incus/LXC/LXD/systemd-nspawn):** these run a full init, so the table above does not make them "container" for service-manager purposes. When systemd launched the process (`INVOCATION_ID` set) the service manager is `systemd`; when OpenRC launched it (`RC_SVCNAME` set, or PPID 1 with `/run/openrc` present) the service manager is `openrc`. In both cases service install/start/stop/status work normally. "container" applies to application containers (Docker, Podman, Kubernetes) and to Incus/LXC containers whose init is neither systemd nor OpenRC. The systemd and OpenRC checks run before generic container detection. The same order decides every default that depends on being in a container (the listen port `80` and `server.i2p.enabled`): the systemd and OpenRC checks run first, so an Incus/LXC system container run by systemd or OpenRC is a host for them, and only then is `isContainer()` consulted.
+**System containers (Incus/LXC/LXD/systemd-nspawn):** these run a full init, so the table above does not make them "container" for service-manager purposes. When systemd launched the process (`INVOCATION_ID` set) the service manager is `systemd`; when OpenRC launched it (`RC_SVCNAME` set, or PID 1 being OpenRC's init with `/run/openrc` present, whatever the launch method) the service manager is `openrc`. In both cases service install/start/stop/status work normally. "container" applies to application containers (Docker, Podman, Kubernetes) and to Incus/LXC containers whose init is neither systemd nor OpenRC. The systemd and OpenRC checks run before generic container detection. The same order decides every default that depends on being in a container (the listen port `80` and `server.i2p.enabled`): the systemd and OpenRC checks run first, so an Incus/LXC system container run by systemd or OpenRC is a host for them, and only then is `isContainer()` consulted.
 
 **Manual Start Priority Order:**
 1. `--daemon` CLI flag (highest)
@@ -11569,12 +11573,16 @@ func detectServiceManager() string {
         return "openrc"
     }
 
-    // PPID 1 with a running systemd or OpenRC: a system container whose init is one of them is a host
-    if os.Getppid() == 1 {
-        if _, err := os.Stat("/run/systemd/system"); err == nil {
+    // PID 1 is systemd or OpenRC's init, whatever the launch method (a manual shell launch included): a system container whose init is one of them is a host
+    if comm, err := os.ReadFile("/proc/1/comm"); err == nil {
+        pid1 := strings.TrimSpace(string(comm))
+        if pid1 == "systemd" {
             return "systemd"
         }
-        if _, err := os.Stat("/run/openrc"); err == nil {
+        if pid1 == "openrc-init" {
+            return "openrc"
+        }
+        if _, err := os.Stat("/run/openrc"); err == nil && pid1 == "init" {
             return "openrc"
         }
     }
@@ -16070,7 +16078,7 @@ CREATE TABLE IF NOT EXISTS security_thanks (
 
 **Restore behavior:** restoring a backup re-installs the keypair and `keyservers.state`, then submits the public key only to the configured keyservers that the restored state does not already list for this fingerprint (a keyserver added since the backup, or a different fingerprint). A keyserver already listed is not contacted again, and a submission that does happen is idempotent because keyservers de-duplicate by fingerprint. The `installation_secret` is restored from the same backup, so the encrypted private key decrypts correctly.
 
-**Operator UX:** running `{project_name} --maintenance backup` and `{project_name} --maintenance restore` covers the security keypair without any extra steps. `{project_name} --maintenance backup test [file]` verifies a backup without touching live data: `file` defaults to the newest backup in `{backup_dir}` (the newest `snapshot_at` wins, as for restore; an incremental is checked together with its base). An encrypted backup asks for its password interactively exactly like restore (there is no password flag; without a terminal the command fails with a message that says so). It extracts into a temporary directory, verifies the manifest checksums, decrypts `pgp.priv.asc.enc` with the `installation_secret` found in that same backup, compares the fingerprint of the decrypted key with `pgp.pub.asc`, reports each result, and removes the temporary directory.
+**Operator UX:** running `{project_name} --maintenance backup` and `{project_name} --maintenance restore` covers the security keypair without any extra steps. `{project_name} --maintenance backup test [file]` verifies a backup without touching live data: `file` defaults to the newest backup in `{backup_dir}` (the newest by the UTC date in the file name wins, exactly as for restore, "Default archive selection", and the manifest is never read to choose; an incremental is checked together with its base). An encrypted backup asks for its password interactively exactly like restore (there is no password flag; without a terminal the command fails with a message that says so). It extracts into a temporary directory, verifies the manifest checksums, decrypts `pgp.priv.asc.enc` with the `installation_secret` found in that same backup, compares the fingerprint of the decrypted key with `pgp.pub.asc`, reports each result, and removes the temporary directory.
 
 ## Logging
 
@@ -25354,7 +25362,7 @@ Preferences aren't tied to identity — any two guests who set the same `theme`/
 | 15 | **Page layout and buttons** | `/server/preferences` is ONE `<form method="POST" action="/server/preferences">` carrying the CSRF token and every section: appearance (`theme`), language (`lang`), cookie-consent and CCPA controls, every `{project_name}_pref_{key}` control — all sections always visible, none collapsed or revealed by a button. A **More preferences** card, outside the form, links every registered preferences page (see "Preferences and Help Hubs"). The form has exactly three action buttons (the header theme toggle is a separate mini-form on other pages and is OMITTED from the header on this page, whose own form carries the theme control; the header markup is otherwise identical on every page): **Save** (submit; applies every changed field, then `303` per rules 9–10), **Cancel** (a link to the rule 10 redirect target; discards unsaved edits, sends no write) and **Reset** (a `type="button"` with `popovertarget` that opens a native HTML `popover` — no JS; the popover holds the warning, an **Erase everything** submit with `action=reset`, and a dismiss control using `popovertargetaction="hide"`; those two belong to Reset, not to the page's button set; forgets the visitor completely: every noncredential cookie this app set — `theme`, `lang`, `{project_name}_pref_*`, `cookie_consent`, `ccpa_opt_out`, `{project_name}_build`, plus any other noncredential cookie the project defines (announcement dismissals, flash messages, age-verification or content-acknowledgment cookies, forwarding preferences) — is deleted (`Max-Age=0`, same `Path`/attributes as rule 8), and the `303` carries `Clear-Site-Data: "storage"` to wipe localStorage/sessionStorage/IndexedDB without JS. Defaults apply and the consent banner returns on the next page. Never deletes session, CSRF or other credential cookies — signing out is a separate action. The popover warning states exactly what is erased. Only Reset confirms — Save and Cancel never ask for confirmation. The popover is styled with CSS, and a direct `POST action=reset` behaves identically on the server). No per-section save buttons and no "Sync", "Export", "Import" or "Show" buttons: sync has its own page. Every other preferences page (`/server/preferences/sync`, `/server/preferences/tokens` where the project has owner tokens, and project pages) is NOT part of this form: each lives on its own page, reached from the More preferences card, and those pages' own forms are exempt from this button limit. Reset never deletes credential cookies: session, CSRF and the owner-token cookie |
 | 16 | **Web save never `400`** | `400 VALIDATION_FAILED` (rule 11) is API-only. A web `POST /server/preferences` or `POST /server/preferences/sync` always answers `303` (rule 9) — including empty submits, unchecked checkboxes (absent fields), invalid values (dropped) and a bad `code`. The only `4xx` is a missing/invalid CSRF token (`403`), so every preferences form MUST always render the token and post only to the canonical route, never to the `/api/{api_version}/…` mirror |
 | 17 | **Consent and CCPA controls** | The page form's cookie-consent toggles (`consent_preferences`, `consent_analytics`; `essential` is always on and not a field) and the CCPA opt-out toggle (`ccpa_opt_out`, rendered only when `server.privacy.data.sold` is `true`; otherwise absent and never written) are web-form-only controls handled by `POST /server/preferences`, with a hidden `consent_form=1` marker rendered inside the form. They are applied only when `consent_form=1` is present — an unchecked checkbox then means off, while a POST without the marker (the header theme toggle) never touches consent or CCPA. Applying writes `cookie_consent` (JSON per PART 16 consent state, with a fresh timestamp in Unix seconds) and `ccpa_opt_out` with the rule 8 attributes. Import and the API mirror never write them, Reset deletes them (rule 15), and they are never exported (rule 1). The privacy page's own CCPA form is the one other writer of `ccpa_opt_out` (`POST /server/ccpa`), as the cookie banner is the other writer of `cookie_consent` (`POST /server/consent`) |
-| 18 | **Consent gate** | An explicit preference action (Save, Import, an API write) is not itself consent to the Preferences cookie category, and a visitor who has taken no consent action has the category off. `theme`, `lang` and every `{project_name}_pref_{key}` cookie belong to the **Preferences** cookie category, not to the essential one, so import, save and sync set them only on a device whose `cookie_consent` has `preferences: true` (the same per-device consent that is never exported, rule 1). The gate sits in the one shared implementation, after validation and before any cookie is written, for the web routes and the API mirror alike. When the category is not accepted (no `cookie_consent` cookie, or `preferences: false`): nothing is written, `applied` is empty, every valid value is reported in `ignored`, and the API `data` carries `"consent_required": true`. The web route still answers `303` (rules 9 and 16), never a `4xx`, and the redirect carries `consent_required=1` as a query parameter that the landing page reads, never stores, and turns into a notice pointing at the cookie-consent toggle of rule 17. An import link opened on a new device therefore applies nothing until that device's visitor accepts Preferences and opens the link again; the server keeps no pending state. While the cookies are absent the page renders with the defaults (the language detected from `Accept-Language`). **The header toggles are gated too.** The no-JavaScript header theme POST and the language switcher are preference writes like any other: with no consent they write nothing, answer `303` with `consent_required=1` (the notice of rule 17 appears) and the theme or language does not change. Only the JS instant preview (the theme block of `static/js/app.js`) may change the `<html>` class for the CURRENT page view, and it stores nothing. **Cookie visibility is one rule for every preference cookie** (`theme`, `lang`, `{project_name}_pref_{key}`): not HttpOnly, because the preview script reads them, and set only after consent; `owner_token` is the one HttpOnly cookie in this family |
+| 18 | **Consent gate** | An explicit preference action (Save, Import, an API write) is not itself consent to the Preferences cookie category, and a visitor who has taken no consent action has the category off. `theme`, `lang` and every `{project_name}_pref_{key}` cookie belong to the **Preferences** cookie category, not to the essential one, so import, save and sync set them only on a device whose `cookie_consent` has `preferences: true` (the same per-device consent that is never exported, rule 1). The gate sits in the one shared implementation, after validation and before any cookie is written, for the web routes and the API mirror alike. The gate governs preference WRITES only: a `?lang=` link without consent still sets the language for that one response and writes no cookie, because it is a request parameter, not a preference write. When the category is not accepted (no `cookie_consent` cookie, or `preferences: false`): nothing is written, `applied` is empty, every valid value is reported in `ignored`, and the API `data` carries `"consent_required": true`. The web route still answers `303` (rules 9 and 16), never a `4xx`, and the redirect carries `consent_required=1` as a query parameter that the landing page reads, never stores, and turns into a notice pointing at the cookie-consent toggle of rule 17. An import link opened on a new device therefore applies nothing until that device's visitor accepts Preferences and opens the link again; the server keeps no pending state. While the cookies are absent the page renders with the defaults (the language detected from `Accept-Language`). **The header toggles are gated too.** The no-JavaScript header theme POST and the language switcher are preference writes like any other: with no consent they write nothing, answer `303` with `consent_required=1` (the notice of rule 17 appears) and the theme or language does not change. Only the JS instant preview (the theme block of `static/js/app.js`) may change the `<html>` class for the CURRENT page view, and it stores nothing. **Cookie visibility is one rule for every preference cookie** (`theme`, `lang`, `{project_name}_pref_{key}`): not HttpOnly, because the preview script reads them, and set only after consent; `owner_token` is the one HttpOnly cookie in this family |
 
 **Page layout (`/server/preferences`) — one form, one Save, always visible, then the More preferences card:**
 ```
@@ -26100,7 +26108,7 @@ type Route struct {
 |---|---|
 | Always return `Content-Type` | Include charset for text types: `text/html; charset=utf-8` |
 | Never return 200 on error | Use the correct 4xx or 5xx code |
-| Redirect after POST | Always redirect (302) after a successful POST mutation |
+| Redirect after POST | Always redirect after a successful POST mutation with `303 See Other` (the browser follows with a GET); a route that names its own status, such as the preferences routes, uses the same `303` |
 | Include `X-Request-ID` | Echo the request ID in every response header |
 | Sanitize error messages | Never leak stack traces or internal paths to clients |
 | Consistent envelope | All JSON responses use the `APIResponse` struct |
@@ -26689,8 +26697,15 @@ function copyToClipboard(text, btn) {
 // ============================================================================
 // Toast notifications
 // ============================================================================
-// Defaults of server.notifications.webui duration (success/info) and warning_duration (warning); the page may override them through data-toast-duration and data-toast-warning-duration on <body>; errors never auto-dismiss
-const TOAST_DURATIONS = { success: 3000, info: 3000, warning: 5000, error: 0 };
+// Durations come from the page: the server renders data-toast-duration and data-toast-warning-duration (seconds, from server.notifications.webui; 0 = manual dismissal) on <body>, and the same values are written into the stylesheet as --toast-duration and --toast-duration-warning, so the progress bar and the removal timer stay in sync; errors never auto-dismiss
+const bodyData = document.body.dataset;
+const toSeconds = (value, fallback) => { const n = Number.parseFloat(value); return Number.isFinite(n) && n >= 0 ? n : fallback; };
+const TOAST_DURATIONS = {
+  success: toSeconds(bodyData.toastDuration, 3) * 1000,
+  info: toSeconds(bodyData.toastDuration, 3) * 1000,
+  warning: toSeconds(bodyData.toastWarningDuration, 5) * 1000,
+  error: 0
+};
 const TOAST_ICONS = { success: '✓', error: '✗', warning: '⚠', info: 'ℹ' };
 
 function showToast(message, type = 'info') {
@@ -27925,7 +27940,7 @@ server:
 | Homepage (`/`) | Always | 1.0 | daily |
 | Public pages | Always | 0.8 | weekly |
 | Public documentation pages (project-defined, if any) | Dynamic | 0.8 | weekly |
-| API docs (`/server/docs/swagger`, `/server/docs/graphql`) | Always | 0.7 | weekly |
+| API docs (`/server/docs/swagger`, `/server/docs/graphql`): public frontend pages, the one deliberate listing among the `/server/*` pages | Always | 0.7 | weekly |
 | Project-specific public resources | Dynamic | 0.6 | weekly |
 | Authenticated server-management pages | **NEVER** | - | - |
 | API endpoints (`/api/*`) | **NEVER** | - | - |
@@ -31007,7 +31022,7 @@ Every task run MUST execute inside its own panic/`recover` boundary, isolated fr
 
 | Reason | Explanation |
 |--------|-------------|
-| **Single source of truth** | All schedules visible via API |
+| **Single source of truth** | All schedules visible through the CLI and the configuration (there is no scheduler API) |
 | **State tracking** | Tracks last run, next run, success/failure |
 | **Catch-up logic** | Runs missed tasks on restart |
 | **No deployment complexity** | No cron files to manage, sync, or debug |
@@ -31687,7 +31702,7 @@ server:
 
 | Rule | Format | Example |
 |------|--------|---------|
-| **Prefix** | `{project_name}_` | `jokes_http_requests_total` |
+| **Prefix** | `{metric_prefix}_`: the project name lowercased with every run of characters outside `[a-z0-9]` replaced by one `_` (`wordList` becomes `wordlist_`, `word-list` becomes `word_list_`), so the name stays snake case; `{project_name}_` in the examples below stands for it | `jokes_http_requests_total` |
 | **Snake case** | `word_word_word` | `http_request_duration_seconds` |
 | **Unit suffix** | `_seconds`, `_bytes`, `_total` | `request_duration_seconds` |
 | **Total suffix** | Counters end with `_total` | `http_requests_total` |
@@ -33120,7 +33135,10 @@ groups:
 
 ```bash
 {project_name} --maintenance backup [filename]
+{project_name} --maintenance backup test [file]
 ```
+
+`backup test` verifies a backup without touching live data: `file` defaults to the newest full backup in `{backup_dir}` (chosen by the UTC date in the file name, exactly as for restore; an incremental is checked together with its base). An encrypted backup asks for its password interactively exactly like restore (there is no password flag; without a terminal the command fails with a message that says so). It extracts into a temporary directory, verifies the manifest checksums, reports each result and removes the temporary directory.
 
 ### Backup Contents
 
@@ -34467,7 +34485,9 @@ $ {project_name} --maintenance --help
 Maintenance commands:
 
 backup [file]                         - Create backup of all data
-                                        Default: {backup_dir}/{project_name}_backup_YYYY-MM-DD_HHMMSS.tar.gz
+                                        Default: {backup_dir}/{project_name}_backup_YYYY-MM-DD_HHMMSS.tar.gz[.enc]
+backup test [file]                    - Verify a backup without touching live data
+                                        Default: the newest full backup in {backup_dir}; asks for the password of an encrypted backup
 
 restore [file]                        - Restore from backup file (no file: the newest full backup)
                                         Stops server, restores data, restarts server
@@ -35347,7 +35367,7 @@ func (ws *windowsService) Execute(args []string, r <-chan svc.ChangeRequest, s c
 | `test` | Run unit tests | Coverage report | After code changes |
 | `release` | Release with source archive | `releases/` | Creating releases |
 | `beta` | Tag the current `main` commit `YYYYMMDDHHMMSS-beta` and push the tag; CI builds and publishes the beta | a tag only | Publishing a beta (maintainer) |
-| `docker` | Build and push container | `$REGISTRY` | Container deployment |
+| `docker` | Build the host-platform container image locally (no push: CI/CD publishes) | `$REGISTRY` tags | Container deployment |
 
 ## Versioning
 
@@ -48350,7 +48370,7 @@ I2P Eepsite: Running (i2pd)
 
 | Field | Description |
 |-------|-------------|
-| I2P Eepsite | Running (provider) / Disabled / No Provider / Error |
+| I2P Eepsite | The lifecycle `state` verbatim: `disabled`, `no_provider`, `starting`, `building`, `running` (followed by the provider in parentheses, for example `running (i2pd)`) or `error` |
 | Address | Full `.b32.i2p` address |
 
 ---
@@ -50011,7 +50031,7 @@ auth:
 
 # Output preferences
 output:
-  # Default: table, json, yaml, plain, csv
+  # table, json or plain (the same set as the --output flag)
   format: table
   # auto, yes, no (match terminal detection)
   color: auto
@@ -50070,8 +50090,8 @@ defaults:
 
 | Priority | Source | Example |
 |----------|--------|---------|
-| 1 | CLI flag | `--format json` |
-| 2 | Environment variable | `{PROJECT_NAME}_FORMAT=json` |
+| 1 | CLI flag | `--output json` (`--format` is not a flag) |
+| 2 | Environment variable | `{PROJECT_NAME}_OUTPUT_FORMAT=json` |
 | 3 | Config file | `output.format: json` |
 | 4 | Compiled default | `table` |
 
@@ -50082,6 +50102,7 @@ defaults:
 {PROJECT_NAME}_SERVER_TIMEOUT=60
 {PROJECT_NAME}_TOKEN="own_abc123..."
 {PROJECT_NAME}_OUTPUT_FORMAT="json"
+{PROJECT_NAME}_OUTPUT_COLOR="auto"
 {PROJECT_NAME}_DEBUG=true
 ```
 
@@ -50245,7 +50266,7 @@ server:
 | `--server` | Multi-server support (skip if single official site) |
 | `--token` | Authenticated operations |
 | `--config` | Multiple config profiles |
-| `--output` | Multiple output formats (json/table/plain) |
+| `--output` | Output format: `json`, `table` or `plain` (the one canonical format flag) |
 
 **`--debug` is NOT optional — it is required on all binaries (see FINAL CHECKPOINT).**
 
@@ -52566,7 +52587,7 @@ make docker
 - [ ] Documentation pages included
 - [ ] API docs (`/server/docs/swagger`, `/server/docs/graphql`) included
 - [ ] Project resource pages included ONLY if public/published
-- [ ] Server-internal pages NEVER included in sitemap
+- [ ] Server-internal pages (admin, auth, preferences, health) NEVER included in sitemap; the public API docs pages `/server/docs/swagger` and `/server/docs/graphql` are the one exception
 - [ ] API endpoints (`/api/*`) NEVER included
 - [ ] `lastmod` dates accurate
 - [ ] Large sites (>50k URLs) use sitemap index

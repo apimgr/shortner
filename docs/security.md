@@ -148,8 +148,8 @@ is never collected in the first place.
 - **Bots are not counted.** Requests with a recognized bot user agent are
   excluded from click counts and analytics entirely.
 - **GeoIP resolution is local.** Country and region come from a local
-  MaxMind-format database. No third party is contacted, and no visitor
-  data leaves the server.
+  MMDB database. Visitor IPs are never sent to the database provider; the
+  server contacts the upstream only to download database updates.
 - **No third-party analytics, no telemetry, no tracking scripts.**
 
 Because there is no login, there is no session to hijack and no password

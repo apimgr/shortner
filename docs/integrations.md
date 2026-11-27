@@ -127,17 +127,19 @@ server:
       city: true
 ```
 
-Databases are MaxMind-format `.mmdb` files fetched from the public
-`ip-location-db` distribution over a CDN. They are downloaded in the
-background on first run — startup is never blocked on it — and refreshed
-weekly by the `geoip_update` scheduler task.
+Databases are `.mmdb` files from sapics/ip-location-db GitHub release assets.
+Downloads verify the published SHA-256 checksum before replacing a database,
+retain the last good copy on failure, and retry weekly through the built-in
+`geoip_update` task. An unverified but valid first-run file may be installed
+with degraded status when no previous copy exists.
 
 All lookups are local. **No visitor IP is ever sent to a third party.**
 Lookups fail open: if a database is missing or an address is not found,
 the request proceeds and the country and region fields are simply omitted.
 
-Country data is licensed CC BY 4.0; the attribution appears on the
-instance's own about page and in `LICENSE.md`.
+ASN and Country data from iptoasn.com is PDDL and needs no attribution. City
+data from DB-IP is CC BY 4.0; its required attribution appears on the
+instance's About page and in `LICENSE.md`.
 
 Country blocking should be treated as a coarse risk signal, not as an
 access-control boundary — it is trivially bypassed with a VPN.
@@ -245,7 +247,7 @@ submission. Security reports use their dedicated encrypted reporting flow.
 ## Self-Update via GitHub Releases
 
 The updater queries the GitHub Releases API for `apimgr/shortner`,
-selecting from the `stable`, `beta`, or `daily` channel. The downloaded
+selecting from the `stable`, `beta`, or `devel` channel. The downloaded
 artifact's SHA-256 is verified against the release's `sha256.txt` before
 anything is replaced. See [CLI Reference](cli.md#update).
 
@@ -407,9 +409,9 @@ enhance the pages. The worker caches version-stamped static assets and only
 HTML navigations explicitly marked `X-Offline-Cache: public`; it removes a
 cached copy when a later response is private, fails, or redirects. Forms and
 personalized pages stay network-only, and API responses are always network-only.
-Background Sync and geolocation are not implemented: the product-specific
-offline actions, replay/privacy rules, and location use case are undefined in
-the current API template.
+Background Sync is not implemented because this product has no offline
+actions to replay. GeoIP is implemented for country enrichment and optional
+country blocking as described above.
 
 ## Tor and I2P
 

@@ -108,7 +108,7 @@ shortner --update [subcommand]
 |------------|--------|
 | `check` | Report whether an update is available; installs nothing |
 | `yes` | Download, verify, and install |
-| `branch {stable\|beta\|daily}` | Switch and persist the update channel |
+| `branch {stable\|beta\|devel}` | Switch and persist the update channel |
 | `--help` | Update help |
 
 A bare `--update` means `yes`. `--maintenance update` is an alias.
@@ -117,7 +117,10 @@ A bare `--update` means `yes`. `--maintenance update` is an alias.
 |---------|--------|
 | `stable` | Tagged GitHub releases |
 | `beta` | Prerelease tags |
-| `daily` | The rolling `daily` tag, rebuilt each night |
+| `devel` | The rolling `devel` tag, rebuilt each night |
+
+`daily`, `rolling`, `dev`, and `development` are accepted aliases and are
+saved as `devel`.
 
 The downloaded artifact's SHA-256 is verified against the release's
 `sha256.txt` before anything is replaced; a mismatch aborts the update. On
@@ -127,10 +130,6 @@ the service is running it is restarted afterwards.
 
 `server.update.defer_days` only constrains the scheduled `update_check`
 task — an explicit `--update` ignores it.
-
-!!! note
-    Download progress is not printed, and the Windows reboot-cleanup
-    notice is not shown. Both are known gaps.
 
 ## Scheduler
 

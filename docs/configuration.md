@@ -201,7 +201,7 @@ server:
       enabled: false
       path: "{data_dir}/db/cache.db"
       sync_interval: "30s"
-      offline_mode: false
+      offline_mode: true
       max_age: "1h"
 ```
 
@@ -218,8 +218,9 @@ disabled by default. When enabled, it reads from a separate local SQLite file,
 while all writes remain remote-first. Synchronization reconciles the known
 server schema from remote to local; the remote copy wins and cache failures do
 not turn a successful remote write into a failed request. `sync_interval` and
-`max_age` accept Go duration values. `offline_mode` permits cache reads when
-the remote is unavailable; cached data is read-only in that state.
+`max_age` accept Go duration values. `offline_mode` defaults to `true` when
+enabled and permits read-only cache reads while the remote is unavailable. Set
+it to `false` to require the remote database.
 
 ### Limits and timeouts
 
@@ -600,8 +601,17 @@ server:
   privacy:
     data:
       sold: false
-      stored_on_server: false
-      sharing: []
+      stored_on_server: true
+      sharing:
+        - condition: analytics
+          when: Tracking configured and user consents
+          data: Anonymized page views, browser type, and country
+        - condition: email
+          when: SMTP configured for sending emails
+          data: Email address and message content
+        - condition: user_initiated
+          when: User explicitly shares content
+          data: Whatever the user chooses to share
     consent:
       message: "We use essential cookies..."
       buttons:
@@ -615,8 +625,8 @@ server:
       analytics:
         enabled: false
     retention:
-      export_available: false
-      deletion_available: false
+      export_available: true
+      deletion_available: true
     third_party:
       services: []
 ```
@@ -708,8 +718,11 @@ server:
       city: true
 ```
 
-Databases are downloaded from a public CDN on first run in the background,
-and refreshed weekly by the `geoip_update` task. `deny_countries` and
+Databases are downloaded from sapics/ip-location-db GitHub release assets on
+first run in the background. Published SHA-256 checksums are verified before
+replacement; failed updates keep the last good file, and a valid but
+unverified first-run file is reported as degraded. The built-in
+`geoip_update` task refreshes them weekly. `deny_countries` and
 `allow_countries` take ISO 3166-1 alpha-2 codes and drive optional
 country-blocking middleware. GeoIP is also what populates the country and
 region fields in click analytics. See
@@ -794,7 +807,7 @@ server:
     cli_min_version: ""
 ```
 
-Valid branches are `stable`, `beta`, and `daily`. With `auto_install`
+Valid branches are `stable`, `beta`, and `devel`. With `auto_install`
 off — the default — the `update_check` task only notifies. `defer_days`
 (0–365) makes the scheduled check ignore releases younger than that many
 days; an explicit `shortner --update` bypasses the defer window.
@@ -1058,7 +1071,7 @@ A representative selection of the validation rules:
 | `server.security.reports.retention_days` at or below zero | `365` |
 | `server.backup.retention.max_backups` below 1 | `1` |
 | `server.backup.disk_threshold` outside 1–100 | `90` |
-| `server.update.branch` not `stable`/`beta`/`daily` | `stable` |
+| `server.update.branch` not `stable`/`beta`/`devel` | `stable` |
 | `server.update.defer_days` outside 0–365 | `0` |
 | `web.headers.coop` / `coep` / `corp` invalid | The documented default |
 | `web.csp.mode` not `enforce`/`report-only` | `enforce` |

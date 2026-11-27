@@ -106,10 +106,9 @@ Full license: https://spdx.org/licenses/MIT.html
 ### GeoIP Data
 
 Country, ASN, and city data is provided by
-[sapics/ip-location-db](https://github.com/sapics/ip-location-db), licensed
-CC BY 4.0.
+[sapics/ip-location-db](https://github.com/sapics/ip-location-db), under the
+licenses listed below.
 
 <a href="https://db-ip.com/">IP Geolocation by DB-IP</a>
 
-Country and ASN data licensed CC BY 4.0 by the Number Resource Organization
-(NRO).
+ASN and Country data from iptoasn.com is PDDL. City data from DB-IP is CC BY 4.0.
