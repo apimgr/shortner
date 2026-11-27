@@ -115,28 +115,29 @@ binary, `alpine:latest` runs it under `tini` as PID 1 with
 `shortner --status`. The image verification checks its required runtime
 tools, health route, and Tor/I2P bootstrap behavior.
 
-## Run Locally
-
-```bash
-./binaries/shortner --debug --mode development --port 8080
-```
-
-On first run the binary creates its configuration and data directories,
-writes `server.yml` and private `secrets.yml`, generates the operator token,
-and prints the startup banner. See [Configuration](configuration.md) for
-where those files land on each platform.
-
-To run against a throwaway directory instead of the system paths:
+## Run a Debug Build in Docker
 
 ```bash
 mkdir -p "${TMPDIR:-/tmp}/apimgr"
+umask 077
 TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/apimgr/shortner-XXXXXX")
 mkdir -p "$TEMP_DIR/config" "$TEMP_DIR/data"
-CONFIG_DIR="$TEMP_DIR/config" DATA_DIR="$TEMP_DIR/data" \
-  ./binaries/shortner --debug --port 8080
+docker run --rm --no-healthcheck \
+  --name "shortner-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
+  -p 8080:8080 \
+  -v "$PWD/binaries:/app:ro" \
+  -v "$TEMP_DIR/config:/config" \
+  -v "$TEMP_DIR/data:/data" \
+  alpine:latest /app/shortner --debug --mode development \
+  --config /config --data /data --address 0.0.0.0 --port 8080
 ```
 
-Remove only the printed `TEMP_DIR` after stopping the server.
+The server runs inside a disposable `alpine:latest` container; never execute
+the project binary directly on the host. On first run it creates `server.yml`
+and private `secrets.yml` under `TEMP_DIR/config`, generates the operator
+token, and prints the startup banner. See
+[Configuration](configuration.md) for platform paths. Stop the container with
+Ctrl+C, then remove only this disposable `TEMP_DIR` when finished.
 
 ## Testing
 
