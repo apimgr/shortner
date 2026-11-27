@@ -425,8 +425,18 @@ by default in containers; its status reports startup, health, or provider
 unavailability.
 
 The plain-text form flattens the same fields, one `key: value` per line,
-in a fixed order: `project.*`, `status`, version and build, uptime, mode,
-timestamp, `features.*`, `checks.*`, `stats.*`.
+in a fixed order: `project.*`, `status`, optional restart and maintenance
+fields, version and build, uptime, mode, timestamp, `features.*`, `checks.*`,
+`stats.*`.
+
+When a critical database connection is unavailable, health returns HTTP 503
+with `status: "maintenance"` and a public-safe `maintenance` object containing
+the reason, message, start time, and reconnect progress. The server retries in
+the background. Writes return the canonical `MAINTENANCE` error with
+`Retry-After: 30`, `X-Maintenance-Mode: true`, and
+`X-Maintenance-Reason: database_connection`. Read-only cached operations are
+available only when `server.database.cache.offline_mode` is enabled and a
+successful cache snapshot exists.
 
 The process exit status of `shortner --status` mirrors this: `0` when
 running, `1` when not.

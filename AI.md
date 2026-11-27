@@ -844,7 +844,7 @@ Go projects never have `build-toolchain.yml` — `casjaysdev/go:latest` is maint
 - `benchstat` — statistically sound benchmark comparison
 - `gops` — live Go process diagnostics
 
-CI workflows reference the image directly: `container: image: casjaysdev/go:latest`. No `apk add`, no `go install`, no `ensure-build-image` job.
+CI workflows reference the image directly: `container: image: casjaysdev/go:latest`. No `apk add`, no `go install`, no `ensure-build-image` job. A test that needs a real `tor` executable (the server-SIGKILL owner test) is not a Go unit test: it runs in the integration tier (`tests/docker.sh`, `tests/incus.sh`), whose image installs Tor (PART 26), and the CI Go job never installs packages.
 
 | Provider | Workflow location | Syntax |
 |----------|------------------|--------|
@@ -7481,8 +7481,8 @@ Operator edits server.yml directly (text editor or config-management tool)
 ### Maintenance Mode
 
 **Only TWO types of errors are truly critical:**
-1. Database connection error
-2. Cannot write to files (disk full, permissions, etc.)
+1. Database failure: connection errors and write failures
+2. File system failure: required files that cannot be read or written (disk full, permissions, etc.)
 
 **All other errors are recoverable. The server ALWAYS attempts self-healing.**
 
@@ -12337,7 +12337,7 @@ func OpenDatabase(cfg *Config) (*Database, error) {
 -- SERVER.DB - Server state and operations
 -- ============================================================================
 
--- There is NO config table: configuration lives only in server.yml (PART 5)
+-- There is NO config table in the fresh schema: configuration lives only in the config files (PART 5). A legacy `config` or `config_meta` table left by an older version is inert: it is never read, never created, never dropped (schema updates never `DROP TABLE`) and its values are never migrated into the files
 
 -- ----------------------------------------------------------------------------
 -- Rate Limiting (sliding window counter: the current and the previous fixed window)
@@ -15777,6 +15777,8 @@ web:
 ```
 
 **`custom_sections` shape and rendering.** Each item is `{ title, content }`: `title` is 1–80 characters, `content` is Markdown of at most 4096 characters. The sections follow the generated ones in list order, each as `## {title}` followed by its content. Content is rendered as Markdown text only: HTML tags are escaped, never interpreted, and links are limited to `https://` and relative paths. At most 10 sections; an item that breaks a limit is skipped with one warning.
+
+**Examples are illustrations.** Every `Authentication:` and endpoint line is generated from the project's actual routes and auth contract: the login and user-token lines above appear only when the project has accounts (PART 34); an API project names its owner-token route, and a product with no accounts or no authenticated routes names none (`Authentication: none` when every route is public).
 
 **Auto-Generation Rules:**
 - Project name and description from `IDEA.md` or config
@@ -29851,7 +29853,7 @@ CREATE INDEX IF NOT EXISTS idx_captcha_challenges_expires ON captcha_challenges(
 
 #### Contact antispam
 
-**Antispam is layered, runs entirely on the server, needs no JavaScript and no third party, and runs BEFORE anything is delivered. The layers run cheapest first, and the first one that rejects ends the request.**
+**Antispam is layered, runs on the server, needs no JavaScript and no third party by default (the optional `recaptcha` and `hcaptcha` providers are the one explicit, opt-in exception: they need a third party and JavaScript, and are never offered on a Tor or I2P request), and runs BEFORE anything is delivered. The layers run cheapest first, and the first one that rejects ends the request.**
 
 | # | Layer | Rule | On failure |
 |---|-------|------|------------|
@@ -33711,7 +33713,7 @@ Restoring...
 
 | Branch | Release Type | Tag Pattern | Example |
 |--------|--------------|-------------|---------|
-| `stable` (default) | Release | `v*`, `*.*.*` | `v1.0.0` |
+| `stable` (default) | Release | `v*` | `v1.0.0` |
 | `beta` | Pre-release | `*-beta` | `202512051430-beta` |
 | `devel` | Pre-release | Rolling `devel` tag (deleted and recreated nightly) | `devel` |
 
@@ -33763,7 +33765,7 @@ server:
 
 | Channel | Considers | Selection |
 |---------|-----------|-----------|
-| `stable` (default) | Full releases only (`v*`, `*.*.*`) | Newest stable |
+| `stable` (default) | Full releases only (`v*`) | Newest stable |
 | `beta` | Beta pre-releases (`*-beta`) + all stable releases | Newest of both — beta users are never stuck behind a stable release |
 | `devel` | Rolling `devel` release (rebuilt nightly) + beta + stable | Newest overall — a newer nightly is detected by comparing the release's `published_at` against the running binary's embedded `BUILD_EPOCH` |
 
@@ -35394,7 +35396,7 @@ func (ws *windowsService) Execute(args []string, r <-chan svc.ChangeRequest, s c
   2. Environment variable: `OFFICIAL_SITE=<url>`
   3. CI/CD secrets (repository secrets)
   4. Empty (self-hosted projects)
-- **Unset means unset:** when the user has not given an official site, `official_site` is absent from IDEA.md, there is no `site.txt`, `OFFICIAL_SITE` is empty in the Makefile, Docker build args and CI, the embedded `OfficialSite` is the empty string, and the CLI requires `--server`. Never fill it from the project name, the organization, `server.fqdn`, a git remote, or an `example.com` / `example.org` domain, and never use a placeholder host such as `xxx.example.com`; the Official Site README section is omitted and every `{official_site}` example uses its not-defined form. Reserved example domains appear only inside this specification's illustrations, never in a project file or variable.
+- **Unset means unset:** when the user has not given an official site, `official_site` is absent from IDEA.md, there is no `site.txt`, `OFFICIAL_SITE` is empty in the Makefile, Docker build args and CI, the embedded `OfficialSite` is the empty string, and the CLI requires `--server` (only when every operational source, `site.txt`, `OFFICIAL_SITE` and CI secrets, is empty: a project that sets any of them has a compiled default server). Never fill it from the project name, the organization, `server.fqdn`, a git remote, or an `example.com` / `example.org` domain, and never use a placeholder host such as `xxx.example.com`; the Official Site README section is omitted and every `{official_site}` example uses its not-defined form. Reserved example domains appear only inside this specification's illustrations, never in a project file or variable.
 
 **Illustration only** (`example.com` is a reserved documentation domain; never write it into a project as a value. The one exception is a reserved-name BLOCKLIST, such as the custom-domain `reserved:` list with `*.example`, `*.test`, `*.invalid`, which contains these names precisely to refuse them):
 ```
@@ -36126,7 +36128,7 @@ The **only** times binaries are copied are the CI/CD release process, the `make 
 
 | Property | Value |
 |----------|-------|
-| Trigger | Git tag push with semver pattern (`v*`, `*.*.*`) |
+| Trigger | Git tag push with semver pattern (`v*`) |
 | Version format | Semantic (`X.Y.Z`) - NUMBERS only |
 | Git tag | `v1.2.3`, `v0.2.0`, or `1.2.3` (numeric versions) |
 | Release name | `v{version}` (always with v: `v1.2.3`, `v0.2.0`) |
@@ -37234,7 +37236,7 @@ rm -rf "$TEMP_DIR"
 | File | Trigger | Purpose |
 |------|---------|---------|
 | `ci.yml` | Push, PR to default branch; security jobs also run on weekly cron | Build + test + lint + coverage + secret scanning + image scanning + workflow-policy |
-| `release.yml` | Tag push (`v*`, `*.*.*`) | Production releases |
+| `release.yml` | Tag push (`v*`) | Production releases |
 | `beta.yml` | Push of a `*-beta` tag | Beta releases |
 | `devel.yml` | Daily at 3am UTC + push to main | Devel builds |
 | `docker.yml` | Push to `main`, version tags, `*-beta` tags and the daily schedule | Docker images (standard, beta, devel) |
@@ -37444,7 +37446,6 @@ on:
   push:
     tags:
       - 'v*'
-      - '[0-9]*.[0-9]*.[0-9]*'
   workflow_dispatch: {}
 
 concurrency:
@@ -38041,7 +38042,7 @@ jobs:
 |---------|------|
 | **Any push to main** | `{commit_id}` |
 | Push of a `*-beta` tag | `beta`, `{commit_id}` |
-| Version tag (`v*`, `*.*.*`) | `{version}`, `latest`, `{yymm}` |
+| Version tag (`v*`) | `{version}`, `latest`, `{yymm}` |
 
 **Notes:**
 - `{commit_id}` = short SHA (7 characters) from `git rev-parse --short=7 HEAD`
@@ -38061,7 +38062,6 @@ on:
     branches: [main]
     tags:
       - 'v*'
-      - '*.*.*'
       - '*-beta'
   schedule:
     - cron: '0 4 * * *'
@@ -38324,7 +38324,7 @@ For self-hosted runners, change `runs-on: ubuntu-26.04` to your runner label.
 | File | Trigger | Purpose |
 |------|---------|---------|
 | `ci.yml` | Push and pull requests; weekly schedule for security jobs | Build, test, lint, coverage, security jobs |
-| `release.yml` | Tag push (`v*`, `*.*.*`) | Production releases |
+| `release.yml` | Tag push (`v*`) | Production releases |
 | `beta.yml` | Push of a `*-beta` tag | Beta releases |
 | `devel.yml` | Daily at 3am UTC + push to main | Devel builds |
 | `docker.yml` | Push to `main`, version tags, `*-beta` tags and the daily schedule | Docker images (standard, beta, devel) |
@@ -38487,7 +38487,6 @@ on:
   push:
     tags:
       - 'v*'
-      - '[0-9]*.[0-9]*.[0-9]*'
   workflow_dispatch: {}
 
 concurrency:
@@ -39056,7 +39055,6 @@ on:
     branches: [main]
     tags:
       - 'v*'
-      - '*.*.*'
       - '*-beta'
   schedule:
     - cron: '0 4 * * *'
@@ -39505,7 +39503,7 @@ build:linux-amd64:
       dotenv: release.env
     expire_in: 1 week
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/
 
 build:linux-arm64:
   <<: *go-build
@@ -39521,7 +39519,7 @@ build:linux-arm64:
       - ${PROJECT_NAME}-linux-arm64*
     expire_in: 1 week
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/
 
 build:darwin-amd64:
   <<: *go-build
@@ -39537,7 +39535,7 @@ build:darwin-amd64:
       - ${PROJECT_NAME}-darwin-amd64*
     expire_in: 1 week
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/
 
 build:darwin-arm64:
   <<: *go-build
@@ -39553,7 +39551,7 @@ build:darwin-arm64:
       - ${PROJECT_NAME}-darwin-arm64*
     expire_in: 1 week
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/
 
 build:windows-amd64:
   <<: *go-build
@@ -39569,7 +39567,7 @@ build:windows-amd64:
       - ${PROJECT_NAME}-windows-amd64*.exe
     expire_in: 1 week
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/
 
 build:windows-arm64:
   <<: *go-build
@@ -39585,7 +39583,7 @@ build:windows-arm64:
       - ${PROJECT_NAME}-windows-arm64*.exe
     expire_in: 1 week
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/
 
 build:freebsd-amd64:
   <<: *go-build
@@ -39601,7 +39599,7 @@ build:freebsd-amd64:
       - ${PROJECT_NAME}-freebsd-amd64*
     expire_in: 1 week
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/
 
 build:freebsd-arm64:
   <<: *go-build
@@ -39617,7 +39615,7 @@ build:freebsd-arm64:
       - ${PROJECT_NAME}-freebsd-arm64*
     expire_in: 1 week
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/
 
 # =============================================================================
 # TEST
@@ -39635,7 +39633,7 @@ test:
     - PCT=$(go tool cover -func="$COVDIR/coverage.out" | awk '/^total:/ {gsub("%","",$3); print int($3)}')
     - if [ "$PCT" -lt 60 ]; then echo "coverage ${PCT}% is below the 60% threshold"; exit 1; fi
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/
     - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_TAG =~ /^\d{14}-beta$/
     - if: $CI_PIPELINE_SOURCE == "schedule"
@@ -39722,7 +39720,7 @@ release:
         - name: "sha512.txt"
           url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/sha512.txt?job=release"
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/
 
 # =============================================================================
 # BETA BUILDS (push of a YYYYMMDDHHMMSS-beta tag)
@@ -39853,7 +39851,7 @@ sbom:release:
       - ${PROJECT_NAME}-*-sbom.cdx.json
     expire_in: 1 week
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/
 
 sbom:beta:
   image: $BUILD_IMAGE
@@ -40097,7 +40095,7 @@ docker:build:
         --push \
         .
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/
     - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_TAG =~ /^\d{14}-beta$/
 
@@ -41310,7 +41308,7 @@ rm -rf "$TEST_DIR"
 | `os.TempDir()` alone | `os.MkdirTemp(filepath.Join(os.TempDir(), projectOrg), projectName+"-")` | Must nest under org |
 | Hardcoded org name | Detect from git remote or path | Auto-detect, never hardcode |
 
-**Rule: ALL temp directories MUST be under `/tmp/{project_org}/{internal_name}-XXXXXX/` - no exceptions.**
+**Rule: ALL temp directories MUST be under `{temp_root}/{project_org}/{internal_name}-XXXXXX/` - no exceptions. `{temp_root}` is the OS temp root: `$TMPDIR` when set, else `/tmp` on Linux and BSD, the per-user temp directory on macOS and `%TEMP%` on Windows; the org/project prefix applies under it on every platform, and `/tmp` in the examples stands for it.**
 
 ### Summary: Temp Directory Rules
 
@@ -41320,7 +41318,7 @@ rm -rf "$TEST_DIR"
 ```
 
 **Breaking it down:**
-- `/tmp/` or `$TMPDIR` - OS temp directory base
+- `/tmp/` or `$TMPDIR` - the OS temp root (`$TMPDIR`, else `/tmp`; the per-user temp directory on macOS; `%TEMP%` on Windows); the prefix below applies under it on every platform
 - `{project_org}/` - Organization directory (cloudops, acmesoft, etc.)
 - `{internal_name}-XXXXXX` - Project directory with random suffix
 
@@ -48364,13 +48362,13 @@ Server Status: Running
 Tor Hidden Service: Connected
   Address: abcd1234...wxyz.onion
 
-I2P Eepsite: Running (i2pd)
+I2P Eepsite: running (i2pd)
   Address: examplei2p...uv.b32.i2p
 ```
 
 | Field | Description |
 |-------|-------------|
-| I2P Eepsite | The lifecycle `state` verbatim: `disabled`, `no_provider`, `starting`, `building`, `running` (followed by the provider in parentheses, for example `running (i2pd)`) or `error` |
+| I2P Eepsite | The lifecycle `state` verbatim: `disabled`, `no_provider`, `starting`, `building`, `running` (followed by the provider in parentheses, for example `running (i2pd)`) or `error`. Expected output for each state: `I2P Eepsite: disabled`, `I2P Eepsite: no_provider`, `I2P Eepsite: starting`, `I2P Eepsite: building`, `I2P Eepsite: running (i2pd)` followed by its `Address:` line, and `I2P Eepsite: error` |
 | Address | Full `.b32.i2p` address |
 
 ---
@@ -50345,8 +50343,7 @@ defaults:
   expire: 24h
   # --syntax default
   syntax: auto
-  # --output default (json, table, plain)
-  output: table
+  # the --output default is output.format (see "Config precedence"), not a key of this block
   # --limit default
   limit: 20
 ```

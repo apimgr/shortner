@@ -221,6 +221,35 @@ not turn a successful remote write into a failed request. `sync_interval` and
 `max_age` accept Go duration values. `offline_mode` defaults to `true` when
 enabled and permits read-only cache reads while the remote is unavailable. Set
 it to `false` to require the remote database.
+If the remote is unavailable at startup, the server remains available in
+maintenance mode and retries the connection. A cache is never used unless it
+has a successful snapshot and `offline_mode` is enabled; without one, only
+health endpoints are available. Once the remote returns, the server completes
+schema and secret initialization before accepting requests again. With
+`offline_mode: true` and a usable snapshot, cached reads continue while all
+writes and secret-dependent routes return `503`.
+
+### Database maintenance recovery
+
+```yaml
+server:
+  maintenance:
+    self_healing:
+      retry_interval: "30s"
+      max_attempts: 0
+    cleanup:
+      disk_threshold: 90
+      log_retention_days: 7
+    notify:
+      on_enter: true
+      on_exit: true
+```
+
+Self-healing always runs. `retry_interval` sets the reconnect cadence;
+`max_attempts: 0` retries without a limit. A positive limit stops retries
+after that many failed attempts and reports exhaustion in the health response.
+Maintenance entry and recovery are written to the audit log. Notifications
+follow the two `notify` switches and require configured email delivery.
 
 ### Limits and timeouts
 
