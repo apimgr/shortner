@@ -37,7 +37,7 @@ Key packages under `src/`:
 | `paths` | Per-platform path resolution, privileged/unprivileged/container detection |
 | `mode` | `production`/`development` and debug resolution |
 | `db` | SQLite schema and CRUD (links, clicks, API tokens, scheduler, security reports) |
-| `httpserver` | Router, middleware, handlers, security headers, well-known files |
+| `server` | Router, middleware, handlers, security headers, well-known files |
 | `security` | Token generation/hashing, Argon2id, IP anonymization, slug/short-code generation, bot detection, AES-GCM sealing |
 | `apperr` | Canonical error envelope and HTTP status mapping |
 | `applog` | Log formatters, file logger, audit logger, in-memory ring buffer |
