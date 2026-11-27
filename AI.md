@@ -8409,6 +8409,9 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
    }
 
    // execElevated re-executes with elevated privileges (Unix)
+   // Illustrative: the normative dispatch tries the detected methods in the order of the list in PART 23 (sudo, doas, pkexec)
+   // and, only after the user accepted the prompt and every detected method failed, su in the same terminal
+   // (su asks for the root password itself; the accepted prompt is not repeated)
    func execElevated(args []string) error {
        sudoArgs := append([]string{"sudo"}, args...)
        cmd := exec.Command(sudoArgs[0], sudoArgs[1:]...)
@@ -12523,6 +12526,8 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_active   ON api_tokens(revoked_at) WHE
 
 **Existing resource tables (upgrades).** A table created by this specification carries `owner_id TEXT NOT NULL REFERENCES owners(id)`. A resource table that already exists without the column gains `owner_id TEXT REFERENCES owners(id)` through `ADD COLUMN`: nullable with a NULL default, because SQLite only allows an added `REFERENCES` column to default to NULL and a table is never rebuilt ("Schema Update Rules"). The same migration step backfills every existing row with the reserved `system` owner in one statement, and from then on the code treats `owner_id` as required: it never writes NULL and a NULL read is a defect, so `NOT NULL` is enforced by the application for such a table.
 
+**Legacy `owner_id` of another type (upgrades).** A resource table that already has an `owner_id` of another type (for example INTEGER) is not rebuilt: it keeps that column, gains the canonical `owner_ref TEXT REFERENCES owners(id)` through `ADD COLUMN`, and is backfilled by the project's one-time pre-start adoption migration (written in SPEC.md); every query, token and export uses `owner_ref` from then on. Fresh databases use `owner_id TEXT` as defined above.
+
 **Legacy integer token key (upgrades).** A database created with an integer `api_tokens.id` keeps that column as its internal key (a primary key is never converted and the table is never rebuilt). The migration adds `public_id TEXT` (nullable) with a unique index, fills it with a UUID v7 for every row, and from then on every URL, JSON body, log line and audit event uses `public_id` only: the integer is never exposed, never accepted from a client and never logged. New rows of such a database get both values. A fresh database has the canonical `id` as UUID v7 and no `public_id`.
 
 **`audit_log` is a queryable mirror, `audit.log` is the authoritative record ("Audit Logging"):** every event is appended to the append-only `audit.log` FIRST (ULID `id`, hash chain, fsync), then inserted into `audit_log` on a best-effort basis; the entry's ULID is kept inside `details` as `audit_id` and the table `id` is only a local row number. A failed insert is logged (`audit.mirror_failed`) and never blocks or drops the event. Rotation of the file deletes no rows, rows are removed only by the retention cleanup, and the file is never edited from the table. When the two disagree the file wins; the table may be dropped at any time and refills from new events.
@@ -14301,7 +14306,7 @@ func versionPurge(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-Called from the HTML middleware only — never on static, API, or `/sw.js` responses.
+Called from the HTML middleware only, and only for a successful (2xx) top-level navigation — never on static, API, `/sw.js`, redirect or error responses (an error response neither sets nor refreshes the cookie).
 
 **The purge MUST NOT be able to hang a page load** (`"storage"` waits on IndexedDB connections held by other open tabs, `"cache"` holds the navigation until the HTTP cache is cleared):
 
@@ -16085,7 +16090,7 @@ CREATE TABLE IF NOT EXISTS security_thanks (
 
 **Restore behavior:** restoring a backup re-installs the keypair and `keyservers.state`, then submits the public key only to the configured keyservers that the restored state does not already list for this fingerprint (a keyserver added since the backup, or a different fingerprint). A keyserver already listed is not contacted again, and a submission that does happen is idempotent because keyservers de-duplicate by fingerprint. The `installation_secret` is restored from the same backup, so the encrypted private key decrypts correctly.
 
-**Operator UX:** running `{project_name} --maintenance backup` and `{project_name} --maintenance restore` covers the security keypair without any extra steps. `{project_name} --maintenance backup test [file]` verifies a backup without touching live data: `file` defaults to the newest backup in `{backup_dir}` (the newest by the UTC date in the file name wins, exactly as for restore, "Default archive selection", and the manifest is never read to choose; an incremental is checked together with its base). An encrypted backup asks for its password interactively exactly like restore (there is no password flag; without a terminal the command fails with a message that says so). It extracts into a temporary directory, verifies the manifest checksums, decrypts `pgp.priv.asc.enc` with the `installation_secret` found in that same backup, compares the fingerprint of the decrypted key with `pgp.pub.asc`, reports each result, and removes the temporary directory.
+**Operator UX:** running `{project_name} --maintenance backup` and `{project_name} --maintenance restore` covers the security keypair without any extra steps. `{project_name} --maintenance backup test [file]` verifies a backup without touching live data: `file` defaults to the newest backup in `{backup_dir}` (the newest by the UTC date in the file name wins (restore uses the same date rule but considers fulls only, "Default archive selection"), and the manifest is never read to choose; an incremental is checked together with its base). An encrypted backup asks for its password interactively exactly like restore (there is no password flag; without a terminal the command fails with a message that says so). It extracts into a temporary directory, verifies the manifest checksums, decrypts `pgp.priv.asc.enc` with the `installation_secret` found in that same backup, compares the fingerprint of the decrypted key with `pgp.pub.asc`, reports each result, and removes the temporary directory.
 
 ## Logging
 
@@ -17588,7 +17593,7 @@ if !subtle.ConstantTimeCompare([]byte(got), []byte(want)) {
 | Role | When triggered | What is sent by email (a webhook of any role carries only the summary below) |
 |------|----------------|--------------|
 | `admin` | Server-internal events: error rate spike, panic, backup failure, cert renewal, security report received (summary only) | Subject + body + severity. NEVER includes user content. |
-| `security` | Incoming security report (full content, encrypted), researcher status update, CVE assignment milestone | PGP-encrypted body if a researcher pubkey or admin pubkey is configured (PART 11 → "GPG Keypair Management"). |
+| `security` | Incoming security report (full content, encrypted), researcher status update, CVE assignment milestone | PGP-encrypted body to the researcher's pubkey when one is configured (PART 11 → "GPG Keypair Management"); with only an admin pubkey, the status notice to the researcher is plain text and carries only the tracking id and the status word (never report content), because a message encrypted to the admin key would be unreadable to the researcher, and no separate operator copy is sent. |
 | `abuse` | Application-defined abuse events (user-flagged content, DMCA/takedown requests) and every `abuse` and `dmca` submission of the report form (`/server/contact`) | Sender name, sender email, subject, message body, and the reported resource URL when the application provides one. Spam-filtered before dispatch (PART 16 → "Contact antispam"). |
 | `general` | Fallback for `abuse`, `dmca` and `privacy` submissions of the report form (`/server/contact`) when the abuse or DPO address is empty | Sender name, sender email, subject, message body. Spam-filtered before dispatch (PART 16 → "Contact antispam"). |
 
@@ -23712,7 +23717,7 @@ No other stylesheet is written by hand: a project never adds a file per page. Th
 | Variant | `.block-variant` for the fixed variants named in the catalog | `.btn-primary`, `.badge-error` |
 | Size | `.block-sm`, `.block-lg`, `.block-xl` (`md` is the default and has no class) | `.btn-lg`, `.input-sm` |
 | State | The native or ARIA state first: `:disabled`, `:checked`, `[aria-current="page"]`, `[aria-expanded="true"]`, `[aria-pressed="true"]`, `[aria-busy="true"]`, `[aria-invalid="true"]`; a state class (`.is-active`, `.is-loading`) only when no attribute exists | `.toggle input:checked + .toggle-track` |
-| Page hook | `.page-{name}` on `<body>` or `<main>`, with no rule of its own in any stylesheet (tests and anchors only) | `.page-preferences` |
+| Page hook | `.page-{name}` on `<body>` or `<main>`, with no styling of its own: `public.css` and `admin.css` may use it only for the documented placement properties ("Page placement"), and tests and anchors use it freely | `.page-preferences` |
 | JavaScript hook | `data-js-{name}` attribute, never a class | `data-js-copy` |
 
 **Never:** an ID selector, a class named for its look (`.red`, `.big-box`), a class named for a spacing size (`.spacing-sm`: `sm` is a SIZE name, spacing helpers are numbered, see Utilities), a one-off class on one page, or a class that only one page uses.
@@ -23761,20 +23766,20 @@ No other stylesheet is written by hand: a project never adds a file per page. Th
 |-----------|--------------------|----------|-------|-------------|
 | Button | `.btn` | `-primary`, `-secondary`, `-danger`, `-ghost`, `-icon` (square, icon only, needs `aria-label`), `--block` | `sm`, `lg`, `xl` | `:disabled`, `[aria-busy]`, `[aria-pressed]` |
 | Input, select, textarea | `.input` | none | `sm`, `lg` | `:disabled`, `:read-only`, `[aria-invalid]` |
-| Form group | `.form-group`, `.form-group-label`, `.form-group-help`, `.form-group-error` | none | none | `[aria-invalid]` on the control |
+| Form group | `.form-group`, `.form-group-label`, `.form-group-help`, `.form-group-error` | `--error`, `--success` | none | `[aria-invalid]` on the control |
 | Toggle | `.toggle`, `.toggle-track`, `.toggle-thumb`, `.toggle-label`, `.toggle-help` | none | `sm`, `lg` | `:checked`, `:disabled`, `:focus-visible` |
 | Check and radio | `.check`, `.check-box`, `.check-label` | none | none | `:checked`, `:indeterminate`, `:disabled` |
 | Tile (picker) | `.tile`, `.tile-icon`, `.tile-label` | none | `sm`, `lg`, `xl` | `[aria-checked]`, `:disabled` |
 | Badge | `.badge` | `-ok`, `-warning`, `-error`, `-info`, `-neutral` | `sm`, `lg` | none |
 | Alert | `.alert`, `.alert-title` | `-info`, `-success`, `-warning`, `-error` | none | none |
-| Toast | `.toast`, `.toast-progress`, `.toast-close` | `-success`, `-info`, `-warning`, `-error` | none | none |
+| Toast | `.toast-container`, `.toast`, `.toast-icon`, `.toast-message`, `.toast-progress`, `.toast-close` | `-success`, `-info`, `-warning`, `-error` | none | none |
 | Modal, popover | `.modal`, `.modal-body`, `.modal-actions` on `<dialog>` or `[popover]` | none | none | `[open]`, `:popover-open` |
 | Table | `.table-wrapper`, `.data-table` | none | `sm` | `[aria-sort]` |
 | Navigation | `.nav-links`, `.nav-link`, and the drawer: `.nav-panel`, `.nav-toggle`, `.nav-overlay`, `.nav-checkbox`, `.nav-close` | none | none | `[aria-current]`, `[aria-expanded]` |
 | Header, footer | `.site-header`, `.site-brand`, `.site-header-actions`, `.site-header-link`, `.site-footer`, `.footer-onion`, `.footer-i2p` | none | none | none |
 | Hub list | `.hub-list`, `.hub-item`, `.hub-link`, `.hub-title`, `.hub-desc` | none | none | `:focus-visible` |
 | Info list | `.info-list`, `.info-label`, `.info-value` | none | none | none |
-| Empty state | `.empty-state`, `.empty-state-title` | none | `lg`, `xl` | none |
+| Empty state | `.empty-state`, `.empty-state-icon`, `.empty-state-title`, `.empty-state-message` | none | `lg`, `xl` | none |
 | Site banner | `.site-banner` | `-info`, `-warning`, `-error`, `-success` | none | none |
 | Icon | `.icon` | none | `sm`, `lg`, `xl` | none |
 
@@ -23790,7 +23795,6 @@ No other stylesheet is written by hand: a project never adds a file per page. Th
 | Code and copy | `.code-block`, `.copy-btn`, `.copy-icon`, `.copy-text`, `.copy-value`, `.long-string`, `.onion-address`, `.i2p-address`, `.monospace-data`, `.ip-address`, `.api-token`, `.hash` | Code block section |
 | Stats and lists | `.stats-grid`, `.feature-list`, `.feature-enabled`, `.feature-disabled`, `.node-list` | Landing and cluster sections |
 | Admin shell | `.topbar`, `.sidebar`, `.admin-footer`, `.dropdown-item`, `.notification-bell`, `.profile-menu`, `.avatar` | Admin panel section |
-| Form feedback | `.field-error` | Form sections |
 | Theme toggle | `.theme-toggle-form`, `.theme-button` | Header and Preferences sections |
 | Skip link | `.skip-link` | Accessibility section |
 
@@ -23803,6 +23807,7 @@ No other stylesheet is written by hand: a project never adds a file per page. Th
 - Third-party theme CSS shown as an illustration (`.md-typeset`, `.swagger-ui`, `.opblock`, `.admonition`, `.graphiql-container`, CodeMirror). Its own palette is mapped from the project tokens; it never adds a second palette.
 - Examples labelled `WRONG`, which exist to show what the lint rejects (for example `.my-export-btn`). They are never copied into a stylesheet.
 - The literal sizes in the CSS examples of this specification are illustrative; the stylesheet writes each as its token (`0.25rem` is `--space-1`, `0.5rem` is `--space-2`, `0.75rem` is `--space-3`, `1rem` is `--space-4`, `4px` is `--radius-sm`, `1px` is `--border-width`), and the lint is the contract, not the example.
+- Vendored third-party stylesheets (`static/vendor/**`, for example `swagger-ui.css`) and the generated `swagger-theme.css` and `graphql-theme.css` are linked only on their own pages and are unlayered: unlayered rules outrank layered ones, so the theme mapping that must win over the vendor file is unlayered too. The CSS lint skips these files and nothing edits them.
 - The `@media print` block and the single `@media (prefers-reduced-motion: reduce)` block may use `!important` to override screen rules, and only there.
 - Component custom properties with a fallback (`--cluster-gap`, `--control-height`, `--grid-min`, `--stack-gap`, `--toast-duration`); they are set by the component, not defined in `:root`.
 
@@ -24888,7 +24893,7 @@ document.querySelectorAll('.theme-toggle-form').forEach((form) => {
   <label for="email">Email</label>
   <input type="email" id="email" name="email"
          aria-describedby="email-error" aria-invalid="true">
-  <span id="email-error" class="field-error" role="alert">
+  <span id="email-error" class="form-group-error" role="alert">
     Please enter a valid email address
   </span>
 </div>
@@ -24925,26 +24930,26 @@ textarea:user-invalid {
 }
 
 /* Show the styled message element purely via CSS once the field is invalid */
-input:user-invalid ~ .field-error,
-select:user-invalid ~ .field-error,
-textarea:user-invalid ~ .field-error {
+input:user-invalid ~ .form-group-error,
+select:user-invalid ~ .form-group-error,
+textarea:user-invalid ~ .form-group-error {
   display: block;
 }
 
-.form-group.error input,
-.form-group.error select,
-.form-group.error textarea {
+.form-group--error input,
+.form-group--error select,
+.form-group--error textarea {
   border-color: var(--color-error);
 }
 
-.field-error {
+.form-group-error {
   color: var(--color-error);
   font-size: 0.875rem;
   margin-top: 0.25rem;
   display: block;
 }
 
-.form-group.success input {
+.form-group--success input {
   border-color: var(--color-success);
 }
 ```
@@ -24952,7 +24957,7 @@ textarea:user-invalid ~ .field-error {
 
 ```html
 <div class="form-group">
-  <label class="label" for="email">Email</label>
+  <label class="form-group-label" for="email">Email</label>
   <input
     type="email"
     id="email"
@@ -24962,8 +24967,8 @@ textarea:user-invalid ~ .field-error {
     aria-invalid="false"
     required
   >
-  <p id="email-hint"  class="field-hint">We'll never share your email.</p>
-  <p id="email-error" class="field-error" role="alert" hidden></p>
+  <p id="email-hint"  class="form-group-help">We'll never share your email.</p>
+  <p id="email-error" class="form-group-error" role="alert" hidden></p>
 </div>
 ```
 
@@ -24982,7 +24987,7 @@ document.querySelectorAll('.form-group input, .form-group select, .form-group te
 
 ```css
 .form-group  { display: flex; flex-direction: column; gap: var(--space-1); }
-.label       { font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
+.form-group-label { font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
 .input {
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-border);
@@ -24994,7 +24999,7 @@ document.querySelectorAll('.form-group input, .form-group select, .form-group te
 }
 .input:focus { border-color: var(--color-primary); box-shadow: var(--focus-ring); outline: none; }
 .input[aria-invalid="true"] { border-color: var(--color-error); }
-.field-hint  { font-size: var(--font-size-xs); color: var(--color-muted); }
+.form-group-help  { font-size: var(--font-size-xs); color: var(--color-muted); }
 ```
 
 ## Import/Export UI Convention
@@ -31584,6 +31589,10 @@ Task state is stored in `server.db`, in the `scheduler_tasks` table (PART 10); t
 | `run_count` | Integer | Total successful runs |
 | `fail_count` | Integer | Total failed runs |
 | `enabled` | Integer | 1 = enabled, 0 = disabled |
+| `locked_by` | Text | Lock holder: the node id, or `cli:{pid}` for a CLI run; NULL when free |
+| `locked_at` | Integer | Unix seconds when the lock was taken |
+
+**Lock protocol.** Acquire is ONE atomic statement, `UPDATE scheduler_tasks SET locked_by = ?, locked_at = ? WHERE id = ? AND (locked_by IS NULL OR locked_at < ? - lease)`, and the run proceeds only when exactly one row changed. Release clears both columns in the same transaction that writes `last_status`. A lock older than the lease (twice the task's timeout, at least 10 minutes) is stale and is taken over, and the stale run's row is set `interrupted`. `run <id>` from the CLI takes the same lock, so it never overlaps a live run.
 
 **`interrupted` is a persisted `last_status` value.** It is written when the server stops (timeout) or crashes while a task was `running`; at the next start every row still `running` is set to `interrupted` first, and an interrupted task runs again at the start. An interruption is not a failure: it does not change `fail_count` or `last_error`.
 
@@ -31679,7 +31688,7 @@ The scheduler status is read-only through the CLI commands below (there is no AP
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  TASK: Backup                               [Enable/Disable] [Run Now]      │
+│  TASK: Backup                                                                  │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  Status:      ✓ Enabled                                                    │
@@ -31721,7 +31730,7 @@ The scheduler status is read-only through the CLI commands below (there is no AP
 | Schedule | Cron expression or interval |
 | Last Run | Timestamp and duration |
 | Next Run | Scheduled time |
-| Actions | Enable/Disable, Run Now, View History |
+| CLI actions | `enable`, `disable`, `run` and `history` are CLI subcommands; the output shows no controls |
 
 **Backup Tasks:**
 
@@ -37593,6 +37602,8 @@ rm -rf "$TEMP_DIR"
 
 **Pull requests and merges:** a pull request (from a fork or a bot branch, the only kind there is) runs `ci.yml` only (build, test, lint, coverage, secret scan, workflow policy) — it never publishes an image or a release, and a fork PR receives no secrets. Merging into `main` is simply a push to that branch, so the merge triggers `ci.yml`, `devel.yml` (the rolling `devel` release) and `docker.yml` (the `{commit_id}` image and the `:devel` image). A beta is a pushed tag `YYYYMMDDHHMMSS-beta` (created by the maintainer), a stable release is a pushed `v*` tag, and neither is ever a merge. A PR and its target branch have different refs, so their concurrency groups never cancel each other.
 
+**Markdown-only changes never build.** The branch triggers of `ci.yml`, `devel.yml`, `docker.yml` and `docker-aio.yml` carry `paths-ignore` for `**.md`, `docs/**` and `.claude/**`, so a spec, TODO or README commit starts no run; tag pushes, `workflow_dispatch` and the schedule are never filtered, and a commit that also changes code still builds. GitLab CI and Jenkins have no negated path filter, so the message of a markdown-only commit ends with `[skip ci]`, which GitHub, Gitea, Forgejo and GitLab honor natively and Jenkins honors through the SCM Skip plugin. A project that syncs its spec from a template therefore adds no CI load.
+
 ## Build Info Variables
 
 All workflows MUST set these environment variables:
@@ -37623,8 +37634,18 @@ name: CI
 on:
   push:
     branches: [main]
+    # Markdown-only and documentation-only pushes never build (tag pushes and the schedule are unaffected)
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.claude/**'
   pull_request:
     branches: [main]
+    # Markdown-only and documentation-only pull requests never build
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.claude/**'
   schedule:
     # Weekly security run (Monday 06:00 UTC) — only security jobs run on schedule
     - cron: '0 6 * * 1'
@@ -38182,6 +38203,11 @@ on:
   push:
     branches:
       - main
+    # Markdown-only and documentation-only pushes never build (tag pushes and the schedule are unaffected)
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.claude/**'
   workflow_dispatch:
 
 concurrency:
@@ -38405,6 +38431,11 @@ on:
   push:
     # main only: branches are local and temporary, never pushed
     branches: [main]
+    # Markdown-only and documentation-only pushes never build (tag pushes and the schedule are unaffected)
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.claude/**'
     tags:
       - 'v*'
       - '*-beta'
@@ -38684,8 +38715,18 @@ name: CI
 on:
   push:
     branches: [main]
+    # Markdown-only and documentation-only pushes never build (tag pushes and the schedule are unaffected)
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.claude/**'
   pull_request:
     branches: [main]
+    # Markdown-only and documentation-only pull requests never build
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.claude/**'
   schedule:
     # Weekly security run (Monday 06:00 UTC) — only security jobs run on schedule
     - cron: '0 6 * * 1'
@@ -39204,6 +39245,11 @@ on:
   push:
     branches:
       - main
+    # Markdown-only and documentation-only pushes never build (tag pushes and the schedule are unaffected)
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.claude/**'
   workflow_dispatch:
 
 concurrency:
@@ -39398,6 +39444,11 @@ on:
   push:
     # main only: branches are local and temporary, never pushed
     branches: [main]
+    # Markdown-only and documentation-only pushes never build (tag pushes and the schedule are unaffected)
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.claude/**'
     tags:
       - 'v*'
       - '*-beta'
@@ -48652,10 +48703,11 @@ func monitorI2P(ctx context.Context, service *I2PService, restartFunc func() (*I
 | Empty tunnel definitions | `{config_dir}/i2p/tunnels.conf`, `{config_dir}/i2p/tunnels.d/` | Server creates empty (0600 / 0700) so no other tunnel is ever loaded (Model A) |
 | I2P data directory | `{data_dir}/i2p/` | Server creates with 0700 (Model A) |
 | Destination key | `{data_dir}/i2p/site/site-keys.dat` | App creates with 0600; one line, SAM `PRIV` in I2P base64 (both models) |
+| Public address | `{data_dir}/i2p/site/hostname` | App writes with 0644; ONLY the public `.b32.i2p` address derived from the destination (both models), never private material |
 | i2pd process PID | `{data_dir}/i2p/i2pd.pid` | Model A only |
 | i2pd log file | `{log_dir}/i2pd.log` | Model A only |
 
-**Model B** owns no i2pd files — only `{data_dir}/i2p/site/site-keys.dat` (the persisted destination) is written by the app. Model A additionally owns `i2pd.conf`, `tunnels.conf`/`tunnels.d/` (empty), `i2pd.pid` and `i2pd.log`.
+**Model B** owns no i2pd files — only `{data_dir}/i2p/site/site-keys.dat` (the persisted destination) and the public `{data_dir}/i2p/site/hostname` are written by the app. Model A additionally owns `i2pd.conf`, `tunnels.conf`/`tunnels.d/` (empty), `i2pd.pid` and `i2pd.log`.
 
 #### Runtime Directory Handling
 
