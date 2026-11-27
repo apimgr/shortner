@@ -125,9 +125,10 @@ Primary revoke deletes the owner, its linked tokens, and its resources.
 The API mirrors primary-token issue and revoke at
 `POST https://csj.lol/api/{api_version}/server/preferences/tokens/primary` and
 `DELETE https://csj.lol/api/{api_version}/server/preferences/tokens/primary`. Issuing is
-public and returns the raw `owner_token` once in the JSON response. Revoking
-requires the primary token and returns the counts of deleted tokens and
-resources. Neither route accepts cookies. Linked-token actions remain under
+public and returns the token object plus the raw `owner_token` once in the
+JSON response. Revoking requires the primary token and returns
+`data: {"tokens": n, "resources": m}`. Neither route accepts cookies.
+Linked-token actions remain under
 `https://csj.lol/api/{api_version}/server/preferences/tokens` and require the primary token.
 
 Linked-token management uses UUID token IDs and the JSON contracts in
@@ -137,7 +138,9 @@ or `expires_on`, and returns `201` with the token object and its one-time
 `linked_token`. Reveal and rotate return the token object plus
 `linked_token`; update returns the masked token object; revoke returns its
 UUID and `status: "revoked"`. Primary-only management rejects linked-token
-credentials with `403`.
+credentials with `403`. A `read` token can list and read its owner's links;
+link creation, updates, and deletion require `read-write` and answer `403`
+with `WWW-Authenticate: Bearer error="insufficient_scope"` otherwise.
 
 Tokens use a prefix plus 32 base62 characters and are looked up by SHA-256
 hash. An encrypted owner-token copy is retained for the owner's explicit
