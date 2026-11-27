@@ -254,10 +254,10 @@ after that many failed attempts and reports exhaustion in the health response.
 Maintenance entry and recovery are written to the audit log. Notifications
 follow the two `notify` switches and require configured email delivery.
 When a checked filesystem reaches `disk_threshold`, the `disk_check` task
-prunes rotated log archives older than `log_retention_days`, removes entries
-older than 24 hours from the application-owned temporary directory under the
-OS temp root, and applies the configured backup retention policy. Active logs
-are never removed by this cleanup.
+prunes rotated log archives older than `log_retention_days`, removes this
+project's temporary directories older than 24 hours from the organization
+temp root, and applies the configured backup retention policy. Active logs
+and other projects' temporary directories are never removed by this cleanup.
 
 ### Limits and timeouts
 
@@ -560,13 +560,15 @@ Configured content is sanitized before rendering. `web.ui.accent` accepts a
 six-digit hex color; the server adjusts lightness separately for dark and
 light themes to meet the contrast rule.
 
-The sitemap is generated dynamically at `/sitemap.xml`. It contains public
-pages and unexpired short-link redirect and stats URLs; API and management
-routes are excluded. When its URL count exceeds `max_urls`, the root file
-becomes a sitemap index and refers to numbered sitemap pages. The protocol
-maximum of 50,000 URLs per sitemap page is always enforced. `include_images`
-currently has no effect because this product does not associate image assets
-with links.
+The sitemap is always generated dynamically at `/sitemap.xml`. It contains
+the public homepage, list page, public API documentation pages, and unexpired
+short-link redirect and stats URLs that `web.robots.allow` permits and
+`web.robots.deny` does not. Other `/server/*` pages, API endpoints, and
+management routes are excluded. When its URL count exceeds `max_urls`, the
+root file becomes a sitemap index and refers to numbered sitemap pages. The
+protocol maximum of 50,000 URLs per sitemap page is always enforced.
+`include_images` currently has no effect because this product does not
+associate image assets with links.
 
 Public HTML pages emit route-specific robots directives, canonical URLs,
 Open Graph and Twitter metadata, and JSON-LD. SEO verification values are
