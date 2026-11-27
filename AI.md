@@ -901,7 +901,7 @@ Always write messages so a developer reading only the step name + message unders
 
 ### Release Pre-flight Validation
 
-The GitHub Releases API returns HTTP 422 `"tag_name is not a valid tag"` when the tag does not exist at API call time or is malformed. The correct fix is for the **release job to own the tag** — delete it if it exists, then recreate it at the current HEAD. This ensures the tag always exists and points to the right commit, and makes the workflow idempotent.
+The GitHub Releases API returns HTTP 422 `"tag_name is not a valid tag"` when the tag does not exist at API call time or is malformed. The release is triggered BY a tag push, so that tag exists: the pre-flight verifies it and NEVER deletes, recreates or moves it. `release.yml` and `beta.yml` may carry `workflow_dispatch` only to re-run for an existing tag: the run is started with that tag selected as the ref (a branch ref fails the pre-flight on purpose) and there is no tag input.
 
 The `release` job already has `contents: write` to push assets — this covers tag push as well.
 
@@ -923,12 +923,12 @@ The `release` job already has `contents: write` to push assets — this covers t
       echo "::error::Tag '$tag' contains whitespace or control characters and is not a valid GitHub tag name."
       exit 1
     fi
-    # Delete existing tag (local + remote) then recreate at current HEAD
-    git tag -d "$tag" 2>/dev/null || true
-    git push origin ":refs/tags/$tag" 2>/dev/null || true
-    git tag "$tag"
-    git push origin "refs/tags/$tag"
-    echo "Tag '$tag' ensured at $(git rev-parse HEAD)"
+    # the tag that triggered this run exists already and is never deleted or moved: verify that it points at the checked-out commit
+    if [ "$(git rev-parse "refs/tags/$tag^{commit}")" != "$(git rev-parse HEAD)" ]; then
+      echo "::error::Tag '$tag' does not point at the checked-out commit."
+      exit 1
+    fi
+    echo "Tag '$tag' verified at $(git rev-parse HEAD)"
 ```
 
 ### Release Integrity
@@ -5910,8 +5910,7 @@ cat "$LICDIR/licenses.csv"
 echo ""
 echo "Next steps:"
 echo "1. Review the report above"
-echo "2. Update LICENSE.md with any new dependencies"
-echo "3. Commit the changes"
+echo "2. Update LICENSE.md with any new dependencies (this report is deleted when the script exits)"
 ```
 
 ## README.md License Badge (REQUIRED)
@@ -5974,7 +5973,7 @@ package main
 | **Record** | In the project's third-party notices (`LICENSE.md`, "Third-Party Licenses") and on the attribution surface (`/server/about`, or the README when the project has no web page) |
 | **Per-record provenance** | When records come from several sources, every record or file carries a `source` key that names its entry in the third-party notices |
 | **Unknown or unusable terms** | Content with no stated license, a license that forbids redistribution, a site that forbids scraping, or an unknown origin is NOT embedded. The project asks the user instead of guessing |
-| **Generated content** | It counts as the project's own only when the user says so, and is never presented with an invented source |
+| **Generated content** | It counts as the project's own only when the user says so, and is never presented with an invented source. Owner-directed original content (the owner declares it theirs and the AI writes it) is recorded in the third-party notices as "Original content, owned by {owner}, written with AI assistance at the owner's direction, released under the project's license", with no external source or URL; every record's `source` key is `original`, the attribution surface lists it under "Original content" without naming any third party, and the owner's statement is kept in the project's IDEA.md |
 | **Project translations** | Strings translated for the project under the localization rule (by the AI or a human translator, I18N & A11Y → "Translating") are the project's own work and need no source record; a human translator's pull request is under the project license. A translation copied from another project, a service or a third-party catalogue is third-party content and follows every row above |
 
 ## License Compatibility Matrix
@@ -8665,6 +8664,8 @@ Binary checks:
     Run as root or provide the operator token."
 ```
 
+**`--maintenance mode <production|development|debug>`** changes the CONFIGURED app mode, never the maintenance state (maintenance is a `status`, not a mode): it writes `server.mode` in `server.yml` and a running server applies it at its next restart, which the command says. A missing or unknown value is a usage error (exit `2`).
+
 **Mode change authorization flow:**
 
 ```
@@ -10714,18 +10715,18 @@ func ColorEnabled(forceColor *bool) bool {
 
 // EmojiEnabled checks if emoji output should be used
 func EmojiEnabled() bool {
-    // 1. Config override (force emojis on)
+    // 1. TERM=dumb disables emojis and nothing overrides it (the no-emoji rule for dumb terminals)
+    if os.Getenv("TERM") == "dumb" {
+        return false
+    }
+
+    // 2. Config override (force emojis on; it overrides NO_COLOR only)
     if cfg := GetConfig(); cfg != nil && cfg.Output.EmojiSet && cfg.Output.Emoji {
         return true
     }
 
-    // 2. NO_COLOR disables emojis (practical plain output)
+    // 3. NO_COLOR disables emojis (practical plain output)
     if os.Getenv("NO_COLOR") != "" {
-        return false
-    }
-
-    // 3. TERM=dumb disables emojis
-    if os.Getenv("TERM") == "dumb" {
         return false
     }
 
@@ -12279,7 +12280,8 @@ server:
 When enabled:
 - Reads check local cache first
 - Writes go to remote, then update local cache
-- If remote unavailable, serve from cache (read-only mode)
+- If the remote is unavailable and `offline_mode` is `true` (the default once the cache is enabled), serve reads from the cache (read-only mode); with `offline_mode: false` there is no cache fallback and the server enters `maintenance` until the remote returns
+- **Freshness and scope:** the cache keeps one `cache_meta` row per cached table (`table_name`, `synced_at` in UTC written inside the batch transaction of a successful sync, and `watermark`, the highest `updated_at` already applied); `max_age` is measured from `synced_at`, so an older table is read from the remote while it is reachable. The cached set is every table of the standard schema except `app_secrets`, the audit tables and per-request tables (rate-limit counters); a table without an `updated_at` column is re-read in full each sync. A cache that has never completed a sync is never served: with no cache and no remote the server starts in `maintenance`. The default path is `{data_dir}/db/cache.db`, the file is `0600` and its directory `0700`
 - Background sync keeps cache fresh
 - The cache is a separate SQLite file opened with the SQLite driver, never through the libSQL driver (remote-only, PART 2)
 - **Write contract:** the remote write decides the response. When it succeeds and the local cache update then fails, the response is still a success, the cached row is deleted (best effort), one WARN is logged, and when even the delete fails the cache is marked dirty so reads bypass it until the next sync completes. A failed remote write changes nothing locally and answers the error.
@@ -12507,7 +12509,7 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_active   ON api_tokens(revoked_at) WHE
 |------|--------|-------|---------|
 | **Operator (admin) token** `adm_` (`server.token`) | `secrets.yml` (auto-generated on first run) | Global — all resources, separate tier | Operator actions: delete any resource, enforce TOS, revoke tokens |
 | **Owner token (primary)** `own_` | Server-generated when an owner is issued: on a first resource creation or on request (New token) | Every resource the owner has created, now and later | Owner reads, edits, deletes their resources; manages their linked tokens on `/server/preferences/tokens` |
-| **Linked token** `own_` | Created by the owner on `/server/preferences/tokens` | The same owner's resources — identical to the primary, minus token management | Automation: CLI, CI, scripts, MCP clients — revocable one by one without touching the primary |
+| **Linked token** `own_` | Created by the owner on `/server/preferences/tokens` | The same owner's resources — identical to the primary, minus token management and limited by its scope (`read` allows only `GET`, `HEAD` and `OPTIONS`) | Automation: CLI, CI, scripts, MCP clients — revocable one by one without touching the primary |
 
 **Token scopes.** Every `api_tokens` row stores its `scope`. `read` allows `GET`, `HEAD` and `OPTIONS` on the owner's resources; `read-write` adds `POST`, `PUT`, `PATCH` and `DELETE` on them; `global` adds token management (create, rotate, rename and revoke linked tokens, reveal) and the owner deletion of "Revoking a primary token". A primary token is always `global`; a linked token gets the scope chosen when it is created (`read` or `read-write`, default `read-write`) and is never `global`. `server.token` is implicitly `global` and is not stored. A token below the needed scope gets `403` with `WWW-Authenticate: Bearer error="insufficient_scope"`. An upgrade adds the column and then runs `UPDATE api_tokens SET scope = 'global' WHERE kind = 'primary'`.
 
@@ -12528,7 +12530,7 @@ Authorization: Bearer own_xxxxxxxxxxxxxxxxxxxx   (owner)
 | Prefix | Holder | Lives in | Shown | Notes |
 |--------|--------|----------|-------|-------|
 | `adm_` | Server admin | The OPERATOR token `server.token`, kept in `secrets.yml` (never in the database) | Printed once, to the console, at first start ("First-start disclosure") | The operator token IS the admin token: this project has no admin accounts, so it is the only `adm_` token. It works without the database, so it also authorizes `/debug/*`, `--maintenance` confirmations and secret rotation |
-| `own_` | Owner (primary or linked) | `api_tokens` table | Recoverable: an encrypted copy (`token_enc`) lets the owner view it again | An owner is the anonymous holder of resources; the primary token manages the owner's linked tokens, a linked token is identical minus token management |
+| `own_` | Owner (primary or linked) | `api_tokens` table | Recoverable: an encrypted copy (`token_enc`) lets the owner view it again | An owner is the anonymous holder of resources; the primary token manages the owner's linked tokens, a linked token is identical minus token management and limited by its scope |
 | `mtr_` | Metrics scraper | `server.metrics.auth.tokens.*` in `secrets.yml` | Read from the file | `GET /server/metrics` only |
 
 **Not bearer credentials:** `sec_{16 hex}` report tracking ids (an identifier, not a secret), the rotating `{security_id}`, the contact `form_token` and `review_token`, the `owner_token` cookie (it carries an owner token and is only a transport), and one-shot link tokens in emailed links ("Auth Token Presentation").
@@ -12624,7 +12626,7 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 | Management requires the primary | Token management (reveal, rotate, restore, create/rename/expiry/revoke linked, revoke the primary) is allowed only with the primary token (owner cookie, or primary Bearer on the API mirror). A linked token on any of these returns `403` — a leaked automation token can never mint, read, or extend other tokens. Primary issuance (`POST .../tokens/primary`, "Issue on request") is not management: it needs no token, and a caller presenting ANY valid token, a linked one included, gets `409 CONFLICT`, never `403` |
 | Issue on request | `POST /server/preferences/token/create` (web) and `POST /api/{api_version}/server/preferences/tokens/primary` (API) need no token: they create a new owner and its primary token, deliver it per route: the web route sets the owner cookie and the one-use view cookie (naming `primary`) and answers `303` to the tokens page, which shows the token once ("Token delivery"), while the API route returns it as `owner_token` in the JSON body with `201`. Both use the `strict` limiter, write `token.created` with `details.source` set to `issue`, and answer `409 CONFLICT` when the caller already presents a valid token (one caller never gets a second primary) |
 | Independent rotation | Rotating the primary replaces only the primary token: linked tokens keep working with their own values. Rotating a linked token replaces only that token: the primary and the other linked tokens are untouched |
-| Linked = full owner access otherwise | A linked token can do everything the primary can to the owner's resources through the API and MCP, except token management |
+| Linked = full owner access otherwise | Within its scope (`read` or `read-write`), a linked token can do everything the primary can to the owner's resources through the API and MCP, except token management |
 | Expiry | A linked token past `expires_at` is rejected like a revoked one; it stays listed (marked expired) until the owner revokes it or changes its expiry |
 | Never a preferences row | Tokens are credentials in `api_tokens`, not preferences. UI preferences stay cookie-only (see "Client-Side Preferences") |
 | Never in lists or logs | List/detail responses return prefix, name, dates, status — never the token. Only the reveal action decrypts, and it writes an audit event |
@@ -12648,18 +12650,18 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 | `POST /server/preferences/tokens/{id}/update` | `PATCH /api/{api_version}/server/preferences/tokens/{id}` | Rename / change expiry |
 | `POST /server/preferences/tokens/{id}/revoke` | `DELETE /api/{api_version}/server/preferences/tokens/{id}` | Revoke a linked token |
 
-**Linked-token JSON (envelope `{ "ok": true, "data": ... }`; field names are fixed).** A token object never carries the raw value: `{ "id": "<uuid>", "name": "ci", "kind": "linked", "token_masked": "own_...XXXX", "created_at": "<RFC 3339 UTC>", "last_used_at": "<RFC 3339 UTC>|null", "expires_at": "<RFC 3339 UTC>|null", "status": "active|expired|revoked" }`.
+**Linked-token JSON (envelope `{ "ok": true, "data": ... }`; field names are fixed).** A token object never carries the raw value: `{ "id": "<uuid>", "name": "ci", "kind": "linked", "scope": "read-write", "token_masked": "own_...XXXX", "created_at": "<RFC 3339 UTC>", "last_used_at": "<RFC 3339 UTC>|null", "expires_at": "<RFC 3339 UTC>|null", "status": "active|expired|revoked" }`.
 
 | Operation | Request body | Success | Errors |
 |-----------|--------------|---------|--------|
 | List `GET .../tokens` | none | `200`, `data`: `{ "primary": <token object, kind "primary">, "linked": [<token object>], "max_linked": 25 }` (masked values only) | `401` |
-| Create `POST .../tokens` | `{ "name": "ci", "expires": "never" }` or `{ "name": "ci", "expires_on": "2027-01-31" }`; `expires` is one of `never`, `7d`, `30d`, `90d`, `1y` (default `never`), `expires_on` is a date; sending both is `400` | `201`, `data`: the token object plus `"linked_token": "own_..."` (the raw value, the field name is fixed like `owner_token`) | `400 VALIDATION_FAILED`, `409 CONFLICT` (name already used by this owner, or `server.tokens.max_linked` reached), `401`, `403` |
+| Create `POST .../tokens` | `{ "name": "ci", "scope": "read-write", "expires": "never" }` or `{ "name": "ci", "scope": "read", "expires_on": "2027-01-31" }`; `scope` is `read` or `read-write` (default `read-write`; `global` is never accepted for a linked token and answers `400`), it is returned as `scope` on every token object (the primary token reports `"global"`) and it cannot be changed afterwards: revoke the token and create a new one; `expires` is one of `never`, `7d`, `30d`, `90d`, `1y` (default `never`), `expires_on` is a date; sending both is `400` | `201`, `data`: the token object plus `"linked_token": "own_..."` (the raw value, the field name is fixed like `owner_token`) | `400 VALIDATION_FAILED`, `409 CONFLICT` (name already used by this owner, or `server.tokens.max_linked` reached), `401`, `403` |
 | Reveal `POST .../tokens/{id}/reveal` | none | `200`, `data`: the token object plus `linked_token` | `404 NOT_FOUND`, `401`, `403` |
 | Rotate `POST .../tokens/{id}/rotate` | none | `200`, `data`: the token object (same `id`, `name` and `expires_at`) plus the new `linked_token` | `404 NOT_FOUND`, `401`, `403` |
 | Update `PATCH .../tokens/{id}` | any of `name`, `expires`, `expires_on` (same rules as create) | `200`, `data`: the token object, no raw value | `400 VALIDATION_FAILED`, `409 CONFLICT`, `404 NOT_FOUND`, `401`, `403` |
 | Revoke `DELETE .../tokens/{id}` | none | `200`, `data`: `{ "id": "<uuid>", "status": "revoked" }` | `404 NOT_FOUND`, `401`, `403` |
 
-**Expiry semantics (one rule for the page, the API and the CLI).** `7d`, `30d`, `90d` and `1y` run from the moment of creation or change, to the second. A chosen date (`expires_on`, `YYYY-MM-DD`) is a UTC date: the token stays valid through that whole day and is rejected from `00:00:00 UTC` of the next day, and `expires_at` is stored and returned as that instant. The date must be today or later in UTC; a past date is `400`. The tokens page shows every expiry in UTC and labels it so.
+**Expiry semantics (one rule for the page and the API).** `7d`, `30d`, `90d` and `1y` run from the moment of creation or change, to the second. A chosen date (`expires_on`, `YYYY-MM-DD`) is a UTC date: the token stays valid through that whole day and is rejected from `00:00:00 UTC` of the next day, and `expires_at` is stored and returned as that instant. The date must be today or later in UTC; a past date is `400`. The tokens page shows every expiry in UTC and labels it so.
 
 Token-management routes get no unversioned alias (they are data-shaped, see "Unversioned API aliases") and are never exposed as MCP tools.
 
@@ -12673,7 +12675,7 @@ Token-management routes get no unversioned alias (they are data-shaped, see "Unv
 | 1 | **New token** and **Restore** (only when there is no owner cookie) | Two cards, each with its own `<h2>` and exactly one primary button. **New token**: one primary button "Create token" that issues an owner and its primary token, sets the owner cookie and shows the token with Copy (see "Token delivery"). **Restore**: label "Primary token", one text field with a paste hint, one primary button "Restore identity". Nothing else on the page is shown without a cookie |
 | 2 | **Primary token** | Title, status badge (Active), the masked value in `.copy-value` (single-line scroll, never wraps), help text ("Full access to your {resources}. Keep it private.", where {resources} is `resource_label_plural` from IDEA.md `## Project variables` (default `items`), never a hardcoded product noun), actions: **Reveal**, **Copy** (once revealed), **Rotate** (confirmation popover) |
 | 3 | **Linked tokens** | `<h2>` with the count. One list item per token (an `<li>` of a `<ul>`, not a nested card): name (`<h3>`), status badge (Active / Expired / Revoked), masked value, a `<dl>` with Created, Last used and Expires, and a footer toolbar: **Reveal**, **Rotate**, **Edit** (a `<details>` holding the rename + expiry form with one Save button), **Revoke** (danger, confirmation popover). Empty state: "No linked tokens yet" with the hint "Create one per app, for example your MCP client" |
-| 4 | **Create linked token** | **Name** (label, help "For example: MCP client") and **Expiry** (ONE `<select>`: Never, 7 days, 30 days, 90 days, 1 year, Custom date). When "Custom date" is chosen a labeled **Expires on** date input is used (rendered inside a `<details>` so it works without JavaScript). ONE primary button "Create token" |
+| 4 | **Create linked token** | **Name** (label, help "For example: MCP client"), **Scope** (ONE `<select>`: Read and write (default), Read only; the wireframes below abbreviate the form, Scope sits between Name and Expiry in every layout) and **Expiry** (ONE `<select>`: Never, 7 days, 30 days, 90 days, 1 year, Custom date). When "Custom date" is chosen a labeled **Expires on** date input is used (rendered inside a `<details>` so it works without JavaScript). ONE primary button "Create token" |
 | 5 | **This browser** | "Saved in this browser" with a **Forget saved token** button (danger-ghost, confirmation popover) and the sentence that {resources} are not deleted |
 | 6 | **Revoke primary token** | `<h2>`, the sentence saying what will be deleted with the live counts ("{n} linked tokens and {m} {resources}, including anything created with a linked token"), and ONE `.btn-danger` "Revoke primary token and delete everything" that opens a confirmation popover holding the form: a field "Type the last 4 characters of your primary token ({last4}) to confirm" (the value comes from `token_last4`, nothing is decrypted) and the submit button. It is always the last card, never next to Reveal or Rotate. The wireframes below leave it out |
 
@@ -14098,7 +14100,7 @@ See **PART 12: SERVER CONFIGURATION** for full Valkey/Redis setup.
 | Pattern | Example | Description |
 |---------|---------|-------------|
 | `{type}:{id}` | `user:123` | Single resource |
-| `{type}:{id}:{field}` | `user:123:sessions` | Resource sub-field |
+| `{type}:{id}:{field}` | `user:123:tokens` | Resource sub-field |
 | `{type}:list:{filter}` | `jokes:list:category=puns` | Filtered list |
 | `{scope}:{type}:{id}` | `org:42:settings` | Scoped resource |
 | `rate:{type}:{key}` | `rate:api:192.168.1.1` | Rate limiting |
@@ -14145,7 +14147,7 @@ func UpdateUser(ctx context.Context, user *User) error {
     // Invalidate all related cache entries
     cache.Delete(ctx, fmt.Sprintf("user:%d", user.ID))
     cache.Delete(ctx, fmt.Sprintf("user:%d:profile", user.ID))
-    cache.Delete(ctx, fmt.Sprintf("user:%d:sessions", user.ID))
+    cache.Delete(ctx, fmt.Sprintf("user:%d:tokens", user.ID))
 
     return nil
 }
@@ -14182,7 +14184,7 @@ update. The fix is mandatory URL stamping:
 
 | Rule | Detail |
 |------|--------|
-| **`asset()` template helper** | Every static asset reference in every template goes through a shared helper that appends the build stamp: `/static/app.css?v={project_version}-{short_commit}`. Hand-written bare `/static/...` URLs in templates are a bug. |
+| **`asset()` template helper** | Every static asset reference in every template goes through a shared helper that appends the build stamp: `/static/css/common.css?v={project_version}-{short_commit}`. Hand-written bare `/static/...` URLs in templates are a bug. |
 | **`immutable` only on a matching stamp** | The static handler sends `public, max-age=31536000, immutable` ONLY when the request's `?v=` equals the running build's stamp. Missing or mismatched stamp → `no-cache` + `ETag` (the bytes still serve — cached HTML from an old version never breaks, it just revalidates). |
 | **HTML is never cached** | All HTML documents: `Cache-Control: no-store` plus an `ETag` derived from the build stamp, so any intermediary that ignores `no-store` still revalidates. The one exception is the service worker's offline copy of a public page (PART 16 -> "Offline copies are for public pages only"): it lives in the Cache API, is only ever a fallback after a failed network fetch, and never replaces a fresh response. |
 | **Service worker (if the project adds one)** | Cache name MUST embed the full build stamp `{project_version}-{short_commit}` (`{asset_stamp}`); `activate` deletes all caches from other versions. `/sw.js` and `/manifest.json` are served `no-cache` + build-stamp `ETag` — a cached service worker script delays every other update mechanism. |
@@ -14499,7 +14501,7 @@ SQLite allows ONE writer at a time. Without the rules below, concurrent requests
 | Batches | Cleanup, retention, audit purge and import work in batches of at most 500 rows per transaction, with a short yield between batches (the scheduler tasks of PART 19). `VACUUM` runs only from a maintenance task on the write handle, never inside a transaction and never during a request |
 | Hot counters | Rate-limit counters, request metrics, session `last_used` and other per-request bookkeeping are NOT written per request. They live in memory and one goroutine flushes them in a single transaction every 30 s and on shutdown. `last_used` (a token's `last_used_at`, and a session's where the template has sessions) is updated only when the stored value is older than 60 seconds and then reaches the database with the next flush, so a token or session is written at most once a minute |
 | Retry | `Write` retries a busy or locked error (`SQLITE_BUSY`, `SQLITE_LOCKED` and their extended codes) up to 5 times with exponential backoff (25 ms base, doubled each time) plus jitter, always inside the context deadline. A callback is never retried after its commit succeeded |
-| One process | Only the server process writes the file. A CLI or `--maintenance` command that runs while the server is up uses the same store helper (same pragmas, same busy timeout, short transactions). A second server instance is refused by the PID check; `--maintenance restore` requires the server to be stopped (the WebUI and API restore run the same flow inside the running server, see "Restore Behavior") |
+| One process | Only the server process writes the file. A CLI or `--maintenance` command that runs while the server is up uses the same store helper (same pragmas, same busy timeout, short transactions). A second server instance is refused by the PID check; `--maintenance restore` requires the server to be stopped |
 | Location | A local disk only, never NFS, SMB or a FUSE mount. The `-wal` and `-shm` files stay next to the database. In Docker the data volume is a local volume or bind mount |
 | Backups | The SQLite online backup API or `VACUUM INTO` through the write handle, never `cp` of a live file |
 | Shutdown | After in-flight requests drain: `PRAGMA wal_checkpoint(TRUNCATE)`, then close `readDB`, then `writeDB` |
@@ -17283,6 +17285,7 @@ User-facing timestamps normally render the server's local timezone (`%B %d, %Y a
 
 When `tor.onion_address` is set, **clearnet** responses advertise the hidden service so Tor Browser shows the ".onion available" indicator and can upgrade automatically:
 
+- **Gate:** the header advertises the onion address, so it counts as publication: it is sent only when `tor.onion_address` is set AND `server.tor.expose` is `true` (default `false`: never sent).
 - Send `Onion-Location: http://{onion_address}{request_path}` on clearnet **HTML document** responses only (2xx, top-level navigations) — never on the onion's own responses, never on API/JSON responses, never on static assets or redirects.
 - The value is built from `tor.onion_address` (never the clearnet host) and always uses `http://` (see "Tor HTTP Semantics"); construct it with `BuildURL` against the onion host so the request path and query are preserved.
 - An equivalent `<meta http-equiv="onion-location" content="http://{onion_address}{request_path}">` in the HTML `<head>` is acceptable where a response header cannot be set; do not send both.
@@ -18353,7 +18356,7 @@ type PrivacyTemplateData struct {
 
 | Category | Can Disable | Description |
 |----------|-------------|-------------|
-| **Essential** | No | Sessions, CSRF tokens, security - required |
+| **Essential** | No | Owner token, CSRF token, security - required |
 | **Preferences** | Yes | Theme, language, UI settings |
 | **Analytics** | Yes | Tracking (only if `server.tracking` configured) |
 
@@ -18548,7 +18551,7 @@ server:
 
 | Feature | Uses Cache | Purpose |
 |---------|------------|---------|
-| Sessions | Yes | Session data storage |
+| Owner tokens | Yes | Token lookup results (SHA-256 hash to owner id), short TTL |
 | Rate limiting | Only with `valkey` or `redis` | Request counters per IP/token live in the external cache; with `none` or `memory` (the default) they stay in `server.db` and `memory` is only the fallback while an external cache is unreachable (PART 12 "Rate Limiting") |
 | API responses | Optional | Response caching |
 
@@ -19404,7 +19407,7 @@ Same underlying health response as `/server/healthz`, but formatted using the st
 |----------|-----------|-----------|------------|-----------------------------|---------|
 | `disabled` | `false` | `false` | empty | omitted | The network is not active on this instance: no `tor` binary (Tor), or I2P not enabled (the resolved `server.i2p.enabled` is false) or no provider found (I2P) |
 | `starting` | `true` | `false` | empty | `ok` | The provider was launched and is bootstrapping or building tunnels |
-| `healthy` | `true` | `true` | the address | `ok` | Serving at `hostname` |
+| `healthy` | `true` | `true` | the address while `expose` is `true`, otherwise empty | `ok` | Serving at `hostname` |
 | `unavailable` | `true` | `false` | empty | `degraded` | Active and the provider exists, but it is not serving: failed to start, bootstrap timeout, a directory permission problem, or the provider exited |
 
 - **`enabled` means "active on this instance", not "currently running".** Tor: a `tor` binary was found (there is no toggle). I2P: `server.i2p.enabled` is true AND a provider was found.
@@ -19627,7 +19630,7 @@ This is a server application, not a client-side SPA. The server should handle as
 | Pagination/sorting | **Server** | Database handles efficiently |
 | Search/filtering | **Server** | Database indexes, security |
 | HTML rendering | **Server** | Go templates, works everywhere |
-| State management | **Server** (sessions) | Client just displays current state |
+| State management | **Server** (owner tokens and stored resources) | Client just displays current state |
 
 **Client-side JavaScript is ONLY for:**
 
@@ -22537,7 +22540,7 @@ func URLNormalizeMiddleware(next http.Handler) http.Handler {
 | `/api/{api_version}/items/` | `/api/{api_version}/items` | 301 redirect (GET/HEAD; 308 for other methods) |
 | `/items` | `/items` | No redirect (canonical) |
 | `/` | `/` | No redirect (root exception) |
-| `/static/css/style.css` | `/static/css/style.css` | No redirect (file) |
+| `/static/css/common.css` | `/static/css/common.css` | No redirect (file) |
 | `/dir/index.html` | `/dir/index.html` | No redirect (file) |
 
 **Why No Trailing Slash:**
@@ -24182,8 +24185,8 @@ function deleteItem(itemId) {
 const toastId = showToast("Settings saved", "success");
 // No auto-dismiss
 const toastId = showToast("Save failed", "error");
-// 5s auto-dismiss
-const toastId = showToast("Check your input", "warning", 5000);
+// 5s auto-dismiss (warning_duration); there is no per-toast duration argument: durations come from server.notifications.webui and the page's body data attributes, so the progress bar, driven by the stylesheet, always matches the removal timer
+const toastId = showToast("Check your input", "warning");
 // 3s auto-dismiss
 const toastId = showToast("Tip: Use shortcuts", "info");
 
@@ -24198,7 +24201,9 @@ dismissAllToasts();
 
 ```javascript
 // Auto-dismiss defaults: success/info 3s, warning 5s, error never (duration 0 = manual dismiss)
-function showToast(message, type = 'info', duration = 3000) {
+function showToast(message, type = 'info') {
+  // the duration comes from the type (TOAST_DURATIONS, see the complete implementation in PART 16), never from an argument
+  const duration = TOAST_DURATIONS[type] ?? TOAST_DURATIONS.info;
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
@@ -24735,7 +24740,9 @@ const CACHE_NAME = `{app_name}-cache-${CACHE_VERSION}`;
 // URLs MUST carry the same ?v= stamp the asset() helper puts in pages, or page requests
 // never match these entries. HTML ('/') is never precached - it is always network-first.
 const PRECACHE_ASSETS = [
-  '/static/css/app.css?v={asset_stamp}',
+  '/static/css/common.css?v={asset_stamp}',
+  '/static/css/public.css?v={asset_stamp}',
+  '/static/css/components.css?v={asset_stamp}',
   '/static/js/app.js?v={asset_stamp}',
   '/static/icons/icon-192.png?v={asset_stamp}',
   '/static/icons/icon-512.png?v={asset_stamp}'
@@ -25691,7 +25698,9 @@ async function requestPersistentStorage() {
   <meta name="apple-mobile-web-app-title" content="{app_name}">
 
   <title>{app_name}</title>
-  <link rel="stylesheet" href="{{ asset "css/app.css" }}">
+  <link rel="stylesheet" href="{{ asset "css/common.css" }}">
+  <link rel="stylesheet" href="{{ asset "css/public.css" }}">
+  <link rel="stylesheet" href="{{ asset "css/components.css" }}">
 </head>
 <body>
   <!-- Offline indicator -->
@@ -25721,7 +25730,9 @@ async function requestPersistentStorage() {
 ├── sw.js                         # Service worker
 ├── static/
 │   ├── css/
-│   │   └── app.css
+│   │   ├── common.css
+│   │   ├── public.css
+│   │   └── components.css
 │   ├── js/
 │   │   └── app.js                # Includes SW registration
 │   ├── icons/
@@ -31914,12 +31925,12 @@ server:
 
 # HELP {project_name}_cache_hits_total Total number of cache hits
 # TYPE {project_name}_cache_hits_total counter
-{project_name}_cache_hits_total{cache="sessions"} 8234
+{project_name}_cache_hits_total{cache="tokens"} 8234
 {project_name}_cache_hits_total{cache="users"} 1523
 
 # HELP {project_name}_cache_misses_total Total number of cache misses
 # TYPE {project_name}_cache_misses_total counter
-{project_name}_cache_misses_total{cache="sessions"} 156
+{project_name}_cache_misses_total{cache="tokens"} 156
 {project_name}_cache_misses_total{cache="users"} 42
 
 # HELP {project_name}_auth_attempts_total Total authentication attempts
@@ -32827,7 +32838,7 @@ func StartUptimeUpdater() {
 
 # HELP {project_name}_cache_hits_total Total number of cache hits
 # TYPE {project_name}_cache_hits_total counter
-{project_name}_cache_hits_total{cache="sessions"} 8234
+{project_name}_cache_hits_total{cache="tokens"} 8234
 {project_name}_cache_hits_total{cache="users"} 1523
 
 # HELP {project_name}_app_info Application information
@@ -33606,7 +33617,6 @@ Restoring...
 | **Restore to same server** | Overwrites current config and database |
 | **Restore to new server** | Server restarts with restored configuration |
 | **Version mismatch** | Warning shown, schema updates applied if needed |
-| **Restore while serving (WebUI and API)** | The server verifies the archive, enters `maintenance` (requests get `503`, health reports it), stops its scheduler and writers, runs the same restore flow as `--maintenance restore`, then restarts itself in place (the update-restart mechanism); the request that started it answers `202`. It needs the same admin authority as any admin mutation plus a typed confirmation. `--maintenance restore` is the offline form: it runs with the server stopped |
 
 ---
 
@@ -35285,7 +35295,7 @@ func (ws *windowsService) Execute(args []string, r <-chan svc.ChangeRequest, s c
 
 # PART 25: MAKEFILE
 
-**Seven core targets (`dev`, `local`, `build`, `test`, `release`, `beta`, `docker`). DO NOT ADD MORE.** The only other permitted targets are `clean`, a housekeeping target that removes `binaries/` and `releases/` and builds nothing, and `release-check`, an internal helper that is the first prerequisite of `release`, validates the version and builds nothing (it is never the entry point of a workflow). There is no `all` target and none is required.
+**Seven core targets (`dev`, `local`, `build`, `test`, `release`, `beta`, `docker`). DO NOT ADD MORE.** The only other permitted targets are `clean`, a housekeeping target that removes `binaries/` and `releases/` and builds nothing, and `release-check`, an internal helper that is the first prerequisite of `release`, validates the version and builds nothing (it is never the entry point of a workflow). There is no `all` target and none is required. A CI job named `lint` (or `secret-scan`, `vuln-scan`) is a job of the CI file and runs its tools directly in the toolchain container: it is not a Makefile target and adds none.
 
 ## Targets
 
@@ -35847,7 +35857,7 @@ All Docker builds use persistent Go module caching to avoid re-downloading depen
 
 ### `make docker`
 
-1. Uses `docker buildx` for multi-arch builds
+1. Uses `docker buildx` for one local build of the host platform
 2. Multi-stage Dockerfile handles Go compilation (no pre-built binaries)
 3. Context is project root, Dockerfile at `docker/Dockerfile`
 4. Builds the host platform only (`--load`), so the image check can run it; multi-arch publishing is CI/CD's job
