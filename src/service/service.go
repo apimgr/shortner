@@ -47,9 +47,22 @@ type Params struct {
 	PIDFile   string
 
 	// UserLevel selects the unprivileged fallback (systemd --user,
-	// launchd LaunchAgent) described in PART 23 "Service Installation
-	// Logic" step 2.
+	// launchd LaunchAgent, or the Windows Task Scheduler task) described
+	// in PART 23 "Service Installation Logic" step 2.
 	UserLevel bool
+}
+
+// UserServiceSupported reports whether the detected platform has the
+// per-user service manager required by AI.md PART 23. OpenRC, runit, s6,
+// SysVinit, BSD rc.d, and unknown init systems have no user-service
+// fallback.
+func UserServiceSupported(init InitSystem) bool {
+	switch init {
+	case Systemd, Launchd, WindowsService:
+		return true
+	default:
+		return false
+	}
 }
 
 // PlistName is the macOS bundle identifier, always derived and never

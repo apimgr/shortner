@@ -240,11 +240,19 @@ func TestRemovePartialFilesPreservesValidBackups(t *testing.T) {
 	partial := filepath.Join(dir, "shortner_backup_2025-01-15.tar.gz.tmp-deadbeef")
 	valid := filepath.Join(dir, "shortner_backup_2025-01-14.tar.gz")
 	for _, name := range []string{partial, valid} {
-		if err := os.WriteFile(name, []byte("payload"), 0o600); err != nil { t.Fatal(err) }
+		if err := os.WriteFile(name, []byte("payload"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := RemovePartialFiles(dir, "shortner"); err != nil { t.Fatal(err) }
-	if _, err := os.Stat(partial); !os.IsNotExist(err) { t.Errorf("partial file still exists: %v", err) }
-	if _, err := os.Stat(valid); err != nil { t.Errorf("valid backup was removed: %v", err) }
+	if err := RemovePartialFiles(dir, "shortner"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(partial); !os.IsNotExist(err) {
+		t.Errorf("partial file still exists: %v", err)
+	}
+	if _, err := os.Stat(valid); err != nil {
+		t.Errorf("valid backup was removed: %v", err)
+	}
 }
 
 func TestListMissingDirIsNotAnError(t *testing.T) {

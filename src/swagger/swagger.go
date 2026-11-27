@@ -4,9 +4,11 @@ package swagger
 import (
 	_ "embed"
 	"encoding/json"
-	"github.com/apimgr/shortner/src/common/i18n"
 	"net/http"
 	"strings"
+
+	"github.com/apimgr/shortner/src/common/i18n"
+	"github.com/apimgr/shortner/src/routecontract"
 )
 
 //go:embed openapi.generated.json
@@ -27,16 +29,36 @@ type operation struct {
 // Document generates an OpenAPI document for the implemented REST API.
 // The route table is deliberately the sole inventory used to build paths.
 func Document(serverURL string, languages ...string) ([]byte, error) {
+	return DocumentWithRegistry(RouteRegistry(), serverURL, languages...)
+}
+
+// DocumentWithRegistry generates OpenAPI from the supplied route registry.
+func DocumentWithRegistry(registry *routecontract.Registry, serverURL string, languages ...string) ([]byte, error) {
 	lang := "en"
 	if len(languages) > 0 {
 		lang = languages[0]
 	}
 	errorResponse := map[string]any{"description": "Request failed", "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/APIError"}}}}
 	paths := map[string]map[string]operation{}
-	for _, route := range RouteAnnotations(lang) {
-		status, contentType, schema := responseContract(route)
-		responses := map[string]any{status: successResponse(contentType, schema), "400": errorResponse, "401": errorResponse, "403": errorResponse, "404": errorResponse, "500": errorResponse}
-		if route.OperationID == "reportCSP" || route.OperationID == "reportNEL" || route.OperationID == "reportDefault" {
+	for _, route := range RouteAnnotationsForRegistry(registry, lang) {
+		if route.Internal || !route.Listed {
+			continue
+		}
+		responseModel, _ := route.Response.(routecontract.ModelRef)
+		status := responseModel.Status
+		if status == "" {
+			status = "200"
+		}
+		contentType := responseModel.ContentType
+		success := successResponse(contentType, "")
+		if contentType != "" {
+			if modelSchema := modelSchema(responseModel); modelSchema != nil {
+				media := success["content"].(map[string]any)[contentType].(map[string]any)
+				media["schema"] = modelSchema
+			}
+		}
+		responses := map[string]any{status: success, "400": errorResponse, "401": errorResponse, "403": errorResponse, "404": errorResponse, "500": errorResponse}
+		if status == "204" {
 			responses = map[string]any{"204": map[string]any{"description": "Report accepted"}}
 		}
 		description := i18n.Translate(lang, "swagger.description.operation")
@@ -67,14 +89,19 @@ func Document(serverURL string, languages ...string) ([]byte, error) {
 				map[string]any{"name": "operationName", "in": "query", "required": false, "schema": stringSchema()},
 			)
 		}
-		if requestSchema := requestSchema(route.OperationID); requestSchema != "" {
+		requestModel, _ := route.Request.(routecontract.ModelRef)
+		if requestModel.Name != "" {
 			contentTypes := route.ContentTypes
 			if len(contentTypes) == 0 {
-				contentTypes = []string{"application/json"}
+				if requestModel.ContentType != "" {
+					contentTypes = []string{requestModel.ContentType}
+				} else {
+					contentTypes = []string{"application/json"}
+				}
 			}
 			content := make(map[string]any, len(contentTypes))
 			for _, contentType := range contentTypes {
-				media := map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/" + requestSchema}}
+				media := map[string]any{"schema": modelSchema(requestModel)}
 				if example, ok := route.Examples[contentType]; ok {
 					media["example"] = example
 				} else if route.Example != nil {
@@ -84,7 +111,7 @@ func Document(serverURL string, languages ...string) ([]byte, error) {
 			}
 			op.RequestBody = map[string]any{"required": true, "content": content}
 		}
-		if route.Auth {
+		if route.Auth != routecontract.AuthNone && route.Auth != "" {
 			op.Security = []map[string][]string{{"BearerAuth": {}}, {"APIKeyAuth": {}}}
 		}
 		if paths[route.Path] == nil {
@@ -117,8 +144,8 @@ func Document(serverURL string, languages ...string) ([]byte, error) {
 				"GetLinkResponse":                envelopeSchema(refSchema("Link")),
 				"UpdateLinkResponse":             envelopeSchema(objectSchema(map[string]any{"id": stringSchema(), "message": stringSchema(), "link": refSchema("Link")}, "id", "message", "link")),
 				"DeleteLinkResponse":             envelopeSchema(objectSchema(map[string]any{"id": stringSchema(), "message": stringSchema()}, "id", "message")),
-				"Health":                         objectSchema(map[string]any{"project": objectSchema(map[string]any{"name": stringSchema(), "tagline": stringSchema(), "description": stringSchema()}, "name", "tagline", "description"), "status": stringSchema(), "pending_restart": map[string]string{"type": "boolean"}, "restart_reason": map[string]any{"type": "array", "items": stringSchema()}, "version": stringSchema(), "go_version": stringSchema(), "build": objectSchema(map[string]any{"commit": stringSchema(), "date": dateTimeSchema()}, "commit", "date"), "uptime": stringSchema(), "mode": stringSchema(), "timestamp": dateTimeSchema(), "features": map[string]any{"type": "object", "properties": map[string]any{"tor": map[string]any{"type": "object"}, "i2p": map[string]any{"type": "object"}, "geoip": map[string]string{"type": "boolean"}}}, "checks": map[string]any{"type": "object", "additionalProperties": stringSchema()}, "stats": objectSchema(map[string]any{"requests_total": map[string]string{"type": "integer", "format": "int64"}, "requests_24h": map[string]string{"type": "integer", "format": "int64"}, "active_connections": integerSchema()}, "requests_total", "requests_24h", "active_connections")}, "project", "status", "version", "go_version", "build", "uptime", "mode", "timestamp", "features", "checks", "stats"),
-				"CLIAutodiscover":                objectSchema(map[string]any{"project_name": stringSchema(), "server_version": stringSchema(), "cli_versions": map[string]any{"type": "object", "additionalProperties": refSchema("CLIBinaryVersion")}, "cli_min_version": stringSchema()}, "project_name", "server_version", "cli_versions", "cli_min_version"),
+				"Health":                         healthSchema(),
+				"CLIAutodiscover":                envelopeSchema(objectSchema(map[string]any{"name": stringSchema(), "version": stringSchema(), "api": objectSchema(map[string]any{"current_version": stringSchema()}, "current_version"), "urls": map[string]any{"type": "array", "items": stringSchema()}, "onion": stringSchema(), "i2p": stringSchema(), "cli_versions": map[string]any{"type": "object", "additionalProperties": refSchema("CLIBinaryVersion")}, "cli_min_version": stringSchema()}, "name", "version", "api", "urls", "cli_versions", "cli_min_version")),
 				"CLIBinaryVersion":               objectSchema(map[string]any{"version": stringSchema(), "sha256": map[string]string{"type": "string", "pattern": "^[a-f0-9]{64}$"}}, "version", "sha256"),
 				"PreferenceSnapshot":             objectSchema(map[string]any{"theme": stringSchema(), "lang": stringSchema(), "prefs": map[string]any{"type": "object", "additionalProperties": stringSchema()}, "url": stringSchema(), "code": stringSchema()}, "theme", "lang", "prefs"),
 				"HelpPageEntry":                  objectSchema(map[string]any{"path": stringSchema(), "title": stringSchema(), "description": stringSchema(), "order": integerSchema()}, "path", "title", "description", "order"),
@@ -126,25 +153,28 @@ func Document(serverURL string, languages ...string) ([]byte, error) {
 				"HelpPageResponse":               envelopeSchema(refSchema("HelpPage")),
 				"PreferenceSnapshotResponse":     envelopeSchema(refSchema("PreferenceSnapshot")),
 				"PreferencesRequest":             objectSchema(map[string]any{"theme": stringSchema(), "lang": stringSchema(), "prefs": map[string]any{"type": "object", "additionalProperties": stringSchema()}}),
-				"TokenCollection":                objectSchema(map[string]any{"tokens": map[string]any{"type": "array", "items": refSchema("TokenCard")}}, "tokens"),
-				"TokenCard":                      objectSchema(map[string]any{"id": map[string]string{"type": "integer", "format": "int64"}, "name": stringSchema(), "masked": stringSchema(), "created": dateTimeSchema(), "last_used": stringSchema(), "expires": stringSchema(), "status": stringSchema(), "revealed": stringSchema()}, "id", "name", "masked", "created", "last_used", "expires", "status"),
-				"TokenMutation":                  objectSchema(map[string]any{"token": stringSchema(), "data": refSchema("TokenCard"), "revoked": map[string]string{"type": "boolean"}, "updated": map[string]string{"type": "boolean"}}),
+				"TokenCollection":                objectSchema(map[string]any{"primary": refSchema("TokenCard"), "linked": map[string]any{"type": "array", "items": refSchema("TokenCard")}, "max_linked": integerSchema()}, "primary", "linked", "max_linked"),
+				"TokenCard":                      objectSchema(map[string]any{"id": uuidSchema(), "name": stringSchema(), "kind": stringSchema(), "scope": stringSchema(), "token_masked": stringSchema(), "created_at": dateTimeSchema(), "last_used_at": map[string]any{"type": "string", "format": "date-time", "nullable": true}, "expires_at": map[string]any{"type": "string", "format": "date-time", "nullable": true}, "status": stringSchema()}, "id", "name", "kind", "scope", "token_masked", "created_at", "last_used_at", "expires_at", "status"),
 				"PreferenceUpdate":               objectSchema(map[string]any{"theme": stringSchema(), "lang": stringSchema(), "prefs": map[string]any{"type": "object", "additionalProperties": stringSchema()}, "applied": map[string]any{"type": "array", "items": stringSchema()}, "ignored": map[string]any{"type": "array", "items": stringSchema()}}, "theme", "lang", "prefs", "applied", "ignored"),
 				"PreferenceUpdateResponse":       envelopeSchema(refSchema("PreferenceUpdate")),
 				"PreferenceImportResponse":       envelopeSchema(objectSchema(map[string]any{"theme": stringSchema(), "lang": stringSchema(), "prefs": map[string]any{"type": "object", "additionalProperties": stringSchema()}, "applied": map[string]any{"type": "array", "items": stringSchema()}, "ignored": map[string]any{"type": "array", "items": stringSchema()}}, "theme", "lang", "prefs", "applied", "ignored")),
 				"AuthorizationResponse":          envelopeSchema(objectSchema(map[string]any{"kind": stringSchema()}, "kind")),
 				"TokenCollectionResponse":        envelopeSchema(refSchema("TokenCollection")),
-				"TokenMutationResponse":          envelopeSchema(refSchema("TokenMutation")),
+				"TokenCardResponse":              envelopeSchema(refSchema("TokenCard")),
+				"LinkedTokenValue":               objectSchema(map[string]any{"id": uuidSchema(), "name": stringSchema(), "kind": stringSchema(), "scope": stringSchema(), "token_masked": stringSchema(), "created_at": dateTimeSchema(), "last_used_at": map[string]any{"type": "string", "format": "date-time", "nullable": true}, "expires_at": map[string]any{"type": "string", "format": "date-time", "nullable": true}, "status": stringSchema(), "linked_token": stringSchema()}, "id", "name", "kind", "scope", "token_masked", "created_at", "last_used_at", "expires_at", "status", "linked_token"),
+				"PrimaryTokenValue":              objectSchema(map[string]any{"id": uuidSchema(), "name": stringSchema(), "kind": stringSchema(), "scope": stringSchema(), "token_masked": stringSchema(), "created_at": dateTimeSchema(), "last_used_at": map[string]any{"type": "string", "format": "date-time", "nullable": true}, "expires_at": map[string]any{"type": "string", "format": "date-time", "nullable": true}, "status": stringSchema(), "owner_token": stringSchema()}, "id", "name", "kind", "scope", "token_masked", "created_at", "last_used_at", "expires_at", "status", "owner_token"),
+				"RevokedToken":                   objectSchema(map[string]any{"id": uuidSchema(), "status": stringSchema()}, "id", "status"),
 				"PrimaryTokenIssueResponse":      envelopeSchema(objectSchema(map[string]any{"owner_token": stringSchema(), "token": refSchema("TokenCard")}, "owner_token", "token")),
-				"PrimaryTokenRevocationResponse": envelopeSchema(objectSchema(map[string]any{"revoked": map[string]string{"type": "boolean"}, "deleted_tokens": map[string]string{"type": "integer"}, "deleted_resources": map[string]string{"type": "integer"}}, "revoked", "deleted_tokens", "deleted_resources")),
-				"TokenValueResponse":             envelopeSchema(objectSchema(map[string]any{"token": stringSchema()}, "token")),
-				"TokenStatusResponse":            envelopeSchema(objectSchema(map[string]any{"revoked": map[string]string{"type": "boolean"}, "updated": map[string]string{"type": "boolean"}})),
+				"PrimaryTokenRevocationResponse": envelopeSchema(objectSchema(map[string]any{"tokens": map[string]string{"type": "integer"}, "resources": map[string]string{"type": "integer"}}, "tokens", "resources")),
+				"LinkedTokenValueResponse":       envelopeSchema(refSchema("LinkedTokenValue")),
+				"PrimaryTokenValueResponse":      envelopeSchema(refSchema("PrimaryTokenValue")),
+				"RevokedTokenResponse":           envelopeSchema(refSchema("RevokedToken")),
 				"SecurityPolicyResponse":         envelopeSchema(objectSchema(map[string]any{"policy": stringSchema()}, "policy")),
 				"DPOResponse":                    envelopeSchema(objectSchema(map[string]any{"name": stringSchema(), "email": stringSchema(), "privacy_url": map[string]string{"type": "string", "format": "uri"}}, "name", "email", "privacy_url")),
 				"GraphQLRequest":                 objectSchema(map[string]any{"query": stringSchema(), "operationName": stringSchema(), "variables": map[string]any{"type": "object", "additionalProperties": true}}, "query"),
 				"GraphQLResponse":                objectSchema(map[string]any{"data": map[string]any{"type": "object", "additionalProperties": true}, "errors": map[string]any{"type": "array", "items": objectSchema(map[string]any{"message": stringSchema(), "locations": map[string]any{"type": "array", "items": objectSchema(map[string]any{"line": integerSchema(), "column": integerSchema()}, "line", "column")}, "path": map[string]any{"type": "array", "items": map[string]any{}}}, "message")}}, "data"),
-				"TokenCreateRequest":             objectSchema(map[string]any{"name": stringSchema(), "expiry": map[string]any{"type": "string", "enum": []string{"never", "7d", "30d", "90d", "1y", "custom"}}, "expires_on": map[string]any{"type": "string", "format": "date", "description": "Required when expiry is custom."}}),
-				"TokenUpdateRequest":             objectSchema(map[string]any{"name": stringSchema(), "expiry": map[string]any{"type": "string", "enum": []string{"never", "7d", "30d", "90d", "1y", "custom"}}, "expires_on": map[string]any{"type": "string", "format": "date", "description": "Required when expiry is custom."}}),
+				"TokenCreateRequest":             objectSchema(map[string]any{"name": stringSchema(), "scope": map[string]any{"type": "string", "enum": []string{"read", "read-write"}, "default": "read-write"}, "expires": map[string]any{"type": "string", "enum": []string{"never", "7d", "30d", "90d", "1y"}, "default": "never"}, "expires_on": map[string]any{"type": "string", "format": "date"}}, "name"),
+				"TokenUpdateRequest":             objectSchema(map[string]any{"name": stringSchema(), "expires": map[string]any{"type": "string", "enum": []string{"never", "7d", "30d", "90d", "1y"}}, "expires_on": map[string]any{"type": "string", "format": "date"}}),
 				"OpenAPIDocument":                objectSchema(map[string]any{"openapi": stringSchema(), "info": objectSchema(map[string]any{"title": stringSchema(), "version": stringSchema(), "description": stringSchema()}, "title", "version"), "servers": map[string]any{"type": "array", "items": objectSchema(map[string]any{"url": stringSchema()}, "url")}, "paths": map[string]any{"type": "object", "additionalProperties": true}, "components": map[string]any{"type": "object", "additionalProperties": true}}, "openapi", "info", "servers", "paths"),
 				"ReportPayload":                  map[string]any{"oneOf": []any{objectSchema(map[string]any{"csp-report": objectSchema(map[string]any{"document-uri": stringSchema(), "violated-directive": stringSchema(), "effective-directive": stringSchema(), "blocked-uri": stringSchema(), "disposition": stringSchema(), "status-code": integerSchema()})}), map[string]any{"type": "array", "items": objectSchema(map[string]any{"type": stringSchema(), "url": stringSchema(), "body": map[string]any{"type": "object", "nullable": true, "additionalProperties": true}}, "type", "url")}}},
 			},
@@ -157,90 +187,39 @@ func Document(serverURL string, languages ...string) ([]byte, error) {
 	return append(encoded, '\n'), nil
 }
 
-func responseContract(route Route) (status, contentType, schema string) {
-	status, contentType, schema = "200", "application/json", "APIEnvelope"
-	switch route.OperationID {
-	case "getHealth", "getAPIHealth", "getRootHealth":
-		schema = "Health"
-	case "getCLIAutodiscover":
-		schema = "CLIAutodiscover"
-	case "headCLIAutodiscover", "headCLIBinary":
-		contentType, schema = "", ""
-	case "downloadCLIBinary":
-		contentType, schema = "application/octet-stream", ""
-	case "getOpenAPI", "getOpenAPIAlias":
-		schema = "OpenAPIDocument"
-	case "listLinks":
-		schema = "LinkList"
-	case "updateLink":
-		schema = "UpdateLinkResponse"
-	case "getLink":
-		schema = "GetLinkResponse"
-	case "createLink":
-		status, schema = "201", "CreateLinkResponse"
-	case "getLinkStats":
-		schema = "LinkStatsResponse"
-	case "deleteLink":
-		schema = "DeleteLinkResponse"
-	case "getSecurityPolicy":
-		schema = "SecurityPolicyResponse"
-	case "getDPO":
-		schema = "DPOResponse"
-	case "getHelpPage":
-		schema = "HelpPageResponse"
-	case "getPreferences":
-		schema = "PreferenceSnapshotResponse"
-	case "updatePreferences":
-		schema = "PreferenceUpdateResponse"
-	case "syncPreferences":
-		schema = "PreferenceSnapshotResponse"
-	case "importSyncedPreferences":
-		schema = "PreferenceImportResponse"
-	case "checkAuthorization":
-		schema = "AuthorizationResponse"
-	case "listTokens":
-		schema = "TokenCollectionResponse"
-	case "createToken":
-		schema = "TokenMutationResponse"
-	case "issuePrimaryToken":
-		status, schema = "201", "PrimaryTokenIssueResponse"
-	case "revokePrimaryToken":
-		schema = "PrimaryTokenRevocationResponse"
-	case "revealPrimaryToken", "rotatePrimaryToken", "revealLinkedToken", "rotateLinkedToken":
-		schema = "TokenValueResponse"
-	case "updateToken", "revokeToken":
-		schema = "TokenStatusResponse"
-	case "getMetrics", "getPrometheusMetrics", "getGrafanaMetrics", "getLokiMetrics", "getServerMetrics", "getServerPrometheusMetrics", "getServerGrafanaMetrics", "getServerLokiMetrics", "getAPIMetrics", "getAPIPrometheusMetrics", "getAPIGrafanaMetrics", "getAPILokiMetrics", "getRootMetrics", "getRootPrometheusMetrics", "getRootGrafanaMetrics", "getRootLokiMetrics":
-		contentType, schema = "text/plain", ""
-	case "executeGraphQL", "executeGraphQLAlias", "executeGraphQLGet":
-		schema = "GraphQLResponse"
+func modelSchema(model routecontract.ModelRef) any {
+	if model.Schema != nil {
+		return model.Schema
 	}
-	return
+	if model.Name == "" {
+		return nil
+	}
+	return refSchema(model.Name)
+}
+
+func healthSchema() map[string]any {
+	project := objectSchema(map[string]any{"name": stringSchema(), "tagline": stringSchema(), "description": stringSchema()}, "name", "tagline", "description")
+	build := objectSchema(map[string]any{"commit": stringSchema(), "date": stringSchema()}, "commit", "date")
+	maintenance := objectSchema(map[string]any{
+		"reason": stringSchema(), "message": stringSchema(), "since": dateTimeSchema(),
+		"self_healing": objectSchema(map[string]any{"enabled": map[string]string{"type": "boolean"}, "exhausted": map[string]string{"type": "boolean"}, "attempts": map[string]string{"type": "integer", "format": "int64"}, "last_attempt": map[string]any{"type": "string", "format": "date-time", "nullable": true}, "next_attempt": map[string]any{"type": "string", "format": "date-time", "nullable": true}}, "enabled", "exhausted", "attempts", "last_attempt", "next_attempt"),
+	}, "reason", "message", "since", "self_healing")
+	features := objectSchema(map[string]any{
+		"tor":   objectSchema(map[string]any{"enabled": map[string]string{"type": "boolean"}, "running": map[string]string{"type": "boolean"}, "state": stringSchema(), "status": stringSchema(), "hostname": stringSchema()}, "enabled", "running", "state", "status", "hostname"),
+		"i2p":   objectSchema(map[string]any{"enabled": map[string]string{"type": "boolean"}, "running": map[string]string{"type": "boolean"}, "state": stringSchema(), "status": stringSchema(), "hostname": stringSchema(), "provider": stringSchema()}, "enabled", "running", "state", "status", "hostname", "provider"),
+		"geoip": map[string]string{"type": "boolean"},
+	}, "tor", "i2p", "geoip")
+	checks := objectSchema(map[string]any{"database": stringSchema(), "cache": stringSchema(), "disk": stringSchema(), "scheduler": stringSchema(), "tor": stringSchema(), "i2p": stringSchema()}, "database", "cache", "disk", "scheduler")
+	stats := objectSchema(map[string]any{"requests_total": map[string]string{"type": "integer", "format": "int64"}, "requests_24h": map[string]string{"type": "integer", "format": "int64"}, "active_connections": integerSchema()}, "requests_total", "requests_24h", "active_connections")
+	data := objectSchema(map[string]any{
+		"project": project, "status": stringSchema(), "pending_restart": map[string]string{"type": "boolean"}, "restart_reason": map[string]any{"type": "array", "items": stringSchema()}, "maintenance": maintenance,
+		"version": stringSchema(), "go_version": stringSchema(), "build": build, "uptime": stringSchema(), "mode": stringSchema(), "timestamp": dateTimeSchema(), "features": features, "checks": checks, "stats": stats,
+	}, "project", "status", "version", "go_version", "build", "uptime", "mode", "timestamp", "features", "checks", "stats")
+	return data
 }
 
 func envelopeSchema(data any) map[string]any {
 	return objectSchema(map[string]any{"ok": map[string]string{"type": "boolean"}, "data": data, "error": stringSchema(), "message": stringSchema()}, "ok")
-}
-
-func requestSchema(operationID string) string {
-	switch operationID {
-	case "createLink":
-		return "CreateLinkRequest"
-	case "updateLink":
-		return "UpdateLinkRequest"
-	case "updatePreferences":
-		return "PreferencesRequest"
-	case "executeGraphQL", "executeGraphQLAlias":
-		return "GraphQLRequest"
-	case "createToken":
-		return "TokenCreateRequest"
-	case "updateToken":
-		return "TokenUpdateRequest"
-	case "reportCSP", "reportNEL", "reportDefault":
-		return "ReportPayload"
-	default:
-		return ""
-	}
 }
 
 func successResponse(contentType, schema string) map[string]any {
@@ -260,6 +239,7 @@ func refSchema(name string) map[string]any {
 	return map[string]any{"$ref": "#/components/schemas/" + name}
 }
 func stringSchema() map[string]string { return map[string]string{"type": "string"} }
+func uuidSchema() map[string]string   { return map[string]string{"type": "string", "format": "uuid"} }
 func integerSchema() map[string]string {
 	return map[string]string{"type": "integer", "format": "int32"}
 }
@@ -298,9 +278,14 @@ func operationTag(path string) string {
 
 // Handler serves the generated JSON specification directly.
 func Handler(serverURL func(*http.Request) string, title ...func(*http.Request) string) http.Handler {
+	return HandlerWithRegistry(RouteRegistry(), serverURL, title...)
+}
+
+// HandlerWithRegistry serves OpenAPI generated from the supplied registry.
+func HandlerWithRegistry(registry *routecontract.Registry, serverURL func(*http.Request) string, title ...func(*http.Request) string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lang := i18n.LangFromRequest(r, i18n.CookieName, i18n.DefaultLanguage)
-		generated, err := Document(serverURL(r), lang)
+		generated, err := DocumentWithRegistry(registry, serverURL(r), lang)
 		var document map[string]any
 		if err != nil || json.Unmarshal(generated, &document) != nil {
 			http.Error(w, "OpenAPI document unavailable", http.StatusInternalServerError)

@@ -82,6 +82,50 @@ func Validate(cfg *Config) []string {
 	warnings := ValidateBranding(cfg)
 	warnings = append(warnings, ValidateConnectionSettings(cfg)...)
 	defaults := Default("")
+	databaseCache := &cfg.Server.Database.Cache
+	defaultDatabaseCache := defaults.Server.Database.Cache
+	if databaseCache.SyncInterval == "" {
+		databaseCache.SyncInterval = defaultDatabaseCache.SyncInterval
+	}
+	if d, err := ParseDuration(databaseCache.SyncInterval, 0); err != nil || d <= 0 {
+		warnings = append(warnings, "invalid server.database.cache.sync_interval, using default 30s")
+		databaseCache.SyncInterval = defaultDatabaseCache.SyncInterval
+	}
+	if databaseCache.MaxAge == "" {
+		databaseCache.MaxAge = defaultDatabaseCache.MaxAge
+	}
+	if d, err := ParseDuration(databaseCache.MaxAge, 0); err != nil || d <= 0 {
+		warnings = append(warnings, "invalid server.database.cache.max_age, using default 1h")
+		databaseCache.MaxAge = defaultDatabaseCache.MaxAge
+	}
+	selfHealing := &cfg.Server.Maintenance.SelfHealing
+	defaultSelfHealing := defaults.Server.Maintenance.SelfHealing
+	if selfHealing.RetryInterval == "" {
+		selfHealing.RetryInterval = defaultSelfHealing.RetryInterval
+	}
+	if d, err := ParseDuration(selfHealing.RetryInterval, 0); err != nil || d <= 0 {
+		warnings = append(warnings, "invalid server.maintenance.self_healing.retry_interval, using default 30s")
+		selfHealing.RetryInterval = defaultSelfHealing.RetryInterval
+	}
+	if selfHealing.MaxAttempts < 0 {
+		warnings = append(warnings, "invalid server.maintenance.self_healing.max_attempts, using unlimited retries")
+		selfHealing.MaxAttempts = defaultSelfHealing.MaxAttempts
+	}
+	cleanup := &cfg.Server.Maintenance.Cleanup
+	defaultCleanup := defaults.Server.Maintenance.Cleanup
+	if cleanup.DiskThreshold < 1 || cleanup.DiskThreshold > 100 {
+		warnings = append(warnings, "invalid server.maintenance.cleanup.disk_threshold, using default 90")
+		cleanup.DiskThreshold = defaultCleanup.DiskThreshold
+	}
+	if cleanup.LogRetentionDays < 0 {
+		warnings = append(warnings, "invalid server.maintenance.cleanup.log_retention_days, using default 7")
+		cleanup.LogRetentionDays = defaultCleanup.LogRetentionDays
+	}
+	databaseDriver := strings.ToLower(strings.TrimSpace(cfg.Server.Database.Driver))
+	if databaseCache.Enabled && databaseDriver != "libsql" {
+		warnings = append(warnings, "server.database.cache.enabled requires remote libSQL, disabling cache")
+		databaseCache.Enabled = false
+	}
 	if (cfg.Server.TLS.Cert == "") != (cfg.Server.TLS.Key == "") {
 		warnings = append(warnings, "invalid server.ssl.cert/key pair, clearing both values")
 		cfg.Server.TLS.Cert = defaults.Server.TLS.Cert
@@ -862,7 +906,10 @@ func validateUpdate(cfg *Config, defaults *Config) []string {
 	du := defaults.Server.Update
 
 	switch u.Branch {
-	case "stable", "beta", "daily":
+	case "stable", "beta", "devel", "daily", "rolling", "dev", "development":
+		if u.Branch != "stable" && u.Branch != "beta" && u.Branch != "devel" {
+			u.Branch = "devel"
+		}
 	case "":
 		u.Branch = du.Branch
 	default:

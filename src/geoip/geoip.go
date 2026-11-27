@@ -12,6 +12,8 @@ package geoip
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -30,19 +32,19 @@ import (
 
 // Filenames, per AI.md PART 19 "Database Sources (ip-location-db)".
 const (
-	asnFile     = "asn.mmdb"
-	countryFile = "geo-whois-asn-country.mmdb"
+	asnFile     = "iptoasn-asn.mmdb"
+	countryFile = "iptoasn-country.mmdb"
 	cityV4File  = "dbip-city-ipv4.mmdb"
 	cityV6File  = "dbip-city-ipv6.mmdb"
 )
 
-// downloadURLs maps each on-disk filename to its jsDelivr CDN source, per
+// downloadURLs maps each on-disk filename to its GitHub release source, per
 // AI.md PART 19's "Database Sources" table.
 var downloadURLs = map[string]string{
-	asnFile:     "https://cdn.jsdelivr.net/npm/@ip-location-db/asn-mmdb/asn.mmdb",
-	countryFile: "https://cdn.jsdelivr.net/npm/@ip-location-db/geo-whois-asn-country-mmdb/geo-whois-asn-country.mmdb",
-	cityV4File:  "https://cdn.jsdelivr.net/npm/@ip-location-db/dbip-city-mmdb/dbip-city-ipv4.mmdb",
-	cityV6File:  "https://cdn.jsdelivr.net/npm/@ip-location-db/dbip-city-mmdb/dbip-city-ipv6.mmdb",
+	asnFile:     "https://github.com/sapics/ip-location-db/releases/download/latest/iptoasn-asn.mmdb",
+	countryFile: "https://github.com/sapics/ip-location-db/releases/download/latest/iptoasn-country.mmdb",
+	cityV4File:  "https://github.com/sapics/ip-location-db/releases/download/latest/dbip-city-ipv4.mmdb",
+	cityV6File:  "https://github.com/sapics/ip-location-db/releases/download/latest/dbip-city-ipv6.mmdb",
 }
 
 // Result is a single IP lookup's combined ASN/Country/City data. Every
@@ -64,6 +66,9 @@ type Result struct {
 // in AI.md PART 19. Field names/types match the mmdb schema, decoded
 // directly by maxminddb (NOT the incompatible geoip2-golang decoder).
 type countryRecord struct {
+	Country struct {
+		ISOCode string `maxminddb:"iso_code"`
+	} `maxminddb:"country"`
 	CountryCode string `maxminddb:"country_code"`
 }
 
@@ -198,6 +203,14 @@ func (m *Manager) DatasetStatus(name string) string {
 	}
 	data, err := os.ReadFile(filepath.Join(dir, ".last_updated"))
 	updated, parseErr := time.Parse(time.RFC3339, strings.TrimSpace(string(data)))
+	if errors.Is(err, os.ErrNotExist) {
+		for _, name := range datasetFiles(name) {
+			if _, markerErr := os.Stat(filepath.Join(dir, name+".unverified")); markerErr == nil {
+				return "degraded"
+			}
+		}
+		return "error"
+	}
 	if err != nil || parseErr != nil || updated.After(time.Now().Add(time.Minute)) {
 		return "error"
 	}
@@ -223,7 +236,7 @@ func (m *Manager) Lookup(ip net.IP) Result {
 	if m.country != nil {
 		var rec countryRecord
 		if err := m.country.Lookup(ip, &rec); err == nil {
-			out.CountryCode = rec.CountryCode
+			out.CountryCode = firstNonEmpty(rec.Country.ISOCode, rec.CountryCode)
 		}
 	}
 
@@ -365,36 +378,117 @@ func downloadOne(ctx context.Context, dir, name string) (resultErr error) {
 		return fmt.Errorf("geoip: no download URL for %s", name)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	var data []byte
+	var checksumErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(250 * time.Millisecond):
+			}
+		}
+		candidate, err := downloadChecked(ctx, url, name)
+		if len(candidate) > 0 {
+			data = candidate
+		}
+		checksumErr = err
+		if checksumErr == nil {
+			break
+		}
+	}
+	if checksumErr != nil {
+		path := filepath.Join(dir, name)
+		if _, err := os.Stat(path); err == nil {
+			return checksumErr
+		}
+		// A valid first-run database is more useful than no database. Keep it,
+		// but report degradation so the scheduler retries on its next run.
+		if len(data) == 0 || installMMDB(dir, name, data) != nil {
+			return checksumErr
+		}
+		if err := os.WriteFile(filepath.Join(dir, name+".unverified"), []byte("checksum unavailable or mismatched\n"), 0o600); err != nil {
+			return errors.Join(checksumErr, fmt.Errorf("geoip: mark unverified %s: %w", name, err))
+		}
+		return fmt.Errorf("geoip: installed unverified first-run %s: %w", name, checksumErr)
+	}
+	if err := installMMDB(dir, name, data); err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(dir, name+".unverified")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("geoip: clear unverified marker for %s: %w", name, err)
+	}
+	return nil
+}
+
+func datasetFiles(name string) []string {
+	switch name {
+	case "asn":
+		return []string{asnFile}
+	case "country":
+		return []string{countryFile}
+	case "city":
+		return []string{cityV4File, cityV6File}
+	default:
+		return nil
+	}
+}
+
+func downloadChecked(ctx context.Context, source, name string) ([]byte, error) {
+	data, err := downloadBytes(ctx, source)
 	if err != nil {
-		return fmt.Errorf("geoip: build request for %s: %w", name, err)
+		return nil, err
+	}
+	checksumURL := "https://github.com/sapics/ip-location-db/releases/download/checksum/" + name + ".sha256"
+	checksumBody, err := downloadBytes(ctx, checksumURL)
+	if err != nil {
+		return data, fmt.Errorf("geoip: download checksum for %s: %w", name, err)
+	}
+	want := strings.Fields(string(checksumBody))
+	if len(want) == 0 {
+		return data, fmt.Errorf("geoip: empty checksum for %s", name)
+	}
+	sum := sha256.Sum256(data)
+	if !strings.EqualFold(hex.EncodeToString(sum[:]), want[0]) {
+		return data, fmt.Errorf("geoip: checksum mismatch for %s", name)
+	}
+	return data, nil
+}
+
+func downloadBytes(ctx context.Context, source string) (body []byte, resultErr error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
+	if err != nil {
+		return nil, fmt.Errorf("geoip: build request: %w", err)
 	}
 	resp, err := downloadClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("geoip: download %s: %w", name, err)
+		return nil, fmt.Errorf("geoip: download: %w", err)
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			resultErr = errors.Join(resultErr, fmt.Errorf("geoip: close download response for %s: %w", name, err))
+			resultErr = errors.Join(resultErr, fmt.Errorf("geoip: close download response: %w", err))
 		}
 	}()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("geoip: download %s: unexpected status %s", name, resp.Status)
+		return nil, fmt.Errorf("geoip: download: unexpected status %s", resp.Status)
 	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<30))
+	if err != nil {
+		return nil, fmt.Errorf("geoip: read download: %w", err)
+	}
+	return data, nil
+}
 
+func installMMDB(dir, name string, data []byte) error {
 	tmp, err := os.CreateTemp(dir, name+".download-*")
 	if err != nil {
 		return fmt.Errorf("geoip: create temp file for %s: %w", name, err)
 	}
 	tmpPath := tmp.Name()
-	defer func() {
-		if err := os.Remove(tmpPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			resultErr = errors.Join(resultErr, fmt.Errorf("geoip: remove temporary %s database: %w", name, err))
-		}
-	}()
-
-	if _, err := io.Copy(tmp, resp.Body); err != nil {
-		return errors.Join(fmt.Errorf("geoip: write %s: %w", name, err), tmp.Close())
+	defer os.Remove(tmpPath)
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("geoip: write %s: %w", name, err)
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("geoip: close %s: %w", name, err)
@@ -405,6 +499,10 @@ func downloadOne(ctx context.Context, dir, name string) (resultErr error) {
 	if r, err := maxminddb.Open(tmpPath); err != nil {
 		return fmt.Errorf("geoip: downloaded %s is not a valid MMDB: %w", name, err)
 	} else {
+		if r.Metadata.DatabaseType == "" || r.Metadata.NodeCount == 0 {
+			_ = r.Close()
+			return fmt.Errorf("geoip: downloaded %s has invalid MMDB metadata", name)
+		}
 		_ = r.Close()
 	}
 

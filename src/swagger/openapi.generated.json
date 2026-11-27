@@ -68,27 +68,69 @@
       },
       "CLIAutodiscover": {
         "properties": {
-          "cli_min_version": {
-            "type": "string"
-          },
-          "cli_versions": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/CLIBinaryVersion"
+          "data": {
+            "properties": {
+              "api": {
+                "properties": {
+                  "current_version": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "current_version"
+                ],
+                "type": "object"
+              },
+              "cli_min_version": {
+                "type": "string"
+              },
+              "cli_versions": {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/CLIBinaryVersion"
+                },
+                "type": "object"
+              },
+              "i2p": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "onion": {
+                "type": "string"
+              },
+              "urls": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "version": {
+                "type": "string"
+              }
             },
+            "required": [
+              "name",
+              "version",
+              "api",
+              "urls",
+              "cli_versions",
+              "cli_min_version"
+            ],
             "type": "object"
           },
-          "project_name": {
+          "error": {
             "type": "string"
           },
-          "server_version": {
+          "message": {
             "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
           }
         },
         "required": [
-          "project_name",
-          "server_version",
-          "cli_versions",
-          "cli_min_version"
+          "ok"
         ],
         "type": "object"
       },
@@ -349,7 +391,6 @@
                 "type": "string"
               },
               "date": {
-                "format": "date-time",
                 "type": "string"
               }
             },
@@ -360,9 +401,32 @@
             "type": "object"
           },
           "checks": {
-            "additionalProperties": {
-              "type": "string"
+            "properties": {
+              "cache": {
+                "type": "string"
+              },
+              "database": {
+                "type": "string"
+              },
+              "disk": {
+                "type": "string"
+              },
+              "i2p": {
+                "type": "string"
+              },
+              "scheduler": {
+                "type": "string"
+              },
+              "tor": {
+                "type": "string"
+              }
             },
+            "required": [
+              "database",
+              "cache",
+              "disk",
+              "scheduler"
+            ],
             "type": "object"
           },
           "features": {
@@ -371,16 +435,126 @@
                 "type": "boolean"
               },
               "i2p": {
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "hostname": {
+                    "type": "string"
+                  },
+                  "provider": {
+                    "type": "string"
+                  },
+                  "running": {
+                    "type": "boolean"
+                  },
+                  "state": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "running",
+                  "state",
+                  "status",
+                  "hostname",
+                  "provider"
+                ],
                 "type": "object"
               },
               "tor": {
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "hostname": {
+                    "type": "string"
+                  },
+                  "running": {
+                    "type": "boolean"
+                  },
+                  "state": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "running",
+                  "state",
+                  "status",
+                  "hostname"
+                ],
                 "type": "object"
               }
             },
+            "required": [
+              "tor",
+              "i2p",
+              "geoip"
+            ],
             "type": "object"
           },
           "go_version": {
             "type": "string"
+          },
+          "maintenance": {
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "self_healing": {
+                "properties": {
+                  "attempts": {
+                    "format": "int64",
+                    "type": "integer"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "exhausted": {
+                    "type": "boolean"
+                  },
+                  "last_attempt": {
+                    "format": "date-time",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "next_attempt": {
+                    "format": "date-time",
+                    "nullable": true,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "exhausted",
+                  "attempts",
+                  "last_attempt",
+                  "next_attempt"
+                ],
+                "type": "object"
+              },
+              "since": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason",
+              "message",
+              "since",
+              "self_healing"
+            ],
+            "type": "object"
           },
           "mode": {
             "type": "string"
@@ -663,6 +837,79 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/LinkStats"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "type": "object"
+      },
+      "LinkedTokenValue": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "last_used_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "linked_token": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "token_masked": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "scope",
+          "token_masked",
+          "created_at",
+          "last_used_at",
+          "expires_at",
+          "status",
+          "linked_token"
+        ],
+        "type": "object"
+      },
+      "LinkedTokenValueResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/LinkedTokenValue"
           },
           "error": {
             "type": "string"
@@ -970,22 +1217,91 @@
         "properties": {
           "data": {
             "properties": {
-              "deleted_resources": {
+              "resources": {
                 "type": "integer"
               },
-              "deleted_tokens": {
+              "tokens": {
                 "type": "integer"
-              },
-              "revoked": {
-                "type": "boolean"
               }
             },
             "required": [
-              "revoked",
-              "deleted_tokens",
-              "deleted_resources"
+              "tokens",
+              "resources"
             ],
             "type": "object"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "type": "object"
+      },
+      "PrimaryTokenValue": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "last_used_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner_token": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "token_masked": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "scope",
+          "token_masked",
+          "created_at",
+          "last_used_at",
+          "expires_at",
+          "status",
+          "owner_token"
+        ],
+        "type": "object"
+      },
+      "PrimaryTokenValueResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PrimaryTokenValue"
           },
           "error": {
             "type": "string"
@@ -1058,6 +1374,42 @@
           }
         ]
       },
+      "RevokedToken": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "type": "object"
+      },
+      "RevokedTokenResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RevokedToken"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "type": "object"
+      },
       "SecurityPolicyResponse": {
         "properties": {
           "data": {
@@ -1088,55 +1440,93 @@
       },
       "TokenCard": {
         "properties": {
-          "created": {
+          "created_at": {
             "format": "date-time",
             "type": "string"
           },
-          "expires": {
+          "expires_at": {
+            "format": "date-time",
+            "nullable": true,
             "type": "string"
           },
           "id": {
-            "format": "int64",
-            "type": "integer"
-          },
-          "last_used": {
+            "format": "uuid",
             "type": "string"
           },
-          "masked": {
+          "kind": {
+            "type": "string"
+          },
+          "last_used_at": {
+            "format": "date-time",
+            "nullable": true,
             "type": "string"
           },
           "name": {
             "type": "string"
           },
-          "revealed": {
+          "scope": {
             "type": "string"
           },
           "status": {
+            "type": "string"
+          },
+          "token_masked": {
             "type": "string"
           }
         },
         "required": [
           "id",
           "name",
-          "masked",
-          "created",
-          "last_used",
-          "expires",
+          "kind",
+          "scope",
+          "token_masked",
+          "created_at",
+          "last_used_at",
+          "expires_at",
           "status"
+        ],
+        "type": "object"
+      },
+      "TokenCardResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TokenCard"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
         ],
         "type": "object"
       },
       "TokenCollection": {
         "properties": {
-          "tokens": {
+          "linked": {
             "items": {
               "$ref": "#/components/schemas/TokenCard"
             },
             "type": "array"
+          },
+          "max_linked": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "primary": {
+            "$ref": "#/components/schemas/TokenCard"
           }
         },
         "required": [
-          "tokens"
+          "primary",
+          "linked",
+          "max_linked"
         ],
         "type": "object"
       },
@@ -1162,143 +1552,58 @@
       },
       "TokenCreateRequest": {
         "properties": {
-          "expires_on": {
-            "description": "Required when expiry is custom.",
-            "format": "date",
-            "type": "string"
-          },
-          "expiry": {
+          "expires": {
+            "default": "never",
             "enum": [
               "never",
               "7d",
               "30d",
               "90d",
-              "1y",
-              "custom"
+              "1y"
             ],
+            "type": "string"
+          },
+          "expires_on": {
+            "format": "date",
             "type": "string"
           },
           "name": {
             "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "TokenMutation": {
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/TokenCard"
           },
-          "revoked": {
-            "type": "boolean"
-          },
-          "token": {
+          "scope": {
+            "default": "read-write",
+            "enum": [
+              "read",
+              "read-write"
+            ],
             "type": "string"
-          },
-          "updated": {
-            "type": "boolean"
-          }
-        },
-        "type": "object"
-      },
-      "TokenMutationResponse": {
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/TokenMutation"
-          },
-          "error": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "ok": {
-            "type": "boolean"
           }
         },
         "required": [
-          "ok"
-        ],
-        "type": "object"
-      },
-      "TokenStatusResponse": {
-        "properties": {
-          "data": {
-            "properties": {
-              "revoked": {
-                "type": "boolean"
-              },
-              "updated": {
-                "type": "boolean"
-              }
-            },
-            "type": "object"
-          },
-          "error": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "ok": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "ok"
+          "name"
         ],
         "type": "object"
       },
       "TokenUpdateRequest": {
         "properties": {
-          "expires_on": {
-            "description": "Required when expiry is custom.",
-            "format": "date",
-            "type": "string"
-          },
-          "expiry": {
+          "expires": {
             "enum": [
               "never",
               "7d",
               "30d",
               "90d",
-              "1y",
-              "custom"
+              "1y"
             ],
+            "type": "string"
+          },
+          "expires_on": {
+            "format": "date",
             "type": "string"
           },
           "name": {
             "type": "string"
           }
         },
-        "type": "object"
-      },
-      "TokenValueResponse": {
-        "properties": {
-          "data": {
-            "properties": {
-              "token": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "token"
-            ],
-            "type": "object"
-          },
-          "error": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "ok": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "ok"
-        ],
         "type": "object"
       },
       "UpdateLinkRequest": {
@@ -1686,282 +1991,6 @@
                   "$ref": "#/components/schemas/APIEnvelope"
                 }
               }
-            },
-            "description": "Successful response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          }
-        }
-      }
-    },
-    "/api/metrics": {
-      "get": {
-        "summary": "Read service metrics",
-        "description": "Documented API operation.",
-        "x-description": "Documented API operation.",
-        "operationId": "getAPIMetrics",
-        "tags": [
-          "Metrics"
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {}
-            },
-            "description": "Successful response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          }
-        }
-      }
-    },
-    "/api/metrics/grafana": {
-      "get": {
-        "summary": "Read service metrics",
-        "description": "Documented API operation.",
-        "x-description": "Documented API operation.",
-        "operationId": "getAPIGrafanaMetrics",
-        "tags": [
-          "Metrics"
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {}
-            },
-            "description": "Successful response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          }
-        }
-      }
-    },
-    "/api/metrics/loki": {
-      "get": {
-        "summary": "Read service metrics",
-        "description": "Documented API operation.",
-        "x-description": "Documented API operation.",
-        "operationId": "getAPILokiMetrics",
-        "tags": [
-          "Metrics"
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {}
-            },
-            "description": "Successful response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          }
-        }
-      }
-    },
-    "/api/metrics/prometheus": {
-      "get": {
-        "summary": "Read service metrics",
-        "description": "Documented API operation.",
-        "x-description": "Documented API operation.",
-        "operationId": "getAPIPrometheusMetrics",
-        "tags": [
-          "Metrics"
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {}
             },
             "description": "Successful response"
           },
@@ -3635,322 +3664,6 @@
         }
       }
     },
-    "/api/{api_version}/server/metrics": {
-      "get": {
-        "summary": "Read service metrics",
-        "description": "Documented API operation.",
-        "x-description": "Documented API operation.",
-        "operationId": "getMetrics",
-        "tags": [
-          "Metrics"
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "api_version",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {}
-            },
-            "description": "Successful response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          }
-        }
-      }
-    },
-    "/api/{api_version}/server/metrics/grafana": {
-      "get": {
-        "summary": "Read service metrics",
-        "description": "Documented API operation.",
-        "x-description": "Documented API operation.",
-        "operationId": "getGrafanaMetrics",
-        "tags": [
-          "Metrics"
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "api_version",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {}
-            },
-            "description": "Successful response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          }
-        }
-      }
-    },
-    "/api/{api_version}/server/metrics/loki": {
-      "get": {
-        "summary": "Read service metrics",
-        "description": "Documented API operation.",
-        "x-description": "Documented API operation.",
-        "operationId": "getLokiMetrics",
-        "tags": [
-          "Metrics"
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "api_version",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {}
-            },
-            "description": "Successful response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          }
-        }
-      }
-    },
-    "/api/{api_version}/server/metrics/prometheus": {
-      "get": {
-        "summary": "Read service metrics",
-        "description": "Documented API operation.",
-        "x-description": "Documented API operation.",
-        "operationId": "getPrometheusMetrics",
-        "tags": [
-          "Metrics"
-        ],
-        "parameters": [
-          {
-            "in": "path",
-            "name": "api_version",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {}
-            },
-            "description": "Successful response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          }
-        }
-      }
-    },
     "/api/{api_version}/server/preferences": {
       "get": {
         "summary": "Read preferences",
@@ -4432,7 +4145,9 @@
           "content": {
             "application/json": {
               "example": {
-                "name": "automation"
+                "expires": "30d",
+                "name": "automation",
+                "scope": "read-write"
               },
               "schema": {
                 "$ref": "#/components/schemas/TokenCreateRequest"
@@ -4450,11 +4165,11 @@
           }
         ],
         "responses": {
-          "200": {
+          "201": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenMutationResponse"
+                  "$ref": "#/components/schemas/LinkedTokenValueResponse"
                 }
               }
             },
@@ -4717,7 +4432,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenValueResponse"
+                  "$ref": "#/components/schemas/PrimaryTokenValueResponse"
                 }
               }
             },
@@ -4808,7 +4523,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenValueResponse"
+                  "$ref": "#/components/schemas/PrimaryTokenValueResponse"
                 }
               }
             },
@@ -4907,7 +4622,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenStatusResponse"
+                  "$ref": "#/components/schemas/RevokedTokenResponse"
                 }
               }
             },
@@ -4995,7 +4710,7 @@
           "content": {
             "application/json": {
               "example": {
-                "expiry": "30d",
+                "expires": "30d",
                 "name": "automation"
               },
               "schema": {
@@ -5018,7 +4733,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenStatusResponse"
+                  "$ref": "#/components/schemas/TokenCardResponse"
                 }
               }
             },
@@ -5117,7 +4832,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenValueResponse"
+                  "$ref": "#/components/schemas/LinkedTokenValueResponse"
                 }
               }
             },
@@ -5216,7 +4931,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenValueResponse"
+                  "$ref": "#/components/schemas/LinkedTokenValueResponse"
                 }
               }
             },
@@ -6228,558 +5943,6 @@
         }
       }
     },
-    "/metrics": {
-      "get": {
-        "summary": "Read service metrics",
-        "description": "Documented API operation.",
-        "x-description": "Documented API operation.",
-        "operationId": "getRootMetrics",
-        "tags": [
-          "Metrics"
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {}
-            },
-            "description": "Successful response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          }
-        }
-      }
-    },
-    "/metrics/grafana": {
-      "get": {
-        "summary": "Read service metrics",
-        "description": "Documented API operation.",
-        "x-description": "Documented API operation.",
-        "operationId": "getRootGrafanaMetrics",
-        "tags": [
-          "Metrics"
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {}
-            },
-            "description": "Successful response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          }
-        }
-      }
-    },
-    "/metrics/loki": {
-      "get": {
-        "summary": "Read service metrics",
-        "description": "Documented API operation.",
-        "x-description": "Documented API operation.",
-        "operationId": "getRootLokiMetrics",
-        "tags": [
-          "Metrics"
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {}
-            },
-            "description": "Successful response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          }
-        }
-      }
-    },
-    "/metrics/prometheus": {
-      "get": {
-        "summary": "Read service metrics",
-        "description": "Documented API operation.",
-        "x-description": "Documented API operation.",
-        "operationId": "getRootPrometheusMetrics",
-        "tags": [
-          "Metrics"
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {}
-            },
-            "description": "Successful response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          }
-        }
-      }
-    },
-    "/server/metrics": {
-      "get": {
-        "summary": "Read service metrics",
-        "description": "Documented API operation.",
-        "x-description": "Documented API operation.",
-        "operationId": "getServerMetrics",
-        "tags": [
-          "Metrics"
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {}
-            },
-            "description": "Successful response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          }
-        }
-      }
-    },
-    "/server/metrics/grafana": {
-      "get": {
-        "summary": "Read service metrics",
-        "description": "Documented API operation.",
-        "x-description": "Documented API operation.",
-        "operationId": "getServerGrafanaMetrics",
-        "tags": [
-          "Metrics"
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {}
-            },
-            "description": "Successful response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          }
-        }
-      }
-    },
-    "/server/metrics/loki": {
-      "get": {
-        "summary": "Read service metrics",
-        "description": "Documented API operation.",
-        "x-description": "Documented API operation.",
-        "operationId": "getServerLokiMetrics",
-        "tags": [
-          "Metrics"
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {}
-            },
-            "description": "Successful response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          }
-        }
-      }
-    },
-    "/server/metrics/prometheus": {
-      "get": {
-        "summary": "Read service metrics",
-        "description": "Documented API operation.",
-        "x-description": "Documented API operation.",
-        "operationId": "getServerPrometheusMetrics",
-        "tags": [
-          "Metrics"
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {}
-            },
-            "description": "Successful response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIError"
-                }
-              }
-            },
-            "description": "Request failed"
-          }
-        }
-      }
-    },
     "/{slug}": {
       "get": {
         "summary": "Read service metrics",
@@ -6802,11 +5965,7 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope"
-                }
-              }
+              "text/plain": {}
             },
             "description": "Successful response"
           },
@@ -6887,7 +6046,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope"
+                  "$ref": "#/components/schemas/LinkStatsResponse"
                 }
               }
             },

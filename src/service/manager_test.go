@@ -96,6 +96,77 @@ func TestNewForInit(t *testing.T) {
 	}
 }
 
+func TestUserServiceSupported(t *testing.T) {
+	tests := []struct {
+		init InitSystem
+		want bool
+	}{
+		{Systemd, true},
+		{Launchd, true},
+		{WindowsService, true},
+		{OpenRC, false},
+		{Runit, false},
+		{SysVinit, false},
+		{RCd, false},
+		{UnknownInit, false},
+	}
+	for _, tc := range tests {
+		if got := UserServiceSupported(tc.init); got != tc.want {
+			t.Errorf("UserServiceSupported(%q) = %t, want %t", tc.init, got, tc.want)
+		}
+	}
+}
+
+func TestTaskSchedulerUserLifecycle(t *testing.T) {
+	p := templateParams()
+	p.UserLevel = true
+	p.BinaryPath = `C:\Program Files\Shortner\shortner.exe`
+	m := &taskSchedulerManager{p: p}
+	rec := &recorder{}
+	rec.install(t)
+
+	if err := Install(m); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if !rec.ran("schtasks", "/Create", "/SC ONLOGON", "/TN shortner", "/RL LIMITED") {
+		t.Errorf("user task was not registered as a limited ONLOGON task: %v", rec.commands)
+	}
+	if !rec.ran("schtasks", "/Change", "/ENABLE") || !rec.ran("schtasks", "/Run") {
+		t.Errorf("user task was not enabled and started: %v", rec.commands)
+	}
+
+	rec.output[`schtasks /Query /TN shortner /FO LIST /V`] = "TaskName: \\shortner\nScheduled Task State: Enabled\nStatus: Running"
+	if st := m.Status(); !st.Installed || !st.AutoStart || st.State != "running" {
+		t.Errorf("Status() = %+v, want installed/running/enabled", st)
+	}
+
+	if err := m.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if err := m.Disable(); err != nil {
+		t.Fatalf("Disable: %v", err)
+	}
+	if err := m.Remove(); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if !rec.ran("schtasks", "/End", "/TN shortner") || !rec.ran("schtasks", "/Change", "/DISABLE") || !rec.ran("schtasks", "/Delete", "/TN shortner", "/F") {
+		t.Errorf("user task lifecycle did not stop, disable, and remove the task: %v", rec.commands)
+	}
+}
+
+func TestTaskSchedulerParsesState(t *testing.T) {
+	output := "TaskName: \\shortner\nScheduled Task State: Disabled\nStatus: Ready"
+	if taskSchedulerEnabled(output) {
+		t.Fatal("taskSchedulerEnabled() = true, want disabled task")
+	}
+	if got := taskSchedulerState(output); got != "ready" {
+		t.Errorf("taskSchedulerState() = %q, want ready", got)
+	}
+	if got := quoteTaskCommand(`C:\Program Files\Shortner\shortner.exe`); got != `"C:\Program Files\Shortner\shortner.exe"` {
+		t.Errorf("quoteTaskCommand() = %q", got)
+	}
+}
+
 // TestSystemdUserLevelLifecycle exercises the full PART 23 user-service
 // fallback against a temporary HOME, which is the one install path that
 // touches no system directory.

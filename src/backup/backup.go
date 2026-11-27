@@ -142,7 +142,9 @@ func Create(opts Options) (result *Result, resultErr error) {
 	}
 	if opts.Kind.Incremental() && opts.Base != nil {
 		baseFiles := make(map[string]FileEntry, len(opts.Base.Files))
-		for _, entry := range opts.Base.Files { baseFiles[entry.Path] = entry }
+		for _, entry := range opts.Base.Files {
+			baseFiles[entry.Path] = entry
+		}
 		files = changedSince(files, baseFiles)
 	}
 

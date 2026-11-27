@@ -88,6 +88,18 @@ func setup() error {
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return err
 	}
+	// E2E creates and rotates several credentials in one run. Raise the
+	// temporary server's per-IP ceilings so the suite measures behavior rather
+	// than exhausting production defaults; no repository or production config
+	// is changed.
+	configDropins := filepath.Join(cfgDir, "yaml.d")
+	if err := os.MkdirAll(configDropins, 0o700); err != nil {
+		return err
+	}
+	rateLimitConfig := "server:\n  csrf:\n    secure: false\n  privacy:\n    data:\n      sold: true\n  compliance:\n    gdpr: true\n  rate_limit:\n    read:\n      requests: 10000\n      window: 60\n    write:\n      requests: 10000\n      window: 60\n    health:\n      requests: 10000\n      window: 60\n    global_burst: 100000\n"
+	if err := os.WriteFile(filepath.Join(configDropins, "99-e2e-ratelimits.yml"), []byte(rateLimitConfig), 0o600); err != nil {
+		return err
+	}
 
 	logFile, err := os.OpenFile(filepath.Join(artifactDir, "server.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {

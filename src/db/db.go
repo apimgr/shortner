@@ -21,6 +21,7 @@ import (
 
 	"github.com/apimgr/shortner/src/metrics"
 	"github.com/apimgr/shortner/src/pgp"
+	"github.com/google/uuid"
 )
 
 // Pool holds connection-pool tuning, per AI.md PART 10 "Connection
@@ -96,6 +97,118 @@ func Open(path string, pool Pool, m *metrics.Metrics, authTokens ...string) (*St
 	default:
 		return nil, errors.New("db: unsupported database connection scheme")
 	}
+}
+
+// OpenWithCache opens the configured database and attaches an optional local
+// read replica. Cache errors never change the remote database contract.
+func OpenWithCache(path string, pool Pool, m *metrics.Metrics, cachePath string, syncInterval, maxAge time.Duration, offlineMode bool, authTokens ...string) (*Store, error) {
+	return OpenWithCacheRecovery(path, pool, m, cachePath, syncInterval, maxAge, syncInterval, 0, offlineMode, authTokens...)
+}
+
+// OpenWithCacheRecovery also configures maintenance recovery cadence and cap.
+func OpenWithCacheRecovery(path string, pool Pool, m *metrics.Metrics, cachePath string, syncInterval, maxAge, retryInterval time.Duration, maxAttempts int, offlineMode bool, authTokens ...string) (*Store, error) {
+	u, err := url.Parse(strings.TrimSpace(path))
+	if err != nil {
+		return nil, errors.New("db: invalid database connection string")
+	}
+	if u.Scheme == "" || strings.EqualFold(u.Scheme, "sqlite") || strings.EqualFold(u.Scheme, "file") || strings.EqualFold(u.Scheme, "sqlite2") || strings.EqualFold(u.Scheme, "sqlite3") {
+		return nil, errors.New("db: SQLite cache requires a remote libSQL database")
+	}
+	if syncInterval <= 0 {
+		syncInterval = 30 * time.Second
+	}
+	if maxAge <= 0 {
+		maxAge = time.Hour
+	}
+	if retryInterval <= 0 {
+		retryInterval = 30 * time.Second
+	}
+	if maxAttempts < 0 {
+		maxAttempts = 0
+	}
+	openRemote := func() (*Store, error) { return Open(path, pool, m, authTokens...) }
+	store, err := openRemote()
+	if err != nil {
+		local, cacheErr := openLocalCache(cachePath, pool.MaxOpen)
+		if cacheErr != nil {
+			return nil, fmt.Errorf("db: remote unavailable and maintenance cache could not be opened: %w", cacheErr)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		cacheErr = prepareCache(ctx, local)
+		cancel()
+		if cacheErr != nil {
+			_ = local.Close()
+			return nil, errors.New("db: remote unavailable and no usable local cache")
+		}
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(cacheTables)), ",")
+		args := make([]any, len(cacheTables))
+		for i, table := range cacheTables {
+			args[i] = table
+		}
+		var tableCount int
+		var oldestSync int64
+		cacheErr = local.r.QueryRow(`SELECT COUNT(*), COALESCE(MIN(synced_at),0) FROM cache_meta WHERE table_name IN (`+placeholders+`)`, args...).Scan(&tableCount, &oldestSync)
+		usable := cacheErr == nil && tableCount == len(cacheTables) && oldestSync > 0 && offlineMode
+		c := &readCache{db: local.r, writer: local.w, maxAge: maxAge, retryInterval: retryInterval, maxAttempts: uint64(maxAttempts), stop: make(chan struct{}), done: make(chan struct{}), openRemote: openRemote, offlineMode: offlineMode}
+		if cacheErr == nil && tableCount == len(cacheTables) && oldestSync > 0 {
+			c.lastSync.Store(time.Unix(oldestSync, 0).UnixNano())
+		}
+		c.usable.Store(usable)
+		c.offline.Store(true)
+		c.remoteUnavailable.Store(true)
+		c.offlineSince.Store(time.Now().UTC().Unix())
+		c.recoveryPending.Store(true)
+		store = &Store{w: local.w, r: local.r, readOnly: true, cache: c}
+		c.root = store
+		go c.loop(nil, syncInterval)
+		return store, nil
+	}
+	if err := attachReadCache(store, cachePath, syncInterval, maxAge, retryInterval, maxAttempts, offlineMode, openRemote); err != nil {
+		_ = store.Close()
+		return nil, errors.New("db: local SQLite cache initialization failed")
+	}
+	return store, nil
+}
+
+// OpenInMaintenance returns a read-only health store that retries a database
+// connection without enabling or serving a local data cache.
+func OpenInMaintenance(path string, pool Pool, m *metrics.Metrics, statePath string, retryInterval time.Duration, authTokens ...string) (*Store, error) {
+	return OpenInMaintenanceWithPolicy(path, pool, m, statePath, retryInterval, 0, authTokens...)
+}
+
+// OpenInMaintenanceWithPolicy sets the retry policy for an offline startup.
+func OpenInMaintenanceWithPolicy(path string, pool Pool, m *metrics.Metrics, statePath string, retryInterval time.Duration, maxAttempts int, authTokens ...string) (*Store, error) {
+	if retryInterval <= 0 {
+		retryInterval = 30 * time.Second
+	}
+	if maxAttempts < 0 {
+		maxAttempts = 0
+	}
+	local, err := openLocalCache(statePath, pool.MaxOpen)
+	if err != nil {
+		return nil, fmt.Errorf("db: maintenance state store could not be opened: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	err = prepareCache(ctx, local)
+	cancel()
+	if err != nil {
+		_ = local.Close()
+		return nil, fmt.Errorf("db: maintenance state store could not be initialized: %w", err)
+	}
+	openRemote := func() (*Store, error) { return Open(path, pool, m, authTokens...) }
+	c := &readCache{
+		db: local.r, writer: local.w, retryInterval: retryInterval, maxAttempts: uint64(maxAttempts),
+		stop: make(chan struct{}), done: make(chan struct{}),
+		openRemote: openRemote, maintenanceOnly: true,
+	}
+	c.offline.Store(true)
+	c.remoteUnavailable.Store(true)
+	c.offlineSince.Store(time.Now().UTC().Unix())
+	c.recoveryPending.Store(true)
+	store := &Store{w: local.w, r: local.r, readOnly: true, cache: c}
+	c.root = store
+	go c.loop(nil, retryInterval)
+	return store, nil
 }
 
 func openAndMigrateSQLite(path string, pool Pool, m *metrics.Metrics) (*Store, error) {
@@ -191,9 +304,10 @@ var createStatements = []string{
 		last_seen_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 	)`,
 	`CREATE TABLE IF NOT EXISTS api_tokens (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		id TEXT PRIMARY KEY,
 		owner_id TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
 		kind TEXT NOT NULL CHECK (kind IN ('primary', 'linked')),
+		scope TEXT NOT NULL DEFAULT 'read-write' CHECK (scope IN ('read', 'read-write', 'global')),
 		name TEXT,
 		token_hash TEXT NOT NULL UNIQUE,
 		token_prefix TEXT NOT NULL,
@@ -310,6 +424,22 @@ var createStatements = []string{
 		keyservers_published TEXT NOT NULL DEFAULT '',
 		revoked INTEGER NOT NULL DEFAULT 0
 	)`,
+	`CREATE TABLE IF NOT EXISTS audit_log (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		timestamp   INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+		level       TEXT NOT NULL DEFAULT 'info',
+		category    TEXT NOT NULL,
+		action      TEXT NOT NULL,
+		actor_ip    TEXT,
+		target_type TEXT,
+		target_id   TEXT,
+		details     TEXT,
+		success     INTEGER NOT NULL DEFAULT 1
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)`,
+	`CREATE INDEX IF NOT EXISTS idx_audit_category ON audit_log(category)`,
+	`CREATE INDEX IF NOT EXISTS idx_audit_actor_ip ON audit_log(actor_ip)`,
+	`CREATE INDEX IF NOT EXISTS idx_audit_target ON audit_log(target_type, target_id)`,
 }
 
 // schemaUpdates holds idempotent ALTER TABLE / index additions applied
@@ -355,6 +485,9 @@ func EnsureSchema(ctx context.Context, sqlDB Handle) error {
 			return fmt.Errorf("db: create table: %w", err)
 		}
 	}
+	if err := ensureTokenPublicIDs(ctx, sqlDB); err != nil {
+		return err
+	}
 	for _, stmt := range schemaUpdates {
 		if _, err := sqlDB.ExecContext(ctx, stmt); err != nil && !isColumnExistsError(err) {
 			return fmt.Errorf("db: schema update: %w", err)
@@ -370,6 +503,82 @@ func EnsureSchema(ctx context.Context, sqlDB Handle) error {
 	}
 	if _, err := sqlDB.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_security_reports_status ON security_reports(status, created_at)`); err != nil {
 		return fmt.Errorf("db: create security report status index: %w", err)
+	}
+	return nil
+}
+
+func ensureTokenPublicIDs(ctx context.Context, sqlDB Handle) error {
+	integerKey := false
+	rows, err := sqlDB.QueryContext(ctx, `PRAGMA table_info(api_tokens)`)
+	if err != nil {
+		return fmt.Errorf("db: inspect token id schema: %w", err)
+	}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, kind string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &kind, &notnull, &defaultValue, &pk); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("db: scan token id schema: %w", err)
+		}
+		if name == "id" && strings.EqualFold(kind, "INTEGER") {
+			integerKey = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("db: read token id schema: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("db: close token id schema: %w", err)
+	}
+	if integerKey && !columnExists(ctx, sqlDB, "api_tokens", "public_id") {
+		if _, err := sqlDB.ExecContext(ctx, `ALTER TABLE api_tokens ADD COLUMN public_id TEXT`); err != nil {
+			return fmt.Errorf("db: add token public id: %w", err)
+		}
+	}
+	if !columnExists(ctx, sqlDB, "api_tokens", "scope") {
+		if _, err := sqlDB.ExecContext(ctx, `ALTER TABLE api_tokens ADD COLUMN scope TEXT NOT NULL DEFAULT 'read-write' CHECK (scope IN ('read', 'read-write', 'global'))`); err != nil {
+			return fmt.Errorf("db: add token scope: %w", err)
+		}
+	}
+	if _, err := sqlDB.ExecContext(ctx, `UPDATE api_tokens SET scope='global' WHERE kind='primary'`); err != nil {
+		return fmt.Errorf("db: set primary token scope: %w", err)
+	}
+	if !integerKey {
+		return nil
+	}
+	rows, err = sqlDB.QueryContext(ctx, `SELECT id FROM api_tokens WHERE public_id IS NULL OR public_id=''`)
+	if err != nil {
+		return fmt.Errorf("db: list tokens missing public ids: %w", err)
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("db: scan token missing public id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("db: iterate tokens missing public ids: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("db: close tokens missing public ids: %w", err)
+	}
+	for _, id := range ids {
+		publicID, err := uuid.NewV7()
+		if err != nil {
+			return fmt.Errorf("db: generate token public id: %w", err)
+		}
+		if _, err := sqlDB.ExecContext(ctx, `UPDATE api_tokens SET public_id=? WHERE id=? AND (public_id IS NULL OR public_id='')`, publicID.String(), id); err != nil {
+			return fmt.Errorf("db: backfill token public id: %w", err)
+		}
+	}
+	if _, err := sqlDB.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_api_tokens_public_id ON api_tokens(public_id)`); err != nil {
+		return fmt.Errorf("db: index token public id: %w", err)
 	}
 	return nil
 }
@@ -417,7 +626,7 @@ func migrateLegacyOwnerSchema(ctx context.Context, sqlDB Handle) (resultErr erro
 	if !tableExists(ctx, sqlDB, "api_tokens") {
 		return nil
 	}
-	if !columnExists(ctx, sqlDB, "api_tokens", "resource_type") {
+	if !columnExists(ctx, sqlDB, "api_tokens", "resource_type") || columnExists(ctx, sqlDB, "api_tokens", "owner_id") {
 		if !columnExists(ctx, sqlDB, "api_tokens", "owner_id") {
 			return fmt.Errorf("db: api_tokens table has an unsupported schema")
 		}
@@ -456,34 +665,29 @@ func migrateLegacyOwnerSchema(ctx context.Context, sqlDB Handle) (resultErr erro
 }
 
 func migrateLegacyTokenSchema(ctx context.Context, tx *sql.Tx) error {
-	var err error
-	if _, err = tx.ExecContext(ctx, `ALTER TABLE api_tokens RENAME TO api_tokens_legacy`); err != nil {
-		return fmt.Errorf("db: rename legacy token table: %w", err)
-	}
 	if !columnExistsTx(ctx, tx, "links", "owner_id") {
-		if _, err = tx.ExecContext(ctx, `ALTER TABLE links ADD COLUMN owner_id TEXT REFERENCES owners(id) ON DELETE CASCADE`); err != nil {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE links ADD COLUMN owner_id TEXT REFERENCES owners(id) ON DELETE CASCADE`); err != nil {
 			return fmt.Errorf("db: add links owner id: %w", err)
 		}
 	}
-	if _, err = tx.ExecContext(ctx, `CREATE TABLE api_tokens (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		owner_id TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
-		kind TEXT NOT NULL CHECK (kind IN ('primary', 'linked')),
-		name TEXT,
-		token_hash TEXT NOT NULL UNIQUE,
-		token_prefix TEXT NOT NULL,
-		token_last4 TEXT NOT NULL DEFAULT '',
-		token_enc TEXT NOT NULL,
-		created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-		rotated_at INTEGER,
-		expires_at INTEGER,
-		last_used_at INTEGER,
-		revoked_at INTEGER,
-		revoked_reason TEXT
-	)`); err != nil {
-		return fmt.Errorf("db: create migrated token table: %w", err)
+	additions := []struct{ name, declaration string }{
+		{"owner_id", `TEXT REFERENCES owners(id) ON DELETE CASCADE`},
+		{"kind", `TEXT NOT NULL DEFAULT 'linked' CHECK (kind IN ('primary', 'linked'))`},
+		{"name", `TEXT`},
+		{"scope", `TEXT NOT NULL DEFAULT 'read-write' CHECK (scope IN ('read', 'read-write', 'global'))`},
+		{"token_last4", `TEXT NOT NULL DEFAULT ''`},
+		{"token_enc", `TEXT NOT NULL DEFAULT ''`},
+		{"rotated_at", `INTEGER`},
+		{"public_id", `TEXT`},
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT id, token_hash, token_prefix, resource_type, resource_id, created_at, expires_at, last_used_at, revoked_at, revoked_reason FROM api_tokens_legacy ORDER BY id`)
+	for _, addition := range additions {
+		if !columnExistsTx(ctx, tx, "api_tokens", addition.name) {
+			if _, err := tx.ExecContext(ctx, `ALTER TABLE api_tokens ADD COLUMN `+addition.name+` `+addition.declaration); err != nil {
+				return fmt.Errorf("db: add legacy api_tokens.%s: %w", addition.name, err)
+			}
+		}
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id, token_hash, token_prefix, resource_type, resource_id, created_at, expires_at, last_used_at, revoked_at, revoked_reason FROM api_tokens ORDER BY id`)
 	if err != nil {
 		return fmt.Errorf("db: read legacy tokens: %w", err)
 	}
@@ -529,33 +733,22 @@ func migrateLegacyTokenSchema(ctx context.Context, tx *sql.Tx) error {
 		if activePrimary > 0 {
 			kind = "linked"
 		}
-		var expiry any
-		if token.expires.Valid {
-			expiry = token.expires.Int64
+		publicID, err := uuid.NewV7()
+		if err != nil {
+			return fmt.Errorf("db: create legacy token public id: %w", err)
 		}
-		var lastUsed any
-		if token.lastUsed.Valid {
-			lastUsed = token.lastUsed.Int64
+		scope := "read-write"
+		if kind == "primary" {
+			scope = "global"
 		}
-		var revoked any
-		if token.revoked.Valid {
-			revoked = token.revoked.Int64
-		}
-		var reason any
-		if token.reason.Valid {
-			reason = token.reason.String
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO api_tokens(id, owner_id, kind, token_hash, token_prefix, token_enc, created_at, expires_at, last_used_at, revoked_at, revoked_reason) VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?)`, token.id, ownerID, kind, token.hash, token.prefix, token.created, expiry, lastUsed, revoked, reason); err != nil {
-			return fmt.Errorf("db: migrate legacy token: %w", err)
+		if _, err := tx.ExecContext(ctx, `UPDATE api_tokens SET owner_id=?,kind=?,scope=?,token_enc=COALESCE(token_enc,''),public_id=? WHERE id=?`, ownerID, kind, scope, publicID.String(), token.id); err != nil {
+			return fmt.Errorf("db: migrate legacy token row: %w", err)
 		}
 	}
 	for linkID, ownerID := range ownerByLink {
 		if _, err := tx.ExecContext(ctx, `UPDATE links SET owner_id = ? WHERE id = ?`, ownerID, linkID); err != nil {
 			return fmt.Errorf("db: assign legacy link owner: %w", err)
 		}
-	}
-	if _, err := tx.ExecContext(ctx, `DROP TABLE api_tokens_legacy`); err != nil {
-		return fmt.Errorf("db: drop legacy token table: %w", err)
 	}
 	if err := fillUnownedLinks(ctx, tx); err != nil {
 		return err

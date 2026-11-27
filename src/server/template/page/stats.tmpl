@@ -2,6 +2,7 @@
 <header class="page-header"><h1 class="page-title">{{tf $lang "stats.title_named" "code" .Stats.ShortCode}}</h1><p class="page-lead">{{t $lang "stats.total_clicks"}}</p></header>
 
 <div class="info-list">
+<div class="info-row"><span class="info-label">{{t $lang "stats.destination"}}</span><span class="info-value"><a href="{{.DestinationURL}}" rel="nofollow noopener noreferrer">{{.DestinationURL}}</a></span></div>
 <div class="info-row"><span class="info-label">{{t $lang "stats.total_clicks"}}</span><span class="info-value">{{.Stats.TotalClicks}}</span></div>
 </div>
 

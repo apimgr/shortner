@@ -20,12 +20,12 @@ set -eo pipefail
 # shellcheck source=tests/common.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
-container_name="test-$internal_name-$(__random_suffix)"
+container_name="$project_name-$(__random_suffix)"
 temp_dir=""
 
 # shellcheck disable=SC2329
 __cleanup() {
-  incus delete --force "$container_name" >/dev/null 2>&1 || true
+  timeout "${INCUS_OP_TIMEOUT:-60}" incus delete --force "$container_name" >/dev/null 2>&1 || true
   if [ -n "$temp_dir" ] && [ -d "$temp_dir" ]; then
     rm -rf -- "$temp_dir"
   fi
@@ -33,7 +33,7 @@ __cleanup() {
     rm -rf -- "$bin_dir"
   fi
 }
-trap __cleanup EXIT
+trap __cleanup EXIT INT TERM
 
 if ! __have_cmd incus; then
   printf 'incus is not installed — run ./tests/docker.sh instead\n' >&2
@@ -42,12 +42,12 @@ fi
 
 # __cexec {args...} — run a command inside the test container.
 __cexec() {
-  incus exec "$container_name" -- "$@"
+  timeout "${INCUS_OP_TIMEOUT:-60}" incus exec "$container_name" -- "$@"
 }
 
 # __csh {script} — run a shell snippet inside the test container.
 __csh() {
-  incus exec "$container_name" -- bash -lc "$1"
+  timeout "${INCUS_OP_TIMEOUT:-60}" incus exec "$container_name" -- bash -lc "$1"
 }
 
 __section "Build"
@@ -62,7 +62,10 @@ __section "Container: $incus_test_image"
 temp_dir="$(__make_temp_dir)"
 printf 'test root: %s\n' "$temp_dir"
 
-incus launch "$incus_test_image" "$container_name" >/dev/null
+timeout "${INCUS_OP_TIMEOUT:-60}" incus launch "$incus_test_image" "$container_name" \
+  -c "limits.cpu=${INCUS_CPUS:-2}" \
+  -c "limits.memory=${INCUS_MEM:-4GiB}" \
+  -c "limits.cpu.priority=${INCUS_CPU_PRIORITY:-2}" >/dev/null
 
 # Wait for systemd to finish booting and for DNS/network to come up before
 # touching apt — a freshly launched container is not immediately usable.
@@ -80,18 +83,18 @@ else
   __fail "container never reached a running systemd state"
 fi
 
-__csh 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq curl jq file ca-certificates >/dev/null'
+timeout "${INCUS_INSTALL_TIMEOUT:-900}" incus exec "$container_name" -- bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq curl jq file ca-certificates >/dev/null'
 __pass "test tooling installed in the container"
 
 __cexec mkdir -p /opt/tests "/opt/$internal_name-test"
-incus file push "$project_dir/tests/suite.sh" "$container_name/opt/tests/suite.sh" >/dev/null
-incus file push "$project_dir/tests/assert.sh" "$container_name/opt/tests/assert.sh" >/dev/null
-incus file push "$bin_dir/$project_name" "$container_name/usr/local/bin/$project_name" >/dev/null
+timeout "${INCUS_OP_TIMEOUT:-60}" incus file push "$project_dir/tests/suite.sh" "$container_name/opt/tests/suite.sh" >/dev/null
+timeout "${INCUS_OP_TIMEOUT:-60}" incus file push "$project_dir/tests/assert.sh" "$container_name/opt/tests/assert.sh" >/dev/null
+timeout "${INCUS_OP_TIMEOUT:-60}" incus file push "$bin_dir/$project_name" "$container_name/usr/local/bin/$project_name" >/dev/null
 __cexec chmod +x "/usr/local/bin/$project_name" /opt/tests/suite.sh
 
 suite_cli=""
 if [ -x "$bin_dir/$project_name-cli" ]; then
-  incus file push "$bin_dir/$project_name-cli" "$container_name/usr/local/bin/$project_name-cli" >/dev/null
+  timeout "${INCUS_OP_TIMEOUT:-60}" incus file push "$bin_dir/$project_name-cli" "$container_name/usr/local/bin/$project_name-cli" >/dev/null
   __cexec chmod +x "/usr/local/bin/$project_name-cli"
   suite_cli="/usr/local/bin/$project_name-cli"
 else
@@ -101,7 +104,7 @@ __pass "binaries and suite copied into the container"
 
 __section "Integration suite"
 suite_status=0
-incus exec "$container_name" \
+timeout "${INCUS_RUN_TIMEOUT:-3600}" incus exec "$container_name" \
   --env SUITE_BIN="/usr/local/bin/$project_name" \
   --env SUITE_CLI="$suite_cli" \
   --env SUITE_ROOT="/opt/$internal_name-test" \

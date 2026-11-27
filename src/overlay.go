@@ -15,9 +15,9 @@ import (
 	"sync"
 
 	"github.com/apimgr/shortner/src/config"
-	"github.com/apimgr/shortner/src/httpserver"
 	"github.com/apimgr/shortner/src/i2p"
 	"github.com/apimgr/shortner/src/paths"
+	"github.com/apimgr/shortner/src/server"
 	"github.com/apimgr/shortner/src/tor"
 )
 
@@ -27,14 +27,14 @@ import (
 // its serve hook only ever fires after the server has been published here.
 type overlayRef struct {
 	mu  sync.Mutex
-	srv *httpserver.Server
+	srv *server.Server
 	// logf receives serve-loop errors. Overlay failures are never fatal to
 	// the clearnet server, so they are reported and nothing more.
 	logf func(string, ...any)
 }
 
 // set publishes the server the serve hooks will use.
-func (o *overlayRef) set(srv *httpserver.Server) {
+func (o *overlayRef) set(srv *server.Server) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.srv = srv
@@ -42,7 +42,7 @@ func (o *overlayRef) set(srv *httpserver.Server) {
 
 // server returns the published server, or nil when nothing has been
 // published yet.
-func (o *overlayRef) server() *httpserver.Server {
+func (o *overlayRef) server() *server.Server {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.srv
@@ -51,7 +51,7 @@ func (o *overlayRef) server() *httpserver.Server {
 // publish records the overlay's live address and begins serving its
 // backend listener. A restart hands over a brand new listener on a new
 // port, so this runs on every successful start of either provider.
-func (o *overlayRef) publish(network httpserver.OverlayNetwork, address string, ln net.Listener) {
+func (o *overlayRef) publish(network server.OverlayNetwork, address string, ln net.Listener) {
 	srv := o.server()
 	if srv == nil || ln == nil {
 		return
@@ -67,7 +67,7 @@ func (o *overlayRef) publish(network httpserver.OverlayNetwork, address string, 
 // clear drops the overlay's address so nothing keeps advertising a
 // service that is no longer running (Onion-Location, the footer block, the
 // help page and the {onion_address} template variable all read it).
-func (o *overlayRef) clear(network httpserver.OverlayNetwork) {
+func (o *overlayRef) clear(network server.OverlayNetwork) {
 	if srv := o.server(); srv != nil {
 		srv.SetOverlayHost(network, "")
 	}
@@ -81,12 +81,12 @@ func newOverlayManagers(ctx context.Context, cfg *config.Config, p paths.Paths, 
 
 	torDirs := tor.Dirs{Config: p.Config, Data: p.Data, Log: p.Logs}
 	torManager := tor.NewManager(ctx, cfg.Server.Tor, torDirs, func(svc *tor.Service) {
-		ref.publish(httpserver.OverlayTor, svc.OnionAddress(), svc.BackendListener())
+		ref.publish(server.OverlayTor, svc.OnionAddress(), svc.BackendListener())
 	}, logf)
 
 	i2pDirs := i2p.Dirs{Config: p.Config, Data: p.Data, Log: p.Logs}
 	i2pManager := i2p.NewManager(ctx, cfg.Server.I2P, i2pDirs, func(svc *i2p.Service) {
-		ref.publish(httpserver.OverlayI2P, svc.EepsiteAddress(), svc.BackendListener())
+		ref.publish(server.OverlayI2P, svc.EepsiteAddress(), svc.BackendListener())
 	}, logf)
 
 	return torManager, i2pManager
@@ -116,8 +116,8 @@ func startOverlays(binaryName string, torManager *tor.Manager, i2pManager *i2p.M
 
 // stopOverlays closes both managers and stops advertising their addresses.
 func stopOverlays(ref *overlayRef, torManager *tor.Manager, i2pManager *i2p.Manager) {
-	ref.clear(httpserver.OverlayTor)
-	ref.clear(httpserver.OverlayI2P)
+	ref.clear(server.OverlayTor)
+	ref.clear(server.OverlayI2P)
 	_ = torManager.Close()
 	_ = i2pManager.Close()
 }

@@ -95,23 +95,26 @@ func FromAcceptLanguage(header string) string {
 }
 
 // SetLanguageCookie persists the visitor's explicit language choice, per
-// AI.md PART 30: path "/", one-year lifetime, SameSite=Lax, HttpOnly, and
+// AI.md PART 30: path "/", one-year lifetime, SameSite=Lax, JavaScript-readable, and
 // Secure only on an HTTPS request (an overlay address is always plain
 // HTTP, where a Secure cookie would simply be dropped).
-func SetLanguageCookie(w http.ResponseWriter, r *http.Request, cookieName, lang string, maxAge int) {
+func SetLanguageCookie(w http.ResponseWriter, r *http.Request, cookieName, lang string, maxAge int, secureRequest ...bool) {
 	if cookieName == "" {
 		cookieName = CookieName
 	}
 	if maxAge <= 0 {
 		maxAge = CookieMaxAge
 	}
+	secure := r.TLS != nil
+	if len(secureRequest) > 0 {
+		secure = secureRequest[0]
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
 		Value:    Resolve(lang),
 		Path:     "/",
 		MaxAge:   maxAge,
-		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 }

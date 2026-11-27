@@ -55,16 +55,18 @@ func TestDocumentIncludesRegisteredAliasesAndContractDetails(t *testing.T) {
 		t.Fatal(err)
 	}
 	for path, method := range map[string]string{
-		"/api/healthz":                              "get",
-		"/api/autodiscover":                         "get",
-		"/api/{api_version}/server/auth/check":      "get",
-		"/api/{api_version}/server/metrics/grafana": "get",
-		"/api/{api_version}/links/{slug}":           "patch",
-		"/cli/binaries/{name}":                      "get",
+		"/api/healthz":                         "get",
+		"/api/autodiscover":                    "get",
+		"/api/{api_version}/server/auth/check": "get",
+		"/api/{api_version}/links/{slug}":      "patch",
+		"/cli/binaries/{name}":                 "get",
 	} {
 		if _, ok := document.Paths[path][method]; !ok {
 			t.Errorf("OpenAPI document missing %s %s", method, path)
 		}
+	}
+	if _, ok := document.Paths["/api/{api_version}/server/metrics/grafana"]; ok {
+		t.Error("internal metrics endpoint must not be advertised in OpenAPI")
 	}
 	if _, ok := document.Paths["/api/{api_version}/links/{slug}"]["patch"]["parameters"]; !ok {
 		t.Error("path parameter is not documented")

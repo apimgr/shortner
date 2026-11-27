@@ -37,9 +37,9 @@ keep_artifacts=0
 # ShellCheck does not follow the EXIT trap when deciding whether functions run.
 # shellcheck disable=SC2329
 __cleanup() {
-  docker rm -f "$runner_name" >/dev/null 2>&1 || true
-  docker rm -f "$browser_name" >/dev/null 2>&1 || true
-  docker network rm "$network_name" >/dev/null 2>&1 || true
+  __docker rm -f "$runner_name" >/dev/null 2>&1 || true
+  __docker rm -f "$browser_name" >/dev/null 2>&1 || true
+  __docker network rm "$network_name" >/dev/null 2>&1 || true
   if [ -n "$temp_dir" ] && [ -d "$temp_dir" ]; then
     if [ "$keep_artifacts" = "1" ]; then
       printf 'artifacts kept at: %s\n' "$temp_dir"
@@ -47,7 +47,7 @@ __cleanup() {
       rm -rf -- "$temp_dir"
     fi
   fi
-  if [ -n "${bin_dir:-}" ] && [ -d "$bin_dir" ] && \
+  if [ -n "${bin_dir:-}" ] && [ -d "$bin_dir" ] &&
     [[ "$bin_dir" == "${TMPDIR:-/tmp}/$project_org/${project_name}-binaries-"* ]]; then
     rm -rf -- "$bin_dir"
   fi
@@ -72,13 +72,13 @@ temp_dir="$(__make_temp_dir)"
 # The server drops to its dedicated uid, so it must traverse the bind mount
 # root to reach its private per-run directory beneath it.
 chmod 0711 "$temp_dir"
-docker network create "$network_name" >/dev/null
-docker run -d --rm \
+__docker network create "$network_name" >/dev/null
+__docker run -d --rm \
   --name "$browser_name" \
   --network "$network_name" \
   --shm-size=1g \
   "$browser_image" >/dev/null
-browser_ip="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$browser_name")"
+browser_ip="$(__docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$browser_name")"
 if [ -z "$browser_ip" ]; then
   printf 'could not resolve the browser container IP on the private network\n' >&2
   exit 1
@@ -87,7 +87,7 @@ fi
 # Bounded wait for the DevTools endpoint; never an open-ended sleep.
 browser_ready=0
 for _ in $(seq 1 60); do
-  if docker run --rm --name "$project_name-$(__random_suffix)" --network "$network_name" "$docker_test_image" \
+  if __docker run --rm --name "$project_name-$(__random_suffix)" --network "$network_name" "$docker_test_image" \
     sh -c "wget -q -O- http://$browser_ip:9222/json/version >/dev/null 2>&1"; then
     browser_ready=1
     break
@@ -98,14 +98,14 @@ if [ "$browser_ready" = "1" ]; then
   __pass "browser DevTools endpoint is up"
 else
   __fail "browser never exposed a DevTools endpoint"
-  docker logs "$browser_name" 2>&1 | tail -n 20 >&2 || true
+  __docker logs "$browser_name" 2>&1 | tail -n 20 >&2 || true
   exit 1
 fi
 
 __section "End-to-end suite"
 keep_artifacts=1
 e2e_status=0
-docker run --rm --no-healthcheck \
+__docker run --rm --no-healthcheck \
   --name "$runner_name" \
   --network "$network_name" \
   --user 0:0 \

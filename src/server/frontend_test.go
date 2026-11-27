@@ -1,0 +1,673 @@
+package server
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"golang.org/x/net/html"
+
+	"github.com/apimgr/shortner/src/config"
+	"github.com/apimgr/shortner/src/db"
+	"github.com/apimgr/shortner/src/pgp"
+	"github.com/apimgr/shortner/src/security"
+)
+
+func testFrontendDeps(t *testing.T) (*frontendDeps, *linkDeps) {
+	t.Helper()
+	ld, _ := testLinkDeps(t)
+	cfg := config.Default(":memory:")
+	store, err := db.Open(filepath.Join(t.TempDir(), "contact.sqlite"), db.DefaultPool(), nil)
+	if err != nil {
+		t.Fatalf("open contact test store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	fd := &frontendDeps{cfg: cfg, version: "test", buildDate: "2026-01-01", ld: ld, resolver: NewProxyResolver(nil), store: store, installSecret: "test-install-secret", secretKeys: security.NewSecretKeyring(make([]byte, 32), nil, make([]byte, 32), nil)}
+	fd.routeMatch = func(path string) (string, map[string]string, bool) {
+		if path == "/server/about" {
+			return "/server/about", nil, true
+		}
+		return "", nil, false
+	}
+	fd.setContactAntispam(cfg.Server.Contact.Antispam)
+	return fd, ld
+}
+
+func TestStoreSecurityReportUsesProjectPGPKeyWhenConfigured(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	fd.configDir = t.TempDir()
+	fd.cfg.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString(make([]byte, 32))
+	key, err := pgp.Generate("Shortner", "security@example.test", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pgp.NewStore(fd.configDir).Write(key, fd.installSecret); err != nil {
+		t.Fatal(err)
+	}
+	form := securityReportForm{Summary: "private report body", Severity: "high", Component: "API"}
+	id, statusToken, err := fd.storeSecurityReport(context.Background(), form)
+	if err != nil {
+		t.Fatalf("storeSecurityReport() error = %v", err)
+	}
+	report, err := db.GetSecurityReport(context.Background(), fd.ld.sqlDB, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pgp.IsArmoredMessage(report.Sealed) {
+		t.Fatal("stored report is not PGP-encrypted")
+	}
+	if report.BodyAlg != "pgp" || len(report.ContactEnc) == 0 || !security.ValidReportStatusToken(report.TokenHash, statusToken) {
+		t.Fatal("report metadata, encrypted contact, or stored one-time status token is missing")
+	}
+	if (form.Email != "" && strings.Contains(string(report.ContactEnc), form.Email)) || strings.Contains(report.Sealed, form.Summary) {
+		t.Fatal("report body or contact was persisted in plaintext")
+	}
+	plain, err := pgp.DecryptArmored(key, report.Sealed)
+	if err != nil {
+		t.Fatalf("DecryptArmored() error = %v", err)
+	}
+	var got securityReportForm
+	if err := json.Unmarshal(plain, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Summary != form.Summary {
+		t.Errorf("decrypted summary = %q, want %q", got.Summary, form.Summary)
+	}
+}
+
+func TestStoreSecurityReportUsesAESWhenNoProjectPGPKey(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	fd.configDir = t.TempDir()
+	keyBytes := make([]byte, 32)
+	fd.cfg.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString(keyBytes)
+	form := securityReportForm{Summary: "private report body", Severity: "high", Component: "API"}
+	id, statusToken, err := fd.storeSecurityReport(context.Background(), form)
+	if err != nil {
+		t.Fatalf("storeSecurityReport() error = %v", err)
+	}
+	report, err := db.GetSecurityReport(context.Background(), fd.ld.sqlDB, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pgp.IsArmoredMessage(report.Sealed) {
+		t.Fatal("stored fallback report unexpectedly uses PGP")
+	}
+	if report.BodyAlg != "aes-256-gcm" || len(report.ContactEnc) == 0 || !security.ValidReportStatusToken(report.TokenHash, statusToken) {
+		t.Fatal("AES report metadata, encrypted contact, or stored one-time status token is missing")
+	}
+	if (form.Email != "" && strings.Contains(string(report.ContactEnc), form.Email)) || strings.Contains(report.Sealed, form.Summary) {
+		t.Fatal("report body or contact was persisted in plaintext")
+	}
+	plain, err := security.Open(keyBytes, report.Sealed)
+	if err != nil {
+		t.Fatalf("security.Open() error = %v", err)
+	}
+	var got securityReportForm
+	if err := json.Unmarshal(plain, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Summary != form.Summary {
+		t.Errorf("decrypted summary = %q, want %q", got.Summary, form.Summary)
+	}
+}
+
+func htmlRequest(method, target string, form url.Values) *http.Request {
+	var req *http.Request
+	if form != nil {
+		req = httptest.NewRequest(method, target, strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	} else {
+		req = httptest.NewRequest(method, target, nil)
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	if method == http.MethodPost {
+		scheme := req.URL.Scheme
+		if scheme == "" {
+			scheme = "http"
+		}
+		req.Header.Set("Origin", scheme+"://"+req.Host)
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+	}
+	rctx := chi.NewRouteContext()
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	return req
+}
+
+func TestHomeHandler_GETRendersForm(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	fd.cfg.Server.Branding.Title = "Shortner Test"
+	fd.cfg.Server.Branding.Description = "A configured description"
+	fd.cfg.Server.SEO.Keywords = []string{"short links", "privacy"}
+	fd.cfg.Server.SEO.Verification.Google = "abc_123"
+	rec := httptest.NewRecorder()
+	fd.homeHandler(rec, htmlRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "create-link-form") {
+		t.Errorf("expected the create-link form in body, got: %s", rec.Body.String())
+	}
+	for _, want := range []string{"Shortner Test", `name="robots" content="index,follow"`, `name="keywords" content="short links, privacy"`, `google-site-verification" content="abc_123"`, `property="og:site_name" content="Shortner Test"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("page metadata missing %q", want)
+		}
+	}
+}
+
+func TestHomeHandler_POSTCreatesLink(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	form := url.Values{"url": {"https://example.com/page"}}
+	rec := httptest.NewRecorder()
+	fd.homeHandler(rec, htmlRequest(http.MethodPost, "/", form))
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/" {
+		t.Fatalf("status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	get := htmlRequest(http.MethodGet, "/", nil)
+	for _, cookie := range rec.Result().Cookies() {
+		get.AddCookie(cookie)
+	}
+	result := httptest.NewRecorder()
+	fd.homeHandler(result, get)
+	if result.Code != http.StatusOK {
+		t.Fatalf("redirected GET status = %d, body: %s", result.Code, result.Body.String())
+	}
+	body := result.Body.String()
+	if !strings.Contains(body, "Success") || !strings.Contains(body, "api-token") {
+		t.Errorf("expected success state with owner token, got: %s", body)
+	}
+	second := httptest.NewRecorder()
+	fd.homeHandler(second, htmlRequest(http.MethodGet, "/", nil))
+	if strings.Contains(second.Body.String(), "api-token") {
+		t.Error("one-time owner token was shown again after consuming the result")
+	}
+}
+
+func TestHomeHandler_POSTInvalidURL(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	form := url.Values{"url": {"not-a-url"}}
+	rec := httptest.NewRecorder()
+	fd.homeHandler(rec, htmlRequest(http.MethodPost, "/", form))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "valid http") {
+		t.Errorf("expected validation error message, got: %s", rec.Body.String())
+	}
+}
+
+func TestHomeHandler_POSTReservedSlug(t *testing.T) {
+	fd, ld := testFrontendDeps(t)
+	form := url.Values{"url": {"https://example.com"}, "slug": {"api"}}
+	rec := httptest.NewRecorder()
+	fd.homeHandler(rec, htmlRequest(http.MethodPost, "/", form))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	if got := testOwnerCount(t, ld.sqlDB); got != 0 {
+		t.Errorf("owner count after reserved slug = %d, want 0", got)
+	}
+}
+
+func TestHomeHandler_POSTCustomSlugTaken(t *testing.T) {
+	fd, ld := testFrontendDeps(t)
+	if _, err := db.CreateLinkCustomSlug(context.Background(), ld.sqlDB, "myslug", "https://example.com", nil); err != nil {
+		t.Fatalf("seed CreateLinkCustomSlug: %v", err)
+	}
+	ownerCountBefore := testOwnerCount(t, ld.sqlDB)
+	form := url.Values{"url": {"https://example.com/other"}, "slug": {"myslug"}}
+	rec := httptest.NewRecorder()
+	fd.homeHandler(rec, htmlRequest(http.MethodPost, "/", form))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	if got := testOwnerCount(t, ld.sqlDB); got != ownerCountBefore {
+		t.Errorf("owner count after duplicate slug = %d, want %d", got, ownerCountBefore)
+	}
+}
+
+func TestAboutHandler(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	rec := httptest.NewRecorder()
+	fd.aboutHandler(rec, htmlRequest(http.MethodGet, "/server/about", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "About") {
+		t.Errorf("expected About heading, got: %s", rec.Body.String())
+	}
+	for _, required := range []string{"test", "github.com/apimgr/shortner", "apimgr-shortner.readthedocs.io", "IP Geolocation by DB-IP"} {
+		if !strings.Contains(rec.Body.String(), required) {
+			t.Errorf("about page is missing %q", required)
+		}
+	}
+	if strings.Contains(rec.Body.String(), "Country and ASN data licensed CC BY 4.0") {
+		t.Error("about page contains incorrect GeoIP license attribution")
+	}
+}
+
+func TestHelpHandler(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	fd.cfg.Server.APIVersion = "v4"
+	rec := httptest.NewRecorder()
+	fd.helpHandler(rec, htmlRequest(http.MethodGet, "https://shortner.test/server/help", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Getting Started") {
+		t.Errorf("expected Getting Started section, got: %s", rec.Body.String())
+	}
+	for _, required := range []string{"https://shortner.test/api/v4/links", "https://shortner.test/my-link/stats", `"expires_at":null`, `Authorization: Bearer $OWNER_TOKEN`} {
+		if !strings.Contains(rec.Body.String(), required) {
+			t.Errorf("help page is missing %q", required)
+		}
+	}
+	if strings.Contains(rec.Body.String(), "Shortner/api/v1") || strings.Contains(rec.Body.String(), "own_...") {
+		t.Error("help page contains a malformed URL or a placeholder owner token")
+	}
+}
+
+func TestTermsHandler(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	rec := httptest.NewRecorder()
+	fd.termsHandler(rec, htmlRequest(http.MethodGet, "/server/terms", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Acceptance of Terms") {
+		t.Errorf("expected default terms content, got: %s", rec.Body.String())
+	}
+}
+
+func TestPrivacyHandler(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	rec := httptest.NewRecorder()
+	fd.privacyHandler(rec, htmlRequest(http.MethodGet, "/server/privacy", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Cookie Policy") {
+		t.Errorf("expected Cookie Policy section, got: %s", rec.Body.String())
+	}
+}
+
+func TestContactHandler_GET(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	rec := httptest.NewRecorder()
+	fd.contactHandler(rec, htmlRequest(http.MethodGet, "/server/contact", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "/server/contact?type=abuse") || strings.Contains(rec.Body.String(), `name="email"`) {
+		t.Errorf("expected a field-free chooser, got: %s", rec.Body.String())
+	}
+	doc, err := html.Parse(strings.NewReader(rec.Body.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	main := findHTMLNode(doc, "main")
+	if main == nil {
+		t.Fatal("main element missing")
+	}
+	inputs, sections := 0, 0
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			if n.Data == "input" || n.Data == "select" || n.Data == "textarea" {
+				inputs++
+			}
+			if n.Data == "section" {
+				sections++
+			}
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(main)
+	if inputs != 0 || sections != 2 {
+		t.Fatalf("chooser content has %d controls and %d sections, want none and two", inputs, sections)
+	}
+}
+
+func TestContactPageGoldenFieldsByType(t *testing.T) {
+	want := map[string]map[string]bool{
+		"abuse":   {"csrf_token": true, "form_token": true, "type": true, "website": true, "name": true, "email": true, "reported_url": true, "reason": true, "subject": true, "message": true, "captcha_id": true, "captcha_answer": true},
+		"dmca":    {"csrf_token": true, "form_token": true, "type": true, "website": true, "name": true, "email": true, "reported_url": true, "copyrighted_work": true, "good_faith_statement": true, "accuracy_statement": true, "signature": true, "subject": true, "message": true, "captcha_id": true, "captcha_answer": true},
+		"privacy": {"csrf_token": true, "form_token": true, "type": true, "website": true, "name": true, "email": true, "request_kind": true, "subject": true, "message": true, "captcha_id": true, "captcha_answer": true},
+	}
+	required := map[string][]string{
+		"abuse":   {"name", "email", "reported_url", "reason", "subject", "message", "captcha_answer"},
+		"dmca":    {"name", "email", "reported_url", "copyrighted_work", "good_faith_statement", "accuracy_statement", "signature", "subject", "message", "captcha_answer"},
+		"privacy": {"name", "email", "request_kind", "subject", "message", "captcha_answer"},
+	}
+	for kind, expected := range want {
+		t.Run(kind, func(t *testing.T) {
+			fd, _ := testFrontendDeps(t)
+			rec := httptest.NewRecorder()
+			fd.contactHandler(rec, httptest.NewRequest(http.MethodGet, "/server/contact?type="+kind, nil))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			doc, err := html.Parse(strings.NewReader(rec.Body.String()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			main := findHTMLNode(doc, "main")
+			if main == nil {
+				t.Fatal("main element missing")
+			}
+			got, requiredGot := map[string]bool{}, map[string]bool{}
+			var walk func(*html.Node)
+			walk = func(n *html.Node) {
+				if n.Type == html.ElementNode && (n.Data == "input" || n.Data == "select" || n.Data == "textarea") {
+					name, hasRequired := "", false
+					for _, attr := range n.Attr {
+						if attr.Key == "name" {
+							name = attr.Val
+						}
+						if attr.Key == "required" {
+							hasRequired = true
+						}
+					}
+					if name != "" {
+						got[name] = true
+						if hasRequired {
+							requiredGot[name] = true
+						}
+					}
+				}
+				for child := n.FirstChild; child != nil; child = child.NextSibling {
+					walk(child)
+				}
+			}
+			walk(main)
+			if !reflect.DeepEqual(got, expected) {
+				t.Fatalf("fields=%v want %v", got, expected)
+			}
+			for _, name := range required[kind] {
+				if !requiredGot[name] {
+					t.Errorf("required field %q lacks required attribute", name)
+				}
+			}
+		})
+	}
+}
+
+func findHTMLNode(n *html.Node, name string) *html.Node {
+	if n.Type == html.ElementNode && n.Data == name {
+		return n
+	}
+	for child := n.FirstChild; child != nil; child = child.NextSibling {
+		if found := findHTMLNode(child, name); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+func TestContactHandler_POSTSuccess(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	form := contactTestForm(t, fd, "jane@example.com")
+	form.Set("name", "Jane")
+	form.Set("subject", "Hello")
+	form.Set("message", "A message")
+	rec := httptest.NewRecorder()
+	req := htmlRequest(http.MethodPost, "/server/contact", form)
+	if !fd.contactOriginValid(req) {
+		proto, host, port := fd.resolver.GetURLVars(req)
+		t.Fatalf("test origin rejected: origin=%q fetch=%q resolved=%s %s %s request_host=%q", req.Header.Get("Origin"), req.Header.Get("Sec-Fetch-Site"), proto, host, port, req.Host)
+	}
+	fd.contactHandler(rec, req)
+	if rec.Code != http.StatusOK {
+		body := rec.Body.String()
+		start := strings.Index(body, `class="form-error"`)
+		if start >= 0 {
+			end := min(len(body), start+220)
+			t.Fatalf("status = %d, form error: %s", rec.Code, body[start:end])
+		}
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Review your report") {
+		t.Errorf("expected review step, got: %s", rec.Body.String())
+	}
+}
+
+func TestContactHandler_POSTBadCaptcha(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	form := contactTestForm(t, fd, "jane@example.com")
+	form.Set("name", "Jane")
+	form.Set("subject", "Hello")
+	form.Set("message", "A message")
+	form.Set("captcha_answer", "9")
+	rec := httptest.NewRecorder()
+	fd.contactHandler(rec, htmlRequest(http.MethodPost, "/server/contact", form))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func contactTestForm(t *testing.T, fd *frontendDeps, email string) url.Values {
+	t.Helper()
+	now := time.Now()
+	id := "test-captcha-id"
+	if err := fd.store.IssueCaptchaChallenge(context.Background(), id, captchaAnswerHash(id, "7"), now, now.Add(10*time.Minute)); err != nil {
+		t.Fatalf("issue test challenge: %v", err)
+	}
+	return url.Values{
+		"name": {"Jane"}, "email": {email},
+		"subject": {"Hello"}, "message": {"A message"}, "captcha_id": {id},
+		"type": {"abuse"}, "reported_url": {"https://example.com/server/about"}, "reason": {"terms_violation"},
+		"captcha_answer": {"7"}, "website": {""},
+		"form_token": {issueContactFormToken(fd.installSecret, now.Add(-4*time.Second))},
+	}
+}
+
+func TestContactHandler_Disabled(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	fd.cfg.Server.Pages.Contact.Enabled = false
+	rec := httptest.NewRecorder()
+	fd.contactHandler(rec, htmlRequest(http.MethodGet, "/server/contact", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestConsentHandler_Accept(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	form := url.Values{"decision": {"accept"}}
+	rec := httptest.NewRecorder()
+	fd.consentHandler(rec, htmlRequest(http.MethodPost, "/server/consent", form))
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	found := false
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == consentCookieName {
+			found = true
+			decoded, err := base64.RawURLEncoding.DecodeString(c.Value)
+			if err != nil {
+				t.Fatalf("cookie value not valid base64: %v", err)
+			}
+			if !strings.Contains(string(decoded), `"essential":true`) {
+				t.Errorf("expected essential:true in decoded cookie, got %q", decoded)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected cookie_consent cookie to be set")
+	}
+}
+
+func TestConsentHandler_RejectsOpenRedirect(t *testing.T) {
+	tests := []struct {
+		name       string
+		returnTo   string
+		wantHeader string
+	}{
+		{"protocol-relative", "//evil.example.com", "/"},
+		{"backslash-disguised", "/\\evil.example.com", "/"},
+		{"scheme-bearing", "https://evil.example.com/", "/"},
+		{"safe local path", "/server/help", "/server/help"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fd, _ := testFrontendDeps(t)
+			form := url.Values{"decision": {"accept"}, "return_to": {tt.returnTo}}
+			rec := httptest.NewRecorder()
+			fd.consentHandler(rec, htmlRequest(http.MethodPost, "/server/consent", form))
+			if rec.Code != http.StatusSeeOther {
+				t.Fatalf("status = %d", rec.Code)
+			}
+			if got := rec.Header().Get("Location"); got != tt.wantHeader {
+				t.Errorf("Location = %q, want %q", got, tt.wantHeader)
+			}
+		})
+	}
+}
+
+func TestIsSafeLocalRedirect(t *testing.T) {
+	tests := []struct {
+		dest string
+		want bool
+	}{
+		{"", false},
+		{"/", true},
+		{"/server/help", true},
+		{"//evil.example.com", false},
+		{"/\\evil.example.com", false},
+		{"https://evil.example.com", false},
+		{"/foo?bar=1", true},
+	}
+	for _, tt := range tests {
+		if got := isSafeLocalRedirect(tt.dest); got != tt.want {
+			t.Errorf("isSafeLocalRedirect(%q) = %v, want %v", tt.dest, got, tt.want)
+		}
+	}
+}
+
+func TestCCPAHandler_NotFoundWhenNotSold(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	rec := httptest.NewRecorder()
+	fd.ccpaHandler(rec, htmlRequest(http.MethodGet, "/server/ccpa", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestCCPAHandler_RendersWhenSold(t *testing.T) {
+	fd, _ := testFrontendDeps(t)
+	fd.cfg.Server.Privacy.Data.Sold = true
+	rec := httptest.NewRecorder()
+	fd.ccpaHandler(rec, htmlRequest(http.MethodGet, "/server/ccpa", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Do Not Sell") {
+		t.Errorf("expected CCPA heading, got: %s", rec.Body.String())
+	}
+}
+
+func TestHealthzHTMLHandler_RendersHTMLForBrowsers(t *testing.T) {
+	fd, ld := testFrontendDeps(t)
+	hd := &healthDeps{sqlDB: ld.sqlDB, dataDir: t.TempDir(), startTime: time.Now(), stats: NewStats(), version: "test"}
+	rec := httptest.NewRecorder()
+	fd.healthzHTMLHandler(hd)(rec, htmlRequest(http.MethodGet, "/server/healthz", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Server Health") {
+		t.Errorf("expected HTML health page, got: %s", rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("Content-Type = %q, want text/html", ct)
+	}
+}
+
+func TestHealthzHTMLHandler_FallsBackToJSONForAPIClients(t *testing.T) {
+	fd, ld := testFrontendDeps(t)
+	hd := &healthDeps{sqlDB: ld.sqlDB, dataDir: t.TempDir(), startTime: time.Now(), stats: NewStats(), version: "test"}
+	req := htmlRequest(http.MethodGet, "/server/healthz", nil)
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	fd.healthzHTMLHandler(hd)(rec, req)
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+}
+
+func TestStatsHTMLHandler_RendersHTMLForBrowsers(t *testing.T) {
+	fd, ld := testFrontendDeps(t)
+	link, err := db.CreateLinkAutoCode(context.Background(), ld.sqlDB, "https://example.com/stats-target", nil)
+	if err != nil {
+		t.Fatalf("CreateLinkAutoCode: %v", err)
+	}
+	req := htmlRequest(http.MethodGet, "/"+link.ShortCode+"/stats", nil)
+	rctx := chi.RouteContext(req.Context())
+	rctx.URLParams.Add("slug", link.ShortCode)
+	rec := httptest.NewRecorder()
+	fd.statsHTMLHandler(ld)(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Click Statistics") || !strings.Contains(rec.Body.String(), "https://example.com/stats-target") {
+		t.Errorf("expected HTML stats page, got: %s", rec.Body.String())
+	}
+}
+
+func TestStatsHTMLHandler_FallsBackToJSONForAPIClients(t *testing.T) {
+	fd, ld := testFrontendDeps(t)
+	link, err := db.CreateLinkAutoCode(context.Background(), ld.sqlDB, "https://example.com", nil)
+	if err != nil {
+		t.Fatalf("CreateLinkAutoCode: %v", err)
+	}
+	req := htmlRequest(http.MethodGet, "/"+link.ShortCode+"/stats", nil)
+	req.Header.Set("Accept", "application/json")
+	rctx := chi.RouteContext(req.Context())
+	rctx.URLParams.Add("slug", link.ShortCode)
+	rec := httptest.NewRecorder()
+	fd.statsHTMLHandler(ld)(rec, req)
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+}
+
+func TestListHTMLHandler_RendersHTMLForBrowsers(t *testing.T) {
+	fd, ld := testFrontendDeps(t)
+	for i := 0; i < 2; i++ {
+		if _, err := db.CreateLinkAutoCode(context.Background(), ld.sqlDB, "https://example.com", nil); err != nil {
+			t.Fatalf("CreateLinkAutoCode: %v", err)
+		}
+	}
+	req := htmlRequest(http.MethodGet, "/list", nil)
+	rec := httptest.NewRecorder()
+	fd.listHTMLHandler(ld)(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "All Links") {
+		t.Errorf("expected HTML list page, got: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "example.com") {
+		t.Errorf("expected list page to include created link, got: %s", rec.Body.String())
+	}
+}
+
+func TestListHTMLHandler_FallsBackToJSONForAPIClients(t *testing.T) {
+	fd, ld := testFrontendDeps(t)
+	req := htmlRequest(http.MethodGet, "/list", nil)
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	fd.listHTMLHandler(ld)(rec, req)
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+}

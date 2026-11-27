@@ -12,8 +12,9 @@ import (
 	"testing"
 
 	"github.com/apimgr/shortner/src/config"
-	"github.com/apimgr/shortner/src/httpserver"
+	"github.com/apimgr/shortner/src/server"
 	"github.com/apimgr/shortner/src/service"
+	"github.com/apimgr/shortner/src/ssl"
 )
 
 // captureOutput redirects both os.Stdout and os.Stderr for the duration of
@@ -48,7 +49,7 @@ func TestManualCertificateDoesNotEnableTLSOnHTTPPort(t *testing.T) {
 	cfg.Server.Port = "8090"
 	cfg.Server.TLS.Cert = "cert.pem"
 	cfg.Server.TLS.Key = "key.pem"
-	tlsConfig, challenge, err := buildTLSConfig(cfg, t.TempDir(), nil, nil)
+	tlsConfig, challenge, err := ssl.BuildTLSConfig(ssl.Options{Config: cfg, ConfigDir: t.TempDir(), InternalName: internalName})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +256,7 @@ func TestRunDispatchesUpdateHelp(t *testing.T) {
 func TestRunFullStartupPathWithIsolatedDirs(t *testing.T) {
 	isolateRuntimePrivilegeHooks(t)
 	old := startHTTPServer
-	startHTTPServer = func(*httpserver.Server) error { return nil }
+	startHTTPServer = func(*server.Server) error { return nil }
 	defer func() { startHTTPServer = old }()
 
 	base := t.TempDir()
@@ -299,7 +300,7 @@ func TestRunFullStartupPathWithIsolatedDirs(t *testing.T) {
 func TestRunAppliesAddressPortBaseURLOverrides(t *testing.T) {
 	isolateRuntimePrivilegeHooks(t)
 	old := startHTTPServer
-	startHTTPServer = func(*httpserver.Server) error { return nil }
+	startHTTPServer = func(*server.Server) error { return nil }
 	defer func() { startHTTPServer = old }()
 
 	base := t.TempDir()

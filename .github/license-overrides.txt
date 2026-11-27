@@ -1,0 +1,1 @@
+modernc.org/mathutil BSD-3-Clause casjay reviewed module LICENSE (2026-11-27)

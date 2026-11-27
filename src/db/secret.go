@@ -452,16 +452,17 @@ func ReencryptStoredData(ctx context.Context, sqlDB Handle, oldKey, newKey []byt
 		return security.ErrSealKeySize
 	}
 	const batchSize = 100
-	var lastTokenID int64
+	var lastTokenID string
+	idField := tokenIDField(ctx, sqlDB)
 	for {
 		count := 0
 		err := WithTransaction(ctx, sqlDB, func(tx *sql.Tx) error {
-			rows, err := tx.QueryContext(ctx, `SELECT id,token_enc FROM api_tokens WHERE id>? AND token_enc<>'' ORDER BY id LIMIT ?`, lastTokenID, batchSize)
+			rows, err := tx.QueryContext(ctx, `SELECT `+idField+`,token_enc FROM api_tokens WHERE `+idField+`>? AND token_enc<>'' ORDER BY `+idField+` LIMIT ?`, lastTokenID, batchSize)
 			if err != nil {
 				return HandleQueryError(err)
 			}
 			type sealedRow struct {
-				id    int64
+				id    string
 				value string
 			}
 			var tokens []sealedRow
@@ -494,7 +495,7 @@ func ReencryptStoredData(ctx context.Context, sqlDB Handle, oldKey, newKey []byt
 				if err != nil {
 					return err
 				}
-				if _, err = tx.ExecContext(ctx, `UPDATE api_tokens SET token_enc=? WHERE id=?`, sealed, row.id); err != nil {
+				if _, err = tx.ExecContext(ctx, `UPDATE api_tokens SET token_enc=? WHERE `+idField+`=?`, sealed, row.id); err != nil {
 					return HandleQueryError(err)
 				}
 			}

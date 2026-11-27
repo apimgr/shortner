@@ -2,7 +2,7 @@
 // dev-TLD detection, per AI.md PART 15 "FQDN Resolution" / "Dev TLD
 // Handling". Request-scoped {proto}/{fqdn}/{port} resolution (reverse-
 // proxy headers first) is a separate concern implemented by
-// httpserver.ProxyResolver.GetURLVars — this package covers the startup-
+// server.ProxyResolver.GetURLVars — this package covers the startup-
 // time / background-task resolution path (env vars, hostname, global IP,
 // localhost fallback) that TLS certificate provisioning needs before any
 // request has arrived.
@@ -44,7 +44,7 @@ func GetAllDomains() []string {
 // "FQDN Resolution" priority order (DOMAIN env var, os.Hostname(),
 // $HOSTNAME env var, global IPv6, global IPv4, "localhost"). Reverse-proxy
 // header resolution (priority 1 in the full table) is request-scoped and
-// handled separately by httpserver.ProxyResolver.
+// handled separately by server.ProxyResolver.
 func GetFQDN(projectName string) string {
 	if domains := GetAllDomains(); len(domains) > 0 {
 		return domains[0]

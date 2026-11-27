@@ -398,11 +398,6 @@
     return Promise.resolve();
   }
 
-  function setThemeCookie(theme) {
-    var maxAge = 365 * 24 * 60 * 60;
-    document.cookie = "theme=" + theme + "; path=/; max-age=" + maxAge + "; samesite=lax";
-  }
-
   var THEME_ICONS = { dark: "☽", light: "☀", auto: "🔄" };
 
   function currentThemeClass(root) {
@@ -431,16 +426,13 @@
     }
   }
 
-  // toggleTheme cycles dark -> light -> auto -> dark, per AI.md PART 16
-  // "Theme Switching": no page reload — the class on <html> is swapped
-  // directly and the theme cookie is set so the next server render (and
-  // any no-JS navigation) picks up the same choice.
+  // toggleTheme changes only the current page view. Persistence uses the
+  // consent-gated no-JavaScript form, per AI.md PART 16.
   function toggleTheme() {
     var order = ["dark", "light", "auto"];
     var current = currentThemeClass(document.documentElement);
     var next = order[(order.indexOf(current) + 1) % order.length];
     applyTheme(next);
-    setThemeCookie(next);
   }
 
   function openDialog(id) {

@@ -10,7 +10,6 @@ import (
 	"flag"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,7 +18,6 @@ import (
 	"time"
 
 	"github.com/apimgr/shortner/src/applog"
-	"github.com/apimgr/shortner/src/backup"
 	"github.com/apimgr/shortner/src/blocklist"
 	"github.com/apimgr/shortner/src/cache"
 	"github.com/apimgr/shortner/src/certmgr"
@@ -33,7 +31,6 @@ import (
 	"github.com/apimgr/shortner/src/db"
 	"github.com/apimgr/shortner/src/fqdn"
 	"github.com/apimgr/shortner/src/geoip"
-	"github.com/apimgr/shortner/src/httpserver"
 	"github.com/apimgr/shortner/src/i2p"
 	"github.com/apimgr/shortner/src/metrics"
 	"github.com/apimgr/shortner/src/mode"
@@ -42,8 +39,10 @@ import (
 	"github.com/apimgr/shortner/src/pgp"
 	"github.com/apimgr/shortner/src/scheduler"
 	"github.com/apimgr/shortner/src/security"
+	"github.com/apimgr/shortner/src/server"
 	"github.com/apimgr/shortner/src/service"
 	"github.com/apimgr/shortner/src/signal"
+	"github.com/apimgr/shortner/src/ssl"
 	"github.com/apimgr/shortner/src/tor"
 	"github.com/apimgr/shortner/src/updater"
 )
@@ -57,6 +56,69 @@ func parseLegacySecretExpiry(value string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("invalid expiry")
 	}
 	return time.Unix(unix, 0).UTC(), nil
+}
+
+func initializeRemoteDatabase(ctx context.Context, store db.Handle, tokenKey []byte, configFile, logDir, binaryName string) error {
+	if err := db.MigrateLegacyGraceSecrets(ctx, store, tokenKey); err != nil {
+		return fmt.Errorf("secret rotation migration failed: %w", err)
+	}
+	legacyAppSecrets, err := config.ReadLegacyAppSecrets(configFile)
+	if err != nil {
+		return err
+	}
+	if value, ok := legacyAppSecrets[db.SecretInstallation]; ok {
+		if _, err := db.GetSecret(ctx, store, db.SecretInstallation); errors.Is(err, db.ErrNotFound) {
+			if err := db.SetSecret(ctx, store, db.SecretInstallation, value); err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		}
+	}
+	for _, name := range []string{db.SecretInstallation, "encryption_key"} {
+		legacyName := name + "_previous"
+		value, ok := legacyAppSecrets[legacyName]
+		if !ok {
+			continue
+		}
+		active, err := db.HasPreviousSecret(ctx, store, name)
+		if err != nil {
+			return err
+		}
+		if active {
+			continue
+		}
+		expires, err := parseLegacySecretExpiry(legacyAppSecrets[legacyName+"_expires"])
+		if err != nil {
+			return fmt.Errorf("legacy secret expiry is invalid")
+		}
+		if err := db.SetGraceSecret(ctx, store, name, value, expires, tokenKey); err != nil {
+			return err
+		}
+	}
+	if len(legacyAppSecrets) > 0 {
+		if err := config.RemoveLegacyAppSecrets(configFile); err != nil {
+			return err
+		}
+	}
+	if previousEncoded, err := db.GetPreviousSecret(ctx, store, "encryption_key", tokenKey); err == nil {
+		previousKey, decodeErr := base64.StdEncoding.DecodeString(previousEncoded)
+		if decodeErr != nil || len(previousKey) != 32 {
+			return fmt.Errorf("previous encryption key is invalid")
+		}
+		if err := db.ReencryptStoredData(ctx, store, previousKey, tokenKey); err != nil {
+			logStartupDecryptFailure(logDir, err)
+			return fmt.Errorf("unfinished encryption-key rotation failed: %w", err)
+		}
+	} else if !errors.Is(err, db.ErrNotFound) {
+		return fmt.Errorf("previous encryption key could not be loaded: %w", err)
+	}
+	if skipped, err := db.BackfillTokenLast4(ctx, store, tokenKey); err != nil {
+		return fmt.Errorf("token metadata migration failed: %w", err)
+	} else if skipped > 0 {
+		fmt.Fprintf(os.Stderr, "%s: warning: %d legacy token suffixes cannot be recovered until those tokens are presented\n", binaryName, skipped)
+	}
+	return nil
 }
 
 func loadProjectSecretKeys(ctx context.Context, sqlDB db.Handle) (*security.SecretKeyring, error) {
@@ -152,7 +214,7 @@ func main() {
 // shutdown hooks, so control never actually returns here in production).
 // Tests override this variable to skip the blocking call and exercise only
 // the startup sequence above it.
-var startHTTPServer = func(srv *httpserver.Server) error {
+var startHTTPServer = func(srv *server.Server) error {
 	return srv.Start()
 }
 
@@ -263,7 +325,7 @@ func run(args []string) int {
 	p.Backup = paths.GetBackupDir(*backupDir, p.Data)
 	p.PIDFile = paths.GetPIDFile(*pidFile, p.PIDFile)
 	p.DB = paths.GetDatabaseDir(p.Data, dockerPaths)
-	if err := config.EnforcePrivatePaths(p.Config); err != nil {
+	if err := config.EnforcePrivatePaths(p.Config, p.Data); err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
 	}
@@ -566,89 +628,65 @@ func run(args []string) int {
 		appMetrics.StartUptimeUpdater(context.Background())
 	}
 
-	sqlDB, err := db.Open(cfg.Server.Database.URL, db.DefaultPool(), appMetrics, cfg.Server.Database.Token)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, binaryName+": database connection failed")
-		return 1
+	var sqlDB *db.Store
+	recoveryInterval, _ := config.ParseDuration(cfg.Server.Maintenance.SelfHealing.RetryInterval, 30*time.Second)
+	maxRecoveryAttempts := cfg.Server.Maintenance.SelfHealing.MaxAttempts
+	if cfg.Server.Database.Cache.Enabled {
+		cacheCfg := cfg.Server.Database.Cache
+		if cacheCfg.Path == "" {
+			cacheCfg.Path = filepath.Join(p.Data, "db", "cache.db")
+		}
+		cacheCfg.Path = strings.ReplaceAll(cacheCfg.Path, "${DATA_DIR}", p.Data)
+		if !filepath.IsAbs(cacheCfg.Path) {
+			cacheCfg.Path = filepath.Join(p.Data, cacheCfg.Path)
+		}
+		if mkdirErr := os.MkdirAll(filepath.Dir(cacheCfg.Path), 0o700); mkdirErr != nil {
+			err = mkdirErr
+		} else {
+			interval, _ := config.ParseDuration(cacheCfg.SyncInterval, 30*time.Second)
+			maxAge, _ := config.ParseDuration(cacheCfg.MaxAge, time.Hour)
+			sqlDB, err = db.OpenWithCacheRecovery(cfg.Server.Database.URL, db.DefaultPool(), appMetrics, cacheCfg.Path, interval, maxAge, recoveryInterval, maxRecoveryAttempts, cacheCfg.OfflineMode, cfg.Server.Database.Token)
+		}
+		if err != nil {
+			sqlDB, err = db.Open(cfg.Server.Database.URL, db.DefaultPool(), appMetrics, cfg.Server.Database.Token)
+		}
+	} else {
+		sqlDB, err = db.Open(cfg.Server.Database.URL, db.DefaultPool(), appMetrics, cfg.Server.Database.Token)
 	}
-	defer sqlDB.Close()
+	if err != nil {
+		sqlDB, err = db.OpenInMaintenanceWithPolicy(
+			cfg.Server.Database.URL, db.DefaultPool(), appMetrics,
+			filepath.Join(p.Cache, "db-maintenance.db"), recoveryInterval, maxRecoveryAttempts, cfg.Server.Database.Token,
+		)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": database maintenance store could not be opened")
+			return 1
+		}
+	}
+	defer func() { _ = sqlDB.Close() }()
+	offlineDatabase := sqlDB.Offline()
 	tokenKey, err := config.DecodeEncryptionKey(cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": token encryption key is invalid")
 		return 1
 	}
 	ctx := context.Background()
-	if err := db.MigrateLegacyGraceSecrets(ctx, sqlDB, tokenKey); err != nil {
-		fmt.Fprintln(os.Stderr, binaryName+": secret rotation migration failed: "+err.Error())
-		return 1
-	}
-	legacyAppSecrets, err := config.ReadLegacyAppSecrets(p.ConfigFile)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
-		return 1
-	}
-	if value, ok := legacyAppSecrets[db.SecretInstallation]; ok {
-		if _, err := db.GetSecret(ctx, sqlDB, db.SecretInstallation); err == db.ErrNotFound {
-			if err := db.SetSecret(ctx, sqlDB, db.SecretInstallation, value); err != nil {
-				fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+	if !offlineDatabase {
+		if err := initializeRemoteDatabase(ctx, sqlDB, tokenKey, p.ConfigFile, p.Logs, binaryName); err != nil {
+			_ = sqlDB.Close()
+			sqlDB, err = db.OpenInMaintenanceWithPolicy(
+				cfg.Server.Database.URL, db.DefaultPool(), appMetrics,
+				filepath.Join(p.Cache, "db-maintenance.db"), recoveryInterval, maxRecoveryAttempts, cfg.Server.Database.Token,
+			)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, binaryName+": database maintenance store could not be opened")
 				return 1
 			}
-		} else if err != nil {
-			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
-			return 1
+			offlineDatabase = true
 		}
 	}
-	for _, name := range []string{db.SecretInstallation, "encryption_key"} {
-		legacyName := name + "_previous"
-		value, ok := legacyAppSecrets[legacyName]
-		if !ok {
-			continue
-		}
-		active, err := db.HasPreviousSecret(ctx, sqlDB, name)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
-			return 1
-		}
-		if active {
-			continue
-		}
-		expiresRaw := legacyAppSecrets[legacyName+"_expires"]
-		expires, err := parseLegacySecretExpiry(expiresRaw)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, binaryName+": legacy secret expiry is invalid")
-			return 1
-		}
-		if err := db.SetGraceSecret(ctx, sqlDB, name, value, expires, tokenKey); err != nil {
-			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
-			return 1
-		}
-	}
-	if len(legacyAppSecrets) > 0 {
-		if err := config.RemoveLegacyAppSecrets(p.ConfigFile); err != nil {
-			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
-			return 1
-		}
-	}
-	if previousEncoded, err := db.GetPreviousSecret(ctx, sqlDB, "encryption_key", tokenKey); err == nil {
-		previousKey, decodeErr := base64.StdEncoding.DecodeString(previousEncoded)
-		if decodeErr != nil || len(previousKey) != 32 {
-			fmt.Fprintln(os.Stderr, binaryName+": previous encryption key is invalid")
-			return 1
-		}
-		if err := db.ReencryptStoredData(ctx, sqlDB, previousKey, tokenKey); err != nil {
-			logStartupDecryptFailure(p.Logs, err)
-			fmt.Fprintln(os.Stderr, binaryName+": unfinished encryption-key rotation failed: "+err.Error())
-			return 1
-		}
-	} else if err != db.ErrNotFound {
-		fmt.Fprintln(os.Stderr, binaryName+": previous encryption key could not be loaded: "+err.Error())
-		return 1
-	}
-	if skipped, err := db.BackfillTokenLast4(ctx, sqlDB, tokenKey); err != nil {
-		fmt.Fprintln(os.Stderr, binaryName+": token metadata migration failed: "+err.Error())
-		return 1
-	} else if skipped > 0 {
-		fmt.Fprintf(os.Stderr, "%s: warning: %d legacy token suffixes cannot be recovered until those tokens are presented\n", binaryName, skipped)
+	if offlineDatabase {
+		fmt.Fprintln(os.Stderr, binaryName+": database connection failed; entering maintenance mode")
 	}
 
 	stopMetrics := func() {}
@@ -747,6 +785,24 @@ func run(args []string) int {
 		return 1
 	}
 	defer auditLog.Close()
+	auditPolicy, _ := cfg.Server.Logs.EffectiveLogKind("audit")
+	if err := auditLog.SetRotationPolicy(auditPolicy.Rotate, auditPolicy.Keep, auditPolicy.Compress); err != nil {
+		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+		return 1
+	}
+	auditLog.SetMirror(func(entry applog.Entry) error {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		mirror := db.AuditMirrorEntry{
+			AuditID: entry.ID, Timestamp: entry.Time.Unix(), Level: string(entry.Severity),
+			Category: entry.Category, Action: entry.Event, ActorIP: entry.Actor.IP,
+			Details: entry.Details, Success: entry.Result == applog.ResultSuccess,
+		}
+		if entry.Target != nil {
+			mirror.TargetType, mirror.TargetID = entry.Target.Type, entry.Target.ID
+		}
+		return db.InsertAuditMirror(ctx, sqlDB, mirror)
+	})
 	for key, wasGenerated := range map[string]bool{
 		"server.token":                          generated,
 		"server.security.encryption_key":        keyGenerated,
@@ -766,24 +822,28 @@ func run(args []string) int {
 	// rotating {security_id} published in security.txt. A failure here is
 	// not fatal: the server still serves, security.txt simply omits the
 	// contact-form line rather than publishing a forgeable id.
-	installSecret, _, _, err := db.EnsureCoreSecrets(context.Background(), sqlDB)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, binaryName+": core secret initialization failed: "+err.Error())
-		return 1
-	}
+	installSecret := ""
+	previousInstallSecret := ""
 	secretKeys := security.NewSecretKeyring(nil, nil, nil, nil)
-	if err := maintainProjectSecrets(context.Background(), sqlDB, auditLog, secretKeys, time.Now().UTC()); err != nil {
-		fmt.Fprintln(os.Stderr, binaryName+": secret maintenance failed: "+err.Error())
-		return 1
-	}
-	if installSecret != "" {
-		if err := syncDNSCredentialState(sqlDB, cfg, installSecret); err != nil {
-			fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+	if !offlineDatabase {
+		installSecret, _, _, err = db.EnsureCoreSecrets(context.Background(), sqlDB)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": core secret initialization failed: "+err.Error())
 			return 1
 		}
+		if err := maintainProjectSecrets(context.Background(), sqlDB, auditLog, secretKeys, time.Now().UTC()); err != nil {
+			fmt.Fprintln(os.Stderr, binaryName+": secret maintenance failed: "+err.Error())
+			return 1
+		}
+		if installSecret != "" {
+			if err := syncDNSCredentialState(sqlDB, cfg, installSecret); err != nil {
+				fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
+				return 1
+			}
+		}
+		previousInstallSecret, _ = db.GetGraceSecret(context.Background(), sqlDB, db.SecretInstallation)
 	}
-	previousInstallSecret, _ := db.GetGraceSecret(context.Background(), sqlDB, db.SecretInstallation)
-	if previousInstallSecret != "" {
+	if !offlineDatabase && previousInstallSecret != "" {
 		store := pgp.NewStore(p.Config)
 		if store.HasKeypair() {
 			if _, err := store.ReadPrivateKey(installSecret); err != nil {
@@ -800,6 +860,43 @@ func run(args []string) int {
 			}
 		}
 	}
+	sqlDB.SetRecoveryHook(func(recoveryCtx context.Context) error {
+		if err := initializeRemoteDatabase(recoveryCtx, sqlDB, tokenKey, p.ConfigFile, p.Logs, binaryName); err != nil {
+			return err
+		}
+		install, _, _, err := db.EnsureCoreSecrets(recoveryCtx, sqlDB)
+		if err != nil {
+			return err
+		}
+		if err := maintainProjectSecrets(recoveryCtx, sqlDB, auditLog, secretKeys, time.Now().UTC()); err != nil {
+			return err
+		}
+		keys, err := loadProjectSecretKeys(recoveryCtx, sqlDB)
+		if err != nil {
+			return err
+		}
+		cookie, previousCookie := keys.CookieKeys()
+		csrf, previousCSRF := keys.CSRFKeys()
+		secretKeys.Replace(cookie, previousCookie, csrf, previousCSRF)
+		if previousInstall, err := db.GetGraceSecret(recoveryCtx, sqlDB, db.SecretInstallation); err == nil && previousInstall != "" {
+			store := pgp.NewStore(p.Config)
+			if store.HasKeypair() {
+				if _, err := store.ReadPrivateKey(install); err != nil {
+					private, previousErr := store.ReadPrivateKey(previousInstall)
+					if previousErr != nil {
+						_ = auditLog.Write(applog.Entry{Event: "security.decrypt_failed", Category: "security", Severity: applog.SeverityError, Details: map[string]any{"table": "pgp_keys", "row_id": "project"}, Result: applog.ResultFailure})
+						return errors.New("previous installation key could not decrypt the PGP private key")
+					}
+					if err := store.Write(private, install); err != nil {
+						return fmt.Errorf("PGP key rotation recovery failed: %w", err)
+					}
+				}
+			}
+		} else if err != nil && !errors.Is(err, db.ErrNotFound) {
+			return err
+		}
+		return syncDNSCredentialState(sqlDB, cfg, install)
+	})
 
 	// GeoIP (AI.md PART 19): opens whatever MMDB files already exist in
 	// cfg.Server.GeoIP.Dir (none on a genuinely first run) and, if enabled,
@@ -847,12 +944,58 @@ func run(args []string) int {
 	// the HTTP server because both raise events through it.
 	notifier := newNotifier(cfg, p, fqdnHost)
 	startupNotifications(binaryName, notifier, cfg, p, fqdnHost, accessLog)
+	var maintenanceMu sync.Mutex
+	var maintenanceSince time.Time
+	sqlDB.SetMaintenanceHook(func(offline bool, status db.RecoveryStatus) {
+		event := "server.maintenance_recovered"
+		severity := applog.SeverityInfo
+		result := applog.ResultSuccess
+		message := "Server recovered from database maintenance mode"
+		if offline {
+			maintenanceMu.Lock()
+			maintenanceSince = status.Since
+			maintenanceMu.Unlock()
+			event = "server.maintenance_entered"
+			severity = applog.SeverityWarn
+			result = applog.ResultFailure
+			message = "Database connection failed; server entered maintenance mode"
+		}
+		_ = auditLog.Write(applog.Entry{Event: event, Category: "server", Severity: severity, Details: map[string]any{"reason": "database_connection", "attempts": status.Attempts}, Result: result})
+		if (offline && cfg.Server.Maintenance.Notify.OnEnter) || (!offline && cfg.Server.Maintenance.Notify.OnExit) {
+			since := status.Since
+			if !offline {
+				maintenanceMu.Lock()
+				since = maintenanceSince
+				maintenanceMu.Unlock()
+			}
+			vars := map[string]string{"since": since.Format(time.RFC3339), "error": message}
+			if err := notifier.Send(notify.EventDatabaseError, vars); err != nil && !errors.Is(err, notify.ErrDisabled) {
+				_ = accessLog.WriteLine(applog.LevelWarn, "database maintenance notification failed: "+err.Error())
+			}
+		}
+	})
+	sqlDB.SetRecoveryExhaustedHook(func(attempts uint64) {
+		_ = auditLog.Write(applog.Entry{Event: "server.self_healing_exhausted", Category: "server", Severity: applog.SeverityError, Details: map[string]any{"reason": "database_connection", "attempts": attempts}, Result: applog.ResultFailure})
+		if err := notifier.Send(notify.EventDatabaseError, map[string]string{"since": sqlDB.RecoveryStatus().Since.Format(time.RFC3339), "error": "Database recovery retries exhausted; operator action is required"}); err != nil && !errors.Is(err, notify.ErrDisabled) {
+			_ = accessLog.WriteLine(applog.LevelWarn, "database recovery exhaustion notification failed: "+err.Error())
+		}
+	})
 
 	// TLS (AI.md PART 15 "Built-in Let's Encrypt Support"): initialize
 	// managed certificate providers before the scheduler so ssl_renewal can
 	// invoke the same provider used by the HTTPS listener.
 	scheme := "http"
-	tlsConfig, httpChallengeHandler, tlsErr := buildTLSConfig(cfg, p.Config, notifier, sqlDB)
+	tlsConfig, httpChallengeHandler, tlsErr := ssl.BuildTLSConfig(ssl.Options{
+		Config:       cfg,
+		ConfigDir:    p.Config,
+		InternalName: internalName,
+		Database:     sqlDB,
+		OnRenewed: func(host string, notAfter time.Time) {
+			if err := sendSSLRenewed(notifier, host, notAfter); err != nil {
+				fmt.Fprintln(os.Stderr, "shortner: WARN: send SSL renewal notification:", err)
+			}
+		},
+	})
 	if tlsErr != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": ERROR: "+tlsErr.Error())
 		if tlsConfig != nil {
@@ -898,7 +1041,7 @@ func run(args []string) int {
 		return runSchedulerCLI(binaryName, sched, *schedulerFlag, firstArg(fs.Args()))
 	}
 
-	srv := httpserver.New(httpserver.Options{
+	srv := server.New(server.Options{
 		Config:               cfg,
 		DB:                   sqlDB,
 		Store:                sqlDB,
@@ -1026,8 +1169,7 @@ func run(args []string) int {
 	// startup messages cannot split the banner.
 	go startOverlays(binaryName, torManager, i2pManager)
 
-	// Start blocks until Shutdown is called by the signal hook above, then
-	// returns nil (http.ErrServerClosed is treated as a clean stop).
+	// Start blocks until Shutdown is called by the signal hook above.
 	if err := startHTTPServer(srv); err != nil {
 		fmt.Fprintln(os.Stderr, binaryName+": "+err.Error())
 		return 1
@@ -1137,96 +1279,6 @@ func validateUnprivilegedPortSetting(setting string) error {
 	return nil
 }
 
-// buildTLSConfig resolves the server FQDN and prepares ACME-backed TLS when
-// TLS is enabled or port 443 is explicitly configured. The returned wrapper
-// mounts HTTP-01 challenge handling on the cleartext listener.
-func buildTLSConfig(cfg *config.Config, configDir string, notifier *notify.Notifier, sqlDB db.Handle) (*tls.Config, func(http.Handler) http.Handler, error) {
-	requested := cfg.Server.TLS.Enabled || portIncludes(cfg.Server.Port, 443)
-	if !requested {
-		return nil, nil, nil
-	}
-	if (cfg.Server.TLS.Cert == "") != (cfg.Server.TLS.Key == "") {
-		return nil, nil, fmt.Errorf("tls: server.ssl.cert and server.ssl.key must be configured together")
-	}
-	minVersion := uint16(tls.VersionTLS12)
-	switch strings.TrimSpace(cfg.Server.TLS.MinVersion) {
-	case "", "TLS1.2":
-	case "TLS1.3":
-		minVersion = tls.VersionTLS13
-	default:
-		return nil, nil, fmt.Errorf("tls: unsupported server.ssl.min_version %q", cfg.Server.TLS.MinVersion)
-	}
-	if cfg.Server.TLS.Cert != "" {
-		certPath, err := resolveConfigPath(configDir, cfg.Server.TLS.Cert)
-		if err != nil {
-			return nil, nil, fmt.Errorf("tls: resolve server.ssl.cert: %w", err)
-		}
-		keyPath, err := resolveConfigPath(configDir, cfg.Server.TLS.Key)
-		if err != nil {
-			return nil, nil, fmt.Errorf("tls: resolve server.ssl.key: %w", err)
-		}
-		certificate, err := tls.LoadX509KeyPair(certPath, keyPath)
-		if err != nil {
-			return nil, nil, fmt.Errorf("tls: load configured certificate: %w", err)
-		}
-		return &tls.Config{MinVersion: minVersion, Certificates: []tls.Certificate{certificate}}, nil, nil
-	}
-	host := fqdn.GetFQDN(internalName)
-	if fqdn.IsDevTLD(host, internalName) {
-		return nil, nil, fmt.Errorf("tls: %q is a dev-only TLD, skipping certificate issuance", host)
-	}
-	if cfg.Server.TLS.LetsEncrypt.DNSProvider != "" {
-		credentials, err := config.DNSCredentialValues(cfg)
-		if err != nil {
-			return dnsTLSFailureConfig(err), nil, err
-		}
-		tlsConfig, err := certmgr.NewDNSTLSConfig(configDir, host, cfg.Server.TLS.LetsEncrypt.DNSProvider, credentials, func(notAfter time.Time, renewed bool) {
-			stamp := time.Now().UTC().Format(time.RFC3339)
-			if sqlDB != nil {
-				if err := db.SetSecret(context.Background(), sqlDB, db.SecretDNSValidatedAt, stamp); err != nil {
-					fmt.Fprintln(os.Stderr, "shortner: ERROR: update DNS validation timestamp")
-				}
-			}
-			if renewed {
-				if err := sendSSLRenewed(notifier, host, notAfter); err != nil {
-					fmt.Fprintln(os.Stderr, "shortner: WARN: send SSL renewal notification:", err)
-				}
-			}
-		})
-		if err != nil {
-			return dnsTLSFailureConfig(err), nil, err
-		}
-		tlsConfig.MinVersion = minVersion
-		return tlsConfig, nil, nil
-	}
-	tlsConfig, manager := certmgr.NewTLSConfig(configDir, host, "", func(notAfter time.Time) {
-		if err := sendSSLRenewed(notifier, host, notAfter); err != nil {
-			fmt.Fprintln(os.Stderr, "shortner: WARN: send SSL renewal notification:", err)
-		}
-	})
-	challengeHandler := func(fallback http.Handler) http.Handler {
-		return certmgr.HTTPHandler(manager, fallback)
-	}
-	tlsConfig.MinVersion = minVersion
-	return tlsConfig, challengeHandler, nil
-}
-
-func resolveConfigPath(configDir, value string) (string, error) {
-	if filepath.IsAbs(value) {
-		return filepath.Clean(value), nil
-	}
-	return filepath.Abs(filepath.Join(configDir, value))
-}
-
-func dnsTLSFailureConfig(cause error) *tls.Config {
-	return &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-			return nil, cause
-		},
-	}
-}
-
 func syncDNSCredentialState(sqlDB db.Handle, cfg *config.Config, installSecret string) error {
 	credentials, err := config.DNSCredentialValues(cfg)
 	if err != nil {
@@ -1279,7 +1331,7 @@ func portIncludes(setting string, wanted int) bool {
 // newBuiltinScheduler builds a scheduler.Scheduler with every AI.md
 // PART 18 "Built-in Tasks (Required)" registered, using cfg's per-task
 // schedule/enabled overrides. It does not start the scheduler.
-func newBuiltinScheduler(cfg *config.Config, sqlDB db.Handle, schedulerLog, accessLog *applog.Logger, p paths.Paths, host string, geoManager *geoip.Manager, blocklistManager *blocklist.Manager, auditLog backup.Auditor, notifier *notify.Notifier, torManager *tor.Manager, i2pManager *i2p.Manager, tlsConfig *tls.Config, maintainSecrets func(context.Context) error) (*scheduler.Scheduler, error) {
+func newBuiltinScheduler(cfg *config.Config, sqlDB db.Handle, schedulerLog, accessLog *applog.Logger, p paths.Paths, host string, geoManager *geoip.Manager, blocklistManager *blocklist.Manager, auditLog *applog.AuditLogger, notifier *notify.Notifier, torManager *tor.Manager, i2pManager *i2p.Manager, tlsConfig *tls.Config, maintainSecrets func(context.Context) error) (*scheduler.Scheduler, error) {
 	sched, err := scheduler.New(sqlDB, schedulerLog, cfg.Server.Scheduler.Timezone, cfg.Server.Scheduler.CatchUpWindow)
 	if err != nil {
 		return nil, err
@@ -1292,7 +1344,11 @@ func newBuiltinScheduler(cfg *config.Config, sqlDB db.Handle, schedulerLog, acce
 		DatabaseError:           cfg.Server.Notifications.DatabaseError,
 		Tokens:                  cfg.Server.Tokens,
 		Logs:                    []*applog.Logger{schedulerLog, accessLog},
+		AuditLog:                auditLog,
 		DiskPaths:               []string{p.Data, p.Logs, p.Backup},
+		TempDir:                 filepath.Join(os.TempDir(), "apimgr"),
+		TempPrefix:              paths.InternalName + "-",
+		MaintenanceCleanup:      cfg.Server.Maintenance.Cleanup,
 		DiskLowEnabled:          cfg.Server.Notifications.DiskLow.Enabled,
 		DiskLowThresholdPercent: cfg.Server.Notifications.DiskLow.ThresholdPercent,
 		DiskCheckInterval:       cfg.Server.Notifications.DiskLow.CheckInterval,

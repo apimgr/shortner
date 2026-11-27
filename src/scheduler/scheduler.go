@@ -36,16 +36,17 @@ type Scheduler struct {
 	location      *time.Location
 	catchUpWindow time.Duration
 
-	mu       sync.Mutex
-	tasks    map[string]*TaskDef
-	nextRuns map[string]time.Time
-	running  map[string]*taskRun
-	started  bool
-	stopping bool
-	cancel   context.CancelFunc
-	loopDone chan struct{}
-	metrics  *metrics.Metrics
-	notifier *notify.Notifier
+	mu         sync.Mutex
+	tasks      map[string]*TaskDef
+	nextRuns   map[string]time.Time
+	running    map[string]*taskRun
+	started    bool
+	stopping   bool
+	wasOffline bool
+	cancel     context.CancelFunc
+	loopDone   chan struct{}
+	metrics    *metrics.Metrics
+	notifier   *notify.Notifier
 }
 
 type taskRun struct {
@@ -113,6 +114,9 @@ func (s *Scheduler) Register(ctx context.Context, task TaskDef) error {
 	copy := task
 	s.tasks[task.ID] = &copy
 	s.mu.Unlock()
+	if schedulerDatabaseOffline(s.sqlDB) {
+		return nil
+	}
 	return db.UpsertSchedulerTask(ctx, s.sqlDB, task.ID, task.Name, task.Schedule)
 }
 
@@ -123,6 +127,17 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		return nil
 	}
 	now := time.Now().In(s.location)
+	if schedulerDatabaseOffline(s.sqlDB) {
+		for id, task := range s.tasks {
+			s.nextRuns[id] = nextScheduled(task.Schedule, now, s.location)
+		}
+		s.wasOffline = true
+		loopCtx, cancel := context.WithCancel(context.Background())
+		s.cancel = cancel
+		s.started = true
+		go s.loop(loopCtx)
+		return nil
+	}
 	if err := db.MarkRunningSchedulerTasksInterrupted(ctx, s.sqlDB); err != nil {
 		return fmt.Errorf("scheduler: recover interrupted tasks: %w", err)
 	}
@@ -168,6 +183,20 @@ func (s *Scheduler) loop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case now := <-ticker.C:
+			if schedulerDatabaseOffline(s.sqlDB) {
+				s.mu.Lock()
+				s.wasOffline = true
+				s.mu.Unlock()
+				continue
+			}
+			s.mu.Lock()
+			wasOffline := s.wasOffline
+			s.mu.Unlock()
+			if wasOffline {
+				if err := s.restoreAfterDatabaseRecovery(now.In(s.location)); err != nil {
+					continue
+				}
+			}
 			s.fireDue(now.In(s.location))
 		}
 	}
@@ -176,7 +205,7 @@ func (s *Scheduler) loop(ctx context.Context) {
 func (s *Scheduler) fireDue(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.stopping {
+	if s.stopping || schedulerDatabaseOffline(s.sqlDB) {
 		return
 	}
 	for id, due := range s.nextRuns {
@@ -188,6 +217,27 @@ func (s *Scheduler) fireDue(now time.Time) {
 		_, _ = s.sqlDB.ExecContext(context.Background(), `UPDATE scheduler_tasks SET next_run = ? WHERE id = ?`, s.nextRuns[id].Unix(), id)
 		go s.runTask(id)
 	}
+}
+
+func (s *Scheduler) restoreAfterDatabaseRecovery(now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, task := range s.tasks {
+		if err := db.UpsertSchedulerTask(context.Background(), s.sqlDB, id, task.Name, task.Schedule); err != nil {
+			return err
+		}
+		s.nextRuns[id] = nextScheduled(task.Schedule, now, s.location)
+		if _, err := s.sqlDB.ExecContext(context.Background(), `UPDATE scheduler_tasks SET next_run = ? WHERE id = ?`, s.nextRuns[id].Unix(), id); err != nil {
+			return err
+		}
+	}
+	s.wasOffline = false
+	return nil
+}
+
+func schedulerDatabaseOffline(handle db.Handle) bool {
+	state, ok := handle.(interface{ Offline() bool })
+	return ok && state.Offline()
 }
 
 func (s *Scheduler) Stop() error {
@@ -232,6 +282,9 @@ func (s *Scheduler) forceReleaseInterrupted() {
 		delete(s.running, id)
 	}
 	s.mu.Unlock()
+	if schedulerDatabaseOffline(s.sqlDB) {
+		return
+	}
 	for _, id := range ids {
 		_ = db.MarkSchedulerTaskInterrupted(context.Background(), s.sqlDB, id)
 	}

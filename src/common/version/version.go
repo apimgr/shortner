@@ -23,7 +23,7 @@ var (
 )
 
 // Epoch parses the embedded BuildEpoch ldflag; 0 when unset or invalid.
-// The updater's daily-channel check compares the rolling "daily" release
+// The updater's devel-channel check compares the rolling "devel" release
 // against this binary's own build time.
 func Epoch() int64 {
 	n, err := strconv.ParseInt(BuildEpoch, 10, 64)

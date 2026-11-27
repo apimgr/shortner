@@ -5,12 +5,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/apimgr/shortner/src/server"
+	templateassets "github.com/apimgr/shortner/src/server/template"
 )
 
 // embeddedDir is where the binary's built-in templates live inside
 // server.TemplateFS, per AI.md PART 17 "Template Storage".
-const embeddedDir = "template/email"
+const embeddedDir = "email"
 
 // Store resolves email templates, per AI.md PART 17 "Template Storage":
 // a custom file under `{config_dir}/template/email/` wins, otherwise the
@@ -85,7 +85,7 @@ func (s *Store) Raw(name string) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	data, err := server.TemplateFS.ReadFile(embeddedDir + "/" + file)
+	data, err := templateassets.ReadEmailTemplate(embeddedDir + "/" + file)
 	if err != nil {
 		return "", false, fmt.Errorf("notify: no template named %q", name)
 	}
@@ -122,7 +122,7 @@ func (s *Store) embedded(name string) (Template, error) {
 	if err != nil {
 		return Template{}, err
 	}
-	data, err := server.TemplateFS.ReadFile(embeddedDir + "/" + file)
+	data, err := templateassets.ReadEmailTemplate(embeddedDir + "/" + file)
 	if err != nil {
 		return Template{}, fmt.Errorf("notify: no template named %q", name)
 	}

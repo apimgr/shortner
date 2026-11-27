@@ -10,18 +10,18 @@ import (
 	"time"
 
 	"github.com/apimgr/shortner/src/config"
-	"github.com/apimgr/shortner/src/httpserver"
 	"github.com/apimgr/shortner/src/paths"
+	"github.com/apimgr/shortner/src/server"
 )
 
-// newTestServer builds a real *httpserver.Server from a default config, so
+// newTestServer builds a real *server.Server from a default config, so
 // overlayRef's serve hooks have something concrete to call SetOverlayHost
 // and ServeOverlay on rather than exercising only the nil-server no-op
 // paths.
-func newTestServer(t *testing.T) *httpserver.Server {
+func newTestServer(t *testing.T) *server.Server {
 	t.Helper()
 	cfg := config.Default(filepath.Join(t.TempDir(), "server.db"))
-	return httpserver.New(httpserver.Options{Config: cfg})
+	return server.New(server.Options{Config: cfg})
 }
 
 // TestOverlayRefSetServer proves set/server round-trip and that server()
@@ -55,7 +55,7 @@ func TestOverlayRefPublishNilServer(t *testing.T) {
 			t.Fatalf("publish with a nil server panicked: %v", r)
 		}
 	}()
-	ref.publish(httpserver.OverlayTor, "abc.onion", ln)
+	ref.publish(server.OverlayTor, "abc.onion", ln)
 }
 
 // TestOverlayRefPublishNilListener proves publish is a no-op, not a panic,
@@ -70,7 +70,7 @@ func TestOverlayRefPublishNilListener(t *testing.T) {
 			t.Fatalf("publish with a nil listener panicked: %v", r)
 		}
 	}()
-	ref.publish(httpserver.OverlayTor, "abc.onion", nil)
+	ref.publish(server.OverlayTor, "abc.onion", nil)
 }
 
 // TestOverlayRefClearNeverSet proves clear is safe to call on a ref whose
@@ -83,8 +83,8 @@ func TestOverlayRefClearNeverSet(t *testing.T) {
 			t.Fatalf("clear on a never-set ref panicked: %v", r)
 		}
 	}()
-	ref.clear(httpserver.OverlayTor)
-	ref.clear(httpserver.OverlayI2P)
+	ref.clear(server.OverlayTor)
+	ref.clear(server.OverlayI2P)
 }
 
 // TestOverlayRefPublishAndClearLiveServer exercises the real success path:
@@ -104,7 +104,7 @@ func TestOverlayRefPublishAndClearLiveServer(t *testing.T) {
 		t.Fatalf("net.Listen: %v", err)
 	}
 
-	ref.publish(httpserver.OverlayTor, "live.onion", ln)
+	ref.publish(server.OverlayTor, "live.onion", ln)
 	// Closing the listener out from under Serve() is exactly what a
 	// provider dying looks like: ServeOverlay's Serve() returns a non-nil,
 	// non-ErrServerClosed error, which the serve goroutine reports through
@@ -127,7 +127,7 @@ func TestOverlayRefPublishAndClearLiveServer(t *testing.T) {
 			t.Fatalf("clear after a dead listener panicked: %v", r)
 		}
 	}()
-	ref.clear(httpserver.OverlayTor)
+	ref.clear(server.OverlayTor)
 }
 
 // overlayTestPaths builds a Paths whose every directory lives under a

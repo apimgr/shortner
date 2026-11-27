@@ -43,7 +43,7 @@ func ValidateSlugFormat(slug string) bool {
 // frontend-rules.md "Nested sub-resource pattern"): "health", "admin",
 // "login", "logout", "list" (nav item), and "domains" (nav item, even
 // though this project has no per-user custom domains — see
-// src/httpserver/frontend.go's nav-item decision comment).
+// src/server/frontend.go's nav-item decision comment).
 var reservedSlugs = map[string]bool{
 	// System routes
 	"api": true, "server": true, "static": true, "assets": true,

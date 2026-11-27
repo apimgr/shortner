@@ -706,7 +706,7 @@ func pgpAudit(env *pgpEnv, event string, severity applog.Severity, result applog
 		Event:    event,
 		Category: "security",
 		Severity: severity,
-		Actor:    applog.Actor{IP: pgpOperatorIP()},
+		Actor:    applog.Actor{Type: "operator", IP: pgpOperatorIP()},
 		Details:  details,
 		Reason:   reason,
 		Result:   result,

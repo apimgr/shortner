@@ -36,7 +36,7 @@ yes                                   - Download and install update
 branch <name>                         - Switch update branch
   stable                              - Stable releases (default)
   beta                                - Beta/preview releases
-  daily                               - Daily builds (development)
+  devel                               - Development builds
 
 Examples:
   %[1]s --update check
@@ -112,8 +112,8 @@ func checkForUpdate(p paths.Paths) (*updater.Release, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	branch := cfg.Server.Update.Branch
-	if !updater.ValidBranch(branch) {
+	branch := updater.NormalizeBranch(cfg.Server.Update.Branch)
+	if branch == "" {
 		branch = updater.BranchStable
 	}
 
@@ -206,12 +206,13 @@ func runUpdateInstall(binaryName string, p paths.Paths) int {
 	return 0
 }
 
-// runUpdateBranch implements `--update branch {stable|beta|daily}`,
+// runUpdateBranch implements `--update branch {stable|beta|devel}`,
 // persisting the channel to server.yml — per AI.md PART 22 the config file
 // is the single source of truth and there is no CLI-side state.
 func runUpdateBranch(binaryName string, p paths.Paths, name string) int {
-	if !updater.ValidBranch(name) {
-		fmt.Fprintf(os.Stderr, "%s: --update branch requires stable, beta, or daily\n", binaryName)
+	name = updater.NormalizeBranch(name)
+	if name == "" {
+		fmt.Fprintf(os.Stderr, "%s: --update branch requires stable, beta, or devel\n", binaryName)
 		return 1
 	}
 

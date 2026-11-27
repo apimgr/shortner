@@ -1,5 +1,5 @@
 // Package updater implements the self-update machinery of AI.md PART 22
-// "UPDATE COMMAND": GitHub Releases lookup for the stable/beta/daily
+// "UPDATE COMMAND": GitHub Releases lookup for the stable/beta/devel
 // channels, the `defer_days` eligibility window, SHA-256 verified
 // downloads, and the platform-specific binary replacement/restart that
 // `--update yes` and the `update_check` scheduler task both drive.
@@ -33,26 +33,35 @@ const (
 const (
 	BranchStable = "stable"
 	BranchBeta   = "beta"
-	BranchDaily  = "daily"
+	BranchDevel  = "devel"
 )
 
-// DailyTag is the rolling pre-release tag of the `daily` channel: a single
+// DevelTag is the rolling pre-release tag of the `devel` channel: a single
 // release that is deleted and recreated nightly, so its publish time — not
 // its tag — decides whether a newer build exists.
-const DailyTag = "daily"
+const DevelTag = "devel"
 
 // Branches lists every valid `server.update.branch` value, most stable
 // first.
-var Branches = []string{BranchStable, BranchBeta, BranchDaily}
+var Branches = []string{BranchStable, BranchBeta, BranchDevel}
 
 // ValidBranch reports whether name is one of the three release channels.
 func ValidBranch(name string) bool {
-	for _, b := range Branches {
-		if name == b {
-			return true
-		}
+	return NormalizeBranch(name) != ""
+}
+
+// NormalizeBranch converts documented legacy names to the canonical name.
+func NormalizeBranch(name string) string {
+	switch strings.TrimSpace(name) {
+	case BranchStable:
+		return BranchStable
+	case BranchBeta:
+		return BranchBeta
+	case BranchDevel, "daily", "rolling", "dev", "development":
+		return BranchDevel
+	default:
+		return ""
 	}
-	return false
 }
 
 // apiBaseURL is the GitHub API root. It is a variable so tests can point
@@ -84,22 +93,22 @@ type Asset struct {
 }
 
 // Version returns the human label for this release: the tag for a normal
-// release, and "daily (published ...)" for the rolling daily tag, whose
+// release, and "devel (published ...)" for the rolling devel tag, whose
 // tag alone never changes.
 func (r Release) Version() string {
-	if r.TagName == DailyTag {
-		return fmt.Sprintf("%s (published %s)", DailyTag, r.PublishedAt.UTC().Format(time.RFC3339))
+	if r.TagName == DevelTag {
+		return fmt.Sprintf("%s (published %s)", DevelTag, r.PublishedAt.UTC().Format(time.RFC3339))
 	}
 	return r.TagName
 }
 
 // Key returns a stable per-version identity used to fire the "update
 // available" notification exactly once per version (AI.md PART 22
-// "Surfacing rules"). The rolling daily tag is keyed by publish time
+// "Surfacing rules"). The rolling devel tag is keyed by publish time
 // because every nightly rebuild reuses the tag.
 func (r Release) Key() string {
-	if r.TagName == DailyTag {
-		return DailyTag + "@" + r.PublishedAt.UTC().Format(time.RFC3339)
+	if r.TagName == DevelTag {
+		return DevelTag + "@" + r.PublishedAt.UTC().Format(time.RFC3339)
 	}
 	return r.TagName
 }
@@ -110,7 +119,7 @@ func (r Release) Key() string {
 // AI.md PART 22 "Defer Semantics" always see the true latest release.
 //
 // buildEpoch is the caller's own embedded build timestamp (version.Epoch),
-// needed to detect a newer nightly on the rolling `daily` tag.
+// needed to detect a newer nightly on the rolling `devel` tag.
 func CheckForUpdate(ctx context.Context, currentVersion, branch string, buildEpoch int64) (*Release, error) {
 	return checkForUpdate(ctx, currentVersion, branch, buildEpoch, 0, time.Now().UTC())
 }
@@ -126,6 +135,10 @@ func CheckEligible(ctx context.Context, currentVersion, branch string, buildEpoc
 // checkForUpdate fetches the candidate releases for branch and selects the
 // newest eligible one.
 func checkForUpdate(ctx context.Context, currentVersion, branch string, buildEpoch int64, deferDays int, now time.Time) (*Release, error) {
+	branch = NormalizeBranch(branch)
+	if branch == "" {
+		return nil, errors.New("updater: invalid update channel")
+	}
 	releases, err := fetchReleases(ctx, branch, deferDays)
 	if err != nil {
 		return nil, err
@@ -193,13 +206,17 @@ func fetchReleases(ctx context.Context, branch string, deferDays int) (releases 
 // anything past the entry matching currentVersion is older and selecting
 // it would silently downgrade the binary.
 func Select(releases []Release, currentVersion, branch string, buildEpoch int64, deferDays int, now time.Time) *Release {
+	branch = NormalizeBranch(branch)
+	if branch == "" {
+		return nil
+	}
 	for i := range releases {
 		r := releases[i]
 		if !matchesBranch(r, branch) {
 			continue
 		}
-		if r.TagName == DailyTag {
-			// Rolling tag: a newer nightly exists when the release was
+		if r.TagName == DevelTag {
+			// Rolling tag: a newer devel build exists when the release was
 			// published after this binary was built.
 			if r.PublishedAt.Unix() <= buildEpoch {
 				continue
@@ -233,20 +250,21 @@ func Eligible(r Release, deferDays int, now time.Time) bool {
 
 // matchesBranch implements the cumulative channels of AI.md PART 22
 // "Channel Semantics": each channel also accepts every release from all
-// more-stable channels, so a beta or daily user is never left older than a
+// more-stable channels, so a beta or devel user is never left older than a
 // stable release.
 func matchesBranch(r Release, branch string) bool {
+	branch = NormalizeBranch(branch)
 	// Stable releases match every channel.
 	if !r.Prerelease {
 		return true
 	}
 	isBeta := strings.HasSuffix(r.TagName, "-beta")
-	isDaily := r.TagName == DailyTag
+	isDevel := r.TagName == DevelTag
 	switch branch {
 	case BranchBeta:
 		return isBeta
-	case BranchDaily:
-		return isBeta || isDaily
+	case BranchDevel:
+		return isBeta || isDevel
 	default:
 		return false
 	}

@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/apimgr/shortner/src/metrics"
@@ -20,6 +21,18 @@ type Store struct {
 	r            *sql.DB
 	busyObserver func(time.Duration, string)
 	readOnly     bool
+	cache        *readCache
+	route        atomic.Pointer[Store]
+}
+
+func (s *Store) current() *Store {
+	if s == nil {
+		return nil
+	}
+	if routed := s.route.Load(); routed != nil {
+		return routed
+	}
+	return s
 }
 
 // SetBusyObserver connects wait telemetry without coupling storage to logging.
@@ -67,7 +80,7 @@ func (s *Store) Exec(query string, args ...any) (sql.Result, error) {
 
 // QueryContext reads from the query-only pool.
 func (s *Store) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	return s.r.QueryContext(ctx, query, args...)
+	return s.Read(ctx).QueryContext(ctx, query, args...)
 }
 
 // Query is a convenience wrapper for code that does not carry a context.
@@ -77,7 +90,7 @@ func (s *Store) Query(query string, args ...any) (*sql.Rows, error) {
 
 // QueryRowContext reads from the query-only pool.
 func (s *Store) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
-	return s.r.QueryRowContext(ctx, query, args...)
+	return s.Read(ctx).QueryRowContext(ctx, query, args...)
 }
 
 // QueryRow is a convenience wrapper for code that does not carry a context.
@@ -86,11 +99,109 @@ func (s *Store) QueryRow(query string, args ...any) *sql.Row {
 }
 
 // PingContext verifies the query-only pool can reach the SQLite file.
-func (s *Store) PingContext(ctx context.Context) error { return s.r.PingContext(ctx) }
+func (s *Store) PingContext(ctx context.Context) error {
+	s = s.current()
+	if s.cache != nil && s.cache.remoteUnavailable.Load() {
+		return errors.New("db: remote database unavailable")
+	}
+	return s.r.PingContext(ctx)
+}
+
+// Offline reports that the remote database connection is unavailable.
+func (s *Store) Offline() bool {
+	s = s.current()
+	return s != nil && s.cache != nil && s.cache.remoteUnavailable.Load()
+}
+
+// RecoveryStatus exposes public-safe retry state for health reporting.
+type RecoveryStatus struct {
+	Offline       bool
+	CacheUsable   bool
+	Enabled       bool
+	Exhausted     bool
+	Since         time.Time
+	Attempts      uint64
+	LastAttempt   time.Time
+	RetryInterval time.Duration
+}
+
+// RecoveryStatus reports remote database availability and retry progress.
+func (s *Store) RecoveryStatus() RecoveryStatus {
+	s = s.current()
+	if s == nil || s.cache == nil {
+		return RecoveryStatus{}
+	}
+	status := RecoveryStatus{
+		Offline:     s.cache.remoteUnavailable.Load(),
+		CacheUsable: s.cache.offlineMode && s.cache.usable.Load(),
+		Enabled:     !s.cache.recoveryExhausted.Load(),
+		Exhausted:   s.cache.recoveryExhausted.Load(),
+		Attempts:    s.cache.retryAttempts.Load(),
+	}
+	if seconds := s.cache.offlineSince.Load(); seconds > 0 {
+		status.Since = time.Unix(seconds, 0).UTC()
+	}
+	if seconds := s.cache.lastAttempt.Load(); seconds > 0 {
+		status.LastAttempt = time.Unix(seconds, 0).UTC()
+	}
+	status.RetryInterval = s.cache.retryInterval
+	return status
+}
+
+// CacheUsable reports whether the local read replica has a successful
+// snapshot and offline reads are enabled for it.
+func (s *Store) CacheUsable() bool {
+	s = s.current()
+	return s != nil && s.cache != nil && s.cache.offlineMode && s.cache.usable.Load()
+}
+
+// SetRecoveryHook installs the initialization that must finish before a
+// database that started offline can leave maintenance mode.
+func (s *Store) SetRecoveryHook(hook func(context.Context) error) {
+	s = s.current()
+	if s == nil || s.cache == nil {
+		return
+	}
+	s.cache.recoveryMu.Lock()
+	s.cache.recoveryHook = hook
+	s.cache.recoveryMu.Unlock()
+}
+
+// SetMaintenanceHook observes entry to and recovery from database maintenance.
+func (s *Store) SetMaintenanceHook(hook func(bool, RecoveryStatus)) {
+	s = s.current()
+	if s == nil || s.cache == nil {
+		return
+	}
+	s.cache.recoveryMu.Lock()
+	s.cache.maintenanceHook = hook
+	s.cache.recoveryMu.Unlock()
+	if hook != nil && s.Offline() {
+		hook(true, s.RecoveryStatus())
+	}
+}
+
+// SetRecoveryExhaustedHook installs the one-time max-attempt notification.
+func (s *Store) SetRecoveryExhaustedHook(hook func(uint64)) {
+	s = s.current()
+	if s == nil || s.cache == nil {
+		return
+	}
+	s.cache.recoveryMu.Lock()
+	s.cache.exhaustionHook = hook
+	s.cache.recoveryMu.Unlock()
+	if hook != nil && s.cache.recoveryExhausted.Load() {
+		s.cache.markRecoveryExhausted()
+	}
+}
 
 // Probe verifies a trivial query succeeds through both independently pooled
 // database handles, so a read-only cache cannot mask a failed writer.
 func (s *Store) Probe(ctx context.Context) error {
+	s = s.current()
+	if s.cache != nil && s.cache.remoteUnavailable.Load() {
+		return errors.New("db: remote database unavailable")
+	}
 	writeCtx, cancelWrite := context.WithTimeout(ctx, 5*time.Second)
 	var writeValue int
 	err := s.w.QueryRowContext(writeCtx, `SELECT 1`).Scan(&writeValue)
@@ -103,6 +214,11 @@ func (s *Store) Probe(ctx context.Context) error {
 	var readValue int
 	if err := s.r.QueryRowContext(readCtx, `SELECT 1`).Scan(&readValue); err != nil {
 		return fmt.Errorf("read handle probe failed: %w", err)
+	}
+	if s.cache != nil {
+		if err := s.cache.db.QueryRowContext(readCtx, `SELECT 1`).Scan(&readValue); err != nil {
+			return fmt.Errorf("cache handle probe failed: %w", err)
+		}
 	}
 	return nil
 }
@@ -303,10 +419,19 @@ func SnapshotSQLite(ctx context.Context, source, destination string) error {
 }
 
 // Read returns the query-only database handle. Callers must issue only reads.
-func (s *Store) Read(context.Context) *sql.DB { return s.r }
+func (s *Store) Read(ctx context.Context) *sql.DB {
+	s = s.current()
+	if s.cache != nil {
+		return s.cache.reader(ctx, s.r)
+	}
+	return s.r
+}
 
 // Write runs a callback in a bounded immediate transaction, retrying lock errors.
 func (s *Store) Write(parent context.Context, fn func(*sql.Tx) error) error {
+	if target := s.current(); target != s {
+		return target.Write(parent, fn)
+	}
 	if s.readOnly {
 		return errors.New("db: write attempted on read-only store")
 	}
@@ -326,6 +451,19 @@ func (s *Store) Write(parent context.Context, fn func(*sql.Tx) error) error {
 			}
 			if ctx.Err() != nil && err != nil {
 				return ctx.Err()
+			}
+			if err == nil && s.cache != nil {
+				s.cache.writeEpoch.Add(1)
+				s.cache.dirty.Store(true)
+				s.cache.requestSync()
+			}
+			if err != nil && s.cache != nil {
+				pingCtx, pingCancel := context.WithTimeout(context.Background(), time.Second)
+				pingErr := s.r.PingContext(pingCtx)
+				pingCancel()
+				if pingErr != nil {
+					s.cache.setOffline()
+				}
 			}
 			return err
 		}
@@ -377,12 +515,12 @@ func (s *Store) writeOnce(ctx context.Context, fn func(*sql.Tx) error) error {
 
 // Checkpoint truncates the WAL after request draining.
 func (s *Store) Checkpoint(ctx context.Context) error {
-	return s.w.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(new(int), new(int), new(int))
+	return s.current().w.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(new(int), new(int), new(int))
 }
 
 // VacuumInto creates a consistent standalone snapshot through SQLite.
 func (s *Store) VacuumInto(ctx context.Context, destination string) error {
-	_, err := s.w.ExecContext(ctx, "VACUUM INTO ?", destination)
+	_, err := s.current().w.ExecContext(ctx, "VACUUM INTO ?", destination)
 	return err
 }
 
@@ -391,9 +529,13 @@ func (s *Store) Close() error {
 	if s == nil {
 		return nil
 	}
+	var cerr error
+	if s.cache != nil {
+		cerr = s.cache.close()
+	}
 	rerr := s.r.Close()
 	werr := s.w.Close()
-	return errors.Join(rerr, werr)
+	return errors.Join(cerr, rerr, werr)
 }
 
 // isBusy recognizes SQLite primary and extended busy/locked errors.

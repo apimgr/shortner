@@ -20,7 +20,7 @@ type UpdateDeps struct {
 	// development build has no release to compare against.
 	CurrentVersion string
 	// BuildEpoch is the running build's timestamp, used to detect a newer
-	// nightly on the rolling `daily` tag.
+	// nightly on the rolling `devel` tag.
 	BuildEpoch int64
 	// StatePath is the update state file (data dir), which makes the
 	// "update available" notice fire once per version rather than on

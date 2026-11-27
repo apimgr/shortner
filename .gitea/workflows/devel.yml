@@ -164,7 +164,7 @@ jobs:
       # SBOM tooling lives in the build image — never install it on the runner
       - name: Generate SBOM (CycloneDX)
         run: |
-          docker run --rm --no-healthcheck --name "${{ env.PROJECT_NAME }}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -v "$PWD":/app -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false casjaysdev/go:latest \
+          timeout -k 30 3600 docker run --rm --no-healthcheck --name "${{ env.PROJECT_NAME }}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v "$PWD":/app -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false casjaysdev/go:latest \
             cyclonedx-gomod mod -json -output "binaries/${{ env.PROJECT_NAME }}-${{ env.VERSION }}-sbom.cdx.json"
 
       - name: Generate checksums

@@ -1,11 +1,13 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/apimgr/shortner/src/config"
 	"github.com/tursodatabase/libsql-client-go/libsql"
@@ -72,10 +74,30 @@ func openLibSQL(rawURL string, pool Pool, separateAuthToken string) (*Store, err
 		options = append(options, libsql.WithAuthToken(token))
 	}
 	options = append(options, libsql.WithTls(tls))
-	connector, err := libsql.NewConnector(u.String(), options...)
+	baseConnector, err := libsql.NewConnector(u.String(), options...)
 	if err != nil {
 		return nil, errors.New("db: invalid database connection string")
 	}
+	// Adopt legacy unprefixed server tables before enabling the SQL mapper.
+	// The migration uses the raw connector so catalog lookups and ALTER
+	// statements operate on the actual remote schema.
+	legacyDB := sql.OpenDB(baseConnector)
+	legacyDB.SetMaxOpenConns(1)
+	legacyDB.SetMaxIdleConns(1)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := legacyDB.PingContext(ctx); err != nil {
+		_ = legacyDB.Close()
+		return nil, errors.New("db: database connection failed")
+	}
+	if err := migrateLibSQLIdentifiers(ctx, legacyDB); err != nil {
+		_ = legacyDB.Close()
+		return nil, errors.New("db: remote database schema migration failed")
+	}
+	if err := legacyDB.Close(); err != nil {
+		return nil, errors.New("db: database connection failed")
+	}
+	connector := mapLibSQLConnector(baseConnector)
 
 	readers := pool.MaxOpen
 	if readers < 1 {

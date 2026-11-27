@@ -23,39 +23,39 @@ const EncryptedSuffix = ".enc"
 const EncryptionMethod = "AES-256-GCM"
 
 const (
-	encMagic       = "BKUP1"
-	legacyEncMagic = "SHRTBAK1"
-	backupArgonM   = 64 * 1024
-	backupArgonT   = 3
-	backupArgonP   = 2
-	backupKeyBytes = 32
-	backupNonceLen = 12
-	backupKeyIDLen = 8
-	backupBaseMax  = 255
+	encMagic        = "BKUP1"
+	legacyEncMagic  = "SHRTBAK1"
+	backupArgonM    = 64 * 1024
+	backupArgonT    = 3
+	backupArgonP    = 2
+	backupKeyBytes  = 32
+	backupNonceLen  = 12
+	backupKeyIDLen  = 8
+	backupBaseMax   = 255
 	backupHeaderLen = 55
-	maxArgonMemory = 256 * 1024
-	maxArgonTime   = 10
+	maxArgonMemory  = 256 * 1024
+	maxArgonTime    = 10
 	maxArgonThreads = 8
 )
 
 var (
-	ErrInvalidPassword = errors.New("backup: invalid backup password")
-	ErrNotEncrypted = errors.New("backup: not an encrypted backup archive")
+	ErrInvalidPassword  = errors.New("backup: invalid backup password")
+	ErrNotEncrypted     = errors.New("backup: not an encrypted backup archive")
 	ErrPasswordRequired = errors.New("backup: encrypted backup requires a password")
 )
 
 // EncryptionHeader is the public, password-independent metadata at the
 // start of an encrypted archive. Its exact bytes are authenticated by GCM.
 type EncryptionHeader struct {
-	Salt       []byte
-	MemoryKiB  uint32
-	Iterations uint32
+	Salt        []byte
+	MemoryKiB   uint32
+	Iterations  uint32
 	Parallelism uint32
-	Nonce      []byte
-	KeyID      string
-	BaseName   string
-	Legacy     bool
-	Length     int
+	Nonce       []byte
+	KeyID       string
+	BaseName    string
+	Legacy      bool
+	Length      int
 }
 
 // Encrypt writes the PART 21 BKUP1 header followed by AES-256-GCM ciphertext.

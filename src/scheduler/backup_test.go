@@ -74,6 +74,8 @@ func newBackupDeps(t *testing.T, audit backup.Auditor) BackupDeps {
 		t.Fatalf("close db: %v", err)
 	}
 
+	backupConfig := config.Default("").Server.Backup
+	backupConfig.DiskThreshold = 100
 	return BackupDeps{
 		Dir:        backupDir,
 		Prefix:     "shortner",
@@ -82,7 +84,7 @@ func newBackupDeps(t *testing.T, audit backup.Auditor) BackupDeps {
 		ConfigDir:  configDir,
 		DataDir:    dataDir,
 		AppVersion: "1.2.3",
-		Cfg:        config.Default("").Server.Backup,
+		Cfg:        backupConfig,
 		Audit:      audit,
 	}
 }

@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"html"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -17,6 +18,9 @@ var csrfPattern = regexp.MustCompile(`name="csrf_token"[^>]*value="([^"]*)"`)
 
 // shortURLPattern finds the created short URL on the success card.
 var shortURLPattern = regexp.MustCompile(`<a href="(https?://[^"]+/[A-Za-z0-9-]{3,20})"`)
+
+// internalLinkPattern extracts navigable links for the deterministic route crawl.
+var internalLinkPattern = regexp.MustCompile(`(?i)href="([^"]+)"`)
 
 // newClient returns an HTTP client with a cookie jar and redirects
 // disabled, so redirect status codes can be asserted directly.
@@ -60,7 +64,12 @@ func get(t *testing.T, client *http.Client, path string) (*http.Response, string
 func TestTier1ServerSideRendering(t *testing.T) {
 	client := newClient(t)
 
-	for _, path := range []string{"/", "/server/about", "/server/healthz", "/list", "/server/preferences/sync", "/server/docs/swagger", "/server/docs/graphql"} {
+	for _, path := range []string{
+		"/", "/list", "/server/about", "/server/privacy", "/server/help", "/server/terms",
+		"/server/help/mcp", "/server/contact", "/server/ccpa", "/server/security", "/server/security/policy",
+		"/server/security/thanks", "/server/dpo", "/server/healthz", "/server/preferences",
+		"/server/preferences/tokens", "/server/preferences/sync", "/server/docs/swagger", "/server/docs/graphql",
+	} {
 		resp, body := get(t, client, path)
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("GET %s = %d, want 200", path, resp.StatusCode)
@@ -71,6 +80,10 @@ func TestTier1ServerSideRendering(t *testing.T) {
 		}
 		if strings.Contains(body, "{{") {
 			t.Errorf("GET %s leaked an unrendered template action", path)
+		}
+		if !strings.Contains(body, "<title>") || !regexp.MustCompile(`<html[^>]+lang="[a-z]{2}`).MatchString(body) ||
+			!strings.Contains(body, `charset="utf-8"`) || !strings.Contains(body, `name="viewport"`) {
+			t.Errorf("GET %s is missing title, language, UTF-8 charset, or viewport metadata", path)
 		}
 	}
 	swaggerResp, swaggerBody := get(t, client, "/server/docs/swagger")
@@ -166,5 +179,71 @@ func TestDebug500PageUsesThemedRenderer(t *testing.T) {
 	}
 	if !strings.Contains(body, "class=\"page-title\"") || strings.Contains(body, "goroutine ") {
 		t.Fatalf("500 body is not the normal themed error page")
+	}
+}
+
+// TestTier1FullInternalLinkCrawl follows every same-origin href reachable
+// from the homepage and rejects dead routes, server errors, and broken redirects.
+func TestTier1FullInternalLinkCrawl(t *testing.T) {
+	client := newClient(t)
+	base, err := url.Parse(httpBaseURL)
+	if err != nil {
+		t.Fatalf("parse test base URL: %v", err)
+	}
+	queue := []string{"/"}
+	seen := make(map[string]struct{})
+	for len(queue) > 0 {
+		if len(seen) >= 500 {
+			t.Fatal("internal link crawl exceeded 500 unique routes")
+		}
+		path := queue[0]
+		queue = queue[1:]
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		resp, body := get(t, client, path)
+		if resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusSeeOther || resp.StatusCode == http.StatusTemporaryRedirect || resp.StatusCode == http.StatusPermanentRedirect {
+			location := resp.Header.Get("Location")
+			if location == "" {
+				t.Errorf("internal route %s returned redirect %d without Location", path, resp.StatusCode)
+				continue
+			}
+			target, parseErr := base.Parse(location)
+			if parseErr != nil || target.Scheme != "http" && target.Scheme != "https" || target.Host == "" {
+				t.Errorf("internal route %s redirected to an invalid URL: %q", path, location)
+				continue
+			}
+			if target.Host != base.Host {
+				continue
+			}
+			queue = append(queue, target.RequestURI())
+			continue
+		}
+		if resp.StatusCode == http.StatusGone {
+			// Expired resources remain valid routes with the specified 410 contract.
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("internal route %s returned %d", path, resp.StatusCode)
+			continue
+		}
+		for _, match := range internalLinkPattern.FindAllStringSubmatch(body, -1) {
+			resolved, parseErr := base.Parse(html.UnescapeString(match[1]))
+			if parseErr != nil || resolved.Host != base.Host || (resolved.Scheme != "http" && resolved.Scheme != "https") {
+				continue
+			}
+			resolved.Fragment = ""
+			requestPath := resolved.RequestURI()
+			if requestPath == "" {
+				requestPath = "/"
+			}
+			if _, ok := seen[requestPath]; !ok {
+				queue = append(queue, requestPath)
+			}
+		}
+	}
+	if len(seen) < 10 {
+		t.Errorf("internal link crawl visited only %d routes", len(seen))
 	}
 }

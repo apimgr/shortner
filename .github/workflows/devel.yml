@@ -27,7 +27,7 @@ jobs:
     outputs:
       version: ${{ steps.set.outputs.version }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Compute version
         id: set
         run: |
@@ -62,7 +62,7 @@ jobs:
             goarch: arm64
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Set build info
         run: |
@@ -148,7 +148,7 @@ jobs:
       attestations: write
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Download all artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
@@ -171,7 +171,7 @@ jobs:
       # SBOM tooling lives in the build image — never install it on the runner
       - name: Generate SBOM (CycloneDX)
         run: |
-          docker run --rm --no-healthcheck --name "${{ env.PROJECT_NAME }}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" -v "$PWD":/app -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false casjaysdev/go:latest \
+          timeout -k 30 3600 docker run --rm --no-healthcheck --name "${{ env.PROJECT_NAME }}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v "$PWD":/app -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false casjaysdev/go:latest \
             cyclonedx-gomod mod -json -output "binaries/${{ env.PROJECT_NAME }}-${{ env.VERSION }}-sbom.cdx.json"
 
       - name: Generate checksums
@@ -198,7 +198,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       - name: Create Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3.0.3
         with:
           tag_name: devel
           name: "Devel Build ${{ env.VERSION }}"

@@ -31,6 +31,53 @@ func TestParseDuration(t *testing.T) {
 	}
 }
 
+func TestValidateDatabaseCacheDurations(t *testing.T) {
+	cfg := Default("/db")
+	cfg.Server.Database.Driver = "libsql"
+	cfg.Server.Database.Cache.Enabled = true
+	cfg.Server.Database.Cache.SyncInterval = "0s"
+	cfg.Server.Database.Cache.MaxAge = "invalid"
+	warnings := Validate(cfg)
+	if cfg.Server.Database.Cache.SyncInterval != "30s" || cfg.Server.Database.Cache.MaxAge != "1h" {
+		t.Fatalf("database cache durations = %+v", cfg.Server.Database.Cache)
+	}
+	if !anyContains(warnings, "server.database.cache.sync_interval") || !anyContains(warnings, "server.database.cache.max_age") {
+		t.Fatalf("Validate() warnings = %v, want cache duration warnings", warnings)
+	}
+}
+
+func TestValidateMaintenanceSelfHealingAndCleanup(t *testing.T) {
+	cfg := Default("/db")
+	cfg.Server.Maintenance.SelfHealing.RetryInterval = "0s"
+	cfg.Server.Maintenance.SelfHealing.MaxAttempts = -1
+	cfg.Server.Maintenance.Cleanup.DiskThreshold = 101
+	cfg.Server.Maintenance.Cleanup.LogRetentionDays = -1
+	warnings := Validate(cfg)
+	if cfg.Server.Maintenance.SelfHealing.RetryInterval != "30s" || cfg.Server.Maintenance.SelfHealing.MaxAttempts != 0 {
+		t.Fatalf("self-healing config = %+v", cfg.Server.Maintenance.SelfHealing)
+	}
+	if cfg.Server.Maintenance.Cleanup.DiskThreshold != 90 || cfg.Server.Maintenance.Cleanup.LogRetentionDays != 7 {
+		t.Fatalf("cleanup config = %+v", cfg.Server.Maintenance.Cleanup)
+	}
+	for _, name := range []string{"retry_interval", "max_attempts", "disk_threshold", "log_retention_days"} {
+		if !anyContains(warnings, name) {
+			t.Errorf("Validate() warnings = %v, missing %q", warnings, name)
+		}
+	}
+}
+
+func TestValidateDisablesDatabaseCacheForSQLite(t *testing.T) {
+	cfg := Default("/db")
+	cfg.Server.Database.Cache.Enabled = true
+	warnings := Validate(cfg)
+	if cfg.Server.Database.Cache.Enabled {
+		t.Fatal("Validate() left cache enabled with the SQLite driver")
+	}
+	if !anyContains(warnings, "server.database.cache.enabled") {
+		t.Fatalf("Validate() warnings = %v, want SQLite cache incompatibility warning", warnings)
+	}
+}
+
 func TestParseSize(t *testing.T) {
 	tests := []struct {
 		name    string

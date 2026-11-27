@@ -4,7 +4,7 @@ import "sync"
 
 // SecretKeyring holds the in-memory current and grace-period project keys.
 type SecretKeyring struct {
-	mu              sync.RWMutex
+	mu             sync.RWMutex
 	cookieCurrent  []byte
 	cookiePrevious []byte
 	csrfCurrent    []byte

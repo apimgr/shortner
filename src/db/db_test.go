@@ -298,6 +298,7 @@ func TestEnsureSchemaMigratesResourceTokensToOwners(t *testing.T) {
 		`CREATE TABLE api_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, token_hash TEXT NOT NULL UNIQUE, token_prefix TEXT NOT NULL, resource_type TEXT NOT NULL, resource_id TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), expires_at INTEGER, last_used_at INTEGER, revoked_at INTEGER, revoked_reason TEXT)`,
 		`INSERT INTO links (id, short_code, destination_url) VALUES (1, 'legacy', 'https://example.com')`,
 		`INSERT INTO api_tokens (id, token_hash, token_prefix, resource_type, resource_id) VALUES (7, 'hash-value', 'old_prefix', 'link', '1')`,
+		`INSERT INTO api_tokens (id, token_hash, token_prefix, resource_type, resource_id) VALUES (8, 'second-hash', 'second_prefix', 'link', '1')`,
 	} {
 		if _, err := sqlDB.Exec(statement); err != nil {
 			t.Fatalf("legacy schema/data: %v", err)
@@ -306,15 +307,23 @@ func TestEnsureSchemaMigratesResourceTokensToOwners(t *testing.T) {
 	if err := EnsureSchema(context.Background(), sqlDB); err != nil {
 		t.Fatalf("EnsureSchema migration: %v", err)
 	}
-	var linkOwner, tokenOwner, kind, tokenEnc string
+	var linkOwner, tokenOwner, kind, tokenEnc, publicID, tokenHash string
 	if err := sqlDB.QueryRow(`SELECT owner_id FROM links WHERE id = 1`).Scan(&linkOwner); err != nil {
 		t.Fatal(err)
 	}
-	if err := sqlDB.QueryRow(`SELECT owner_id, kind, token_enc FROM api_tokens WHERE id = 7`).Scan(&tokenOwner, &kind, &tokenEnc); err != nil {
+	var tokenID int64
+	if err := sqlDB.QueryRow(`SELECT id, public_id, owner_id, kind, token_enc, token_hash FROM api_tokens WHERE id = 7`).Scan(&tokenID, &publicID, &tokenOwner, &kind, &tokenEnc, &tokenHash); err != nil {
 		t.Fatal(err)
 	}
-	if linkOwner == "" || tokenOwner != linkOwner || kind != "primary" || tokenEnc != "" {
-		t.Fatalf("migrated link/token state = owner %q / %q, kind %q, ciphertext %q", linkOwner, tokenOwner, kind, tokenEnc)
+	if linkOwner == "" || tokenOwner != linkOwner || kind != "primary" || tokenEnc != "" || tokenID != 7 || len(publicID) != 36 || tokenHash != "hash-value" {
+		t.Fatalf("migrated link/token state = owner %q / %q, kind %q, ciphertext %q, id %d, public id %q, hash %q", linkOwner, tokenOwner, kind, tokenEnc, tokenID, publicID, tokenHash)
+	}
+	var linkedKind, linkedScope, linkedPublicID string
+	if err := sqlDB.QueryRow(`SELECT kind, scope, public_id FROM api_tokens WHERE id = 8`).Scan(&linkedKind, &linkedScope, &linkedPublicID); err != nil {
+		t.Fatal(err)
+	}
+	if linkedKind != "linked" || linkedScope != "read-write" || len(linkedPublicID) != 36 || linkedPublicID == publicID {
+		t.Fatalf("migrated linked token = kind %q, scope %q, public id %q", linkedKind, linkedScope, linkedPublicID)
 	}
 	if err := EnsureSchema(context.Background(), sqlDB); err != nil {
 		t.Fatalf("second EnsureSchema: %v", err)
@@ -633,7 +642,7 @@ func TestOwnerTokenLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreatePrimaryToken() error = %v", err)
 	}
-	if raw == "" || tok.ID == 0 {
+	if raw == "" || tok.ID == "" || tok.PublicID != tok.ID || tok.Scope != "global" {
 		t.Fatalf("CreatePrimaryToken() returned empty raw or token")
 	}
 	if tok.TokenLast4 != raw[len(raw)-4:] || !strings.HasSuffix(MaskAPIToken(tok), tok.TokenLast4) {
@@ -659,7 +668,7 @@ func TestOwnerTokenLifecycle(t *testing.T) {
 		t.Fatalf("LookupTokenByRaw() error = %v", err)
 	}
 	if found.ID != tok.ID {
-		t.Errorf("LookupTokenByRaw ID = %d, want %d", found.ID, tok.ID)
+		t.Errorf("LookupTokenByRaw ID = %q, want %q", found.ID, tok.ID)
 	}
 
 	if _, err := LookupTokenByRaw(ctx, sqlDB, "old_"+strings.Repeat("x", 32)); err != ErrNotFound {

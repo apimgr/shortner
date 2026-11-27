@@ -43,7 +43,7 @@
 <article class="linked-token-card" id="token-{{.ID}}">
 <h3>{{.Name}}</h3><p><span class="token-status token-status-{{.Status}}">{{if eq .Status "active"}}{{t $.Base.Lang "token_page.active"}}{{else if eq .Status "expired"}}{{t $.Base.Lang "token_page.expired"}}{{else}}{{t $.Base.Lang "token_page.revoked"}}{{end}}</span></p>
 {{if .Last4Available}}<code class="copy-value">{{if .Revealed}}{{.Revealed}}{{else}}{{.Masked}}{{end}}</code>{{else}}<p role="status">{{t $.Base.Lang "token_page.last4_unavailable"}}</p>{{end}}{{if .Revealed}} <button type="button" data-copy="{{.Revealed}}">{{t $.Base.Lang "common.copy"}}</button>{{end}}
-<dl><dt>{{t $.Base.Lang "token_page.created"}}</dt><dd>{{.Created}}</dd><dt>{{t $.Base.Lang "token_page.last_used"}}</dt><dd>{{.LastUsed}}</dd><dt>{{t $.Base.Lang "token_page.expires"}}</dt><dd>{{.Expires}}</dd></dl>
+<dl><dt>{{t $.Base.Lang "token_page.scope"}}</dt><dd>{{.Scope}}</dd><dt>{{t $.Base.Lang "token_page.created"}}</dt><dd>{{.Created}}</dd><dt>{{t $.Base.Lang "token_page.last_used"}}</dt><dd>{{.LastUsed}}</dd><dt>{{t $.Base.Lang "token_page.expires"}}</dt><dd>{{.Expires}}</dd></dl>
 <div class="token-actions">
 {{if .RevealAvailable}}<form method="post" action="/server/preferences/tokens/{{.ID}}/reveal"><input type="hidden" name="csrf_token" value="{{$.Base.CSRFToken}}"><button type="submit">{{t $.Base.Lang "token_page.reveal"}}</button></form>{{else}}<p role="status">{{t $.Base.Lang "token_page.reveal_unavailable"}}</p>{{end}}
 <button type="button" popovertarget="rotate-token-{{.ID}}-confirm">{{t $.Base.Lang "token_page.rotate"}}</button><div id="rotate-token-{{.ID}}-confirm" popover><p>{{t $.Base.Lang "token_page.rotate_confirmation"}}</p><form method="post" action="/server/preferences/tokens/{{.ID}}/rotate"><input type="hidden" name="csrf_token" value="{{$.Base.CSRFToken}}"><input type="hidden" name="confirm" value="rotate"><button type="submit">{{t $.Base.Lang "token_page.rotate"}}</button></form><button type="button" popovertarget="rotate-token-{{.ID}}-confirm" popovertargetaction="hide">{{t $.Base.Lang "common.cancel"}}</button></div>
@@ -61,6 +61,7 @@
 <form method="post" action="/server/preferences/tokens">
 <input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}">
 <label>{{t .Base.Lang "token_page.name"}}<input name="name" maxlength="64" required></label>
+<label>{{t .Base.Lang "token_page.scope"}}<select name="scope"><option value="read-write">{{t .Base.Lang "token_page.scope_read_write"}}</option><option value="read">{{t .Base.Lang "token_page.scope_read"}}</option></select></label>
 <label>{{t .Base.Lang "token_page.expiry"}}<select name="expiry"><option value="never">{{t .Base.Lang "token_page.never"}}</option><option value="7d">7 {{t .Base.Lang "token_page.days"}}</option><option value="30d">30 {{t .Base.Lang "token_page.days"}}</option><option value="90d">90 {{t .Base.Lang "token_page.days"}}</option><option value="1y">1 {{t .Base.Lang "token_page.year"}}</option><option value="custom">{{t .Base.Lang "token_page.custom_date"}}</option></select></label>
 <details><summary>{{t .Base.Lang "token_page.custom_date"}}</summary><label>{{t .Base.Lang "token_page.expires_on"}}<input type="date" name="expires_on"></label></details>
 <button type="submit">{{t .Base.Lang "token_page.create"}}</button>

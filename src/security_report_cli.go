@@ -108,11 +108,15 @@ func runSecurityReportExport(binaryName string, p paths.Paths, sqlDB db.Handle, 
 		dst = file
 	}
 	if _, err := dst.Write(message); err != nil {
-		if file != nil { _ = file.Close() }
+		if file != nil {
+			_ = file.Close()
+		}
 		return securityReportError(binaryName, err)
 	}
 	if file != nil {
-		if err := file.Close(); err != nil { return securityReportError(binaryName, err) }
+		if err := file.Close(); err != nil {
+			return securityReportError(binaryName, err)
+		}
 	}
 	if err := writeSecurityReportExportAudit(p.Logs, trackingID, time.Now()); err != nil {
 		return securityReportError(binaryName, err)

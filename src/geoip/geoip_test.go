@@ -131,14 +131,13 @@ func TestIsBlocked(t *testing.T) {
 }
 
 // TestDownload spins up a local HTTP server, points downloadURLs at it, and
-// verifies Download writes valid-looking files and rejects bad ones. This
+// verifies Download rejects invalid files and propagates failed sources. This
 // mutates the package-level downloadURLs map, so it cannot run in parallel
 // with other tests that rely on the real CDN URLs (none do).
 func TestDownload(t *testing.T) {
 	// A minimal valid MMDB has a specific binary trailer format; rather than
-	// hand-construct one, verify Download's plumbing (HTTP fetch, atomic
-	// rename, error propagation) using the sanity-check failure path, which
-	// exercises every line except the final happy-path rename.
+	// hand-construct one, verify Download's HTTP/checksum failure path and
+	// ensure invalid MMDB data is never installed.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ok-but-not-mmdb", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("not a real mmdb file"))

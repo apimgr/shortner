@@ -19,11 +19,20 @@
 </ul>
 </section>
 
+<section class="section-card" aria-labelledby="about-version"><h2 id="about-version">{{t .Base.Lang "about.version"}}</h2>
+<p>{{.Base.ProjectVersion}} ({{.Base.BuildDateTime}})</p>
+</section>
+
+<section class="section-card" aria-labelledby="about-links"><h2 id="about-links">{{t .Base.Lang "about.links"}}</h2>
+<ul>
+<li><a href="{{.Base.RepoURL}}">{{t .Base.Lang "about.source_code"}}</a></li>
+<li><a href="https://apimgr-shortner.readthedocs.io">{{t .Base.Lang "help.api_documentation"}}</a></li>
+</ul>
+</section>
+
 {{if .AboutContent}}<div class="about-extra">{{.AboutContent}}</div>{{end}}
 
 <section class="section-card" aria-labelledby="about-geoip"><h2 id="about-geoip">{{t .Base.Lang "about.geoip_title"}}</h2>
-<p>{{t .Base.Lang "about.geoip_before"}}
-<a href="https://db-ip.com/">{{t .Base.Lang "about.geoip_link"}}</a>.
-{{t .Base.Lang "about.geoip_after"}}</p>
+<p><a href="https://db-ip.com/">IP Geolocation by DB-IP</a></p>
 </section>
 {{end}}

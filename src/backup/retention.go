@@ -109,13 +109,19 @@ func List(dir, prefix string) ([]File, error) {
 func RemovePartialFiles(dir, prefix string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		if os.IsNotExist(err) { return nil }
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return fmt.Errorf("backup: read partial backup dir %s: %w", dir, err)
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasPrefix(name, prefix) || !strings.Contains(name, ".tar.gz.tmp-") && !strings.Contains(name, ".tar.gz.enc.tmp-") { continue }
-		if err := os.Remove(filepath.Join(dir, name)); err != nil && !os.IsNotExist(err) { return fmt.Errorf("backup: remove partial %s: %w", name, err) }
+		if entry.IsDir() || !strings.HasPrefix(name, prefix) || !strings.Contains(name, ".tar.gz.tmp-") && !strings.Contains(name, ".tar.gz.enc.tmp-") {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, name)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("backup: remove partial %s: %w", name, err)
+		}
 	}
 	return nil
 }

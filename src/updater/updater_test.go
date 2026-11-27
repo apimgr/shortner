@@ -34,6 +34,14 @@ func TestValidBranch(t *testing.T) {
 	}
 }
 
+func TestNormalizeBranchAliases(t *testing.T) {
+	for _, alias := range []string{"daily", "rolling", "dev", "development"} {
+		if got := NormalizeBranch(alias); got != BranchDevel {
+			t.Errorf("NormalizeBranch(%q) = %q, want %q", alias, got, BranchDevel)
+		}
+	}
+}
+
 func TestReleaseVersionAndKey(t *testing.T) {
 	published := time.Date(2026, 8, 19, 6, 0, 0, 0, time.UTC)
 	stable := Release{TagName: "v1.2.3", PublishedAt: published}
@@ -44,17 +52,17 @@ func TestReleaseVersionAndKey(t *testing.T) {
 		t.Errorf("Key() = %q, want v1.2.3", got)
 	}
 
-	// The rolling daily tag never changes, so both the label and the
+	// The rolling devel tag never changes, so both the label and the
 	// notification key must be derived from the publish time instead.
-	daily := Release{TagName: DailyTag, Prerelease: true, PublishedAt: published}
-	if got := daily.Version(); !strings.Contains(got, "2026-08-19T06:00:00Z") {
+	devel := Release{TagName: DevelTag, Prerelease: true, PublishedAt: published}
+	if got := devel.Version(); !strings.Contains(got, "2026-08-19T06:00:00Z") {
 		t.Errorf("Version() = %q, want the publish time", got)
 	}
-	if got := daily.Key(); got != "daily@2026-08-19T06:00:00Z" {
+	if got := devel.Key(); got != "devel@2026-08-19T06:00:00Z" {
 		t.Errorf("Key() = %q, want the publish-time key", got)
 	}
-	second := Release{TagName: DailyTag, Prerelease: true, PublishedAt: published.Add(24 * time.Hour)}
-	if daily.Key() == second.Key() {
+	second := Release{TagName: DevelTag, Prerelease: true, PublishedAt: published.Add(24 * time.Hour)}
+	if devel.Key() == second.Key() {
 		t.Error("two nightly rebuilds share a notification key; the notice would fire only once")
 	}
 }
@@ -62,7 +70,7 @@ func TestReleaseVersionAndKey(t *testing.T) {
 func TestMatchesBranch(t *testing.T) {
 	stable := Release{TagName: "v1.0.0"}
 	beta := Release{TagName: "202512051430-beta", Prerelease: true}
-	daily := Release{TagName: DailyTag, Prerelease: true}
+	devel := Release{TagName: DevelTag, Prerelease: true}
 	other := Release{TagName: "v2.0.0-rc1", Prerelease: true}
 
 	tests := []struct {
@@ -74,14 +82,14 @@ func TestMatchesBranch(t *testing.T) {
 		// Channels are cumulative: stable releases match everywhere.
 		{"stable/stable", stable, BranchStable, true},
 		{"stable/beta", stable, BranchBeta, true},
-		{"stable/daily", stable, BranchDaily, true},
+		{"stable/devel", stable, BranchDevel, true},
 		{"beta/stable", beta, BranchStable, false},
 		{"beta/beta", beta, BranchBeta, true},
-		{"beta/daily", beta, BranchDaily, true},
-		{"daily/stable", daily, BranchStable, false},
-		{"daily/beta", daily, BranchBeta, false},
-		{"daily/daily", daily, BranchDaily, true},
-		{"rc/daily", other, BranchDaily, false},
+		{"beta/devel", beta, BranchDevel, true},
+		{"devel/stable", devel, BranchStable, false},
+		{"devel/beta", devel, BranchBeta, false},
+		{"devel/devel", devel, BranchDevel, true},
+		{"rc/devel", other, BranchDevel, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -170,18 +178,18 @@ func TestSelectNeverDowngrades(t *testing.T) {
 	}
 }
 
-func TestSelectDailyUsesBuildEpoch(t *testing.T) {
+func TestSelectDevelUsesBuildEpoch(t *testing.T) {
 	published := time.Now().UTC().Add(-2 * time.Hour)
-	releases := []Release{{TagName: DailyTag, Prerelease: true, PublishedAt: published}}
+	releases := []Release{{TagName: DevelTag, Prerelease: true, PublishedAt: published}}
 
 	// Built before tonight's nightly: an update exists.
 	older := published.Add(-24 * time.Hour).Unix()
-	if got := Select(releases, "daily", BranchDaily, older, 0, time.Now().UTC()); got == nil {
+	if got := Select(releases, "devel", BranchDevel, older, 0, time.Now().UTC()); got == nil {
 		t.Error("Select = nil, want the newer nightly")
 	}
 	// Built after it: nothing to do, even though the tag is unchanged.
 	newer := published.Add(time.Hour).Unix()
-	if got := Select(releases, "daily", BranchDaily, newer, 0, time.Now().UTC()); got != nil {
+	if got := Select(releases, "devel", BranchDevel, newer, 0, time.Now().UTC()); got != nil {
 		t.Errorf("Select = %q, want nil (this build is newer than the nightly)", got.Version())
 	}
 }

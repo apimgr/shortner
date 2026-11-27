@@ -91,7 +91,7 @@ pipeline {
                     agent { label 'amd64' }
                     steps {
                         sh '''
-                            docker run --rm --no-healthcheck \
+                            timeout -k 30 3600 docker run --rm --no-healthcheck \
                                 --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
@@ -109,7 +109,7 @@ pipeline {
                     agent { label 'arm64' }
                     steps {
                         sh '''
-                            docker run --rm --no-healthcheck \
+                            timeout -k 30 3600 docker run --rm --no-healthcheck \
                                 --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
@@ -128,7 +128,7 @@ pipeline {
                     agent { label 'amd64' }
                     steps {
                         sh '''
-                            docker run --rm --no-healthcheck \
+                            timeout -k 30 3600 docker run --rm --no-healthcheck \
                                 --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
@@ -146,7 +146,7 @@ pipeline {
                     agent { label 'amd64' }
                     steps {
                         sh '''
-                            docker run --rm --no-healthcheck \
+                            timeout -k 30 3600 docker run --rm --no-healthcheck \
                                 --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
@@ -165,7 +165,7 @@ pipeline {
                     agent { label 'amd64' }
                     steps {
                         sh '''
-                            docker run --rm --no-healthcheck \
+                            timeout -k 30 3600 docker run --rm --no-healthcheck \
                                 --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
@@ -183,7 +183,7 @@ pipeline {
                     agent { label 'amd64' }
                     steps {
                         sh '''
-                            docker run --rm --no-healthcheck \
+                            timeout -k 30 3600 docker run --rm --no-healthcheck \
                                 --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
@@ -202,7 +202,7 @@ pipeline {
                     agent { label 'amd64' }
                     steps {
                         sh '''
-                            docker run --rm --no-healthcheck \
+                            timeout -k 30 3600 docker run --rm --no-healthcheck \
                                 --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
@@ -220,7 +220,7 @@ pipeline {
                     agent { label 'amd64' }
                     steps {
                         sh '''
-                            docker run --rm --no-healthcheck \
+                            timeout -k 30 3600 docker run --rm --no-healthcheck \
                                 --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
@@ -247,7 +247,7 @@ pipeline {
                     agent { label 'amd64' }
                     steps {
                         sh '''
-                            docker run --rm --no-healthcheck \
+                            timeout -k 30 3600 docker run --rm --no-healthcheck \
                                 --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
@@ -265,7 +265,7 @@ pipeline {
                     agent { label 'arm64' }
                     steps {
                         sh '''
-                            docker run --rm --no-healthcheck \
+                            timeout -k 30 3600 docker run --rm --no-healthcheck \
                                 --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
@@ -283,7 +283,7 @@ pipeline {
                     agent { label 'amd64' }
                     steps {
                         sh '''
-                            docker run --rm --no-healthcheck \
+                            timeout -k 30 3600 docker run --rm --no-healthcheck \
                                 --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
@@ -301,7 +301,7 @@ pipeline {
                     agent { label 'amd64' }
                     steps {
                         sh '''
-                            docker run --rm --no-healthcheck \
+                            timeout -k 30 3600 docker run --rm --no-healthcheck \
                                 --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
@@ -319,7 +319,7 @@ pipeline {
                     agent { label 'amd64' }
                     steps {
                         sh '''
-                            docker run --rm --no-healthcheck \
+                            timeout -k 30 3600 docker run --rm --no-healthcheck \
                                 --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
@@ -337,7 +337,7 @@ pipeline {
                     agent { label 'amd64' }
                     steps {
                         sh '''
-                            docker run --rm --no-healthcheck \
+                            timeout -k 30 3600 docker run --rm --no-healthcheck \
                                 --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
@@ -355,7 +355,7 @@ pipeline {
                     agent { label 'amd64' }
                     steps {
                         sh '''
-                            docker run --rm --no-healthcheck \
+                            timeout -k 30 3600 docker run --rm --no-healthcheck \
                                 --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
@@ -373,7 +373,7 @@ pipeline {
                     agent { label 'amd64' }
                     steps {
                         sh '''
-                            docker run --rm --no-healthcheck \
+                            timeout -k 30 3600 docker run --rm --no-healthcheck \
                                 --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
                                 -v ${GO_CACHE}:/usr/local/share/go/pkg/mod \
@@ -398,7 +398,7 @@ pipeline {
                 sh '''
                     for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
                         os=${t%/*}; arch=${t#*/}; ext=""; [ "$os" = windows ] && ext=".exe"
-                        docker run --rm --no-healthcheck --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v ${WORKSPACE}:/app -v ${GO_CACHE}:/usr/local/share/go/pkg/mod -v ${GO_BUILD}:/usr/local/share/go/cache -w /app -e CGO_ENABLED=0 -e GOOS=$os -e GOARCH=$arch casjaysdev/go:latest \
+                        timeout -k 30 3600 docker run --rm --no-healthcheck --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v ${WORKSPACE}:/app -v ${GO_CACHE}:/usr/local/share/go/pkg/mod -v ${GO_BUILD}:/usr/local/share/go/cache -w /app -e CGO_ENABLED=0 -e GOOS=$os -e GOARCH=$arch casjaysdev/go:latest \
                             go build -buildvcs=false -trimpath -tags gui -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-gui-${os}-${arch}${ext} ./src/client
                     done
                 '''
@@ -409,7 +409,7 @@ pipeline {
             agent { label 'amd64' }
             steps {
                 sh '''
-                    docker run --rm \
+                    timeout -k 30 3600 docker run --rm \
                         --no-healthcheck \
                         --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                         -v ${WORKSPACE}:/app \
@@ -429,8 +429,8 @@ pipeline {
                     mkdir -p "/tmp/${PROJECT_ORG}"
                     COVDIR=$(mktemp -d "/tmp/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX")
                     trap 'rm -rf -- "$COVDIR"' EXIT
-                    docker run --rm --no-healthcheck --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v ${WORKSPACE}:/app -v ${COVDIR}:/cov -v ${GO_CACHE}:/usr/local/share/go/pkg/mod -v ${GO_BUILD}:/usr/local/share/go/cache -w /app casjaysdev/go:latest sh -c 'mkdir -p /cov/data && go test -v -cover ./... -args -test.gocoverdir=/cov/data && go tool covdata textfmt -i=/cov/data -o=/cov/coverage.out'
-                    PCT=$(docker run --rm --no-healthcheck --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v ${WORKSPACE}:/app -v ${COVDIR}:/cov -w /app casjaysdev/go:latest go tool cover -func=/cov/coverage.out | awk '/^total:/ {gsub("%","",$3); print int($3)}')
+                    timeout -k 30 3600 docker run --rm --no-healthcheck --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v ${WORKSPACE}:/app -v ${COVDIR}:/cov -v ${GO_CACHE}:/usr/local/share/go/pkg/mod -v ${GO_BUILD}:/usr/local/share/go/cache -w /app casjaysdev/go:latest sh -c 'mkdir -p /cov/data && go test -v -cover ./... -args -test.gocoverdir=/cov/data && go tool covdata textfmt -i=/cov/data -o=/cov/coverage.out'
+                    PCT=$(timeout -k 30 3600 docker run --rm --no-healthcheck --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v ${WORKSPACE}:/app -v ${COVDIR}:/cov -w /app casjaysdev/go:latest go tool cover -func=/cov/coverage.out | awk '/^total:/ {gsub("%","",$3); print int($3)}')
                     rm -rf "$COVDIR"
                     [ "$PCT" -ge 60 ] || { echo "coverage ${PCT}% < 60%"; exit 1; }
                 '''
@@ -444,7 +444,7 @@ pipeline {
                     agent { label 'amd64' }
                     steps {
                         sh '''
-                            docker run --rm --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v ${WORKSPACE}:/repo -w /repo trufflesecurity/trufflehog@sha256:9c7a8325d43a4af2960d3f21d61a08981d8a1bf0542e007efa2e47097e386452 \
+                            timeout -k 30 3600 docker run --rm --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v ${WORKSPACE}:/repo -w /repo trufflesecurity/trufflehog@sha256:9c7a8325d43a4af2960d3f21d61a08981d8a1bf0542e007efa2e47097e386452 \
                                 git file://. --results=verified --exclude-paths=.github/trufflehog-exclude.txt --fail
                         '''
                     }
@@ -465,7 +465,7 @@ pipeline {
                     agent { label 'amd64' }
                     steps {
                         sh '''
-                            docker run --rm \
+                            timeout -k 30 3600 docker run --rm \
                                 --no-healthcheck \
                                 --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                                 -v ${WORKSPACE}:/app \
@@ -482,8 +482,9 @@ pipeline {
                     agent { label 'amd64' }
                     steps {
                         sh '''
-                            docker build -t local/scan-target:ci -f docker/Dockerfile .
-                            docker run --rm --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb \
+                            timeout -k 30 3600 docker build -t local/scan-target:ci -f docker/Dockerfile .
+                            timeout -k 30 3600 bash docker/verify-image.sh local/scan-target:ci
+                            timeout -k 30 3600 docker run --rm --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb \
                                 image --exit-code 1 --severity CRITICAL,HIGH local/scan-target:ci
                         '''
                     }
@@ -518,7 +519,7 @@ pipeline {
                 '''
                 // SBOM tooling lives in the build image - never install it on the agent
                 sh '''
-                    docker run --rm --no-healthcheck \
+                    timeout -k 30 3600 docker run --rm --no-healthcheck \
                         --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                         -v ${WORKSPACE}:/app \
                         -w /app \
@@ -558,7 +559,7 @@ pipeline {
                 '''
                 // SBOM tooling lives in the build image - never install it on the agent
                 sh '''
-                    docker run --rm --no-healthcheck \
+                    timeout -k 30 3600 docker run --rm --no-healthcheck \
                         --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                         -v ${WORKSPACE}:/app \
                         -w /app \
@@ -598,7 +599,7 @@ pipeline {
                 '''
                 // SBOM tooling lives in the build image - never install it on the agent
                 sh '''
-                    docker run --rm --no-healthcheck \
+                    timeout -k 30 3600 docker run --rm --no-healthcheck \
                         --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
                         -v ${WORKSPACE}:/app \
                         -w /app \
@@ -654,7 +655,7 @@ pipeline {
                     // Build multi-arch with OCI labels and manifest annotations
                     sh """
                         docker buildx create --name multiarch-builder --use 2>/dev/null || docker buildx use multiarch-builder
-                        docker buildx build \
+                        timeout -k 30 3600 docker buildx build \
                             -f docker/Dockerfile \
                             --platform linux/amd64,linux/arm64 \
                             --build-arg VERSION="${VERSION}" \
@@ -690,6 +691,10 @@ pipeline {
                             --push \
                             .
                     """
+                    sh """
+                        timeout -k 30 3600 docker pull ${REGISTRY}:${COMMIT_ID}
+                        REQUIRE_OVERLAY=${BUILD_TYPE == 'release' ? '1' : '0'} timeout -k 30 3600 bash docker/verify-image.sh ${REGISTRY}:${COMMIT_ID}
+                    """
                 }
             }
         }
@@ -717,7 +722,7 @@ pipeline {
 
                     sh """
                         docker buildx create --name multiarch-builder --use 2>/dev/null || docker buildx use multiarch-builder
-                        docker buildx build \
+                        timeout -k 30 3600 docker buildx build \
                             -f docker/Dockerfile.dev \
                             --platform linux/amd64,linux/arm64 \
                             --build-arg COMMIT_ID="${COMMIT_ID}" \
@@ -749,6 +754,10 @@ pipeline {
                             -t ${REGISTRY}:devel \
                             --push \
                             .
+                    """
+                    sh """
+                        timeout -k 30 3600 docker pull ${REGISTRY}:devel
+                        timeout -k 30 3600 bash docker/verify-image.sh ${REGISTRY}:devel
                     """
                 }
             }

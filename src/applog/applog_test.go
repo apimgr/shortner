@@ -291,8 +291,8 @@ func TestAuditLoggerWriteAssignsIDAndTime(t *testing.T) {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
 	id, _ := decoded["id"].(string)
-	if !strings.HasPrefix(id, "audit_") {
-		t.Errorf("id = %q, want audit_ prefix", id)
+	if len(id) != 26 {
+		t.Errorf("id = %q, want raw 26-character ULID", id)
 	}
 	if decoded["event"] != "config.updated" {
 		t.Errorf("event = %v, want config.updated", decoded["event"])

@@ -25,14 +25,14 @@ jobs:
       image: casjaysdev/go:latest
       options: "--user 0:0"
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - run: go vet ./...
       - run: GOTOOLCHAIN=go1.26.4 staticcheck ./...
 
   secret-scan:
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # Full history — truffleHog scans the commit range
           fetch-depth: 0
@@ -58,7 +58,7 @@ jobs:
   workflow-policy:
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Enforce SHA-pinned third-party actions
         run: |
           # Every third-party action must be pinned to a full 40-char commit SHA
@@ -84,7 +84,7 @@ jobs:
     env:
       CGO_ENABLED: "0"
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Check version precedence
         run: bash tests/version_precedence.sh
       - name: Run tests with coverage
@@ -116,7 +116,7 @@ jobs:
     env:
       CGO_ENABLED: "0"
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - run: go generate ./src/swagger && go build -buildvcs=false ./...
 
   vuln-scan:
@@ -127,13 +127,13 @@ jobs:
     env:
       GOFLAGS: -buildvcs=false
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - run: govulncheck ./...
 
   image-scan:
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Build image for scanning
         # Only when the project ships a Docker image
         if: hashFiles('docker/Dockerfile') != ''
@@ -141,7 +141,8 @@ jobs:
           OFFICIAL_SITE: ${{ secrets.OFFICIAL_SITE }}
         run: |
           if [ -f site.txt ]; then OFFICIAL_SITE="$(cat site.txt)"; fi
-          docker build --build-arg "OFFICIAL_SITE=$OFFICIAL_SITE" -t local/scan-target:ci -f docker/Dockerfile .
+          timeout -k 30 3600 docker build --build-arg "OFFICIAL_SITE=$OFFICIAL_SITE" -t local/scan-target:ci -f docker/Dockerfile .
+          timeout -k 30 3600 bash docker/verify-image.sh local/scan-target:ci
       - name: Scan image (Trivy)
         if: hashFiles('docker/Dockerfile') != ''
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0

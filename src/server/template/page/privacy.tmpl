@@ -1,16 +1,27 @@
 {{define "content"}}{{$lang := .Base.Lang}}
 <header class="page-header"><h1 class="page-title">{{t $lang "privacy.title"}}</h1><p class="page-lead">{{t $lang "privacy.default_data_collection"}}</p></header>
 
+<section class="section-card privacy-summary" id="summary" aria-labelledby="privacy-summary-title"><h2 id="privacy-summary-title">{{t $lang "privacy.summary"}}</h2>
+<ul><li>{{if .StoredOnServer}}{{t $lang "privacy.all_data_stored"}}{{else}}{{t $lang "privacy.third_party_services"}}{{end}}</li>
+{{if .Sold}}<li>{{t $lang "privacy.data_sale_body"}} <a href="#ccpa-opt-out">{{t $lang "privacy.right_cookie_control"}}</a></li>{{else}}<li>{{t $lang "privacy.never_sell"}}</li>{{end}}
+<li>{{t $lang "privacy.you_control"}}</li></ul></section>
+
 <section class="section-card" aria-labelledby="privacy-data"><h2 id="privacy-data">{{t $lang "privacy.data_we_collect"}}</h2>
 <p>{{if .DataCollection}}{{.DataCollection}}{{else}}{{t $lang "privacy.default_data_collection"}}{{end}}</p>
 </section>
 
 <section class="section-card" aria-labelledby="privacy-use"><h2 id="privacy-use">{{t $lang "privacy.how_we_use"}}</h2>
-<p>{{.DataUsage}}</p>
+<p>{{.Privacy.GetDataUsageContent}}</p>
 </section>
 
 <section class="section-card" aria-labelledby="privacy-security"><h2 id="privacy-security">{{t $lang "privacy.data_security"}}</h2>
 <p>{{if .DataSecurity}}{{.DataSecurity}}{{else}}{{t $lang "privacy.default_data_security"}}{{end}}</p>
+</section>
+
+<section class="section-card" id="data-storage" aria-labelledby="privacy-storage"><h2 id="privacy-storage">{{t $lang "privacy.data_storage"}}</h2>
+<p>{{if .StoredOnServer}}{{t $lang "privacy.all_data_stored"}}{{else}}{{t $lang "privacy.third_party_services"}}{{end}}</p>
+<h3>{{t $lang "privacy.when_shared"}}</h3>
+{{if .Sharing}}<ul>{{range .Sharing}}<li><strong>{{.Condition}}</strong>: {{.When}} — {{.Data}}</li>{{end}}</ul>{{else}}<p>{{t $lang "privacy.no_third_party"}}</p>{{end}}
 </section>
 
 <section class="section-card" id="cookies" aria-labelledby="privacy-cookies">
@@ -32,11 +43,14 @@
 <button type="submit" class="btn-accept">{{.Base.ConsentAcceptLabel}}</button>
 </form>
 </div>
+<button type="button" class="btn btn-secondary" data-action="cookie-preferences">{{t $lang "privacy.manage_cookies"}}</button>
 </section>
 
 {{if .Sold}}
-<section class="section-card" aria-labelledby="privacy-sale"><h2 id="privacy-sale">{{t $lang "privacy.data_sale_title"}}</h2>
+<section class="section-card" id="ccpa-opt-out" aria-labelledby="privacy-sale"><h2 id="privacy-sale">{{t $lang "ccpa.title"}}</h2>
 <p>{{t $lang "privacy.data_sale_body"}}</p>
+<p>{{if .CCPAOptedOut}}{{t $lang "ccpa.opted_out"}}{{else}}{{t $lang "ccpa.description"}}{{end}}</p>
+<form method="POST" action="/server/ccpa"><input type="hidden" name="csrf_token" value="{{.Base.CSRFToken}}"><input type="hidden" name="choice" value="{{if .CCPAOptedOut}}opt-in{{else}}opt-out{{end}}"><button type="submit" class="btn">{{if .CCPAOptedOut}}{{t $lang "ccpa.opt_back_in"}}{{else}}{{t $lang "ccpa.opt_out"}}{{end}}</button></form>
 </section>
 {{end}}
 
@@ -55,6 +69,12 @@
 
 <section class="section-card" aria-labelledby="privacy-retention"><h2 id="privacy-retention">{{t $lang "privacy.data_retention"}}</h2>
 <p>{{.RetentionPeriod}}</p>
+</section>
+
+<section class="section-card" aria-labelledby="privacy-rights"><h2 id="privacy-rights">{{t $lang "privacy.your_rights"}}</h2>
+<ul><li>{{t $lang "privacy.right_access"}}</li><li>{{t $lang "privacy.right_correction"}}</li><li>{{t $lang "privacy.right_cookie_control"}}: <a href="/server/preferences">{{t $lang "privacy.manage_cookies"}}</a></li>
+{{if .ExportAvailable}}<li>{{t $lang "privacy.right_export"}}: <a href="/server/preferences/tokens">{{t $lang "privacy.manage_tokens"}}</a></li>{{end}}
+{{if .DeletionAvailable}}<li>{{t $lang "privacy.right_deletion"}}: <a href="/server/contact?type=privacy">{{t $lang "privacy.contact_us"}}</a></li>{{end}}</ul>
 </section>
 
 {{if .Extension}}<section class="section-card" id="operator-extension" aria-labelledby="privacy-extension-title"><h2 id="privacy-extension-title">{{t $lang "privacy.operator_extension"}}</h2>{{.Extension}}</section>{{end}}

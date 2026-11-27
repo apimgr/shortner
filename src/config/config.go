@@ -15,6 +15,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/apimgr/shortner/src/paths"
 	"github.com/apimgr/shortner/src/security"
 )
 
@@ -79,6 +80,7 @@ type Server struct {
 	// API headers, the CSP report-uri, security.txt, and llms.txt.
 	APIVersion     string         `yaml:"api_version"`
 	Database       Database       `yaml:"database"`
+	Maintenance    Maintenance    `yaml:"maintenance"`
 	Limits         Limits         `yaml:"limits"`
 	Compression    Compression    `yaml:"compression"`
 	TrustedProxies TrustedProxies `yaml:"trusted_proxies"`
@@ -107,6 +109,27 @@ type Server struct {
 	I2P            I2P            `yaml:"i2p"`
 	Tokens         Tokens         `yaml:"tokens"`
 	Pages          Pages          `yaml:"pages"`
+}
+
+type Maintenance struct {
+	SelfHealing SelfHealingConfig  `yaml:"self_healing"`
+	Cleanup     MaintenanceCleanup `yaml:"cleanup"`
+	Notify      MaintenanceNotify  `yaml:"notify"`
+}
+
+type SelfHealingConfig struct {
+	RetryInterval string `yaml:"retry_interval"`
+	MaxAttempts   int    `yaml:"max_attempts"`
+}
+
+type MaintenanceCleanup struct {
+	DiskThreshold    int `yaml:"disk_threshold"`
+	LogRetentionDays int `yaml:"log_retention_days"`
+}
+
+type MaintenanceNotify struct {
+	OnEnter bool `yaml:"on_enter"`
+	OnExit  bool `yaml:"on_exit"`
 }
 
 type Tokens struct {
@@ -160,7 +183,7 @@ func (c Tokens) cookieMaxAgeValid() bool {
 type Update struct {
 	// CLIMinVersion is the minimum accepted CLI version returned by autodiscover.
 	CLIMinVersion string `yaml:"cli_min_version"`
-	// Branch is the release channel: stable | beta | daily.
+	// Branch is the release channel: stable | beta | devel.
 	Branch string `yaml:"branch"`
 	// AutoInstall lets the update_check task run the full `--update yes`
 	// flow. Default off — installing is always an explicit operator
@@ -570,7 +593,6 @@ type SEOCustomMetaTag struct {
 
 // Sitemap controls the public sitemap endpoint, per AI.md PART 16.
 type Sitemap struct {
-	Enabled       bool `yaml:"enabled"`
 	MaxURLs       int  `yaml:"max_urls"`
 	IncludeImages bool `yaml:"include_images"`
 }
@@ -807,9 +829,19 @@ type LetsEncryptTLS struct {
 // Database holds the `server.database` block.
 type Database struct {
 	// Driver is "sqlite" (default, pure Go modernc.org/sqlite) or "libsql".
-	Driver string `yaml:"driver"`
-	URL    string `yaml:"url"`
-	Token  string `yaml:"token"`
+	Driver string        `yaml:"driver"`
+	URL    string        `yaml:"url"`
+	Token  string        `yaml:"token"`
+	Cache  DatabaseCache `yaml:"cache"`
+}
+
+// DatabaseCache configures the optional local read replica for remote libSQL.
+type DatabaseCache struct {
+	Enabled      bool   `yaml:"enabled"`
+	Path         string `yaml:"path"`
+	SyncInterval string `yaml:"sync_interval"`
+	OfflineMode  bool   `yaml:"offline_mode"`
+	MaxAge       string `yaml:"max_age"`
 }
 
 // Limits holds `server.limits`, per AI.md PART 12 "Request Limits".
@@ -964,6 +996,12 @@ func Default(dbPath string) *Config {
 			Database: Database{
 				Driver: "sqlite",
 				URL:    dbPath,
+				Cache:  DatabaseCache{SyncInterval: "30s", OfflineMode: true, MaxAge: "1h"},
+			},
+			Maintenance: Maintenance{
+				SelfHealing: SelfHealingConfig{RetryInterval: "30s", MaxAttempts: 0},
+				Cleanup:     MaintenanceCleanup{DiskThreshold: 90, LogRetentionDays: 7},
+				Notify:      MaintenanceNotify{OnEnter: true, OnExit: true},
 			},
 			Limits: Limits{
 				MaxBodySize:  "10MB",
@@ -1028,7 +1066,7 @@ func Default(dbPath string) *Config {
 				TitleSeparator: " - ",
 				OpenGraph:      SEOOpenGraph{Enabled: true, Type: "website"},
 				Twitter:        SEOTwitter{Enabled: true, Card: "summary_large_image"},
-				Sitemap:        Sitemap{Enabled: true, MaxURLs: 50000},
+				Sitemap:        Sitemap{MaxURLs: 50000},
 				Feed:           Feed{MaxItems: 50},
 			},
 			Contact: Contact{Antispam: ContactAntispam{
@@ -1115,6 +1153,14 @@ func Default(dbPath string) *Config {
 			I2P:           DefaultI2P(),
 			Tokens:        Tokens{MaxLinked: 25, CookieMaxAge: "1y", IdlePurgeDays: 0},
 			Privacy: Privacy{
+				Data: PrivacyData{
+					StoredOnServer: true,
+					Sharing: []PrivacyDataShare{
+						{Condition: "analytics", When: "Tracking configured (server.tracking.type set) AND user consents", Data: "Anonymized: page views, browser type, country"},
+						{Condition: "email", When: "SMTP configured for sending emails", Data: "Email address, message content"},
+						{Condition: "user_initiated", When: "User explicitly shares content (social buttons, exports)", Data: "Whatever user chooses to share"},
+					},
+				},
 				Consent: PrivacyConsent{
 					Message: "We use essential cookies to make this site work. " +
 						"With your consent, we may also use cookies to improve " +
@@ -1141,8 +1187,8 @@ func Default(dbPath string) *Config {
 				},
 				Retention: PrivacyRetention{
 					Period:            "Link and click data is retained until deleted by the owner.",
-					ExportAvailable:   false,
-					DeletionAvailable: false,
+					ExportAvailable:   true,
+					DeletionAvailable: true,
 				},
 			},
 			Pages: Pages{
@@ -1539,22 +1585,35 @@ func mergeYAMLNode(base, overlay *yaml.Node) {
 	}
 }
 
-// EnforcePrivatePaths creates the config directory and applies the private
-// modes required for server.yml, secrets.yml, yaml.d, legacy operator HTML,
-// and the branding assets directory.
-func EnforcePrivatePaths(configDir string) error {
+// EnforcePrivatePaths creates the private config and data trees and applies
+// their platform-specific permissions before any configuration is read.
+func EnforcePrivatePaths(configDir string, dataDirs ...string) error {
+	configDir = filepath.Clean(configDir)
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return fmt.Errorf("config: create private directory %s: %w", configDir, err)
 	}
 	if err := os.Chmod(configDir, 0o700); err != nil {
 		return fmt.Errorf("config: secure private directory %s: %w", configDir, err)
 	}
-	assetsDir := filepath.Join(configDir, "assets")
-	if err := os.MkdirAll(assetsDir, 0o700); err != nil {
-		return fmt.Errorf("config: create branding assets directory %s: %w", assetsDir, err)
+	privateRoots := make([]string, 0, 8)
+	for _, name := range []string{"yaml.d", "html", "assets", "ssl", "tor", "i2p"} {
+		root := filepath.Join(configDir, name)
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			return fmt.Errorf("config: create private directory %s: %w", root, err)
+		}
+		privateRoots = append(privateRoots, root)
 	}
-	if err := os.Chmod(assetsDir, 0o700); err != nil {
-		return fmt.Errorf("config: secure branding assets directory %s: %w", assetsDir, err)
+	for _, dataDir := range dataDirs {
+		if dataDir == "" {
+			continue
+		}
+		for _, name := range []string{"security", "tor"} {
+			root := filepath.Join(dataDir, name)
+			if err := os.MkdirAll(root, 0o700); err != nil {
+				return fmt.Errorf("config: create private directory %s: %w", root, err)
+			}
+			privateRoots = append(privateRoots, root)
+		}
 	}
 	for _, name := range []string{"server.yml", "secrets.yml"} {
 		path := filepath.Join(configDir, name)
@@ -1567,45 +1626,48 @@ func EnforcePrivatePaths(configDir string) error {
 			return fmt.Errorf("config: secure private file %s: %w", path, err)
 		}
 	}
-	for _, name := range []string{"yaml.d", "html", "assets"} {
-		root := filepath.Join(configDir, name)
-		if _, err := os.Lstat(root); os.IsNotExist(err) {
-			continue
-		} else if err != nil {
-			return fmt.Errorf("config: inspect private directory %s: %w", root, err)
-		}
-		if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			info, err := os.Lstat(path)
-			if err != nil {
-				return err
-			}
-			if entry.Type()&os.ModeSymlink != 0 {
-				target, err := filepath.EvalSymlinks(path)
-				if err != nil {
-					return err
-				}
-				rel, err := filepath.Rel(root, target)
-				if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-					return fmt.Errorf("symlink escapes private directory: %s", path)
-				}
-				info, err = os.Stat(path)
-				if err != nil {
-					return err
-				}
-			}
-			perm := os.FileMode(0o600)
-			if info.IsDir() {
-				perm = 0o700
-			}
-			return os.Chmod(path, perm)
-		}); err != nil {
+	for _, root := range privateRoots {
+		if err := enforcePrivateTree(root); err != nil {
 			return fmt.Errorf("config: secure private directory %s: %w", root, err)
 		}
 	}
+	for _, root := range append([]string{configDir}, privateRoots...) {
+		if err := paths.EnforcePrivateACL(root); err != nil {
+			return fmt.Errorf("config: secure private ACL %s: %w", root, err)
+		}
+	}
 	return nil
+}
+
+func enforcePrivateTree(root string) error {
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			target, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				return err
+			}
+			rel, err := filepath.Rel(root, target)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+				return fmt.Errorf("symlink escapes private directory: %s", path)
+			}
+			info, err = os.Stat(path)
+			if err != nil {
+				return err
+			}
+		}
+		perm := os.FileMode(0o600)
+		if info.IsDir() {
+			perm = 0o700
+		}
+		return os.Chmod(path, perm)
+	})
 }
 
 // PeekServerSettings reads the startup listener settings before the full

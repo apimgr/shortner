@@ -33,7 +33,11 @@ func TestValidateUpdateBranch(t *testing.T) {
 	}{
 		{"stable", "stable", "stable", false},
 		{"beta", "beta", "beta", false},
-		{"daily", "daily", "daily", false},
+		{"devel", "devel", "devel", false},
+		{"daily alias", "daily", "devel", false},
+		{"rolling alias", "rolling", "devel", false},
+		{"dev alias", "dev", "devel", false},
+		{"development alias", "development", "devel", false},
 		{"empty defaults silently", "", "stable", false},
 		{"unknown channel warns", "nightly", "stable", true},
 		{"wrong case warns", "Stable", "stable", true},

@@ -279,6 +279,40 @@ func (l *Logger) RotateIfDue(now time.Time) error {
 	return l.pruneLocked(now.UTC())
 }
 
+// PruneArchivesOlderThan removes this logger's rotated archives older than
+// maxAge without rotating or removing the active log file.
+func (l *Logger) PruneArchivesOlderThan(now time.Time, maxAge time.Duration) error {
+	if l == nil || maxAge <= 0 {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	matches, err := filepath.Glob(l.path + ".*")
+	if err != nil {
+		return err
+	}
+	cutoff := now.UTC().Add(-maxAge)
+	for _, path := range matches {
+		if !isLogArchive(l.path, path) {
+			continue
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("applog: stat archive %s: %w", path, err)
+		}
+		if !info.Mode().IsRegular() || info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("applog: prune archive %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
 func (l *Logger) rotateLocked(now time.Time) error {
 	if err := l.file.Sync(); err != nil {
 		return fmt.Errorf("applog: sync %s: %w", l.path, err)

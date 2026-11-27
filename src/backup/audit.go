@@ -33,7 +33,7 @@ const (
 // itself (CLI subcommand or scheduler task) rather than by a remote
 // client.
 func localActor() applog.Actor {
-	return applog.Actor{IP: "127.0.0.1", UserID: "operator"}
+	return applog.Actor{Type: "operator", IP: "local"}
 }
 
 // write emits one audit entry, tolerating a nil Auditor. Audit failures

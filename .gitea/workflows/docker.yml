@@ -140,6 +140,66 @@ jobs:
             manifest:org.opencontainers.image.documentation=${{ gitea.server_url }}/${{ gitea.repository }}
             manifest:org.opencontainers.image.licenses=MIT
 
+      - name: Verify standard image runtime contract
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.COMMIT_ID }}
+          REQUIRE_OVERLAY: ${{ startsWith(gitea.ref, 'refs/tags/') && '1' || '0' }}
+        run: |
+          timeout -k 30 3600 docker pull "$IMAGE"
+          timeout -k 30 3600 docker run --rm --no-healthcheck --name "shortner-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" --entrypoint sh "$IMAGE" -c 'for c in git bash curl tor i2pd tini; do command -v "$c" || exit 1; done; apk info -e tzdata >/dev/null && apk info -e ca-certificates >/dev/null'
+          image_check_name="shortner-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)"
+          timeout -k 30 3600 docker run -d --rm --name "$image_check_name" -p 18080:80 "$IMAGE"
+          trap 'timeout -k 30 60 docker rm -f "$image_check_name" >/dev/null 2>&1 || true' EXIT
+          health_ok=false
+          health_deadline=$((SECONDS + 60))
+          while [[ "$SECONDS" -lt "$health_deadline" ]]; do
+            response=$(curl -q -LSsf --max-time 2 -H 'Accept: application/json' http://127.0.0.1:18080/server/healthz 2>/dev/null || true)
+            if printf '%s' "$response" | jq -e '(.status == "healthy" or .status == "degraded") and .checks.database == "ok" and .features.tor.enabled == true and (.features.tor.status == "starting" or .features.tor.status == "healthy" or .features.tor.status == "unavailable") and .features.i2p.enabled == true and (.features.i2p.status == "starting" or .features.i2p.status == "healthy" or .features.i2p.status == "unavailable")' >/dev/null 2>&1; then
+              health_ok=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$health_ok" != true ]; then
+            printf '%s\n' "$response"
+            timeout -k 30 60 docker logs "$image_check_name" 2>&1 | sed -E 's/(Operator token[^:]*: ).*/\1[REDACTED]/'
+            exit 1
+          fi
+          wait_overlay() {
+            overlay_name="$1"
+            overlay_wait="$2"
+            overlay_deadline=$((SECONDS + overlay_wait))
+            while [[ "$SECONDS" -lt "$overlay_deadline" ]]; do
+              response=$(curl -q -LSsf --max-time 2 -H 'Accept: application/json' http://127.0.0.1:18080/server/healthz 2>/dev/null || true)
+              overlay_status="$(printf '%s' "$response" | jq -r ".features.$overlay_name.status // empty")"
+              [ "$overlay_status" = healthy ] && break
+              [ "$overlay_status" = unavailable ] && break
+              sleep 2
+            done
+            if [ "$overlay_status" = healthy ]; then
+              overlay_hostname="$(printf '%s' "$response" | jq -r ".features.$overlay_name.hostname // empty")"
+              overlay_check="$(printf '%s' "$response" | jq -r ".checks.$overlay_name // empty")"
+              if [ "$overlay_check" != ok ]; then echo "$overlay_name health check is not ok" >&2; exit 1; fi
+              if [ "$overlay_name" = tor ]; then
+                [[ "$overlay_hostname" =~ ^[a-z2-7]{56}\.onion$ ]] || { echo "invalid Tor hostname"; exit 1; }
+              else
+                [[ "$overlay_hostname" =~ ^[a-z2-7]{52}\.b32\.i2p$ ]] || { echo "invalid I2P hostname"; exit 1; }
+              fi
+              echo "$overlay_name healthy: $overlay_hostname"
+            elif [ "$overlay_status" != starting ] && [ "$overlay_status" != unavailable ]; then
+              echo "$overlay_name entered unexpected status: $overlay_status" >&2
+              exit 1
+            elif [ "$REQUIRE_OVERLAY" = 1 ]; then
+              echo "$overlay_name did not become healthy within ${overlay_wait}s" >&2
+              exit 1
+            else
+              echo "SKIP: no outbound network; $overlay_name bootstrap unavailable (network-dependent check)" >&2
+            fi
+          }
+          wait_overlay tor 300
+          wait_overlay i2p 600
+
+
   build-devel:
     runs-on: ubuntu-26.04
     if: (gitea.event_name == 'schedule' || gitea.event_name == 'workflow_dispatch' || gitea.event_name == 'push') && (gitea.ref == 'refs/heads/main')
@@ -222,3 +282,61 @@ jobs:
             manifest:org.opencontainers.image.documentation=${{ gitea.server_url }}/${{ gitea.repository }}
             manifest:org.opencontainers.image.licenses=MIT
 
+      - name: Verify devel image runtime contract
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:devel
+          REQUIRE_OVERLAY: '0'
+        run: |
+          timeout -k 30 3600 docker pull "$IMAGE"
+          timeout -k 30 3600 docker run --rm --no-healthcheck --name "shortner-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" --entrypoint sh "$IMAGE" -c 'for c in git bash curl tor i2pd tini; do command -v "$c" || exit 1; done; apk info -e tzdata >/dev/null && apk info -e ca-certificates >/dev/null'
+          image_check_name="shortner-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)"
+          timeout -k 30 3600 docker run -d --rm --name "$image_check_name" -p 18081:80 "$IMAGE"
+          trap 'timeout -k 30 60 docker rm -f "$image_check_name" >/dev/null 2>&1 || true' EXIT
+          health_ok=false
+          health_deadline=$((SECONDS + 60))
+          while [[ "$SECONDS" -lt "$health_deadline" ]]; do
+            response=$(curl -q -LSsf --max-time 2 -H 'Accept: application/json' http://127.0.0.1:18081/server/healthz 2>/dev/null || true)
+            if printf '%s' "$response" | jq -e '(.status == "healthy" or .status == "degraded") and .checks.database == "ok" and .features.tor.enabled == true and (.features.tor.status == "starting" or .features.tor.status == "healthy" or .features.tor.status == "unavailable") and .features.i2p.enabled == true and (.features.i2p.status == "starting" or .features.i2p.status == "healthy" or .features.i2p.status == "unavailable")' >/dev/null 2>&1; then
+              health_ok=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$health_ok" != true ]; then
+            printf '%s\n' "$response"
+            timeout -k 30 60 docker logs "$image_check_name" 2>&1 | sed -E 's/(Operator token[^:]*: ).*/\1[REDACTED]/'
+            exit 1
+          fi
+          wait_overlay() {
+            overlay_name="$1"
+            overlay_wait="$2"
+            overlay_deadline=$((SECONDS + overlay_wait))
+            while [[ "$SECONDS" -lt "$overlay_deadline" ]]; do
+              response=$(curl -q -LSsf --max-time 2 -H 'Accept: application/json' http://127.0.0.1:18081/server/healthz 2>/dev/null || true)
+              overlay_status="$(printf '%s' "$response" | jq -r ".features.$overlay_name.status // empty")"
+              [ "$overlay_status" = healthy ] && break
+              [ "$overlay_status" = unavailable ] && break
+              sleep 2
+            done
+            if [ "$overlay_status" = healthy ]; then
+              overlay_hostname="$(printf '%s' "$response" | jq -r ".features.$overlay_name.hostname // empty")"
+              overlay_check="$(printf '%s' "$response" | jq -r ".checks.$overlay_name // empty")"
+              if [ "$overlay_check" != ok ]; then echo "$overlay_name health check is not ok" >&2; exit 1; fi
+              if [ "$overlay_name" = tor ]; then
+                [[ "$overlay_hostname" =~ ^[a-z2-7]{56}\.onion$ ]] || { echo "invalid Tor hostname"; exit 1; }
+              else
+                [[ "$overlay_hostname" =~ ^[a-z2-7]{52}\.b32\.i2p$ ]] || { echo "invalid I2P hostname"; exit 1; }
+              fi
+              echo "$overlay_name healthy: $overlay_hostname"
+            elif [ "$overlay_status" != starting ] && [ "$overlay_status" != unavailable ]; then
+              echo "$overlay_name entered unexpected status: $overlay_status" >&2
+              exit 1
+            elif [ "$REQUIRE_OVERLAY" = 1 ]; then
+              echo "$overlay_name did not become healthy within ${overlay_wait}s" >&2
+              exit 1
+            else
+              echo "SKIP: no outbound network; $overlay_name bootstrap unavailable (network-dependent check)" >&2
+            fi
+          }
+          wait_overlay tor 300
+          wait_overlay i2p 600

@@ -118,9 +118,9 @@ func serviceParams(p paths.Paths) service.Params {
 		LogDir:       p.Logs,
 		BackupDir:    p.Backup,
 		PIDFile:      p.PIDFile,
-		// PART 23 "Service Installation Logic" step 2: a system service
-		// when root/admin, otherwise the user-level fallback.
-		UserLevel: !service.IsElevated(),
+		// PART 23 "Service Installation Logic" step 2: select the user
+		// manager only where the platform defines a user-service path.
+		UserLevel: !service.IsElevated() && service.UserServiceSupported(service.Detect()),
 	}
 }
 
@@ -158,8 +158,8 @@ func printServiceHelp(p paths.Paths) {
 }
 
 // serviceNeedsPrivilege reports whether the string is a real --service
-// command. Every one of them writes to system state and therefore needs
-// root/Administrator unless it is a user-level install (AI.md PART 5
+// command. System-service operations need root/Administrator; operations
+// routed to a supported user-service manager do not (AI.md PART 5
 // "Commands Requiring Escalation"); --help is handled before this point.
 func serviceNeedsPrivilege(command string) bool {
 	switch command {
@@ -217,6 +217,10 @@ func runService(binaryName string, p paths.Paths, command string) int {
 	if !serviceNeedsPrivilege(command) {
 		fmt.Fprintf(os.Stderr, "%s: unknown --service command %q (run '%s --service --help')\n", binaryName, command, binaryName)
 		return 1
+	}
+	if command == "--install" && !service.IsElevated() && !service.UserServiceSupported(service.Detect()) {
+		fmt.Fprintln(os.Stdout, cliTF("cli.no_user_service", map[string]string{"command": binaryName + " --daemon"}))
+		return 0
 	}
 
 	params := serviceParams(p)

@@ -227,7 +227,7 @@ func TestRunUpdateBranchInvalid(t *testing.T) {
 			if code != 1 {
 				t.Errorf("code = %d, want 1", code)
 			}
-			if !strings.Contains(stderr, "requires stable, beta, or daily") {
+			if !strings.Contains(stderr, "requires stable, beta, or devel") {
 				t.Errorf("stderr = %q, want the valid-branch message", stderr)
 			}
 		})
@@ -274,12 +274,12 @@ func TestRecordUpdateState(t *testing.T) {
 
 func TestPrintUpdateHelpUsesConfiguredBranch(t *testing.T) {
 	p := updatePaths(t)
-	if _, _, code := captureOutput(t, func() int { return runUpdateBranch("shortner", p, "daily") }); code != 0 {
+	if _, _, code := captureOutput(t, func() int { return runUpdateBranch("shortner", p, "devel") }); code != 0 {
 		t.Fatalf("runUpdateBranch code = %d, want 0", code)
 	}
 
 	out, _, _ := captureOutput(t, func() int { printUpdateHelp("shortner", p); return 0 })
-	if !strings.Contains(out, "Branch:   daily") {
+	if !strings.Contains(out, "Branch:   devel") {
 		t.Errorf("output = %q, want the configured branch", out)
 	}
 	if !strings.Contains(out, "Version:  "+version.String()) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/shirou/gopsutil/v3/disk"
 
 	"github.com/apimgr/shortner/src/applog"
+	"github.com/apimgr/shortner/src/backup"
 	"github.com/apimgr/shortner/src/blocklist"
 	"github.com/apimgr/shortner/src/certmgr"
 	"github.com/apimgr/shortner/src/config"
@@ -31,7 +33,11 @@ type Deps struct {
 	// Logs are rotated by log_rotation, per AI.md PART 18 "log_rotation" ->
 	// "Applies each log's rotate/keep/compress policy from server.logs".
 	Logs                    []*applog.Logger
+	AuditLog                *applog.AuditLogger
 	DiskPaths               []string
+	TempDir                 string
+	TempPrefix              string
+	MaintenanceCleanup      config.MaintenanceCleanup
 	DiskLowThresholdPercent float64
 	DiskLowRepeat           time.Duration
 	DiskLowEnabled          bool
@@ -64,8 +70,8 @@ type Deps struct {
 	// update_available/update_installed). Nil is safe — every Notifier
 	// method is inert on a nil receiver, which is exactly PART 17's
 	// "no SMTP = no email, ever" behaviour.
-	Notifier *notify.Notifier
-	Logger   *applog.Logger
+	Notifier        *notify.Notifier
+	Logger          *applog.Logger
 	MaintainSecrets func(context.Context) error
 	// Tor and I2P feed tor_health and i2p_health (AI.md PART 18, PART 31).
 	// Nil means that overlay network is not configured at all, in which
@@ -89,7 +95,7 @@ func BuiltinTasks(cfg config.Scheduler, deps Deps) []TaskDef {
 		{ID: "database_check", Name: "Database Connection Check", Run: databaseCheckTask(deps)},
 		{ID: "token_cleanup", Name: "Token Cleanup", Run: tokenCleanupTask(deps.DB, deps.Tokens)},
 		{ID: "security_cleanup", Name: "Security Report Cleanup", Run: securityCleanupTask(deps)},
-		{ID: "log_rotation", Name: "Log Rotation", Run: logRotationTask(deps.Logs)},
+		{ID: "log_rotation", Name: "Log Rotation", Run: logRotationTask(deps.Logs, deps.AuditLog)},
 		{ID: "disk_check", Name: "Disk Space Check", Run: diskCheckTask(deps)},
 		{ID: "healthcheck_self", Name: "Self Health Check", Run: healthcheckSelfTask(deps.DB)},
 		{ID: "ssl_renewal", Name: "SSL Certificate Renewal", Run: sslRenewalTask(deps)},
@@ -311,7 +317,7 @@ func tokenCleanupTask(sqlDB db.Handle, tokens config.Tokens) TaskFunc {
 
 // logRotationTask rotates every configured log file, per AI.md PART 18
 // "log_rotation".
-func logRotationTask(logs []*applog.Logger) TaskFunc {
+func logRotationTask(logs []*applog.Logger, audit ...interface{ RotateIfDue(time.Time) error }) TaskFunc {
 	return func(ctx context.Context) error {
 		var firstErr error
 		for _, l := range logs {
@@ -320,6 +326,13 @@ func logRotationTask(logs []*applog.Logger) TaskFunc {
 			}
 			if err := l.RotateIfDue(time.Now()); err != nil && firstErr == nil {
 				firstErr = err
+			}
+		}
+		for _, l := range audit {
+			if l != nil {
+				if err := l.RotateIfDue(time.Now()); err != nil && firstErr == nil {
+					firstErr = err
+				}
 			}
 		}
 		return firstErr
@@ -506,6 +519,11 @@ func diskCheckTask(deps Deps) TaskFunc {
 			seen[volume] = true
 			diskWarnings.Lock()
 			state := diskWarnings.volumes[volume]
+			if cleanupThreshold := deps.MaintenanceCleanup.DiskThreshold; cleanupThreshold > 0 && usage.UsedPercent >= float64(cleanupThreshold) {
+				if err := cleanupDiskSpace(ctx, deps, now); err != nil {
+					return fmt.Errorf("disk_check cleanup: %w", err)
+				}
+			}
 			if usage.UsedPercent >= threshold {
 				shouldWarn := !state.warned || now.Sub(state.last) >= repeat
 				if shouldWarn {
@@ -534,6 +552,83 @@ func diskCheckTask(deps Deps) TaskFunc {
 		}
 		return nil
 	}
+}
+
+func cleanupDiskSpace(ctx context.Context, deps Deps, now time.Time) error {
+	retentionDays := deps.MaintenanceCleanup.LogRetentionDays
+	if retentionDays <= 0 {
+		retentionDays = 7
+	}
+	for _, logger := range deps.Logs {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		if err := logger.PruneArchivesOlderThan(now, time.Duration(retentionDays)*24*time.Hour); err != nil {
+			return err
+		}
+	}
+	if deps.TempDir != "" {
+		if err := removeExpiredTempEntries(deps.TempDir, deps.TempPrefix, now.Add(-24*time.Hour)); err != nil {
+			return err
+		}
+	}
+	if deps.Backup.Dir != "" {
+		status, err := backup.Disk(deps.Backup.Dir)
+		if err != nil {
+			return err
+		}
+		deleted, err := backup.Apply(deps.Backup.Dir, deps.Backup.Prefix, deps.Backup.Policy(status))
+		if err != nil {
+			return err
+		}
+		if len(deleted) > 0 {
+			remaining, _ := backup.List(deps.Backup.Dir, deps.Backup.Prefix)
+			backup.AuditRetentionCleanup(deps.Backup.Audit, deleted, len(remaining), "disk-pressure cleanup applied configured retention policy")
+		}
+	}
+	return nil
+}
+
+func removeExpiredTempEntries(dir, prefix string, cutoff time.Time) error {
+	root, err := os.Lstat(dir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("stat temporary directory: %w", err)
+	}
+	if !root.IsDir() || root.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("temporary root is not a real directory")
+	}
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read temporary directory: %w", err)
+	}
+	for _, entry := range entries {
+		if prefix == "" || !strings.HasPrefix(entry.Name(), prefix) {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		info, err := os.Lstat(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("stat temporary entry: %w", err)
+		}
+		if info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("remove expired temporary entry: %w", err)
+		}
+	}
+	return nil
 }
 
 func volumeKey(path string) string {

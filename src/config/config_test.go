@@ -28,6 +28,9 @@ func TestDefault(t *testing.T) {
 	if cfg.Server.Database.URL != "/tmp/db" {
 		t.Errorf("Database.URL = %q, want /tmp/db", cfg.Server.Database.URL)
 	}
+	if cfg.Server.Maintenance.SelfHealing.RetryInterval != "30s" || cfg.Server.Maintenance.SelfHealing.MaxAttempts != 0 || cfg.Server.Maintenance.Cleanup.DiskThreshold != 90 || cfg.Server.Maintenance.Cleanup.LogRetentionDays != 7 || !cfg.Server.Maintenance.Notify.OnEnter || !cfg.Server.Maintenance.Notify.OnExit {
+		t.Errorf("Maintenance = %+v, want AI.md maintenance defaults", cfg.Server.Maintenance)
+	}
 	if cfg.Server.Token != "" {
 		t.Errorf("Token = %q, want empty", cfg.Server.Token)
 	}
@@ -47,6 +50,16 @@ func TestValidateTLSSettings(t *testing.T) {
 	warnings := Validate(cfg)
 	if len(warnings) == 0 || cfg.Server.TLS.MinVersion != "TLS1.2" || cfg.Server.TLS.Cert != "" || cfg.Server.TLS.Key != "" {
 		t.Fatalf("Validate TLS = warnings %v, TLS %+v", warnings, cfg.Server.TLS)
+	}
+}
+
+func TestDatabaseCacheDefaultsDisabled(t *testing.T) {
+	cfg := Default("server.db")
+	if cfg.Server.Database.Cache.Enabled {
+		t.Fatal("database cache must be disabled by default")
+	}
+	if cfg.Server.Database.Cache.SyncInterval != "30s" || !cfg.Server.Database.Cache.OfflineMode || cfg.Server.Database.Cache.MaxAge != "1h" {
+		t.Fatalf("cache defaults = %#v", cfg.Server.Database.Cache)
 	}
 }
 
@@ -156,6 +169,23 @@ func TestLoadParsesExistingFile(t *testing.T) {
 	}
 	if cfg.Server.Database.Driver != "libsql" {
 		t.Errorf("Driver = %q, want libsql", cfg.Server.Database.Driver)
+	}
+}
+
+func TestLoadAllowsDisablingDatabaseCacheOfflineMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.yml")
+	content := "server:\n  database:\n    cache:\n      offline_mode: false\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path, "/unused")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Server.Database.Cache.OfflineMode {
+		t.Fatal("explicit offline_mode: false was replaced by the default")
 	}
 }
 
@@ -1096,5 +1126,18 @@ func TestIsFalsy(t *testing.T) {
 				t.Errorf("IsFalsy(%q) = %v, want %v", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDefaultPrivacyDisclosureMatchesSpec(t *testing.T) {
+	privacy := Default("").Server.Privacy
+	if !privacy.Data.StoredOnServer {
+		t.Fatal("stored_on_server default = false, want true")
+	}
+	if len(privacy.Data.Sharing) != 3 {
+		t.Fatalf("sharing defaults = %d entries, want analytics, email, user_initiated", len(privacy.Data.Sharing))
+	}
+	if !privacy.Retention.ExportAvailable || !privacy.Retention.DeletionAvailable {
+		t.Fatal("privacy export and deletion availability must default to true")
 	}
 }

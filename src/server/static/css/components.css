@@ -31,6 +31,14 @@
   color: var(--color-fg-muted);
 }
 
+.consent-required-notice {
+  margin: var(--space-4) auto;
+  max-width: 72rem;
+  padding: var(--space-3) var(--space-4);
+  border-inline-start: 0.25rem solid var(--color-primary);
+  background: var(--color-surface);
+}
+
 .section-card {
   margin-block: var(--space-4);
   padding: var(--space-4);

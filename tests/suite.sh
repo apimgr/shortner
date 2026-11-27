@@ -161,11 +161,11 @@ __stop_server() {
   server_pid=""
 }
 
-# Raises rate limits and disables abuse detection in yaml.d/security.yml, then
-# enables GDPR/privacy settings in yaml.d/privacy.yml for deterministic
-# functional checks. These domains live outside server.yml.
+# Raises rate limits and disables abuse detection in yaml.d/security.yml,
+# enables GDPR/privacy settings, and opts into overlay address exposure for
+# deterministic health checks. These settings live in yaml.d, not server.yml.
 __relax_config() {
-  local tmp config_dir security_file privacy_file
+  local tmp config_dir security_file privacy_file overlay_file
   config_dir="$(dirname "$config_file")"
   security_file="$config_dir/yaml.d/security.yml"
   privacy_file="$config_dir/yaml.d/privacy.yml"
@@ -216,6 +216,15 @@ __relax_config() {
     { print }
     END { if (!found) exit 1 }
   ' "$privacy_file" >"$tmp" && mv "$tmp" "$privacy_file"
+
+  overlay_file="$config_dir/yaml.d/99-test-overlays.yml"
+  cat >"$overlay_file" <<'EOF'
+server:
+  tor:
+    expose: true
+  i2p:
+    expose: true
+EOF
 
   tmp="$root/.privacy.yml.sold"
   awk '

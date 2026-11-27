@@ -4,15 +4,14 @@
 <section class="section-card" id="getting-started" aria-labelledby="help-start-title">
 <h2 id="help-start-title">{{t $lang "help.getting_started"}}</h2>
 <p>{{t $lang "help.getting_started_intro"}}</p>
-<pre><code>curl -X POST {{.Base.SiteName}}/api/v1/links \
+<pre><code>curl -X POST {{.APIBaseURL}}/links \
   -H "Content-Type: application/json" \
   -d '{"url":"https://example.com/very/long/path"}'</code></pre>
 <p>{{t $lang "help.response"}}</p>
 <pre><code>{
   "short_code": "aZ3kQ1",
-  "short_url": "https://example.com/aZ3kQ1",
+  "short_url": "{{.SiteOrigin}}/aZ3kQ1",
   "destination_url": "https://example.com/very/long/path",
-  "owner_token": "own_...",
   "created_at": "2026-08-07T00:00:00Z"
 }</code></pre>
 <p>{{t $lang "help.owner_token_note"}}</p>
@@ -23,23 +22,34 @@
 
 <h3>{{t $lang "help.custom_slugs"}}</h3>
 <p>{{t $lang "help.custom_slugs_intro"}}</p>
-<pre><code>curl -X POST {{.Base.SiteName}}/api/v1/links \
+<pre><code>curl -X POST {{.APIBaseURL}}/links \
   -H "Content-Type: application/json" \
   -d '{"url":"https://example.com","slug":"my-link"}'</code></pre>
 <p>{{t $lang "help.slug_rules"}}</p>
 
 <h3>{{t $lang "help.managing"}}</h3>
 <p>{{t $lang "help.managing_intro"}}</p>
-<pre><code>curl -X PATCH {{.Base.SiteName}}/api/v1/links/my-link \
-  -H "Authorization: Bearer own_..." \
+<pre><code>read -r -s -p "Owner token: " OWNER_TOKEN
+printf '\n'
+curl -X PATCH {{.APIBaseURL}}/links/my-link \
+  -H "Authorization: Bearer $OWNER_TOKEN" \
   -d '{"destination_url":"https://example.com/new-path"}'
 
-curl -X DELETE {{.Base.SiteName}}/api/v1/links/my-link \
-  -H "Authorization: Bearer own_..."</code></pre>
+curl -X PATCH {{.APIBaseURL}}/links/my-link \
+  -H "Authorization: Bearer $OWNER_TOKEN" \
+  -d '{"expires_at":"2030-01-01T00:00:00Z"}'
+
+curl -X PATCH {{.APIBaseURL}}/links/my-link \
+  -H "Authorization: Bearer $OWNER_TOKEN" \
+  -d '{"expires_at":null}'
+
+curl -X DELETE {{.APIBaseURL}}/links/my-link \
+  -H "Authorization: Bearer $OWNER_TOKEN"</code></pre>
+<p>{{t $lang "about.feature_management_desc"}}</p>
 
 <h3>{{t $lang "help.click_analytics"}}</h3>
 <p>{{t $lang "help.analytics_intro"}}</p>
-<pre><code>curl {{.Base.SiteName}}/my-link/stats -H "Accept: application/json"</code></pre>
+<pre><code>curl {{.SiteOrigin}}/my-link/stats -H "Accept: application/json"</code></pre>
 <p>{{t $lang "help.analytics_note"}}</p>
 </section>
 

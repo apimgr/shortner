@@ -58,7 +58,7 @@ func TestAuditEvents(t *testing.T) {
 		if entry.Event != want || entry.Category != auditCategory {
 			t.Errorf("entry %d = (%q, %q), want (%q, %q)", index, entry.Event, entry.Category, want, auditCategory)
 		}
-		if entry.Actor.IP != "127.0.0.1" || entry.Actor.UserID != "operator" {
+		if entry.Actor.Type != "operator" || entry.Actor.IP != "local" {
 			t.Errorf("entry %d actor = %+v, want local operator", index, entry.Actor)
 		}
 	}

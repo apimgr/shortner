@@ -14,6 +14,32 @@ import (
 	"github.com/apimgr/shortner/src/db"
 )
 
+type offlineTestHandle struct{ db.Handle }
+
+func (offlineTestHandle) Offline() bool { return true }
+
+func TestSchedulerStartsAndRegistersDuringDatabaseMaintenance(t *testing.T) {
+	sched, err := New(offlineTestHandle{}, nil, "UTC", "1h")
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if err := sched.Register(context.Background(), TaskDef{
+		ID: "maintenance_test", Name: "Maintenance test", Schedule: "0 * * * *", Enabled: true,
+		Run: func(context.Context) error { return nil },
+	}); err != nil {
+		t.Fatalf("Register() while offline error = %v", err)
+	}
+	if err := sched.Start(context.Background()); err != nil {
+		t.Fatalf("Start() while offline error = %v", err)
+	}
+	if !sched.Healthy() {
+		t.Fatal("scheduler is not healthy while registered in memory during maintenance")
+	}
+	if err := sched.Stop(); err != nil {
+		t.Fatalf("Stop() while offline error = %v", err)
+	}
+}
+
 func openTestDB(t *testing.T) *db.Store {
 	t.Helper()
 	_, source, _, ok := runtime.Caller(0)

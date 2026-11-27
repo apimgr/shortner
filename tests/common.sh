@@ -125,7 +125,7 @@ __build_binaries() {
   fi
 
   printf 'Building %s %s in %s...\n' "$project_name" "$version" "$go_image"
-  docker run --rm --no-healthcheck \
+  __docker run --rm --no-healthcheck \
     --name "$project_name-$(__random_suffix)" \
     --memory="${DOCKER_MEM:-4g}" --cpus="${DOCKER_CPUS:-2}" \
     -v "$project_dir:/app" \
@@ -142,4 +142,9 @@ __build_binaries() {
 # Reports whether a command exists on the host.
 __have_cmd() {
   command -v -- "$1" >/dev/null 2>&1
+}
+
+# Bounds Docker operations and forwards termination to the container.
+__docker() {
+  timeout -k 30 "${DOCKER_TIMEOUT:-3600}" docker "$@"
 }

@@ -23,6 +23,9 @@ type windowsManager struct {
 
 // newWindowsManager builds the SCM-backed manager.
 func newWindowsManager(p Params) (Manager, error) {
+	if p.UserLevel {
+		return &taskSchedulerManager{p: p}, nil
+	}
 	return &windowsManager{p: p}, nil
 }
 

@@ -6,6 +6,7 @@
 <a href="#main-content" class="skip-link">{{t .Base.Lang "a11y.skip_to_content"}}</a>
 <a href="#navigation" class="skip-link">{{t .Base.Lang "a11y.skip_to_navigation"}}</a>
 {{template "cookie-consent" .}}
+{{if .Base.ConsentRequired}}<div class="consent-required-notice" role="alert">{{t .Base.Lang "preferences.consent_required_message"}} <a href="/server/preferences#preferences-privacy">{{t .Base.Lang "privacy.preference_cookies"}}</a></div>{{end}}
 {{template "announcements" .}}
 {{template "pwa" .}}
 <p id="offline-indicator" class="offline-indicator" aria-live="polite" hidden>{{t .Base.Lang "pwa.offline"}}</p>
