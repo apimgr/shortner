@@ -235,13 +235,12 @@ the host).
 
 | Target | Description |
 |--------|-------------|
-| `make dev` | run in development mode with hot config |
-| `make local` | build a binary for the local OS/arch |
-| `make build` | build binaries for all 8 target platforms |
-| `make test` | check version precedence and run the test suite with coverage gate |
-| `make release` | build and package a release |
-| `make beta` | publish a timestamped beta tag from a clean `main` branch |
-| `make docker` | build the Docker image |
+| `make build` | build debug binaries for all 8 target platforms |
+| `make test` | run lint, vulnerability, coverage, and basic binary checks |
+| `make release` | build production binaries, source archive, and checksums without publishing |
+| `make docker` | build the host-platform Docker image locally without pushing |
+| `make clean` | remove build artifacts |
+| `make help` | list the supported targets |
 
 ```bash
 make test

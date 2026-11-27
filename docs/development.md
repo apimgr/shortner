@@ -55,7 +55,7 @@ Key packages under `src/`:
 ```bash
 git clone https://github.com/apimgr/shortner
 cd shortner
-make local
+make build
 ```
 
 All build and test `make` targets run inside `casjaysdev/go:latest` with
@@ -63,14 +63,12 @@ All build and test `make` targets run inside `casjaysdev/go:latest` with
 
 | Target | Description |
 |--------|-------------|
-| `make dev` | Quick build to a temporary directory for iteration |
-| `make local` | Build a binary for the local OS/arch into `binaries/` |
-| `make build` | Build all 8 target platforms into `binaries/` |
-| `make test` | Check version precedence, then run the Go test suite with the 60% coverage gate |
-| `make release` | Build and package stable release artifacts into `releases/` |
-| `make beta` | Push a timestamped `YYYYMMDDHHMMSS-beta` tag from a clean `main` branch |
-| `make docker` | Build the container image from `docker/Dockerfile` |
+| `make build` | Build debug binaries for all 8 target platforms into `binaries/` |
+| `make test` | Run lint and vulnerability checks, Go tests with the 60% coverage gate, then `tests/run_tests.sh` |
+| `make release` | Build production binaries, source archive, and checksums in `releases/`; it does not tag or publish |
+| `make docker` | Build the host-platform container image locally without pushing |
 | `make clean` | Remove `binaries/` and `releases/` |
+| `make help` | List the supported targets (also the default target) |
 
 Target platforms are `linux`, `darwin`, `windows`, and `freebsd`, each on
 `amd64` and `arm64` — eight binaries, all statically linked with no CGO.
@@ -146,9 +144,11 @@ Remove only the printed `TEMP_DIR` after stopping the server.
 make test
 ```
 
-This runs `go test -v -cover ./...` inside the toolchain container and
-**fails the build if total coverage drops below 60%**. Coverage profiles
-are written to a temporary directory, never into the project tree.
+This runs `go vet`, `staticcheck`, `govulncheck`, ShellCheck and `shfmt`,
+then `go test -v -cover ./...` inside the toolchain container. It fails if
+total coverage drops below 60%, then runs `tests/run_tests.sh` for the basic
+binary checks. Coverage files use a project-scoped temporary directory and
+are removed when the command exits.
 
 The shell entry points in `tests/` layer integration testing on top:
 
@@ -211,8 +211,8 @@ container image publishing. Third-party CI images and GitHub Actions are
 pinned to immutable digests or full commit SHAs; the maintained
 `casjaysdev/go:latest` toolchain image is the documented exception.
 
-The beta workflow is started by a timestamped `YYYYMMDDHHMMSS-beta` tag. The
-`make beta` target creates and pushes that tag from a clean `main` branch.
+The beta workflow starts when a timestamped `YYYYMMDDHHMMSS-beta` tag is pushed.
+There is no Makefile target that creates or publishes release tags.
 
 ## Code Style
 
