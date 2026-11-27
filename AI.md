@@ -11135,7 +11135,7 @@ func RemovePIDFile(pidPath string) error {
 |-----------|-------------------|
 | Invalid or missing setting | Replace it with the default and warn once ("Invalid → default") |
 | The database cannot be opened, created or checked at startup | Log ONE error, mark the `database` check `error` and start in the `maintenance` status with the listener and the health endpoint up; self-healing retries the connection (PART 5) and the server leaves `maintenance` when it succeeds |
-| A schema migration step that cannot proceed | Log ONE error naming the table and statement, mark the database check `error` and start in the `maintenance` status; the migration is retried at the next start |
+| A schema migration step that cannot proceed | Log ONE error naming the table and statement, mark the database check `error` and start in the `maintenance` status; the migration is retried by self-healing in this process (PART 5) and again at every start |
 | A dataset, blocklist, GeoIP, CVE or certificate download that fails | Log one warning, keep the previous copy or run without it, report its check as `degraded` or `error` and retry by its scheduler task; never `unhealthy` unless it was registered `critical` |
 | An upstream (a search engine, a mail relay, a remote API) that fails | Per-upstream `degraded` or `error`; the feature that depends on it answers with a clear message, the rest keeps working |
 | Tor, I2P or any overlay | `unavailable` in health and one warning; never blocks, restarts or fails the server |
@@ -12088,13 +12088,13 @@ The app automatically watches config files and hot-reloads what it can. Settings
 
 | Setting Category | Examples |
 |------------------|----------|
-| Rate limits | `rate_limit.*` |
-| CORS settings | `cors.*` |
-| Branding/SEO | `branding.*`, `seo.*` |
-| Logging level | `logging.level` |
-| Notification settings | `notifications.*`, `smtp.*` |
-| Security headers | `security.headers.*` |
-| Allowed origins | `cors.allowed_origins` |
+| Rate limits | `server.rate_limit.*` |
+| CORS settings | `server.cors.*` |
+| Branding/SEO | `server.branding.*`, `server.seo.*` |
+| Logging level | `server.logs.level` |
+| Notification settings | `server.notifications.*` (including its `email.smtp.*`) |
+| Security headers | `server.security.headers.*` |
+| Allowed origins | `server.cors.allowed_origins` |
 
 **Requires Graceful Reload (no downtime):**
 
@@ -16394,6 +16394,8 @@ server:
       # none, N, Nd, Nw, Nm
       keep: none
       compress: false
+      # system mode only: an EXISTING group that may read audit.log (the server never creates groups); empty = no group; ignored in user mode
+      group: ""
 
       # What to log (event categories)
       events:
@@ -16484,10 +16486,10 @@ server:
 ```
 audit.log: 0640 (rw-r-----)
 Owner: application user
-Group: audit group (if configured)
+Group: `server.logs.audit.group` (system mode only; empty by default)
 ```
 
-Group read only works when the group can traverse the log directory: in system mode with an audit group configured, `{log_dir}` is `0750` with that same group; in user mode no audit group is configured, so the directory stays `0700` and `audit.log` `0600`.
+Group read only works when the group can traverse the log directory: in system mode with `server.logs.audit.group` set to an existing group (an unknown name logs one warning and is treated as empty), `{log_dir}` is `0750` with that same group; in user mode no audit group is configured, so the directory stays `0700` and `audit.log` `0600`.
 
 ## Audit Log Retention
 
@@ -16500,9 +16502,9 @@ Group read only works when the group can traverse the log directory: in system m
 | `keep: forever` | Keep forever (no automatic deletion) |
 
 **Rotation Schedule:**
-- Daily rotation at midnight UTC
+- Triggers are evaluated in UTC: `daily` at 00:00, `weekly` at 00:00 on Monday, `monthly` at 00:00 on the 1st, `yearly` at 00:00 on January 1, and a size trigger (`NMB`, `NGB`) as soon as the file reaches that size; with a combination the first trigger reached rotates
 - If `keep: none`: Old log deleted immediately after rotation (its last hash lives on in `audit.anchor`, so the chain stays verifiable)
-- If `keep: Nd`: Rotated files are named `audit.log.2025-01-15` (and `audit.log.2025-01-15.gz` when `compress: true`), deleted after N days
+- If `keep: Nd`: Rotated files are named `audit.log.2025-01-15` (the UTC date of the rotation; a file that rotates more than once on the same UTC date gets a numeric suffix, `audit.log.2025-01-15.1`, `.2`, and so on, so an archive is never overwritten; `.gz` is appended when `compress: true`), deleted after N days
 - Current day's log always available until next rotation
 
 ## Compliance Standards
@@ -19129,12 +19131,14 @@ type StatsInfo struct {
     "tor": {
       "enabled": true,
       "running": true,
+      "state": "running",
       "status": "healthy",
       "hostname": "abc123xyz456abcdef789xyz456abcdef789xyz456abcdef789xyz.onion"
     },
     "i2p": {
       "enabled": false,
       "running": false,
+      "state": "disabled",
       "status": "disabled",
       "hostname": "",
       "provider": "none"
@@ -19541,7 +19545,7 @@ Plain text, no color. The first line is always `{project_name} {project_version}
 | API Type | Frontend Required | Example |
 |----------|-------------------|---------|
 | **Project-specific features** | Yes | `/api/{api_version}/items` → `/items` page |
-| **Admin features** | No (config file only) | Server administration is file-only — no web routes |
+| **Admin features** | No (an API project has no browser credential) | Server administration is file-only — no web routes |
 | **System-only (machine) endpoints** | No (API-only, marked "machine-only" in its route row) | `/api/{api_version}/server/auth/check`, the MCP endpoint, `/api/autodiscover` |
 | **Health/status** | Yes | `/server/healthz` has HTML frontend (with emojis), `/api/{api_version}/server/healthz` is JSON, `/api/healthz` is direct alias JSON |
 
@@ -22058,7 +22062,7 @@ formatURL(host, 8443, true)
 ├───────────────────────────────────────────────────────────┤
 │  🔧 Running in mode: development                          │
 ├───────────────────────────────────────────────────────────┤
-│  🌐 HTTP:  {proto}://{address}:{port}                     │
+│  🌐 HTTP:  {proto}://{fqdn}:{port}                        │
 ├───────────────────────────────────────────────────────────┤
 │  📡 Listening on {proto}://{fqdn}:{port}                  │
 │  ✅ Server started on {startup_datetime}                  │
@@ -22072,7 +22076,7 @@ formatURL(host, 8443, true)
 ├───────────────────────────────────────────────────────────┤
 │  🔧 Running in mode: development                          │
 ├───────────────────────────────────────────────────────────┤
-│  🌍 IPv6:  {proto}://[{address}]:{port}                   │
+│  🌍 IPv6:  {proto}://[{fqdn}]:{port}                      │
 ├───────────────────────────────────────────────────────────┤
 │  📡 Listening on {proto}://[{fqdn}]:{port}                │
 │  ✅ Server started on {startup_datetime}                  │
@@ -22110,7 +22114,7 @@ formatURL(host, 8443, true)
 ├───────────────────────────────────────────────────────────┤
 │  🔧 Running in mode: {app_mode}                           │
 ├───────────────────────────────────────────────────────────┤
-│  🌐 HTTP:  {proto}://{address}:{port}                     │
+│  🌐 HTTP:  {proto}://{fqdn}:{port}                        │
 ├───────────────────────────────────────────────────────────┤
 │  📡 Listening on {proto}://{fqdn}:{port}                  │
 │  ✅ Server started on {startup_datetime}                  │
@@ -22119,6 +22123,8 @@ formatURL(host, 8443, true)
 ```
 
 **The "Listening on" line always shows the resolved `{fqdn}`, in every mode.** Development mode is not an exception, and `{address}` (the raw bind address) is never shown in the banner, only in logs. When `{fqdn}` is an IPv6 literal it is written in brackets (`[{fqdn}]`).
+
+**First-run token line.** When this start generated `server.token`, the one-time disclosure of PART 11 follows the banner in every size variant and in plain mode: one full line `Admin token (shown once): adm_...` printed outside the box, never wrapped, truncated or boxed (it is the only line allowed to exceed the width of the micro and minimal banners). The first-run examples above show the banner only.
 
 **Note:** On first run, a default `server.yml` is written to `{config_dir}/server.yml`. Edit it before or after starting the server.
 
@@ -22140,8 +22146,8 @@ formatURL(host, 8443, true)
 ```
 🚀 {PROJECT_NAME} v{project_version}
 🔧 Mode: {app_mode}
-🌐 {proto}://{address}:{port}
-📡 Listening: {proto}://{address}:{port}
+🌐 {proto}://{fqdn}:{port}
+📡 Listening: {proto}://{fqdn}:{port}
 ✅ Started: {startup_datetime}
 ```
 
@@ -22156,7 +22162,7 @@ formatURL(host, 8443, true)
 ```
 {PROJECT_NAME} {project_version}
 {app_mode}
-{address}:{port}
+{fqdn}:{port}
 ```
 
 **<40 cols (Micro - single line):**
@@ -22181,8 +22187,8 @@ Started: {startup_datetime}
 ```
 {PROJECT_NAME} v{project_version}
 Mode: {app_mode}
-URL: {proto}://{address}:{port}
-Listening: {proto}://{address}:{port}
+URL: {proto}://{fqdn}:{port}
+Listening: {proto}://{fqdn}:{port}
 Started: {startup_datetime}
 ```
 
@@ -31351,7 +31357,7 @@ GeoIP databases are NEVER embedded in the binary — they are downloaded on firs
 
 ## GeoIP Is a Risk Signal — Never the Sole Access Gate (NON-NEGOTIABLE)
 
-**GeoIP MUST be treated as one risk signal among many — never as the sole access-control gate.** GeoIP is a deny-only layer: it can reject a request but never grant access. A request from an allowed, unknown or unlooked-up country MUST still pass through every other layer of the security pipeline (authentication, authorization, input validation, audit logging) and MUST NOT skip any check on the assumption that "the country is trusted". A request from a blocked country is rejected with `403` at the GeoIP step after the blocklist and the rate limiter, so it consumes rate-limit budget and is logged with its source IP; authentication is not evaluated for it because it is already denied.
+**GeoIP MUST be treated as one risk signal among many — never as the sole access-control gate.** GeoIP is a deny-only layer: it can reject a request but never grant access. A request from an allowed, unknown or unlooked-up country MUST still pass through every other layer of the security pipeline (authentication, authorization, input validation, audit logging) and MUST NOT skip any check on the assumption that "the country is trusted". A request from a blocked country is rejected with `403` at the GeoIP step after the blocklist and the rate limiter, so (unless its IP is allowlisted, which skips positions 6–8) it consumes rate-limit budget and is logged with its source IP; authentication is not evaluated for it because it is already denied.
 
 | Rule | Detail |
 |------|--------|
@@ -41190,6 +41196,7 @@ Config files are NEVER in the repository. They are generated at RUNTIME:
 | **NEVER** | Use project directory for test/runtime data |
 | **NEVER** | Hardcode `/tmp` - use `os.TempDir()` or `mktemp` |
 | **NEVER** | Use bare `mktemp -d` without org prefix |
+| **ALWAYS** | Let `mktemp` fill the six trailing `X` of `{internal_name}-XXXXXX` itself; the 8-character `/dev/urandom` suffix is for container, instance and VM names (`--name`), never for directories |
 | **ALWAYS** | Use `{project_org}/{internal_name}-` structure for all temp dirs |
 | **ALWAYS** | Detect org from git remote or directory path |
 
@@ -41731,7 +41738,7 @@ test:
 
 ### How to Achieve 60% Coverage
 
-**0. Keep the process entry thin and testable.** The unit gate counts every package, the root `src` package included, so orchestration left in `main()` drags the percentage down while only the compiled binary can reach it. `src/main.go` holds only `main()`: it calls `config.Load(os.Args[1:])` (flag parsing and configuration building live in `src/config`, which unit tests reach), copying the build metadata `Version`, `CommitID`, `BuildEpoch` and `OfficialSite` from `src/version.go` into the result, and then calls `app.Run(ctx, cfg) error`, where `cfg` is the `config.ServerConfig` value (the server configuration type of `src/config`, the naming rule's `ServerConfig`) and `app` is the package `github.com/{project_org}/{internal_name}/src/app`, which never imports `main`. `app.Run` (startup, signal handling, graceful shutdown) is in that package, which unit tests reach: the test calls `run` with a cancelable context and a listener on `127.0.0.1:0`, waits for the ready signal, makes one request, cancels the context and asserts a clean return. Phase 2 still tests the compiled binary; its coverage never counts toward the Phase 1 percentage.
+**0. Keep the process entry thin and testable.** The unit gate counts every package, the root `src` package included, so orchestration left in `main()` drags the percentage down while only the compiled binary can reach it. `src/main.go` holds only `main()`: it calls `config.Load(os.Args[1:])` (flag parsing and configuration building live in `src/config`, which unit tests reach), copying the build metadata `Version`, `CommitID`, `BuildEpoch` and `OfficialSite` from `src/version.go` into the result, and then calls `app.Run(ctx, cfg) error`, where `cfg` is the `config.ServerConfig` value, the aggregate runtime configuration built by `config.Load` (the naming rule's `ServerConfig`): it carries every section of the merged configuration (server, web, search, engine and the area-file settings of PART 5), so `app.Run` needs nothing else and `app` is the package `github.com/{project_org}/{internal_name}/src/app`, which never imports `main`. `app.Run` (startup, signal handling, graceful shutdown) is in that package, which unit tests reach: the test calls `run` with a cancelable context and a listener on `127.0.0.1:0`, waits for the ready signal, makes one request, cancels the context and asserts a clean return. Phase 2 still tests the compiled binary; its coverage never counts toward the Phase 1 percentage.
 
 **1. Test All Code Paths:**
 ```go
@@ -41887,7 +41894,7 @@ This strategy is the developer's explicit full-app check (`tests/incus.sh`, or `
 | Aspect | Incus (Preferred) | Docker (Fallback) |
 |--------|-------------------|-------------------|
 | **Use for** | Full OS/systemd testing | Container/app testing |
-| **Image** | `debian:latest` | `casjaysdev/go:latest` or `alpine:latest` |
+| **Image** | `debian/trixie` (`alpine/{latest_stable}` for OpenRC) | `casjaysdev/go:latest` or `alpine:latest` |
 | **Init system** | Full systemd | None (single process) |
 | **Best for** | Service install, integration | Quick tests, CI/CD |
 | **Startup** | ~5s | Fast (~1s) |
@@ -43002,7 +43009,7 @@ echo '=== All open API smoke tests passed ==='
 |---------|-------|-------------------|-----|
 | Building Go | `casjaysdev/go:latest` | `git`, `bash` | Latest Go, dependencies need git |
 | Container runtime | `alpine:latest` | `git`, `bash`, `curl`, `tini`, `tor` | Minimal, all runtime tools included |
-| Full OS runtime | `debian:latest` (Incus) | Full OS | Complete systemd, realistic environment |
+| Full OS runtime | `debian/trixie` (Incus) | Full OS | Complete systemd, realistic environment |
 
 ### Common Docker Commands
 
@@ -45216,7 +45223,7 @@ LANG=es_ES.UTF-8 {project_name}-cli --help
 
 | Topic | Rule |
 |-------|------|
-| **Who and how** | AI first, humans refine. A developer is usually fluent in one language (often English or their native one) and perhaps a second, so the AI assistant writes the translations in every supported language it is fluent in, and a human translator corrects them whenever they notice a problem. Anyone may also translate or fix a language by hand: open a pull request (or send the file to the maintainer) containing ONE locale file `{lang}.json`, plus the registry/config lines from "Adding New Languages" for a new language. Updating an existing language is the same: edit that language's file only |
+| **Who and how** | AI first, humans refine. A developer is usually fluent in one language (often English or their native one) and perhaps a second, so the AI assistant writes the translations in every supported language it is fluent in, and a human translator corrects them whenever they notice a problem. Anyone may also translate or fix a language by hand: open a pull request (or send the file to the maintainer) containing ONE locale file `{lang}.json`, plus the registry/config lines from "Adding New Languages" for a new language. Updating an existing language is the same: edit that language's file only (a translator who wants credit adds their name to that file's `meta.translators`; the maintainer updates the `docs/translating.md` credits and the README at merge) |
 | **File format** | UTF-8 JSON, same structure and key order as `en.json`, 2-space indent, no trailing commas, no comments. Keys are never translated or renamed; only values are |
 | **Placeholders** | `{count}`, `{total}`, `{datetime}` and every other `{name}` stays EXACTLY as in English (same name, same braces); only its position in the sentence may move. A value with a missing or renamed placeholder fails the build |
 | **Plurals** | Provide every CLDR plural category the language needs (`zero`, `one`, `two`, `few`, `many`, `other`; see "Plural Rules"). Translators check the category list for their language at the CLDR plural chart; a missing category fails the build |
@@ -48373,7 +48380,7 @@ userAgent := fmt.Sprintf("%s-cli/%s", projectName, version)
 
 ```yaml
 update:
-  # default false: the CLI prompts unless this is true AND the run is non-interactive AND --update yes was passed.
+  # default false: when true the CLI updates silently in a non-interactive run; an interactive run always prompts; --update yes updates without a prompt in any run.
   # The server's equivalent is server.update.auto_install (default false).
   auto: false
   # CLI is short-lived; checks once per command. No background poll.
@@ -48825,6 +48832,12 @@ func selectSetupMode() SetupMode {
 
 **One shared setup flow:** the GUI, TUI and inline-prompt wizards expose the same connection and persistence options (server URL, optional API token, Save to configuration, Set as default server). The GUI wizard adds exactly one extra, Start automatically on login (an OS autostart entry), which has no TUI or inline equivalent.
 
+**Persistence.** `Save to configuration` writes the server URL to `server.primary` and the token to `auth.token` of the `cli.yml` in use: the default one, or the file named by `--config {file}` for a named profile (the wizard never asks for a profile name; the profile is the file). `Set as default server` matters only when the wizard runs with `--config {file}`: it also writes the same two values to the default `cli.yml`, so a run without `--config` uses that server; without `--config` both options write the same file and the second changes nothing. With `Save to configuration` unchecked nothing is written and the values apply to this run only.
+
+**Inline wizard.** Wherever the detection above returns TUI, the wizard runs inline instead when the terminal cannot draw a full-screen UI (`TERM=dumb`, or fewer than 40 columns). It asks the same things as sequential prompts: server URL, API token (hidden input, an empty answer is allowed), `Save to configuration [Y/n]` and `Set as default server [y/N]`, then runs the same connection test and applies the same persistence rules. With no terminal on stdin or stdout (a script, cron, a pipe) no wizard runs: the CLI exits with a usage error (exit `2`) that names `server.primary` of `cli.yml` as the way to configure it.
+
+**Start automatically on login (GUI wizard only).** Supported platforms and entries, all per-user and needing no privileges: Linux `~/.config/autostart/{project_name}-cli.desktop` (XDG Autostart), macOS `~/Library/LaunchAgents/{project_org}.{project_name}-cli.plist`, Windows the value `{project_name}-cli` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. The entry launches the absolute path of the running binary with no arguments, so the normal display detection applies. The checkbox shows checked while the entry exists and unchecking it removes the entry; a failed write is one warning and leaves the option off; nothing is created without the checkbox. On any other platform the option is not shown.
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  {PROJECT_NAME} Setup                                    [X] │
@@ -48857,8 +48870,10 @@ func selectSetupMode() SetupMode {
 ║   No server configured. Let's set one up!                            ║
 ║                                                                      ║
 ║   Server URL: [https://                                    ]         ║
+║   API Token (optional): [                                ]           ║
 ║                                                                      ║
-║   [ ] Save to config (recommended)                                   ║
+║   [x] Save to configuration                                          ║
+║   [ ] Set as default server                                          ║
 ║                                                                      ║
 ║                        [Test Connection]                             ║
 ║                                                                      ║

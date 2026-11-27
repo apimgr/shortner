@@ -199,8 +199,13 @@ server:
     url: "{data_dir}/db/server.db"
 ```
 
-Valid drivers are `sqlite` (the default), `libsql`, and `none`. The driver
-is pure Go — there is no CGO and no system SQLite dependency.
+Supported drivers are `sqlite` (the default, stored at the configured local
+path) and `libsql` (a remote SQLite-compatible database). For libSQL, set
+`url` to a `libsql://`, `https://`, or private/loopback `http://` connection;
+keep its authentication token in `secrets.yml` as
+`server.database.token` or in the URL's `authToken` option. The remote schema
+uses the `srv_` prefix for server tables and indexes. Both drivers use pure Go;
+there is no CGO or system SQLite dependency.
 
 ### Limits and timeouts
 
