@@ -84,8 +84,12 @@ shortner --service {verb}
 | `--uninstall` | Remove everything, after an explicit confirmation |
 | `--help` | Service help |
 
-Verbs that require root escalate on their own rather than failing. The
-uninstall prompt is unconditional and runs before anything else:
+System-service actions that need elevation request it rather than failing.
+An unprivileged `--service --install` uses a per-user service where the
+platform supports one: `systemd --user`, a macOS LaunchAgent, or a Windows
+Task Scheduler logon task. On other platforms it prints the manual daemon
+start command and exits successfully. The uninstall prompt is unconditional
+and runs before anything else:
 
 ```
 This will delete ALL data, configs, and the system user. Continue? [y/N]:

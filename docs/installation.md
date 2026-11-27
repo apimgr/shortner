@@ -198,7 +198,13 @@ unit creates its required writable directories before applying the
 sudo shortner --service --install
 ```
 
-Supported init systems:
+An unprivileged install uses a user-level service when the platform provides
+one: `systemd --user`, a macOS LaunchAgent, or a Windows Task Scheduler task
+that starts at logon. On OpenRC, runit, s6, SysVinit, and BSD rc.d, a normal
+user receives manual `--daemon` guidance and no service files are changed.
+Use an elevated install for a system service on those platforms.
+
+Supported system init integrations:
 
 | Init system | Installed to |
 |-------------|--------------|
@@ -207,7 +213,7 @@ Supported init systems:
 | SysVinit | `/etc/init.d/shortner` |
 | runit | `/etc/sv/shortner/run` and `/etc/sv/shortner/log/run` |
 | rc.d (BSD) | `/etc/rc.d/shortner` |
-| launchd (macOS) | `/Library/LaunchDaemons/` or `~/Library/LaunchAgents/` |
+| launchd (macOS) | `/Library/LaunchDaemons/` |
 | Windows SCM | Registered as a service under a Virtual Service Account |
 
 SysVinit is selected only when neither `systemctl` nor `openrc-run` is
