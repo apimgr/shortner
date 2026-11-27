@@ -4687,6 +4687,8 @@ Content-Type: application/json
 | `Check()` | `CheckUserPermission()`, `CheckRateLimit()` | Check what? |
 | `Detect()` | `DetectDisplayEnv()`, `DetectOSPlatform()` | Detect what? |
 
+**Exception: names this specification requires verbatim.** `config.Load(os.Args[1:])` and `app.Run(ctx, cfg)` (PART 28) keep those names: the package qualifier supplies the intent (`config.Load` loads the process configuration, `app.Run` runs the process). `LoadCLIConfig()` in the client setup examples loads the CLI's `cli.yml` only and never replaces the server loader `config.Load`.
+
 **Boolean functions MUST indicate what condition they check:**
 
 | NEVER Use | Use Instead | Why |
@@ -7024,7 +7026,7 @@ Before proceeding, confirm you understand:
 | Backup | `%ProgramData%\Backups\{internal_org}\{internal_name}\` |
 | SSL | `%ProgramData%\{internal_org}\{internal_name}\ssl\` (letsencrypt\, local\) |
 | Security | `%ProgramData%\{internal_org}\{internal_name}\data\security\` (geoip\, blocklists\, cve\, trivy\) |
-| SQLite DB | `%ProgramData%\{internal_org}\{internal_name}\db\` (server.db) |
+| SQLite DB | `%ProgramData%\{internal_org}\{internal_name}\data\db\` (server.db) |
 | Service | Windows Service Manager |
 
 ### User (non-privileged)
@@ -8173,7 +8175,7 @@ Wherever this specification says a setting is set "in `server.yml`", it means th
 | **Early read** | The early config read (PART 8 startup, step 8e) never opens `secrets.yml`: it needs only `server.port`, `server.address`, `server.daemonize` and `server.pidfile`, plus each raw-protocol listener's `{proto}.enabled`, `{proto}.address` and `{proto}.port` |
 | **Permissions** | Always `0600` (PART 8 → "Directory Validation Rules": private paths); a wrong mode is fixed at start |
 | **Reload** | The file watcher watches it with `server.yml`, `yaml.d/` and `assets/`; a change re-merges everything and an invalid result keeps the last good config |
-| **Backup** | Included in every backup whenever it exists (PART 21 → "Backup Contents"), so a restore brings back the encryption key and every other secret. `server.token` is the one exception: it is left out of the backup copy (PART 11), and a restore keeps the target host's own token, or generates one (printed once) when it has none |
+| **Backup** | Included in every backup whenever it exists (PART 21 → "Backup Contents"), so a restore brings back the encryption key and every other secret. `server.token` is the one exception: it is blanked in the backup copy, the key stays with an empty value (PART 11), and a restore keeps the target host's own token, or generates one (printed once) when it has none |
 | **Never exposed** | Secret values are never logged, never printed by `--config` (shown as `********`), and never returned by any API response (PART 11) |
 ### Connection Strings (database and cache)
 
@@ -11302,7 +11304,7 @@ PHASE 5: Server startup (actual server start)
     ├─ Run CREATE TABLE IF NOT EXISTS for all tables
     ├─ Run schema migrations if needed
     ├─ Verify database integrity
-    └─ ANY failure above (connect, create, migrate, integrity): log ONE error, mark the `database` check `error`, enter `maintenance` and CONTINUE with the next steps so the listener starts and the health endpoint answers; work that needs the database (loading task state) waits until self-healing reconnects (PART 5); never exit ("Startup Never Fails")
+    └─ ANY failure above (connect, create, migrate, integrity): log ONE error, mark the `database` check `error`, enter `maintenance` and CONTINUE with the next steps so the listener starts and the health endpoint answers; work that needs the database (loading task state) waits until self-healing reconnects (PART 5), and self-healing also re-runs a migration that failed; never exit ("Startup Never Fails")
 
 16. Start scheduler (see PART 18 for full task list):
     ├─ Initialize background task scheduler
@@ -12453,6 +12455,8 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     kind          TEXT NOT NULL CHECK (kind IN ('primary', 'linked')),
     -- label for linked tokens ("ci", "laptop-cli"); NULL for primary
     name          TEXT,
+    -- 'read', 'read-write' or 'global' (see "Token scopes"): a primary token is always 'global', a linked token is 'read' or 'read-write'
+    scope         TEXT NOT NULL DEFAULT 'read-write' CHECK (scope IN ('read', 'read-write', 'global')),
     -- SHA-256 of raw token; used for lookup and validation
     token_hash    TEXT NOT NULL UNIQUE,
     -- First 12 chars for log identification (own_xxxxxxxx)
@@ -12504,6 +12508,8 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_active   ON api_tokens(revoked_at) WHE
 | **Operator (admin) token** `adm_` (`server.token`) | `secrets.yml` (auto-generated on first run) | Global — all resources, separate tier | Operator actions: delete any resource, enforce TOS, revoke tokens |
 | **Owner token (primary)** `own_` | Server-generated when an owner is issued: on a first resource creation or on request (New token) | Every resource the owner has created, now and later | Owner reads, edits, deletes their resources; manages their linked tokens on `/server/preferences/tokens` |
 | **Linked token** `own_` | Created by the owner on `/server/preferences/tokens` | The same owner's resources — identical to the primary, minus token management | Automation: CLI, CI, scripts, MCP clients — revocable one by one without touching the primary |
+
+**Token scopes.** Every `api_tokens` row stores its `scope`. `read` allows `GET`, `HEAD` and `OPTIONS` on the owner's resources; `read-write` adds `POST`, `PUT`, `PATCH` and `DELETE` on them; `global` adds token management (create, rotate, rename and revoke linked tokens, reveal) and the owner deletion of "Revoking a primary token". A primary token is always `global`; a linked token gets the scope chosen when it is created (`read` or `read-write`, default `read-write`) and is never `global`. `server.token` is implicitly `global` and is not stored. A token below the needed scope gets `403` with `WWW-Authenticate: Bearer error="insufficient_scope"`. An upgrade adds the column and then runs `UPDATE api_tokens SET scope = 'global' WHERE kind = 'primary'`.
 
 Clients send any of them as (the prefix tells which kind):
 ```
@@ -12607,7 +12613,7 @@ The server creates the owner and its primary token (hash + encrypted copy), stor
 | **New token** | Shown only without an owner cookie: issues a new owner and its primary token on request (see "Owners and Owner Tokens") |
 | **Use an existing token** | Restore an identity on a new browser/device by pasting the primary token (see "Owners and Owner Tokens") |
 | **Linked tokens** (list) | Name, masked token, created, last used, expires, status (active / expired / revoked) |
-| **Create linked token** | Name (required, 1–64 chars, unique per owner) and expiry: `never` (default), `7d`, `30d`, `90d`, `1y`, or a chosen date (UTC, see "Expiry semantics"). Maximum `server.tokens.max_linked` (default `25`) active per owner. The new token is displayed and stays viewable |
+| **Create linked token** | Name (required, 1–64 chars, unique per owner), scope (`read` or `read-write`, default `read-write`) and expiry: `never` (default), `7d`, `30d`, `90d`, `1y`, or a chosen date (UTC, see "Expiry semantics"). Maximum `server.tokens.max_linked` (default `25`) active per owner. The new token is displayed and stays viewable |
 | **Per linked token** | Reveal, Copy, Rotate (in place, keeps name and expiry), Rename, Change expiry, Revoke (immediate, permanent) |
 | **Revoke primary** | Offered behind a typed confirmation: it DELETES the whole owner, meaning the primary, every linked token and every resource the owner has, including anything created with a linked token. It is a different action from **Rotate**: rotate swaps the token's value and keeps the owner, its linked tokens and its resources; revoke ends the owner and nothing of it remains (see "Revoking a primary token") |
 
@@ -14493,7 +14499,7 @@ SQLite allows ONE writer at a time. Without the rules below, concurrent requests
 | Batches | Cleanup, retention, audit purge and import work in batches of at most 500 rows per transaction, with a short yield between batches (the scheduler tasks of PART 19). `VACUUM` runs only from a maintenance task on the write handle, never inside a transaction and never during a request |
 | Hot counters | Rate-limit counters, request metrics, session `last_used` and other per-request bookkeeping are NOT written per request. They live in memory and one goroutine flushes them in a single transaction every 30 s and on shutdown. `last_used` (a token's `last_used_at`, and a session's where the template has sessions) is updated only when the stored value is older than 60 seconds and then reaches the database with the next flush, so a token or session is written at most once a minute |
 | Retry | `Write` retries a busy or locked error (`SQLITE_BUSY`, `SQLITE_LOCKED` and their extended codes) up to 5 times with exponential backoff (25 ms base, doubled each time) plus jitter, always inside the context deadline. A callback is never retried after its commit succeeded |
-| One process | Only the server process writes the file. A CLI or `--maintenance` command that runs while the server is up uses the same store helper (same pragmas, same busy timeout, short transactions). A second server instance is refused by the PID check; `--maintenance restore` requires the server to be stopped |
+| One process | Only the server process writes the file. A CLI or `--maintenance` command that runs while the server is up uses the same store helper (same pragmas, same busy timeout, short transactions). A second server instance is refused by the PID check; `--maintenance restore` requires the server to be stopped (the WebUI and API restore run the same flow inside the running server, see "Restore Behavior") |
 | Location | A local disk only, never NFS, SMB or a FUSE mount. The `-wal` and `-shm` files stay next to the database. In Docker the data volume is a local volume or bind mount |
 | Backups | The SQLite online backup API or `VACUUM INTO` through the write handle, never `cp` of a live file |
 | Shutdown | After in-flight requests drain: `PRAGMA wal_checkpoint(TRUNCATE)`, then close `readDB`, then `writeDB` |
@@ -18826,7 +18832,7 @@ type StatsInfo struct {
 | **Registry, not hand-coding** | Each data set registers itself once at load time: `health.Register(key, critical, fn)`. `buildHealthResponse()` iterates the registry — adding a data set MUST NOT require editing the health handler |
 | **Values** | `ok` = loaded, parsed, non-empty, and within its maximum age · `degraded` = loaded but stale (update failing, past its max age) or running on the last known good copy · `error` = missing, empty, or unparseable with no usable copy |
 | **Disabled features** | A data set whose feature is disabled is OMITTED from `checks` (never reported as `ok` or `error`) |
-| **Aggregation** | `error` on `database` or `disk` → `unhealthy`. A dataset check at `degraded` or `error` → `degraded`, unless it was registered `critical` (the app cannot do its core job without it; downloaded datasets such as GeoIP, blocklists and CVE data and third-party upstreams such as search engines are never critical, "Startup Never Fails") → `unhealthy` |
+| **Aggregation** | `error` on `database` or `disk` → `unhealthy`. A dataset check at `degraded` → `degraded`, whether or not it is `critical`. A dataset check at `error` → `degraded`, unless it was registered `critical` (the app cannot do its core job without it; downloaded datasets such as GeoIP, blocklists and CVE data and third-party upstreams such as search engines are never critical, "Startup Never Fails"), which makes the service `unhealthy` |
 | **Overlay networks** | A Tor or I2P check at `degraded` → overall `degraded`. It is never `critical` and never makes the overall status `unhealthy` (see "Overlay Network Health") |
 | **Stable keys** | `{kind}_{id}` is a stable snake_case identifier — NEVER a file path, URL, or filename (public-safe; see Security) |
 | **Order** | Core checks first (`database`, `cache`, `disk`, `scheduler`), then `tor`, `i2p`, then dataset checks in registration order. JSON emits keys in exactly this order (custom marshaller — never an unordered map) |
@@ -20543,7 +20549,7 @@ func renderNoJSHTML(w http.ResponseWriter, data interface{}) {
 | **Optional routes** | The embedded build-time spec is the full SUPERSET of routes, and every route that depends on a flag or a setting (the root aliases, optional well-known files, optional features) carries `x-mounted-when` naming its condition (for example the setting that enables the feature); INTERNAL routes (metrics, `/debug/*`, Tor control) are never in the OpenAPI document, embedded or served. At startup the server derives the SERVED spec from the embedded one by removing every operation whose condition is false for this run, so the spec a client reads always matches the routes that are actually mounted. The drift test compares the superset with the route table |
 | **JSON only** | OpenAPI spec uses JSON format only (NO YAML) |
 | **Source of truth** | AI.md defines the TEMPLATE routes and the `### API routes` inventory in IDEA.md defines EVERY project-defined route, including any native or compatibility API of the project; together they are the API CONTRACT: routes, methods, auth and shapes. AI.md never enumerates project routes. The code and its annotations implement that contract, and the specs are GENERATED from the code, so they are artifacts, never edited by hand. Drift is detected by a test with three legs: the generated OpenAPI route and method list, the router's registered routes, and the union of the AI.md template routes and the IDEA.md `### API routes` inventory. A route present in one leg and missing from another fails the build, naming the route and the missing place; a project whose IDEA.md has no `### API routes` subsection fails with that message instead of passing vacuously. A deliberate change is made in AI.md or IDEA.md first, then the code, then the specs are regenerated |
-| **Template route inventory** | The template leg of the drift test is read from the project's own `AI.md` at test time, deterministically: a template route is a row of a Markdown table whose header row has a path column (`Endpoint` or `Path`) and a method column (`Method` or `Methods`), in any order and with any other columns (rows are read by those headers, never by column position): the path cell is exactly one backticked path starting with `/` and the method cell lists one or more HTTP methods (`GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`) separated by `/` or `,` (each method of the path is its own route), and the method is always explicit (a row without one is not a route). A row whose method cell is `ALL` and whose path ends in `/*` declares a PREFIX, not routes (the admin panel and admin API rows): the drift test does not expand it, the concrete routes under the prefix are the rows of the tables that define them (each with explicit methods), and the test requires at least one registered route under the prefix and every registered route under it to be such a row; `ALL` is valid only on a prefix row. Route classes: a row whose path starts with `/api/`, or is a root alias of an API route (`/healthz`, `/mcp`), is an API route and is compared with all three legs; every other row (`/`, `/server/healthz`, the Swagger and GraphiQL pages, the admin pages, the preferences forms) is a PAGE route, compared only with the router's registered routes and the page registry, and expected in NONE of the OpenAPI document. INTERNAL is a class of path, not a marker on each row: every path of the INTERNAL services (metrics with its `/metrics`, `/api/metrics` and versioned aliases, the `/debug/*` routes, the Tor control routes; the INTERNAL rows of the PART 1 endpoint-pattern table) counts as a template route when it has a row, and the drift test expects it in the route table and in NONE of the OpenAPI document, llms.txt, GraphQL and MCP; a path cell with an alias lists each path as its own route; optional-segment brackets such as `/metrics[/{service}]` expand to two routes, the path without and the path with the bracketed segment. A row in a fenced code block or in a table introduced as an illustrative example (for example the generic REST row `/api/{api_version}/{resource}`) is not a template route. `{api_version}` is the API version in use, `{admin_path}` the configured admin path, any other `{name}` segment matches a path parameter. A row under a section marked OPTIONAL counts only when the project enables that feature (its `x-mounted-when` condition). A table without a method column (the frontend page lists, static files, the well-known support matrix) is not a route inventory either: those are `GET`/`HEAD` pages covered by the page registry and conformance tests, not by the drift parser, and any route that accepts a `POST` form is listed in an inventory table with an explicit `POST` row. A route table in any other form is not a route inventory: a new template route is added to AI.md in this form, and nothing is copied into a project |
+| **Template route inventory** | The template leg of the drift test is read from the project's own `AI.md` at test time, deterministically: a template route is a row of a Markdown table whose header row has a path column (`Endpoint`, `Path` or `Route`) and a method column (`Method` or `Methods`), in any order and with any other columns (rows are read by those headers, never by column position): the path cell is exactly one backticked path starting with `/` and the method cell lists one or more HTTP methods (`GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`) separated by `/` or `,` (each method of the path is its own route), and the method is always explicit (a row without one is not a route). A row whose method cell is `ALL` and whose path ends in `/*` declares a PREFIX, not routes (the admin panel and admin API rows): the drift test does not expand it, the concrete routes under the prefix are the rows of the tables that define them (each with explicit methods), and the test requires at least one registered route under the prefix and every registered route under it to be such a row; `ALL` is valid only on a prefix row. Route classes: a row whose path starts with `/api/`, or is a root alias of an API route (`/healthz`, `/mcp`), is an API route and is compared with all three legs (an INTERNAL path, below, is compared with the router and the inventory only, never with the OpenAPI leg); every other row (`/`, `/server/healthz`, the Swagger and GraphiQL pages, the admin pages, the preferences forms) is a PAGE route, compared only with the router's registered routes and the page registry, and expected in NONE of the OpenAPI document. INTERNAL is a class of path, not a marker on each row: every path of the INTERNAL services (metrics with its `/metrics`, `/api/metrics` and versioned aliases, the `/debug/*` routes, the Tor control routes; the INTERNAL rows of the PART 1 endpoint-pattern table) counts as a template route when it has a row, and the drift test expects it in the route table and in NONE of the OpenAPI document, llms.txt, GraphQL and MCP; a path cell with an alias lists each path as its own route; optional-segment brackets such as `/metrics[/{service}]` expand to two routes, the path without and the path with the bracketed segment. A row in a fenced code block or in a table introduced as an illustrative example (for example the generic REST row `/api/{api_version}/{resource}`) is not a template route. `{api_version}` is the API version in use, `{admin_path}` the configured admin path, a leading `{base}` (the Scoped Agents API table only) is replaced by the Base Route of each enabled scope (admin always, user with PART 34, org with PART 35), any other `{name}` segment matches a path parameter. A row under a section marked OPTIONAL counts only when the project enables that feature (its `x-mounted-when` condition); a row whose description names its own condition (an alias that exists `when server.healthz.root.enabled is true`) is optional in the same way and carries that condition as its `x-mounted-when`. A table without a method column (the frontend page lists, static files, the well-known support matrix) is not a route inventory either: those are `GET`/`HEAD` pages covered by the page registry and conformance tests, not by the drift parser, and any route that accepts a `POST` form is listed in an inventory table with an explicit `POST` row. A route table in any other form is not a route inventory: a new template route is added to AI.md in this form, and nothing is copied into a project |
 | **Match site theme** | Both UIs styled to match site theme (light/dark/auto) |
 | **Standardized locations** | ALWAYS `src/swagger/` and `src/graphql/` (NEVER in root `.`) |
 
@@ -24150,6 +24156,16 @@ function deleteItem(itemId) {
   animation: countdown linear forwards;
 }
 
+/* the bar duration follows the type; the custom properties are written into the served stylesheet from server.notifications.webui (duration, warning_duration) */
+.toast-success .toast-progress,
+.toast-info .toast-progress {
+  animation-duration: var(--toast-duration, 3s);
+}
+
+.toast-warning .toast-progress {
+  animation-duration: var(--toast-duration-warning, 5s);
+}
+
 @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } }
 @keyframes countdown { from { width: 100%; } to { width: 0%; } }
 
@@ -26652,11 +26668,10 @@ function showToast(message, type = 'info') {
   toast.addEventListener('click', () => toast.remove());
 
   const duration = TOAST_DURATIONS[type] ?? TOAST_DURATIONS.info;
-  // duration 0 = no auto-dismiss (errors stay until clicked)
+  // duration 0 = no auto-dismiss (errors stay until clicked); the progress bar's duration comes from the stylesheet (--toast-duration and --toast-duration-warning), never from an inline style
   if (duration > 0) {
     const progress = document.createElement('div');
     progress.className = 'toast-progress';
-    progress.style.animationDuration = `${duration}ms`;
     toast.appendChild(progress);
     setTimeout(() => toast.remove(), duration);
   }
@@ -33591,6 +33606,7 @@ Restoring...
 | **Restore to same server** | Overwrites current config and database |
 | **Restore to new server** | Server restarts with restored configuration |
 | **Version mismatch** | Warning shown, schema updates applied if needed |
+| **Restore while serving (WebUI and API)** | The server verifies the archive, enters `maintenance` (requests get `503`, health reports it), stops its scheduler and writers, runs the same restore flow as `--maintenance restore`, then restarts itself in place (the update-restart mechanism); the request that started it answers `202`. It needs the same admin authority as any admin mutation plus a typed confirmation. `--maintenance restore` is the offline form: it runs with the server stopped |
 
 ---
 
@@ -35667,10 +35683,10 @@ docker:
 	@docker buildx create --name multiarch-builder --use 2>/dev/null || \
 		docker buildx use multiarch-builder
 
-	# Build multi-arch locally (no push — pushing is CI/CD's responsibility)
+	# Build the host platform and load it into the local image store (no push and no multi-arch: both are CI/CD's responsibility)
 	@docker buildx build \
 		-f docker/Dockerfile \
-		--platform linux/amd64,linux/arm64 \
+		--load \
 		--build-arg VERSION="$(VERSION)" \
 		--build-arg BUILD_DATE="$(BUILD_DATE)" \
 		--build-arg BUILD_EPOCH="$(BUILD_EPOCH)" \
@@ -35834,8 +35850,8 @@ All Docker builds use persistent Go module caching to avoid re-downloading depen
 1. Uses `docker buildx` for multi-arch builds
 2. Multi-stage Dockerfile handles Go compilation (no pre-built binaries)
 3. Context is project root, Dockerfile at `docker/Dockerfile`
-4. Builds for `linux/amd64` and `linux/arm64`
-5. Pushes to `$REGISTRY:{version}` and `:latest`
+4. Builds the host platform only (`--load`), so the image check can run it; multi-arch publishing is CI/CD's job
+5. Tags `$REGISTRY:{version}` and `:latest` in the local image store; it never pushes (publishing is CI/CD's job)
 6. Passes VERSION, BUILD_DATE, BUILD_EPOCH, COMMIT_ID as build args
 7. Layer caching: Go modules cached in builder stage
 
@@ -36722,8 +36738,8 @@ services:
       MODE: development
       TZ: ${TZ:-America/New_York}
     volumes:
-      - ./volumes/config:/config:z
-      - ./volumes/data:/data:z
+      - ./volumes/config:/config
+      - ./volumes/data:/data
     ports:
       # Development: accessible from all interfaces, no 172.17.0.1 bind
       - "64580:80"
@@ -36958,8 +36974,8 @@ services:
       # CRITICAL: ./volumes/ must resolve to $TEMP_DIR/volumes/, NOT project directory
       # This file MUST be copied to a temp directory before running
       # AI: NEVER run this from the project directory
-      - ./volumes/config:/config:z
-      - ./volumes/data:/data:z
+      - ./volumes/config:/config
+      - ./volumes/data:/data
     ports:
       - "172.17.0.1:64581:80"
     healthcheck:
@@ -41738,7 +41754,7 @@ test:
 
 ### How to Achieve 60% Coverage
 
-**0. Keep the process entry thin and testable.** The unit gate counts every package, the root `src` package included, so orchestration left in `main()` drags the percentage down while only the compiled binary can reach it. `src/main.go` holds only `main()`: it calls `config.Load(os.Args[1:])` (flag parsing and configuration building live in `src/config`, which unit tests reach), copying the build metadata `Version`, `CommitID`, `BuildEpoch` and `OfficialSite` from `src/version.go` into the result, and then calls `app.Run(ctx, cfg) error`, where `cfg` is the `config.ServerConfig` value, the aggregate runtime configuration built by `config.Load` (the naming rule's `ServerConfig`): it carries every section of the merged configuration (server, web, search, engine and the area-file settings of PART 5), so `app.Run` needs nothing else and `app` is the package `github.com/{project_org}/{internal_name}/src/app`, which never imports `main`. `app.Run` (startup, signal handling, graceful shutdown) is in that package, which unit tests reach: the test calls `run` with a cancelable context and a listener on `127.0.0.1:0`, waits for the ready signal, makes one request, cancels the context and asserts a clean return. Phase 2 still tests the compiled binary; its coverage never counts toward the Phase 1 percentage.
+**0. Keep the process entry thin and testable.** The unit gate counts every package, the root `src` package included, so orchestration left in `main()` drags the percentage down while only the compiled binary can reach it. `src/main.go` holds only `main()`: it calls `config.Load(os.Args[1:])` (flag parsing and configuration building live in `src/config`, which unit tests reach), copying the build metadata `Version`, `CommitID`, `BuildEpoch` and `OfficialSite` from `src/version.go` into the result, and then calls `app.Run(ctx, cfg) error`, where `cfg` is the `config.ServerConfig` value, the aggregate runtime configuration built by `config.Load` (the naming rule's `ServerConfig`): it carries every section of the merged configuration that the project defines (server and web, the project's own sections such as `search` or `engine` only when IDEA.md defines them, and the area-file settings of PART 5), so `app.Run` needs nothing else and `app` is the package `github.com/{project_org}/{internal_name}/src/app`, which never imports `main`. `app.Run` (startup, signal handling, graceful shutdown) is in that package, which unit tests reach: the test calls `run` with a cancelable context and a listener on `127.0.0.1:0`, waits for the ready signal, makes one request, cancels the context and asserts a clean return. Phase 2 still tests the compiled binary; its coverage never counts toward the Phase 1 percentage.
 
 **1. Test All Code Paths:**
 ```go

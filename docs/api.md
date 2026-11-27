@@ -490,6 +490,7 @@ Server-rendered HTML. Every one of these works with JavaScript disabled.
 | `GET https://csj.lol/server/help/mcp` | MCP connection guide |
 | `GET https://csj.lol/server/privacy` | Privacy policy |
 | `GET https://csj.lol/server/terms` | Terms of service |
+| `GET https://csj.lol/server/dpo` | DPO contact page when a DPO is configured |
 | `GET https://csj.lol/server/contact` | Private noindex report-type chooser; the security pointer and abuse-report guidance appear below it |
 | `GET https://csj.lol/server/contact?type={type}` | One noindex form containing only the selected type's fields |
 | `POST https://csj.lol/server/contact` | Submit the selected report type, then confirm it in the server-rendered review step |
@@ -497,7 +498,14 @@ Server-rendered HTML. Every one of these works with JavaScript disabled.
 | `GET https://csj.lol/server/security/policy` | Coordinated disclosure policy |
 | `GET https://csj.lol/server/security/thanks` | Researcher acknowledgments |
 | `GET https://csj.lol/server/healthz` | Health page |
+| `GET https://csj.lol/server/ccpa` | Do Not Sell page when `server.privacy.data.sold` is enabled |
+| `GET https://csj.lol/server/docs/swagger` | Interactive OpenAPI explorer; the JSON specification is available at `/api/{api_version}/server/swagger` |
+| `GET https://csj.lol/server/docs/graphql` | Interactive GraphQL explorer; the endpoint is available at `/api/{api_version}/server/graphql` |
 | `GET https://csj.lol/server/preferences` | Cookie-only interface preferences |
+| `POST https://csj.lol/server/preferences` | Save appearance, language, consent, and application preferences |
+| `GET https://csj.lol/server/preferences/sync` | Preference sync page with an export URL and code; also supports text and JSON responses |
+| `POST https://csj.lol/server/preferences/sync` | Import preferences from the page's form and redirect back to the selected local page |
+| `GET https://csj.lol/server/preferences/sync/import` | Apply preferences from a shared URL and redirect back to the referring local page |
 | `GET https://csj.lol/server/preferences/tokens` | Owner-token management page |
 | `GET https://csj.lol/api/{api_version}/server/preferences/tokens` | Masked token list (primary Bearer token required) |
 | `POST https://csj.lol/api/{api_version}/server/preferences/tokens` | Create a linked token |

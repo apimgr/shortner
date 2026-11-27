@@ -197,6 +197,12 @@ server:
   database:
     driver: "sqlite"
     url: "{data_dir}/db/server.db"
+    cache:
+      enabled: false
+      path: "{data_dir}/db/cache.db"
+      sync_interval: "30s"
+      offline_mode: false
+      max_age: "1h"
 ```
 
 Supported drivers are `sqlite` (the default, stored at the configured local
@@ -206,6 +212,14 @@ keep its authentication token in `secrets.yml` as
 `server.database.token` or in the URL's `authToken` option. The remote schema
 uses the `srv_` prefix for server tables and indexes. Both drivers use pure Go;
 there is no CGO or system SQLite dependency.
+
+The optional SQLite read replica is available only with remote libSQL and is
+disabled by default. When enabled, it reads from a separate local SQLite file,
+while all writes remain remote-first. Synchronization reconciles the known
+server schema from remote to local; the remote copy wins and cache failures do
+not turn a successful remote write into a failed request. `sync_interval` and
+`max_age` accept Go duration values. `offline_mode` permits cache reads when
+the remote is unavailable; cached data is read-only in that state.
 
 ### Limits and timeouts
 

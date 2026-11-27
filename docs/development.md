@@ -93,7 +93,7 @@ PROJECT_NAME=shortner
 GO_CACHE="${GO_CACHE:-$HOME/go/pkg/mod}"
 GO_BUILD="${GO_BUILD:-$HOME/.cache/go-build/$PROJECT_NAME}"
 mkdir -p "$GO_CACHE" "$GO_BUILD"
-docker run --rm --no-healthcheck \
+timeout -k 30 "${DOCKER_TIMEOUT:-3600}" docker run --rm --no-healthcheck \
   --name "$(basename "$PWD")-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
   -v "$PWD:/app" \
   -v "$GO_CACHE:/usr/local/share/go/pkg/mod" \
@@ -107,13 +107,15 @@ docker run --rm --no-healthcheck \
 ### Docker image
 
 ```bash
-docker buildx build -f docker/Dockerfile -t shortner:local .
+timeout -k 30 "${DOCKER_TIMEOUT:-3600}" docker buildx build --load -f docker/Dockerfile -t shortner:local .
+bash docker/verify-image.sh shortner:local
 ```
 
 The image is a multi-stage build: `casjaysdev/go:latest` compiles the
 binary, `alpine:latest` runs it under `tini` as PID 1 with
 `STOPSIGNAL SIGRTMIN+3` and a `HEALTHCHECK` that calls
-`shortner --status`.
+`shortner --status`. The image verification checks its required runtime
+tools, health route, and Tor/I2P bootstrap behavior.
 
 ## Run Locally
 
@@ -153,7 +155,7 @@ The shell entry points in `tests/` layer integration testing on top:
 | Script | Purpose |
 |--------|---------|
 | `tests/run_tests.sh` | Docker-only basic suite; runs `tests/docker.sh` and never falls back to Incus |
-| `tests/docker.sh` | Builds in `casjaysdev/go:latest`, checks the project runtime image's required tools, Tor and I2P status, then runs the suite inside a disposable `alpine:latest` container |
+| `tests/docker.sh` | Builds the server and client in `casjaysdev/go:latest`, then runs the binary suite inside a disposable `alpine:latest` container. The shipped image contract is checked after an image build and in CI. |
 | `tests/incus.sh` | Same suite inside `images:debian/trixie`, plus a real systemd service install/uninstall lifecycle |
 | `tests/suite.sh` | The shared in-container suite (binary info, first run, health, content negotiation, well-known, frontend pages, link CRUD, redirect/410/404, stats, token authorization, the `shortner-cli` client, rate limiting) |
 | `tests/test_content_negotiation.sh` | Standalone negotiation matrix against any running instance |
@@ -226,6 +228,9 @@ The beta workflow is started by a timestamped `YYYYMMDDHHMMSS-beta` tag. The
   files. Multi-item implementation backlogs belong in `TODO.AI.md`.
 - No CGO, ever. `CGO_ENABLED=0` in every build path, which is why the
   database driver is pure-Go `modernc.org/sqlite`.
+- Remote libSQL may use the opt-in SQLite read replica configured at
+  `server.database.cache`; synchronization is remote-wins and cache data is
+  never a source of writes.
 - Server-side rendering only. No React, Vue, or any client-side framework;
   JavaScript may enhance a page but must never be required for a feature.
 - Validate on the server for everything. Client-side validation is a
