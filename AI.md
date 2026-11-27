@@ -3231,7 +3231,7 @@ Implemented core server functionality and API.
 | Code patterns | Relevant PARTs | Config, server, API patterns match |
 | Business logic | IDEA.md | Features implemented match what IDEA.md defines |
 | Threat model / abuse model | IDEA.md → `## Business logic` | Trust boundaries, data sensitivity, abuse cases, and security exceptions are documented and code matches them |
-| Well-known namespace | PART 11 / web routes | `/.well-known/**` serves the paths the project implements per the IANA registry and the RFCs, unimplemented paths 404, and optional entries exist only when the corresponding feature is defined |
+| Well-known namespace | PART 11 / web routes | `/.well-known/**` serves the paths the project implements per the IANA registry and the RFCs (the one template exception is `llms.txt`, served there and at `/llms.txt` by the llms.txt convention although no registry entry exists), unimplemented paths 404, and optional entries exist only when the corresponding feature is defined |
 | Rate limiting | PART 11 | Read, write, health, and global burst limits configured; defaults applied when not set in `server.yml` |
 | CLI interface | PART 8 | Flags, commands, help output match spec |
 | Client scope | PART 32 | `src/client/` exists for all projects |
@@ -3482,7 +3482,7 @@ Spec version: {line count or hash}
 total := price * (1 + taxRate)
 
 // User configuration options
-type Config struct {
+type ServerConfig struct {
     // Server port number
     Port int
     // Enable debug mode
@@ -3497,7 +3497,7 @@ total := price * (1 + taxRate) // Calculate total price - WRONG
 total := price * (1 + taxRate)
 // Calculate total price - WRONG (below)
 
-type Config struct {
+type ServerConfig struct {
     Port int  // Server port - WRONG (inline)
     Debug bool // Debug mode - WRONG (inline)
 }
@@ -4481,7 +4481,7 @@ go build -o binary/{project_name} ./src
   - clearer UI copy and recovery flows
   - progressive disclosure in operator configuration
   - better docs/examples
-- AI MUST NOT reduce friction by disabling, loosening, or bypassing:
+- AI MUST NOT reduce friction by disabling, loosening, or bypassing (this limits what the AI changes in a project; the operator-configured trusted-IP allowlist, which skips blocklists, rate limits and lockouts but never authentication, is a product feature and not a violation):
   - authn / authz
   - TLS / secure cookies
   - CSRF / CSP / CORS protections
@@ -5957,7 +5957,7 @@ package main
 
 ## Embedded Datasets and Content (Provenance Before Embedding)
 
-**Any third-party dataset or content a project embeds or ships (word lists, quote or joke collections, place and postal data, images, fonts, icons, translations, GeoIP-style databases) needs documented provenance BEFORE it is embedded.**
+**Any third-party dataset or content a project embeds or ships (word lists, quote or joke collections, place and postal data, images, fonts, icons, translations, GeoIP-style databases) needs documented provenance BEFORE it is embedded, with ONE exclusion: the JSON files under `src/data/**` (`src/data/**.json`) are outside this section entirely. They need no provenance, terms, attribution, third-party notice, `source` key or ask-first decision; the rows below apply to everything else (images, fonts, icons, downloaded databases, translations from outside the project).**
 
 | Required | Rule |
 |----------|------|
@@ -7368,6 +7368,9 @@ func PathSecurityMiddleware(next http.Handler) http.Handler {
 | `GET /server/admin//config//settings` | `/server/admin/config/settings` | 200 |
 | `GET //api///v1//items` | `/api/{api_version}/items` | 200 |
 | `GET ///` | `/` | 200 |
+
+Repeated slashes are collapsed BEFORE any trailing-slash redirect, so `///` normalizes straight to `/` (no `//` intermediate redirect).
+
 | `GET /static/../server/admin` | Blocked | 400 |
 | `GET /api/{api_version}/files/..%2F..%2Fetc/passwd` | Blocked | 400 |
 | `GET /server/admin/....//secret` | Blocked | 400 |
@@ -13761,6 +13764,8 @@ func IsValidSSLHost(host string) bool {
 - `X-Forwarded-Port` - Standard: "443" or "8080"
 - `X-Real-Port` - nginx alternative
 
+These protocol, host and port headers (`Front-End-Https` and `X-Real-Port` included) are honored only when the TCP peer is in `trusted_proxies` (step 1 of the client-IP table below); from any other peer they are ignored.
+
 **Client IP Detection (for logging, rate limiting, GeoIP):**
 
 Resolution walks the proxy chain from the right (nearest hop first), following RFC 7239 §5.2 and the de-facto `X-Forwarded-For` convention. The leftmost entry is client-controlled and is NEVER trusted on its own.
@@ -15123,7 +15128,7 @@ The root secret all other derived material hangs off. Without it, in-flight HMAC
 - NEVER returned in any API response — even with `server.token`. The API returns "configured" / "rotated 12 days ago" / fingerprint hashes only.
 - NEVER logged. The Output Sanitization Pipeline (PART 11 → above) treats any field whose name contains `secret`, `key`, `password`, `token` as redacted at the log layer too.
 - Always included in backups (PART 21 → "Backup Contents").
-- Restored verbatim from a backup. Restoring partially (e.g., DB without these secrets) is rejected by the restore flow — the manifest verifies all secrets are present.
+- Restored verbatim from a backup into SQLite (a restore into a remote database applies them only when its `app_secrets` rows are absent and keeps the live ones otherwise, PART 21). Restoring partially (e.g., DB without these secrets) is rejected by the restore flow — the manifest verifies all secrets are present.
 
 ## Security Headers
 
@@ -15570,7 +15575,7 @@ func extractContextFromPath(path string) (*Context, error) {
 
 - `/.well-known/**` is reserved to the server and can NEVER be claimed by user-supplied slugs, vanity routes, or operator-configured path settings
 - Well-known endpoints live only at the root `/.well-known/...` namespace, never under `/server/*` or `/api/*`
-- The authority for what may live here is the IANA "Well-Known URIs" registry and the RFCs themselves, not a list kept in this template: a project MAY implement any registered or RFC-defined `/.well-known/` path, and this template never forbids a standard path. A path the project does not implement MUST return `404 Not Found`. The Support Matrix below lists only what this template itself implements, and is not exhaustive
+- The authority for what may live here is the IANA "Well-Known URIs" registry and the RFCs themselves, not a list kept in this template (with one explicit template exception: `llms.txt` is always served here by the llms.txt convention although no registry entry exists): a project MAY implement any registered or RFC-defined `/.well-known/` path, and this template never forbids a standard path. A path the project does not implement MUST return `404 Not Found`. The Support Matrix below lists only what this template itself implements, and is not exhaustive
 - `GET` and `HEAD` are the default methods for `/.well-known/**`. A standard that requires another method, a credential, a request body or a special response follows the RFC EXACTLY (path, methods, authentication, content types, status codes, headers), declared as a row in "Well-Known Protocol Exceptions"; any other method on that path MUST return `405 Method Not Allowed`
 - No auth, no CSRF token, and no session requirement may be needed to read any `/.well-known/**` resource; only a method with a row in "Well-Known Protocol Exceptions" may require a credential, and then never a session cookie
 - `/.well-known/` itself MUST NOT list a directory index, file browser, or generated listing
@@ -16064,7 +16069,7 @@ CREATE TABLE IF NOT EXISTS security_thanks (
 | **Export public key** | `--maintenance pgp export public [path]` | Use the public URL `/.well-known/pgp-key.asc`, copy `{config_dir}/security/pgp.pub.asc` directly, or write it to `[path]` (stdout if omitted) via the CLI. |
 | **Export private key** | `--maintenance pgp export private <path>` | **Full export, ASCII-armored, decrypted after operator token confirmation.** Triggers a sensitive-operation flow (PART 5 → "Sensitive Operations"): require a typed confirmation and, when the run is authorized by `server.token`, re-prompt for it (a run as root is not asked for the token), log to `audit.log` as `security.private_key_exported`, write the key to `<path>` with mode 0600. **The export is rate-limited to 1 per hour per operator and the audit entry includes the operator's OS user name, the operator IP (the literal `local` for a CLI run, which has no remote address) and the reason text the operator must type.** |
 | **Import private key** | `--maintenance pgp import <file>` | Import an existing `pgp.priv.asc` from a local file (e.g., restoring from backup, migrating from another instance). Same sensitive-operation gate. Validates the key's identity matches the project's expected identity (warns on mismatch — operator can override). |
-| **Delete** | `--maintenance pgp delete` | Sensitive-operation flow. Deletes both keys, removes `Encryption:` line from security.txt. Stored and in-flight PGP-encrypted report bodies become un-decryptable (retention still purges them on schedule) — operator warned and must type confirmation. |
+| **Delete** | `--maintenance pgp delete` | Sensitive-operation flow with typed confirmation (the operator types the exact phrase `DELETE PGP KEY`). Deletes both keys, removes `Encryption:` line from security.txt. Stored and in-flight PGP-encrypted report bodies become un-decryptable (retention still purges them on schedule) — operator warned and must type confirmation. |
 
 **Keypair properties stored in DB (NOT the keys themselves — those are on disk):**
 
@@ -16090,7 +16095,7 @@ CREATE TABLE IF NOT EXISTS security_thanks (
 
 **Restore behavior:** restoring a backup re-installs the keypair and `keyservers.state`, then submits the public key only to the configured keyservers that the restored state does not already list for this fingerprint (a keyserver added since the backup, or a different fingerprint). A keyserver already listed is not contacted again, and a submission that does happen is idempotent because keyservers de-duplicate by fingerprint. The `installation_secret` is restored from the same backup, so the encrypted private key decrypts correctly.
 
-**Operator UX:** running `{project_name} --maintenance backup` and `{project_name} --maintenance restore` covers the security keypair without any extra steps. `{project_name} --maintenance backup test [file]` verifies a backup without touching live data: `file` defaults to the newest backup in `{backup_dir}` (the newest by the UTC date in the file name wins (restore uses the same date rule but considers fulls only, "Default archive selection"), and the manifest is never read to choose; an incremental is checked together with its base). An encrypted backup asks for its password interactively exactly like restore (there is no password flag; without a terminal the command fails with a message that says so). It extracts into a temporary directory, verifies the manifest checksums, decrypts `pgp.priv.asc.enc` with the `installation_secret` found in that same backup, compares the fingerprint of the decrypted key with `pgp.pub.asc`, reports each result, and removes the temporary directory.
+**Operator UX:** running `{project_name} --maintenance backup` and `{project_name} --maintenance restore` covers the security keypair without any extra steps. `{project_name} --maintenance backup test [file]` verifies a backup without touching live data: `file` defaults to the newest full backup in `{backup_dir}` (the newest by the UTC date in the file name wins, as for restore, "Default archive selection", and the manifest is never read to choose) and also tests the daily and hourly incrementals when present, each together with its base. An encrypted backup asks for its password interactively exactly like restore (there is no password flag; without a terminal the command fails with a message that says so). It extracts into a temporary directory, verifies the manifest checksums, decrypts `pgp.priv.asc.enc` with the `installation_secret` found in that same backup, compares the fingerprint of the decrypted key with `pgp.pub.asc`, reports each result, and removes the temporary directory.
 
 ## Logging
 
@@ -37290,7 +37295,7 @@ $TEMP_DIR/
 
 ### Running Docker Compose (AI / Automated Testing)
 
-**AI must NEVER run `docker-compose.yml` or `docker-compose.dev.yml` — those are human-only.** AI's preferred interface for testing is the project's `tests/` directory scripts (PART 28: `tests/docker.sh` validates the binary in its own Alpine container and does not use this compose file). `docker-compose.test.yml` is run only through the temp-dir copy/run/cleanup sequence below, when a test needs the full compose stack.
+**AI must NEVER run `docker-compose.yml` or `docker-compose.dev.yml` — those are human-only.** AI's preferred interface for testing is the project's `tests/` directory scripts (PART 28: `tests/docker.sh` validates the binary in its own Alpine container and does not use this compose file). `docker-compose.test.yml` is run only through the temp-dir copy/run/cleanup sequence below, when a test needs the full compose stack; that stack is optional (a project whose verification needs a cache or database sidecar uses it), and the required verification is `tests/docker.sh` and `tests/incus.sh`.
 
 **When a direct invocation is unavoidable, always use the temp directory workflow:**
 1. Create unique temp dir with `{project_org}` prefix
@@ -37374,7 +37379,7 @@ rm -rf "$TEMP_DIR"
 
 **Location:** `docker/docker-compose.test.yml`
 
-**FOR AUTOMATED TESTING.** AI's preferred interface is the project's `tests/` directory scripts (PART 28), which do not use this file. This file is run only by the temp-dir sequence (copy to a temp dir, `./volumes` resolves there) when a test needs the full compose stack.
+**FOR AUTOMATED TESTING.** AI's preferred interface is the project's `tests/` directory scripts (PART 28), which do not use this file. This file is run only by the temp-dir sequence (copy to a temp dir, `./volumes` resolves there) when a test needs the full compose stack; that stack is optional (a project whose verification needs a cache or database sidecar uses it), and the required verification is `tests/docker.sh` and `tests/incus.sh`.
 
 Debug enabled for test visibility. Includes an ephemeral Valkey cache service (`tmpfs`, no persistent volume). **MUST be copied to temp directory before direct use - NEVER run from project directory.**
 
@@ -42451,7 +42456,7 @@ fi
 
 **docker.sh and incus.sh MUST:**
 1. Host cache dirs (`GO_CACHE`/`GO_BUILD`) provide persistent Go cache across builds
-2. Build the host-platform binaries using Docker (casjaysdev/go:latest) with the same debug flags as `make build`, output to `binaries/`:
+2. Build the host-platform binaries: `tests/docker.sh` builds them directly with the toolchain container (casjaysdev/go:latest, the same debug flags as `make build`, output to `binaries/`); `tests/incus.sh` and `tests/virt.sh` call `make build` once (every platform, debug) and use the binary of the host architecture. No test script ever adds a Makefile target:
    - Server (`./src`)
    - Client (`./src/client`) if exists
 3. Install test tools in container (Docker: `apk add --no-cache curl bash file jq tor i2pd tzdata ca-certificates`)
@@ -42489,33 +42494,25 @@ PROJECT_ORG=$(basename "$(dirname "$PWD")")
 # The build output directory is the Makefile's BINDIR (default binaries)
 BIN_DIR="${BINDIR:-binaries}"
 
-# Build — use Makefile if present (standard for all bootstrapped projects)
-# Output always lands in binaries/
-if [ -f "Makefile" ]; then
-    echo "Building with make build..."
-    make build BINDIR="$BIN_DIR"
-else
-    # No Makefile yet — fallback to direct docker run
-    echo "Building in Docker (no Makefile)..."
-    GO_CACHE="${GO_CACHE:-$HOME/go/pkg/mod}"
-    GO_BUILD="${GO_BUILD:-$HOME/.cache/go-build/${PROJECT_NAME}}"
-    mkdir -p "$GO_CACHE" "$GO_BUILD" "$BIN_DIR"
+# Build the host-platform debug binaries directly with the toolchain container; never `make build` (it builds every platform)
+GO_CACHE="${GO_CACHE:-$HOME/go/pkg/mod}"
+GO_BUILD="${GO_BUILD:-$HOME/.cache/go-build/${PROJECT_NAME}}"
+mkdir -p "$GO_CACHE" "$GO_BUILD" "$BIN_DIR"
+docker run --rm \
+  --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
+  -v $PWD:/app \
+  -v $GO_CACHE:/usr/local/share/go/pkg/mod \
+  -v $GO_BUILD:/usr/local/share/go/cache \
+  -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
+  casjaysdev/go:latest go build -buildvcs=false -gcflags "all=-N -l" -o /app/${BIN_DIR}/${PROJECT_NAME} ./src
+if [ -d "src/client" ]; then
     docker run --rm \
       --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
       -v $PWD:/app \
       -v $GO_CACHE:/usr/local/share/go/pkg/mod \
       -v $GO_BUILD:/usr/local/share/go/cache \
       -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
-      casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o /app/${BIN_DIR}/${PROJECT_NAME} ./src
-    if [ -d "src/client" ]; then
-        docker run --rm \
-          --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
-          -v $PWD:/app \
-          -v $GO_CACHE:/usr/local/share/go/pkg/mod \
-          -v $GO_BUILD:/usr/local/share/go/cache \
-          -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
-          casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o /app/${BIN_DIR}/${PROJECT_NAME}-cli ./src/client
-    fi
+      casjaysdev/go:latest go build -buildvcs=false -gcflags "all=-N -l" -o /app/${BIN_DIR}/${PROJECT_NAME}-cli ./src/client
 fi
 
 echo "Testing in Docker (Alpine)..."
@@ -42703,33 +42700,25 @@ trap cleanup EXIT INT TERM
 # The build output directory is the Makefile's BINDIR (default binaries); every build below passes it on
 BIN_DIR="${BINDIR:-binaries}"
 
-# Build — use Makefile if present (standard for all bootstrapped projects)
-# Output always lands in $BIN_DIR
-if [ -f "Makefile" ]; then
-    echo "Building with make build..."
-    make build BINDIR="$BIN_DIR"
-else
-    # No Makefile yet — fallback to direct docker run
-    echo "Building in Docker (no Makefile)..."
-    GO_CACHE="${GO_CACHE:-$HOME/go/pkg/mod}"
-    GO_BUILD="${GO_BUILD:-$HOME/.cache/go-build/${PROJECT_NAME}}"
-    mkdir -p "$GO_CACHE" "$GO_BUILD" "$BIN_DIR"
+# Build the host-platform debug binaries directly with the toolchain container; never `make build` (it builds every platform)
+GO_CACHE="${GO_CACHE:-$HOME/go/pkg/mod}"
+GO_BUILD="${GO_BUILD:-$HOME/.cache/go-build/${PROJECT_NAME}}"
+mkdir -p "$GO_CACHE" "$GO_BUILD" "$BIN_DIR"
+docker run --rm \
+  --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
+  -v $PWD:/app \
+  -v $GO_CACHE:/usr/local/share/go/pkg/mod \
+  -v $GO_BUILD:/usr/local/share/go/cache \
+  -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
+  casjaysdev/go:latest go build -buildvcs=false -gcflags "all=-N -l" -o /app/${BIN_DIR}/${PROJECT_NAME} ./src
+if [ -d "src/client" ]; then
     docker run --rm \
       --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
       -v $PWD:/app \
       -v $GO_CACHE:/usr/local/share/go/pkg/mod \
       -v $GO_BUILD:/usr/local/share/go/cache \
       -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
-      casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o /app/${BIN_DIR}/${PROJECT_NAME} ./src
-    if [ -d "src/client" ]; then
-        docker run --rm \
-          --name "${PROJECT_NAME}-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8)" \
-          -v $PWD:/app \
-          -v $GO_CACHE:/usr/local/share/go/pkg/mod \
-          -v $GO_BUILD:/usr/local/share/go/cache \
-          -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
-          casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o /app/${BIN_DIR}/${PROJECT_NAME}-cli ./src/client
-    fi
+      casjaysdev/go:latest go build -buildvcs=false -gcflags "all=-N -l" -o /app/${BIN_DIR}/${PROJECT_NAME}-cli ./src/client
 fi
 
 REMOTE_LIB=$(cat <<'REMOTE_LIB_EOF'
@@ -48875,7 +48864,7 @@ update:
   auto: false
   # CLI is short-lived; checks once per command. No background poll.
   check_interval: per_invocation
-  channel: stable
+  # The CLI follows the channel of the server it talks to (autodiscover serves that channel's cli_versions); there is no CLI-side channel setting
 ```
 
 **Server-side endpoints:**
@@ -50443,7 +50432,7 @@ output:
   pager: auto
   # Suppress non-essential output
   quiet: false
-  # Extra output (same as --verbose)
+  # Extra detail lines (resolved server, request id, elapsed time); config and environment only, there is no --verbose flag
   verbose: false
 
 # TUI preferences (if TUI supported)
@@ -50463,10 +50452,10 @@ logging:
   level: warn
   # Log file path (empty = {log_dir}/cli.log)
   file: ""
-  # Max log file size (match server default)
-  max_size: 10MB
-  # Max log files to keep (match server default)
-  max_files: 5
+  # Rotation (the server's default for every non-access log, PART 17)
+  rotate: weekly,50MB
+  # Rotated files to keep (the server's default)
+  keep: none
 
 # Cache
 cache:
