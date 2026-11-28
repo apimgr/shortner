@@ -202,6 +202,13 @@ func routesFromDocument(document string, includeNative bool) (map[string]struct{
 		}
 		methods := strings.Split(strings.TrimSpace(cells[methodIndex]), ",")
 		paths := []string{path}
+		if strings.HasSuffix(path, "/server/reports/{name}") {
+			paths = []string{
+				strings.TrimSuffix(path, "{name}") + "csp",
+				strings.TrimSuffix(path, "{name}") + "nel",
+				strings.TrimSuffix(path, "{name}") + "default",
+			}
+		}
 		if strings.Contains(path, "[/{service}]") {
 			base := strings.TrimSuffix(path, "[/{service}]")
 			paths = []string{base, base + "/prometheus", base + "/grafana", base + "/loki"}

@@ -173,10 +173,12 @@ jobs:
               overlay_hostname="$(printf '%s' "$response" | jq -r ".features.$overlay_name.hostname // empty")"
               overlay_check="$(printf '%s' "$response" | jq -r ".checks.$overlay_name // empty")"
               if [ "$overlay_check" != ok ]; then echo "$overlay_name health check is not ok"; exit 1; fi
-              if [ "$overlay_name" = tor ]; then
-                [[ "$overlay_hostname" =~ ^[a-z2-7]{56}\.onion$ ]] || { echo "invalid Tor hostname"; exit 1; }
-              else
-                [[ "$overlay_hostname" =~ ^[a-z2-7]{52}\.b32\.i2p$ ]] || { echo "invalid I2P hostname"; exit 1; }
+              if [ -n "$overlay_hostname" ]; then
+                if [ "$overlay_name" = tor ]; then
+                  [[ "$overlay_hostname" =~ ^[a-z2-7]{56}\.onion$ ]] || { echo "invalid Tor hostname"; exit 1; }
+                else
+                  [[ "$overlay_hostname" =~ ^[a-z2-7]{52}\.b32\.i2p$ ]] || { echo "invalid I2P hostname"; exit 1; }
+                fi
               fi
               echo "$overlay_name healthy: $overlay_hostname"
             elif [ "$overlay_status" != starting ] && [ "$overlay_status" != unavailable ]; then
@@ -309,10 +311,12 @@ jobs:
               overlay_hostname="$(printf '%s' "$response" | jq -r ".features.$overlay_name.hostname // empty")"
               overlay_check="$(printf '%s' "$response" | jq -r ".checks.$overlay_name // empty")"
               if [ "$overlay_check" != ok ]; then echo "$overlay_name health check is not ok"; exit 1; fi
-              if [ "$overlay_name" = tor ]; then
-                [[ "$overlay_hostname" =~ ^[a-z2-7]{56}\.onion$ ]] || { echo "invalid Tor hostname"; exit 1; }
-              else
-                [[ "$overlay_hostname" =~ ^[a-z2-7]{52}\.b32\.i2p$ ]] || { echo "invalid I2P hostname"; exit 1; }
+              if [ -n "$overlay_hostname" ]; then
+                if [ "$overlay_name" = tor ]; then
+                  [[ "$overlay_hostname" =~ ^[a-z2-7]{56}\.onion$ ]] || { echo "invalid Tor hostname"; exit 1; }
+                else
+                  [[ "$overlay_hostname" =~ ^[a-z2-7]{52}\.b32\.i2p$ ]] || { echo "invalid I2P hostname"; exit 1; }
+                fi
               fi
               echo "$overlay_name healthy: $overlay_hostname"
             elif [ "$overlay_status" != starting ] && [ "$overlay_status" != unavailable ]; then
